@@ -1,8 +1,8 @@
 name: Install Smoke
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
+  # schedule:
+  #   - cron: "17 3 * * *"  # disabled 2026-07-23 (Ava): fork main is 2mo stale, see workboard 8ccd0cc5
   workflow_dispatch:
     inputs:
       run_bun_global_install_smoke:
