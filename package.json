@@ -1522,6 +1522,7 @@
     "android:version:sync": "node --import tsx scripts/android-sync-versioning.ts --write",
     "audit:seams": "node --import tsx scripts/audit-seams.mts",
     "build": "node --import tsx scripts/build-all.mts",
+    "build:dbos-authority": "node scripts/build-dbos-authority.mjs",
     "build:ci-artifacts": "node --import tsx scripts/build-all.mts ciArtifacts",
     "build:docker": "pnpm plugins:assets:build && node --import tsx scripts/tsdown-build.mts && node --import tsx scripts/check-cli-bootstrap-imports.mts && node scripts/runtime-postbuild.mjs && node --import tsx scripts/build-stamp.mts && node --import tsx scripts/runtime-postbuild-stamp.mts && pnpm plugins:assets:copy && node --import tsx scripts/write-build-info.ts && node --import tsx scripts/write-cli-startup-metadata.ts",
     "build:package": "node --import tsx scripts/build-all.mts package",

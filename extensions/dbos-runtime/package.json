@@ -1,0 +1,35 @@
+{
+  "name": "@openclaw/dbos-runtime",
+  "version": "2026.9.1-beta.1",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@dbos-inc/dbos-sdk": "4.26.10",
+    "@openclaw/execution-contract": "workspace:*",
+    "pg": "8.16.3"
+  },
+  "devDependencies": {
+    "@types/pg": "8.15.5",
+    "openclaw": "workspace:*"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.9.1-beta.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.9.1-beta.1"
+    },
+    "build": {
+      "openclawVersion": "2026.9.1-beta.1",
+      "bundledDist": false
+    }
+  }
+}
