@@ -98,10 +98,12 @@ export default definePluginEntry({
         ],
       },
     );
+    const failLoudOwner =
+      (api.pluginConfig as { failLoudOwner?: boolean } | undefined)?.failLoudOwner === true;
     api.registerTool(
       (context) =>
         guardWorkboardToolsForWorkspaceAccess(
-          createWorkboardTools({ api, context, store }),
+          createWorkboardTools({ api, context, store, failLoudOwner }),
           context,
           api.runtime.sandbox.resolveWorkspaceAuthority,
         ),

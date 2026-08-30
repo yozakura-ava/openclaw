@@ -28,6 +28,28 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   );
 }
 
+const ANONYMOUS_CLAIM_OWNER = "agent";
+
+function resolveClaimOwner(
+  ctx: OpenClawPluginToolContext | undefined,
+  override: unknown,
+  failLoudOwner: boolean | undefined,
+): string {
+  if (typeof override === "string" && override.trim() !== "") {
+    if (override.length > 120) {
+      throw new Error("ownerId must be 120 characters or fewer.");
+    }
+    return override;
+  }
+  const owner = contextOwner(ctx);
+  if (owner === ANONYMOUS_CLAIM_OWNER && failLoudOwner) {
+    throw new Error(
+      'workboard_claim requires agentId or sessionKey in tool context (or an explicit ownerId argument); refusing anonymous owner "agent" (failLoudOwner enabled).',
+    );
+  }
+  return owner;
+}
+
 function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): boolean {
   const claim = card.metadata?.claim;
   return !claim || claim.ownerId === ownerId || safeEqualSecret(token, claim.token);
@@ -175,6 +197,7 @@ export function createWorkboardTools(params: {
   api: OpenClawPluginApi;
   context?: OpenClawPluginToolContext;
   store?: WorkboardStore;
+  failLoudOwner?: boolean;
 }): AnyAgentTool[] {
   const store = params.store ?? WorkboardStore.openSqlite();
   const ownerId = contextOwner(params.context);
@@ -335,12 +358,18 @@ export function createWorkboardTools(params: {
       parameters: strictObject({
         id: cardIdField(),
         ttlSeconds: Type.Optional(Type.Number({ description: "Claim TTL in seconds." })),
+        ownerId: Type.Optional(
+          Type.String({
+            description:
+              "Explicit owner identity for this claim (e.g. dbos-bridge:<pid>). Overrides tool-context identity; required for anonymous contexts when failLoudOwner is enabled.",
+          }),
+        ),
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
         const claimed = await store.claim(id, {
-          ownerId,
+          ownerId: resolveClaimOwner(params.context, record.ownerId, params.failLoudOwner),
           ttlSeconds: record.ttlSeconds,
         });
         return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });

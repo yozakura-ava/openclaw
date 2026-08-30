@@ -201,6 +201,12 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "failLoudOwner": {
+        "type": "boolean",
+        "description": "Reject workboard_claim calls carrying no agentId/sessionKey identity and no explicit ownerId argument (default false keeps legacy anonymous-owner behavior).",
+        "default": false
+      }
+    }
   }
 }
