@@ -2494,6 +2494,26 @@ describe("WorkboardStore", () => {
     }
   });
 
+  it("own expired claim frees the owner slot for another card", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const first = await store.create({ title: "Slot one", status: "ready" });
+      const second = await store.create({ title: "Slot two", status: "ready" });
+      const claimed = await store.claim(first.id, { ownerId: "worker", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Same owner's expired claim on a DIFFERENT card must not block their
+      // claim on another card (reclaim-expiry fix cross-card invariant).
+      vi.setSystemTime(expiresAt + 1_000);
+      await expect(store.claim(second.id, { ownerId: "worker" })).resolves.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {
