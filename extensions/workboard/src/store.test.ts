@@ -1729,6 +1729,83 @@ describe("WorkboardStore", () => {
     expect(archived.events?.at(-1)).toMatchObject({ kind: "archived" });
   });
 
+  it("completes with proofId only, no proof object (proofid-only-fix)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Proofid only", status: "running" });
+      const claimed = await store.claim(card.id, { ownerId: "main", token: "***" });
+      const pending = await store.addProof(
+        claimed.card.id,
+        {
+          label: "Targeted check",
+          command: "bash scripts/run_test_scope.sh workboard-store",
+          note: "Ran fine.",
+        },
+        { ownerId: "main", token: "***" },
+      );
+
+      vi.setSystemTime(6_000);
+      const pendingProof = (await store.get(card.id))?.metadata?.proof?.[0];
+      const completed = await store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Done via proofId only.",
+        proofId: pendingProof?.id,
+      });
+      expect(completed.status).toBe("done");
+      expect(completed.metadata?.proof?.[0]).toEqual(pendingProof);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects proofId-only completion when the proof is not on the card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Proofid missing", status: "running" });
+    await store.claim(card.id, { ownerId: "main", token: "***" });
+
+    await expect(
+      store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Nope.",
+        proofId: "not-on-this-card",
+      }),
+    ).rejects.toThrow(/not found on card/);
+  });
+
+  it("names mismatched fields when a correlated proof object differs", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Mismatch fields",
+      status: "running",
+      metadata: {
+        proof: [
+          {
+            id: "proof-xy",
+            status: "unknown",
+            createdAt: 1_000,
+            label: "Original",
+            command: "make check",
+          },
+        ],
+      },
+    });
+    await store.claim(card.id, { ownerId: "main", token: "***" });
+
+    await expect(
+      store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Mismatch.",
+        proofId: "proof-xy",
+        proof: { status: "passed", label: "Changed", note: "extra note" },
+      }),
+    ).rejects.toThrow(/mismatched fields: label/);
+  });
+
   it("resolves matching unknown proof on completion without duplicating it", async () => {
     vi.useFakeTimers();
     try {
