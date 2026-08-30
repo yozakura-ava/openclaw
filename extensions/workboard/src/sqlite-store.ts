@@ -1270,7 +1270,19 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
       const preloaded = loadCardChildRows(this.db);
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
-        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
+        // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): a claim that
+        // belongs to the claiming owner AND is past expiresAt frees the
+        // owner slot (self-slot recovery) instead of locking the board until
+        // the sweeper fires. Cross-owner slots keep the full grace.
+        const slotClaim = card.metadata?.claim;
+        const ownExpiredClaim =
+          slotClaim?.ownerId === ownerId &&
+          !isFutureDateTimestampMs(slotClaim.expiresAt, { nowMs: now });
+        if (
+          !ownExpiredClaim &&
+          workboardCardConsumesOwnerSlot(card, now) &&
+          workboardCardSlotOwner(card) === ownerId
+        ) {
           return "owner_busy";
         }
       }
