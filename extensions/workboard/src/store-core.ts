@@ -41,7 +41,12 @@ import {
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import {
+  MAX_CARD_COMMENTS,
+  MAX_CARD_WORKER_LOGS,
+  POSITION_STEP,
+  normalizeMaxConcurrentClaimsPerOwner,
+} from "./store-constants.js";
 import type {
   WorkboardBoardInput,
   WorkboardBoardSummary,
@@ -84,7 +89,7 @@ type WorkboardUpdateCardOptions = {
   event?: Omit<WorkboardEvent, "id" | "at">;
   eventAt?: number;
   expectedUpdatedAt?: number;
-  ownerSlot?: { ownerId: string; now: number };
+  ownerSlot?: { ownerId: string; now: number; maxConcurrentClaims?: number };
   preserveProofId?: string;
 };
 
@@ -900,9 +905,12 @@ export class WorkboardCoreStore {
           expectedUpdatedAt,
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
+          normalizeMaxConcurrentClaimsPerOwner(options.ownerSlot.maxConcurrentClaims),
         );
         if (result === "owner_busy") {
-          throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
+          throw new Error(
+            `Owner ${options.ownerSlot.ownerId} already has active Workboard work (concurrency limit ${normalizeMaxConcurrentClaimsPerOwner(options.ownerSlot.maxConcurrentClaims)}).`,
+          );
         }
         if (result === "updated") {
           this.recordCardMutation(existing, next);

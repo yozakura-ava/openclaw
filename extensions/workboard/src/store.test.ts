@@ -544,9 +544,11 @@ describe("WorkboardStore", () => {
         agentId: "worker",
       });
 
+      // R4 (card f88f4ec9): the unary cross-host fence is the max=1 policy
+      // explicitly pinned here; the default cap is now 10.
       const claims = await Promise.allSettled([
-        first.claim(firstCard.id, { ownerId: "worker" }),
-        second.claim(secondCard.id, { ownerId: "worker" }),
+        first.claim(firstCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+        second.claim(secondCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
@@ -4949,6 +4951,78 @@ describe("WorkboardStore", () => {
     await expect(store.create({ title: "Bad card", status: "later" })).rejects.toThrow(
       /status must be one of/,
     );
+  });
+
+  // ---- R4 multi-card concurrency (card f88f4ec9) ----
+
+  it("allows a second concurrent claim at maxConcurrentClaimsPerOwner=2 and refuses the third", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-max2-"));
+    const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+    try {
+      const store = new WorkboardStore(stores.cards);
+      const a = await store.create({ title: "A", status: "ready" });
+      const b = await store.create({ title: "B", status: "ready" });
+      const c = await store.create({ title: "C", status: "ready" });
+      await store.claim(a.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 });
+      await store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 });
+      await expect(
+        store.claim(c.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 }),
+      ).rejects.toThrow(/already has active Workboard work \(concurrency limit 2\)/);
+    } finally {
+      stores.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves legacy unary fence at maxConcurrentClaimsPerOwner=1", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-max1-"));
+    const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+    try {
+      const store = new WorkboardStore(stores.cards);
+      const a = await store.create({ title: "A", status: "ready" });
+      const b = await store.create({ title: "B", status: "ready" });
+      await store.claim(a.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 });
+      await expect(
+        store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+      ).rejects.toThrow(/already has active Workboard work \(concurrency limit 1\)/);
+    } finally {
+      stores.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("own expired claim does not count toward the concurrency limit", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-exp-"));
+      const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+      try {
+        const store = new WorkboardStore(stores.cards);
+        const a = await store.create({ title: "A", status: "ready" });
+        const b = await store.create({ title: "B", status: "ready" });
+        const claimed = await store.claim(
+          a.id,
+          { ownerId: "worker", ttlSeconds: 1 },
+          { maxConcurrentClaimsPerOwner: 1 },
+        );
+        const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+        if (expiresAt === undefined) {
+          throw new Error("claim expiry missing");
+        }
+        // Past expiresAt but still inside the cross-owner grace window: the
+        // own-expired claim (card A) must not consume the worker's slot.
+        vi.setSystemTime(expiresAt + 60_000);
+        await expect(
+          store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+        ).resolves.toBeDefined();
+      } finally {
+        stores.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

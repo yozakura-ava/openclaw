@@ -206,6 +206,12 @@
         "type": "boolean",
         "description": "Reject workboard_claim calls carrying no agentId/sessionKey identity and no explicit ownerId argument (default false keeps legacy anonymous-owner behavior).",
         "default": false
+      },
+      "maxConcurrentClaimsPerOwner": {
+        "type": "integer",
+        "minimum": 1,
+        "description": "Maximum concurrent active workboard claims per owner (R4 multi-card concurrency, card f88f4ec9). Default 10.",
+        "default": 10
       }
     }
   }

@@ -10,6 +10,7 @@ import {
   syncWorkboardAgentEnded,
   syncWorkboardSubagentEnded,
 } from "./src/lifecycle-sync.js";
+import { normalizeMaxConcurrentClaimsPerOwner } from "./src/store-constants.js";
 import { WorkboardStore } from "./src/store.js";
 import { createWorkboardTools } from "./src/tools.js";
 import {
@@ -100,10 +101,20 @@ export default definePluginEntry({
     );
     const failLoudOwner =
       (api.pluginConfig as { failLoudOwner?: boolean } | undefined)?.failLoudOwner === true;
+    const maxConcurrentClaimsPerOwner = normalizeMaxConcurrentClaimsPerOwner(
+      (api.pluginConfig as { maxConcurrentClaimsPerOwner?: unknown } | undefined)
+        ?.maxConcurrentClaimsPerOwner,
+    );
     api.registerTool(
       (context) =>
         guardWorkboardToolsForWorkspaceAccess(
-          createWorkboardTools({ api, context, store, failLoudOwner }),
+          createWorkboardTools({
+            api,
+            context,
+            store,
+            failLoudOwner,
+            maxConcurrentClaimsPerOwner,
+          }),
           context,
           api.runtime.sandbox.resolveWorkspaceAuthority,
         ),

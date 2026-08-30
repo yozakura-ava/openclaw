@@ -38,7 +38,7 @@ describe("Workboard dispatcher ownership", () => {
     await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, now, maxStarts: 1 },
     });
 
     expect(run).toHaveBeenCalledTimes(1);
@@ -70,7 +70,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 3 },
     });
 
     expect(result.started).toEqual([
@@ -106,7 +106,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 1 },
     });
 
     expect(result.started).toEqual([]);
@@ -132,7 +132,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 1 },
     });
 
     expect(run).toHaveBeenCalledTimes(2);
@@ -182,7 +182,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 1 },
     });
 
     expect(result.startFailures.map((failure) => failure.cardId)).toEqual(
@@ -227,7 +227,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 1 },
     });
 
     expect(run).toHaveBeenCalledTimes(2);
@@ -279,7 +279,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 2 },
+      options: { maxConcurrentClaimsPerOwner: 1, now: 10, maxStarts: 2 },
     });
 
     expect(result.started.map((entry) => entry.cardId)).toEqual([urgent.id, high.id]);
@@ -329,6 +329,7 @@ describe("Workboard dispatcher ownership", () => {
         store,
         subagent: { run },
         options: {
+          maxConcurrentClaimsPerOwner: 1,
           now: expiresAt! + CLAIM_RECLAIM_MS,
           maxStarts: 1,
           boardId: "ops",
@@ -347,6 +348,7 @@ describe("Workboard dispatcher ownership", () => {
         store,
         subagent: { run },
         options: {
+          maxConcurrentClaimsPerOwner: 1,
           now: expiresAt! + CLAIM_RECLAIM_MS + 1,
           maxStarts: 1,
           boardId: "ops",
@@ -393,7 +395,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, maxStarts: 1 },
     });
 
     expect(result.started).toEqual([
@@ -437,7 +439,7 @@ describe("Workboard dispatcher ownership", () => {
         const result = await dispatchAndStartWorkboardCards({
           store,
           subagent: { run },
-          options: { now: dispatchNow, maxStarts: 1 },
+          options: { maxConcurrentClaimsPerOwner: 1, now: dispatchNow, maxStarts: 1 },
         });
 
         expect(run).toHaveBeenCalledTimes(expectedStarts);
@@ -482,7 +484,7 @@ describe("Workboard dispatcher ownership", () => {
       const result = await dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, maxStarts: 1 },
       });
 
       expect(result.started).toEqual([
@@ -543,12 +545,12 @@ describe("Workboard dispatcher ownership", () => {
       dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { boardId: "ops", maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, boardId: "ops", maxStarts: 1 },
       }),
       dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { boardId: "product", maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, boardId: "product", maxStarts: 1 },
       }),
     ]);
 
@@ -583,7 +585,11 @@ describe("Workboard dispatcher ownership", () => {
         dispatchAndStartWorkboardCards({
           store,
           subagent: { run },
-          options: { boardId: card.metadata?.automation?.boardId, maxStarts: 1 },
+          options: {
+            maxConcurrentClaimsPerOwner: 1,
+            boardId: card.metadata?.automation?.boardId,
+            maxStarts: 1,
+          },
         }),
       ),
     );
@@ -638,6 +644,7 @@ describe("Workboard dispatcher ownership", () => {
         store,
         subagent: { run },
         options: {
+          maxConcurrentClaimsPerOwner: 1,
           maxStarts: 1,
           ...(origin === "dashboard exact-card start" ? { cardId: card.id } : {}),
         },
@@ -680,7 +687,7 @@ describe("Workboard dispatcher ownership", () => {
       const retry = await dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, maxStarts: 1 },
       });
 
       expect(retry.started).toEqual([]);
@@ -719,7 +726,7 @@ describe("Workboard dispatcher ownership", () => {
     await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, maxStarts: 1 },
     });
 
     await expect(store.get(card.id)).resolves.toMatchObject({
@@ -754,7 +761,7 @@ describe("Workboard dispatcher ownership", () => {
       const result = await dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { cardId: card.id, maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, cardId: card.id, maxStarts: 1 },
       });
 
       expect(result.started).toEqual([expect.objectContaining({ cardId: card.id })]);
@@ -778,7 +785,7 @@ describe("Workboard dispatcher ownership", () => {
       const result = await dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { cardId: card.id, maxStarts: 1 },
+        options: { maxConcurrentClaimsPerOwner: 1, cardId: card.id, maxStarts: 1 },
       });
 
       expect(run).not.toHaveBeenCalled();
@@ -814,7 +821,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { cardId: card.id, maxStarts: 1, now },
+      options: { maxConcurrentClaimsPerOwner: 1, cardId: card.id, maxStarts: 1, now },
     });
 
     expect(run).toHaveBeenCalledTimes(starts ? 1 : 0);
@@ -847,7 +854,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { cardId: target.id, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, cardId: target.id, maxStarts: 1 },
     });
 
     expect(run).not.toHaveBeenCalled();
@@ -878,7 +885,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { cardId: target.id, maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, cardId: target.id, maxStarts: 1 },
     });
 
     expect(result.started).toEqual([expect.objectContaining({ cardId: target.id })]);
@@ -898,7 +905,7 @@ describe("Workboard dispatcher ownership", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { maxStarts: 1 },
+      options: { maxConcurrentClaimsPerOwner: 1, maxStarts: 1 },
     });
 
     expect(run).toHaveBeenCalledOnce();
@@ -912,5 +919,63 @@ describe("Workboard dispatcher ownership", () => {
       execution: { status: "running", runId: "run-without-log" },
       metadata: { claim: { ownerId: "workboard-dispatcher" } },
     });
+  });
+
+  // ---- R4 multi-card concurrency (card f88f4ec9) ----
+
+  it("starts multiple cards for one owner per pass up to the concurrency cap and maxStarts", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const first = await store.create({
+      title: "First",
+      status: "ready",
+      priority: "urgent",
+      workspaceAccess: { unrestricted: true },
+    });
+    const second = await store.create({
+      title: "Second",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const third = await store.create({
+      title: "Third",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-r4" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 3, maxConcurrentClaimsPerOwner: 2 },
+    });
+
+    expect(result.started.map((s) => s.cardId)).toEqual([first.id, second.id]);
+    expect(run).toHaveBeenCalledTimes(2);
+    await expect(store.get(third.id)).resolves.toMatchObject({ status: "ready" });
+  });
+
+  it("caps a single owner at maxConcurrentClaimsPerOwner even with spare maxStarts", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const first = await store.create({
+      title: "First",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const second = await store.create({
+      title: "Second",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-r4-cap" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 3, maxConcurrentClaimsPerOwner: 1 },
+    });
+
+    expect(result.started.map((s) => s.cardId)).toEqual([first.id]);
+    expect(run).toHaveBeenCalledTimes(1);
+    await expect(store.get(second.id)).resolves.toMatchObject({ status: "ready" });
   });
 });

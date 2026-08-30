@@ -16,6 +16,7 @@ import type {
   WorkboardRunAttempt,
   WorkboardWorkerLog,
 } from "@openclaw/workboard-contract";
+import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import {
   configureSqliteConnectionPragmas,
   migrateSqliteSchemaToStrict,
@@ -1257,6 +1258,7 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    maxConcurrentClaims: number,
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
     return runSqliteImmediateTransactionSync(this.db, () => {
@@ -1268,12 +1270,15 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);
       const preloaded = loadCardChildRows(this.db);
+      // R4 multi-card concurrency (card f88f4ec9): count the owner's
+      // slot-consuming cards instead of refusing on the first match. The
+      // PATCH workboard-reclaim-expiry-fix (card eb0ce23a) semantics are
+      // preserved inside the count: a claim that belongs to the claiming
+      // owner AND is past expiresAt frees the owner slot (self-slot
+      // recovery). Cross-owner slots keep the full grace.
+      let ownerActiveClaims = 0;
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
-        // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): a claim that
-        // belongs to the claiming owner AND is past expiresAt frees the
-        // owner slot (self-slot recovery) instead of locking the board until
-        // the sweeper fires. Cross-owner slots keep the full grace.
         const slotClaim = card.metadata?.claim;
         const ownExpiredClaim =
           slotClaim?.ownerId === ownerId &&
@@ -1283,8 +1288,11 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
           workboardCardConsumesOwnerSlot(card, now) &&
           workboardCardSlotOwner(card) === ownerId
         ) {
-          return "owner_busy";
+          ownerActiveClaims += 1;
         }
+      }
+      if (ownerActiveClaims >= maxConcurrentClaims) {
+        return "owner_busy";
       }
       insertCard(this.db, value.card);
       return "updated";

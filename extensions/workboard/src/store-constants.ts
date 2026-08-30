@@ -20,6 +20,7 @@ export const MAX_CARD_DIAGNOSTICS = 12;
 export const MAX_CARD_NOTIFICATIONS = 20;
 export const MAX_CARD_METADATA_BYTES = 24 * 1024;
 export const DEFAULT_CLAIM_TTL_MS = 30 * 60 * 1000;
+export const DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER = 10;
 export const DEFAULT_WORKBOARD_DISPATCH_OWNER = "workboard-dispatcher";
 export const READY_STRANDED_MS = 60 * 60 * 1000;
 export const RUNNING_HEARTBEAT_STALE_MS = 20 * 60 * 1000;
@@ -31,6 +32,16 @@ export function isWorkboardClaimReclaimable(
   now: number,
 ): boolean {
   return Boolean(claim?.expiresAt && now - claim.expiresAt > CLAIM_RECLAIM_MS);
+}
+
+// R4 multi-card concurrency (card f88f4ec9): configurable per-owner claim
+// limit. Falls back to the default on any invalid value so a config typo can
+// never produce an accidental 0 (total lockout) or an unlimited board.
+export function normalizeMaxConcurrentClaimsPerOwner(value: unknown): number {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 1) {
+    return value;
+  }
+  return DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER;
 }
 
 export function workboardCardConsumesOwnerSlot(card: WorkboardCard, now: number): boolean {

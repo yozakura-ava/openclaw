@@ -198,6 +198,7 @@ export function createWorkboardTools(params: {
   context?: OpenClawPluginToolContext;
   store?: WorkboardStore;
   failLoudOwner?: boolean;
+  maxConcurrentClaimsPerOwner?: number;
 }): AnyAgentTool[] {
   const store = params.store ?? WorkboardStore.openSqlite();
   const ownerId = contextOwner(params.context);
@@ -368,10 +369,14 @@ export function createWorkboardTools(params: {
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
-        const claimed = await store.claim(id, {
-          ownerId: resolveClaimOwner(params.context, record.ownerId, params.failLoudOwner),
-          ttlSeconds: record.ttlSeconds,
-        });
+        const claimed = await store.claim(
+          id,
+          {
+            ownerId: resolveClaimOwner(params.context, record.ownerId, params.failLoudOwner),
+            ttlSeconds: record.ttlSeconds,
+          },
+          { maxConcurrentClaimsPerOwner: params.maxConcurrentClaimsPerOwner },
+        );
         return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });
       },
     },

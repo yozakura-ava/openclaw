@@ -158,7 +158,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
         {
           expectedUpdatedAt: guarded.updatedAt,
-          ownerSlot: { ownerId, now },
+          ownerSlot: { ownerId, now, maxConcurrentClaims: options.maxConcurrentClaimsPerOwner },
         },
       );
       return { card, token };
