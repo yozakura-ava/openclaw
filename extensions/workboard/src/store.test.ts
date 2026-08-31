@@ -2278,6 +2278,100 @@ describe("WorkboardStore", () => {
     expect(tokenReleased.metadata?.claim).toBeUndefined();
   });
 
+  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
+  // reina-2026-08-31-008): owner-match takes precedence over token
+  // mismatch in assertClaimIdentity. Token-scrubbed heartbeats and
+  // token-less mutations must succeed for the claiming owner.
+  it("treats scrubbed token as no-op when caller proves owner identity (heartbeat)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Scrubbed-token heartbeat", status: "todo" });
+    const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Outbound tool args may scrub a valid token to "***" — heartbeat must still
+    // succeed because ownerId matches claim.ownerId (exact string compare).
+    const heartbeat = await store.heartbeat(card.id, {
+      ownerId: "main",
+      token: "***",
+    });
+    expect(heartbeat.metadata?.claim).toMatchObject({ ownerId: "main" });
+    expect(heartbeat.metadata?.claim?.token).toBe(claimed.token);
+
+    // The heartbeat must NOT clear running_without_heartbeat diagnostic since
+    // this is a normal renewal.
+    const second = await store.heartbeat(card.id, { ownerId: "main", token: "***" });
+    expect(second.metadata?.claim?.lastHeartbeatAt).toBeGreaterThanOrEqual(
+      heartbeat.metadata?.claim?.lastHeartbeatAt ?? 0,
+    );
+  });
+
+  it("lets owner-match succeed with no token on heartbeat and release", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Owner-match no-token path", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Heartbeat with NO token, just owner identity (the documented owner-match fallback).
+    await expect(store.heartbeat(card.id, { ownerId: "main" })).resolves.toMatchObject({
+      metadata: { claim: { ownerId: "main" } },
+    });
+
+    // releaseClaim with NO token, owner-match only.
+    const released = await store.releaseClaim(card.id, { ownerId: "main" });
+    expect(released.metadata?.claim).toBeUndefined();
+  });
+
+  it("still rejects cross-owner token-less mutations on a claimed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Cross-owner fence", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Cross-owner, no token — must throw "claim owner does not match." (fencing preserved).
+    await expect(store.heartbeat(card.id, { ownerId: "other" })).rejects.toThrow(
+      /claim owner does not match/,
+    );
+    await expect(store.releaseClaim(card.id, { ownerId: "other" })).rejects.toThrow(
+      /claim owner does not match/,
+    );
+  });
+
+  it("still rejects cross-owner scrubbed-token mutations on a claimed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Cross-owner scrubbed fence", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Cross-owner + scrubbed token — owner mismatch must still reject, BUT with the
+    // token-mismatch message because the caller supplied a token (which is wrong).
+    await expect(store.heartbeat(card.id, { ownerId: "other", token: "***" })).rejects.toThrow(
+      /claim token does not match/,
+    );
+    await expect(store.releaseClaim(card.id, { ownerId: "other", token: "***" })).rejects.toThrow(
+      /claim token does not match/,
+    );
+  });
+
+  it("preserves the bridge pattern: valid token + no owner still works", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Bridge pattern preserved", status: "todo" });
+    const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // The dbos-bridge pattern supplies the token only, no owner override.
+    await expect(store.heartbeat(card.id, { token: claimed.token })).resolves.toMatchObject({
+      metadata: { claim: { ownerId: "main" } },
+    });
+    const released = await store.releaseClaim(card.id, { token: claimed.token });
+    expect(released.metadata?.claim).toBeUndefined();
+  });
+
+  it("rejects when neither token nor owner is supplied", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Neither auth", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // No token, no owner — caller cannot authenticate, must be rejected as owner
+    // mismatch (cannot identify the caller).
+    await expect(store.heartbeat(card.id, {})).rejects.toThrow(/claim owner does not match/);
+    await expect(store.releaseClaim(card.id, {})).rejects.toThrow(/claim owner does not match/);
+  });
+
   it("atomically guards and adopts dispatcher workspace authority", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Legacy dispatch", status: "ready" });
