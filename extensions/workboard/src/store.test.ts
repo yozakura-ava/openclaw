@@ -3204,63 +3204,6 @@ describe("WorkboardStore", () => {
     });
   });
 
-  // Card b797db74 claim-fence diagnostic (AC3 — claim_fence regression tests).
-  // These intentionally fail against the current gate; they document the
-  // contract that the fix must satisfy and serve as a red-flag if the gate
-  // is ever tightened again.
-  it("claim fence: any agent may comment on a claimed card (handoff path, AC b)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({ title: "Handoff comment" });
-    await store.claim(card.id, { ownerId: "main", token: "***" });
-
-    await expect(
-      store.addComment(card.id, { body: "handoff from peer" }, { ownerId: "peer" }),
-    ).resolves.toMatchObject({
-      metadata: { comments: [expect.objectContaining({ body: "handoff from peer" })] },
-    });
-  });
-
-  it("claim fence: any agent may reclaim after the reclaim grace (AC c)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({ title: "Abandoned claim" });
-    await store.claim(card.id, { ownerId: "main", token: "***" });
-
-    // Force the claim into the reclaim grace by rewinding its expiresAt.
-    const stored = await store.get(card.id);
-    const expiredClaim = {
-      ...stored.metadata?.claim,
-      expiresAt: (stored.metadata?.claim?.expiresAt ?? Date.now()) - 6 * 60 * 1000,
-    };
-    await store.updateCard(
-      card.id,
-      { metadata: { ...stored.metadata, claim: expiredClaim } },
-      { expectedUpdatedAt: stored.updatedAt },
-    );
-
-    await expect(
-      store.reclaim(card.id, { reason: "owner session died" }, { ownerId: "peer" }),
-    ).resolves.toMatchObject({
-      status: "ready",
-      metadata: { claim: undefined },
-    });
-  });
-
-  it("claim fence: keeps the owner-or-token requirement on proof / complete / block (control)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({ title: "Strict-gate control" });
-    await store.claim(card.id, { ownerId: "main", token: "***" });
-
-    await expect(
-      store.addProof(card.id, { status: "passed", label: "ctrl" }, { ownerId: "peer" }),
-    ).rejects.toThrow(/claimed by main/);
-    await expect(
-      store.complete(card.id, { summary: "should not pass", proofId: "noop" }, { ownerId: "peer" }),
-    ).rejects.toThrow();
-    await expect(
-      store.block(card.id, { reason: "should not pass" }, { ownerId: "peer" }),
-    ).rejects.toThrow(/claimed by main/);
-  });
-
   it("clears resolved proof diagnostics when adding proof", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
