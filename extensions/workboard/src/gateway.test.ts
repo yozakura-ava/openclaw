@@ -353,13 +353,13 @@ describe("workboard gateway methods", () => {
 
     const oversizedRespond = vi.fn();
     await methods.get("workboard.cards.comment")?.handler({
-      params: { id: cardId, body: "x".repeat(2001) },
+      params: { id: cardId, body: "x".repeat(4097) },
       respond: oversizedRespond,
     } as never);
 
     expect(oversizedRespond.mock.calls[0]?.[0]).toBe(false);
     expect(oversizedRespond.mock.calls[0]?.[2]).toMatchObject({
-      message: "comment body must be 2000 characters or fewer (got 2001).",
+      message: "comment body must be 4096 characters or fewer (got 4097).",
     });
   });
 
