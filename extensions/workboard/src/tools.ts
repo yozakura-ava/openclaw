@@ -28,6 +28,38 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   );
 }
 
+/**
+ * Patch owner-fallback-fix (Riko, 2026-08-31): resolve the owner for a claim
+ * tool call with an explicit override, falling back to context identity.
+ *
+ * - Explicit `override` (≤120 chars) wins.
+ * - Otherwise the context's `agentId` / `sessionKey` / `sessionId` is used.
+ * - When the resolved owner is the anonymous fallback "agent" AND
+ *   `failLoudOwner` is true, raise an actionable error so callers (e.g. the
+ *   DBOS bridge running anonymous claims) get an explicit signal instead of
+ *   silently collapsing to the shared "agent" owner.
+ */
+function resolveClaimOwner(
+  ctx: OpenClawPluginToolContext | undefined,
+  override: string | undefined,
+  failLoudOwner: boolean,
+): string {
+  if (typeof override === "string" && override.trim().length > 0) {
+    const trimmed = override.trim();
+    if (trimmed.length > 120) {
+      throw new Error("claim ownerId must be 120 characters or fewer.");
+    }
+    return trimmed;
+  }
+  const owner = contextOwner(ctx);
+  if (owner === "agent" && failLoudOwner) {
+    throw new Error(
+      'refusing anonymous owner "agent" (failLoudOwner enabled). Set ownerId explicitly on the workboard_claim tool call or disable failLoudOwner in pluginConfig.',
+    );
+  }
+  return owner;
+}
+
 function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): boolean {
   const claim = card.metadata?.claim;
   return !claim || claim.ownerId === ownerId || safeEqualSecret(token, claim.token);
@@ -175,9 +207,18 @@ export function createWorkboardTools(params: {
   api: OpenClawPluginApi;
   context?: OpenClawPluginToolContext;
   store?: WorkboardStore;
+  // Patch multicard-concurrency (Riko, 2026-08-31): per-owner concurrency cap.
+  // Read from pluginConfig.maxConcurrentClaimsPerOwner at registerTool time.
+  maxConcurrentClaimsPerOwner?: number;
+  // Patch owner-fallback-fix (Riko, 2026-08-31): when true, anonymous claim
+  // tool calls fail loudly instead of collapsing to owner="agent".
+  failLoudOwner?: boolean;
 }): AnyAgentTool[] {
   const store = params.store ?? WorkboardStore.openSqlite();
-  const ownerId = contextOwner(params.context);
+  // Patch owner-fallback-fix (Riko, 2026-08-31): resolve owner through helper
+  // so failLoudOwner gates anonymous collapse. Existing callsites that pass an
+  // override are honored.
+  const ownerId = resolveClaimOwner(params.context, undefined, params.failLoudOwner === true);
   const readScopedCardToolParams = async (rawParams: unknown): Promise<WorkboardToolCardParams> => {
     const input = readCardToolParams(rawParams, ownerId);
     await requireScopedCard(store, input.id, ownerId, input.token);
@@ -335,14 +376,31 @@ export function createWorkboardTools(params: {
       parameters: strictObject({
         id: cardIdField(),
         ttlSeconds: Type.Optional(Type.Number({ description: "Claim TTL in seconds." })),
+        // Patch owner-fallback-fix (Riko, 2026-08-31): explicit owner override.
+        // Allows callers like the DBOS bridge to claim as `dbos-bridge:<pid>`
+        // rather than collapsing to anonymous "agent".
+        ownerId: Type.Optional(
+          Type.String({ description: "Optional explicit owner id (≤120 chars)." }),
+        ),
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
-        const claimed = await store.claim(id, {
-          ownerId,
-          ttlSeconds: record.ttlSeconds,
-        });
+        // Patch owner-fallback-fix: allow explicit owner override per-call.
+        const resolvedOwnerId = resolveClaimOwner(
+          params.context,
+          typeof record.ownerId === "string" ? record.ownerId : undefined,
+          params.failLoudOwner === true,
+        );
+        const claimed = await store.claim(
+          id,
+          {
+            ownerId: resolvedOwnerId,
+            ttlSeconds: record.ttlSeconds,
+          },
+          // Patch multicard-concurrency (Riko, 2026-08-31): pass cap through.
+          { maxConcurrentClaimsPerOwner: params.maxConcurrentClaimsPerOwner ?? 10 },
+        );
         return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });
       },
     },

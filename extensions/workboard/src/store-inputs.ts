@@ -96,6 +96,8 @@ export type WorkboardClaimOptions = {
   };
   /** Trusted legacy-card adoption; applied only while expectedAuthority still matches. */
   adoptWorkspaceAccess?: WorkboardWorkspaceAccess;
+  /** Patch multicard-concurrency (Riko, 2026-08-31): per-owner concurrency cap. */
+  maxConcurrentClaimsPerOwner?: number;
 };
 export type WorkboardHeartbeatInput = {
   token?: unknown;

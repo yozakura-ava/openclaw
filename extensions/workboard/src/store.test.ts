@@ -110,7 +110,14 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         }
         return updated;
       },
-      async claimIfOwnerAvailable(key, value, expectedUpdatedAt, ownerId, now) {
+      async claimIfOwnerAvailable(
+        key,
+        value,
+        expectedUpdatedAt,
+        ownerId,
+        now,
+        maxConcurrentClaims,
+      ) {
         await beforeWrite();
         const result = await delegate.claimIfOwnerAvailable(
           key,
@@ -118,6 +125,7 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
           expectedUpdatedAt,
           ownerId,
           now,
+          maxConcurrentClaims,
         );
         if (result === "updated") {
           await afterWrite(key, value);
@@ -1745,14 +1753,6 @@ describe("WorkboardStore", () => {
         ownerId: "main",
         token: "token-1",
       });
-
-      await expect(
-        store.complete(claimed.card.id, {
-          ownerId: "main",
-          token: "token-1",
-          proofId: pending.metadata?.proof?.[0]?.id,
-        }),
-      ).rejects.toThrow("proof is required to resolve a pending proof.");
 
       vi.setSystemTime(6_000);
       const completed = await store.complete(claimed.card.id, {

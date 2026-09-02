@@ -201,6 +201,18 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "maxConcurrentClaimsPerOwner": {
+        "type": "integer",
+        "minimum": 1,
+        "default": 10,
+        "description": "Maximum concurrent claim/active-runs per owner. Per-owner runs above this cap return owner_busy. Patch multicard-concurrency (Riko, 2026-08-31)."
+      },
+      "failLoudOwner": {
+        "type": "boolean",
+        "default": false,
+        "description": "When true, anonymous claim tool calls fail with an actionable error instead of collapsing to owner='agent'. Patch owner-fallback-fix (Riko, 2026-08-31)."
+      }
+    }
   }
 }

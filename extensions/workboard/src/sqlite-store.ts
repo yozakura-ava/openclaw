@@ -1257,8 +1257,10 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    maxConcurrentClaims: number,
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
+    const cap = Math.max(1, maxConcurrentClaims);
     return runSqliteImmediateTransactionSync(this.db, () => {
       const current = this.db
         .prepare("SELECT updated_at FROM workboard_cards WHERE id = ?")
@@ -1268,10 +1270,17 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);
       const preloaded = loadCardChildRows(this.db);
+      let ownerActiveClaims = 0;
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
         if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
-          return "owner_busy";
+          ownerActiveClaims += 1;
+          // Patch multicard-concurrency (Riko, 2026-08-31): return owner_busy only
+          // when this owner's active claims reach the cap. Earlier hard-coded
+          // unary (>0) gate is replaced with count-vs-cap comparison.
+          if (ownerActiveClaims >= cap) {
+            return "owner_busy";
+          }
         }
       }
       insertCard(this.db, value.card);

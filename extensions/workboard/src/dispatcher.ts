@@ -48,6 +48,9 @@ export type WorkboardDispatchStartOptions = {
   resolveAgentWorkspace?: (agentId?: string) => string;
   resolveAgentWorkspaceRuntime?: ResolveAgentWorkspaceRuntime;
   workspaceAccess?: WorkboardWorkspaceAccess;
+  // Patch multicard-concurrency (Riko, 2026-08-31): cap on per-owner starts
+  // selected by this dispatch pass. Defaults to 10 (mirrors claim cap).
+  maxConcurrentClaimsPerOwner?: number;
 };
 
 type WorkboardStartedRun = {
@@ -231,10 +234,16 @@ function selectStartableCards(
   ownerOverride: string | undefined,
   now: number,
   mode: "scheduled" | "exact",
+  options?: { maxConcurrentClaimsPerOwner?: number },
 ): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } {
   if (limit <= 0) {
     return { cards: [] };
   }
+  // Patch multicard-concurrency (Riko, 2026-08-31): configurable cap replaces
+  // the upstream unary (>0) check. Upstream already counts per-owner running
+  // in `runningByOwner`; we extend it to enforce the cap and count this
+  // dispatch's selected cards toward it.
+  const maxConcurrentClaimsPerOwner = Math.max(1, options?.maxConcurrentClaimsPerOwner ?? 10);
   const runningByOwner = new Map<string, number>();
   for (const card of cards) {
     if (!workboardCardConsumesOwnerSlot(card, now)) {
@@ -249,6 +258,7 @@ function selectStartableCards(
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
+    const currentOwnerCount = runningByOwner.get(owner) ?? 0;
     const rejection = cardIsArchived(card)
       ? "Card is archived; restore it before starting."
       : cardHasActiveClaim(card, now)
@@ -260,8 +270,8 @@ function selectStartableCards(
               card.status !== "todo" &&
               card.status !== "ready"
             ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-            : (runningByOwner.get(owner) ?? 0) > 0
-              ? `Owner ${owner} already has active Workboard work; complete or stop it before starting another card.`
+            : currentOwnerCount >= maxConcurrentClaimsPerOwner
+              ? `Owner ${owner} has ${currentOwnerCount} active Workboard claims (concurrency limit ${maxConcurrentClaimsPerOwner}).`
               : undefined;
     if (rejection !== undefined) {
       if (mode === "exact") {
@@ -277,6 +287,8 @@ function selectStartableCards(
       continue;
     }
     selectedOwners.add(owner);
+    // Count this selected card toward the cap for subsequent iterations.
+    runningByOwner.set(owner, currentOwnerCount + 1);
     selected.push(card);
   }
   // Try each owner before a failed owner's extra cards consume the outage budget.
@@ -325,7 +337,7 @@ async function runWorkboardDispatch(
   const cards = await params.store.list();
   const candidates = directCard ? [directCard] : await params.store.list({ boardId });
   const ownerOverride = params.options?.ownerId?.trim() || undefined;
-  const startedOwners = new Set<string>();
+  const startedOwners = new Map<string, number>();
   // Allow one fallback per worker slot without draining the queue during an outage.
   const maxAttempts = maxStarts * 2;
   let acceptedStarts = 0;
@@ -338,6 +350,9 @@ async function runWorkboardDispatch(
     ownerOverride,
     now,
     directCardId ? "exact" : "scheduled",
+    {
+      maxConcurrentClaimsPerOwner: params.options?.maxConcurrentClaimsPerOwner ?? 10,
+    },
   );
   if (selection.rejection) {
     startFailures.push(selection.rejection);
@@ -347,7 +362,7 @@ async function runWorkboardDispatch(
     if (acceptedStarts >= maxStarts || attemptedStarts >= maxAttempts) {
       break;
     }
-    if (startedOwners.has(ownerId)) {
+    if ((startedOwners.get(ownerId) ?? 0) >= (params.options?.maxConcurrentClaimsPerOwner ?? 10)) {
       continue;
     }
     const sessionKey = workboardSessionKeyForCard(card);
@@ -545,7 +560,7 @@ async function runWorkboardDispatch(
           })
           .catch(() => undefined)) ?? acceptedCard;
       acceptedStarts += 1;
-      startedOwners.add(ownerId);
+      startedOwners.set(ownerId, (startedOwners.get(ownerId) ?? 0) + 1);
       started.push({
         cardId: updated.id,
         title: updated.title,

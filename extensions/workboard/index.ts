@@ -23,6 +23,18 @@ export default definePluginEntry({
   description: "Dashboard workboard for agent-owned issues and sessions.",
   register(api) {
     const store = WorkboardStore.openSqlite();
+    // Patch multicard-concurrency (Riko, 2026-08-31) + owner-fallback-fix
+    // (Riko, 2026-08-31): read config from pluginConfig at registerTool time.
+    const rawConfig = api.pluginConfig as
+      | { maxConcurrentClaimsPerOwner?: unknown; failLoudOwner?: unknown }
+      | undefined;
+    const maxConcurrentClaimsPerOwner =
+      typeof rawConfig?.maxConcurrentClaimsPerOwner === "number" &&
+      Number.isInteger(rawConfig.maxConcurrentClaimsPerOwner) &&
+      rawConfig.maxConcurrentClaimsPerOwner >= 1
+        ? rawConfig.maxConcurrentClaimsPerOwner
+        : 10;
+    const failLoudOwner = rawConfig?.failLoudOwner === true;
     const automationNudge = createWorkboardAutomationNudgeService({
       store,
       gateway: api.runtime.gateway,
@@ -101,7 +113,16 @@ export default definePluginEntry({
     api.registerTool(
       (context) =>
         guardWorkboardToolsForWorkspaceAccess(
-          createWorkboardTools({ api, context, store }),
+          createWorkboardTools({
+            api,
+            context,
+            store,
+            maxConcurrentClaimsPerOwner,
+            // owner-fallback-fix: pass flag through so resolveClaimOwner can
+            // raise a loud error when an anonymous claim tool call would
+            // otherwise collapse to owner="agent".
+            failLoudOwner,
+          }),
           context,
           api.runtime.sandbox.resolveWorkspaceAuthority,
         ),

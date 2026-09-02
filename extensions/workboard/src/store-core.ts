@@ -84,7 +84,7 @@ type WorkboardUpdateCardOptions = {
   event?: Omit<WorkboardEvent, "id" | "at">;
   eventAt?: number;
   expectedUpdatedAt?: number;
-  ownerSlot?: { ownerId: string; now: number };
+  ownerSlot?: { ownerId: string; now: number; maxConcurrentClaims?: number };
   preserveProofId?: string;
 };
 
@@ -900,9 +900,12 @@ export class WorkboardCoreStore {
           expectedUpdatedAt,
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
+          options.ownerSlot.maxConcurrentClaims ?? 10,
         );
         if (result === "owner_busy") {
-          throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
+          throw new Error(
+            `Owner ${options.ownerSlot.ownerId} already has ${options.ownerSlot.maxConcurrentClaims ?? 10} active Workboard claims (concurrency limit reached).`,
+          );
         }
         if (result === "updated") {
           this.recordCardMutation(existing, next);
@@ -993,7 +996,7 @@ export class WorkboardCoreStore {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeBoundedString(input.body, undefined, 4096, "comment body");
     if (!body) {
       throw new Error("comment body is required.");
     }
