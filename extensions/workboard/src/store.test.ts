@@ -553,8 +553,8 @@ describe("WorkboardStore", () => {
       });
 
       const claims = await Promise.allSettled([
-        first.claim(firstCard.id, { ownerId: "worker" }),
-        second.claim(secondCard.id, { ownerId: "worker" }),
+        first.claim(firstCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+        second.claim(secondCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
