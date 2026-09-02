@@ -973,7 +973,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeBoundedString(input.body, undefined, 4096, "comment body");
     if (!body) {
       throw new Error("comment body is required.");
     }
