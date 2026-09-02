@@ -650,7 +650,7 @@ function normalizeComment(value: unknown): WorkboardComment | null {
   }
   const record = value;
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(record.body, undefined, 4096, "comment body");
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
