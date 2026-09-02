@@ -16,6 +16,7 @@ import type {
   WorkboardRunAttempt,
   WorkboardWorkerLog,
 } from "@openclaw/workboard-contract";
+import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import {
   configureSqliteConnectionPragmas,
   migrateSqliteSchemaToStrict,
@@ -1260,7 +1261,6 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     maxConcurrentClaims: number,
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
-    const cap = Math.max(1, maxConcurrentClaims);
     return runSqliteImmediateTransactionSync(this.db, () => {
       const current = this.db
         .prepare("SELECT updated_at FROM workboard_cards WHERE id = ?")
@@ -1270,18 +1270,29 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);
       const preloaded = loadCardChildRows(this.db);
+      // R4 multi-card concurrency (card f88f4ec9): count the owner's
+      // slot-consuming cards instead of refusing on the first match. The
+      // PATCH workboard-reclaim-expiry-fix (card eb0ce23a) semantics are
+      // preserved inside the count: a claim that belongs to the claiming
+      // owner AND is past expiresAt frees the owner slot (self-slot
+      // recovery). Cross-owner slots keep the full grace.
       let ownerActiveClaims = 0;
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
-        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
+        const slotClaim = card.metadata?.claim;
+        const ownExpiredClaim =
+          slotClaim?.ownerId === ownerId &&
+          !isFutureDateTimestampMs(slotClaim.expiresAt, { nowMs: now });
+        if (
+          !ownExpiredClaim &&
+          workboardCardConsumesOwnerSlot(card, now) &&
+          workboardCardSlotOwner(card) === ownerId
+        ) {
           ownerActiveClaims += 1;
-          // Patch multicard-concurrency (Riko, 2026-08-31): return owner_busy only
-          // when this owner's active claims reach the cap. Earlier hard-coded
-          // unary (>0) gate is replaced with count-vs-cap comparison.
-          if (ownerActiveClaims >= cap) {
-            return "owner_busy";
-          }
         }
+      }
+      if (ownerActiveClaims >= maxConcurrentClaims) {
+        return "owner_busy";
       }
       insertCard(this.db, value.card);
       return "updated";

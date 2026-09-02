@@ -63,12 +63,23 @@ import { WorkboardPromoteStore } from "./store-promote.js";
 function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInput): void {
   const token = normalizeOptionalString(input.token);
   const ownerId = normalizeOptionalString(input.ownerId);
-  if (token && !safeEqualSecret(token, claim.token)) {
-    throw new Error("claim token does not match.");
+  // Owner-match takes precedence over token mismatch. Outbound tool args
+  // can scrub a valid claim token to a masked placeholder (e.g. "***"), so
+  // an invalid-but-present token must not reject when the caller proves
+  // identity through the owner string. Fencing is preserved by the exact
+  // string compare below; cross-owner token-less mutations still throw.
+  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
+  // reina-2026-08-31-008).
+  if (ownerId && ownerId === claim.ownerId) {
+    return;
   }
-  if (!token && ownerId && ownerId !== claim.ownerId) {
-    throw new Error("claim owner does not match.");
+  if (token) {
+    if (!safeEqualSecret(token, claim.token)) {
+      throw new Error("claim token does not match.");
+    }
+    return;
   }
+  throw new Error("claim owner does not match.");
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
@@ -120,7 +131,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         (isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
           // Direct claims must honor the same running-worker heartbeat grace
           // as dispatcher recovery; otherwise they silently steal live tokens.
-          (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now)))
+          // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): the grace
+          // protects only OTHER owners — the claim's original owner may
+          // reclaim immediately once expiresAt has passed (self-recovery).
+          (guarded.status === "running" &&
+            !isWorkboardClaimReclaimable(existingClaim, now) &&
+            existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
       if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
@@ -153,11 +169,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
         {
           expectedUpdatedAt: guarded.updatedAt,
-          ownerSlot: {
-            ownerId,
-            now,
-            maxConcurrentClaims: options.maxConcurrentClaimsPerOwner ?? 10,
-          },
+          ownerSlot: { ownerId, now, maxConcurrentClaims: options.maxConcurrentClaimsPerOwner },
         },
       );
       return { card, token };
@@ -271,13 +283,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     if (input.proofId !== undefined && !proofId) {
       throw new Error("proofId must be a non-empty string.");
     }
+    // PATCH proofid-only-fix: proofId may resolve a previously-attached proof
+    // without an accompanying proof object — that is the canonical resolution
+    // path. The stored proof is the completion proof as-is; the proof OBJECT
+    // (with optional terminal status) is a legacy fallback that triggers
+    // byte-match validation in appendCompletionProof.
     if (proofId && !proofInput) {
-      // PATCH proofid-only-fix (Riko, 2026-08-31): proofId may resolve a
-      // previously-attached proof without an accompanying proof object — that
-      // is the canonical resolution path. The stored proof is the completion
-      // proof as-is; the proof OBJECT (with optional terminal status) is a
-      // legacy fallback that triggers byte-match validation in
-      // appendCompletionProof.
       const entries = [...(existing.metadata?.proof ?? [])];
       const pending = entries.find((entry) => entry && entry.id === proofId);
       if (!pending) {

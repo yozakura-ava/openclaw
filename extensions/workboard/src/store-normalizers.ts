@@ -983,8 +983,8 @@ export function normalizeProofInput(input: WorkboardProofInput, now: number): Wo
 }
 
 function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): string[] {
-  // PATCH proofid-only-fix (Riko, 2026-08-31): return the list of mismatched
-  // fields so the surfaced error names them, instead of a single boolean.
+  // PATCH proofid-only-fix: return the list of mismatching fields so the caller
+  // can name them in the surfaced error. Empty array means no conflict.
   const mismatched: string[] = [];
   for (const field of ["label", "command", "url", "note"] as const) {
     if (completion[field] !== undefined && completion[field] !== existing[field]) {

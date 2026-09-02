@@ -86,6 +86,8 @@ export type WorkboardClaimInput = {
   ttlSeconds?: unknown;
 };
 export type WorkboardClaimOptions = {
+  /** Trusted per-owner concurrency cap for the claim fence (R4, card f88f4ec9). Never public tool input. */
+  maxConcurrentClaimsPerOwner?: number;
   /** Trusted dispatcher guard; never accepted from public tool or gateway input. */
   expectedAuthority?: {
     boardId: string;
@@ -96,8 +98,6 @@ export type WorkboardClaimOptions = {
   };
   /** Trusted legacy-card adoption; applied only while expectedAuthority still matches. */
   adoptWorkspaceAccess?: WorkboardWorkspaceAccess;
-  /** Patch multicard-concurrency (Riko, 2026-08-31): per-owner concurrency cap. */
-  maxConcurrentClaimsPerOwner?: number;
 };
 export type WorkboardHeartbeatInput = {
   token?: unknown;

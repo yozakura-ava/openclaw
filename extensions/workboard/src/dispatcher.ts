@@ -22,7 +22,12 @@ import {
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
 import { cardBoardId } from "./store-card-helpers.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
+import {
+  DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER,
+  normalizeMaxConcurrentClaimsPerOwner,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
+} from "./store-constants.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -43,14 +48,12 @@ export type WorkboardDispatchStartOptions = {
   provider?: string;
   ownerId?: string;
   boardId?: string;
+  maxConcurrentClaimsPerOwner?: number;
   now?: number;
   materializeWorktree?: boolean;
   resolveAgentWorkspace?: (agentId?: string) => string;
   resolveAgentWorkspaceRuntime?: ResolveAgentWorkspaceRuntime;
   workspaceAccess?: WorkboardWorkspaceAccess;
-  // Patch multicard-concurrency (Riko, 2026-08-31): cap on per-owner starts
-  // selected by this dispatch pass. Defaults to 10 (mirrors claim cap).
-  maxConcurrentClaimsPerOwner?: number;
 };
 
 type WorkboardStartedRun = {
@@ -234,16 +237,11 @@ function selectStartableCards(
   ownerOverride: string | undefined,
   now: number,
   mode: "scheduled" | "exact",
-  options?: { maxConcurrentClaimsPerOwner?: number },
+  maxConcurrentClaimsPerOwner: number = DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER,
 ): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } {
   if (limit <= 0) {
     return { cards: [] };
   }
-  // Patch multicard-concurrency (Riko, 2026-08-31): configurable cap replaces
-  // the upstream unary (>0) check. Upstream already counts per-owner running
-  // in `runningByOwner`; we extend it to enforce the cap and count this
-  // dispatch's selected cards toward it.
-  const maxConcurrentClaimsPerOwner = Math.max(1, options?.maxConcurrentClaimsPerOwner ?? 10);
   const runningByOwner = new Map<string, number>();
   for (const card of cards) {
     if (!workboardCardConsumesOwnerSlot(card, now)) {
@@ -254,11 +252,14 @@ function selectStartableCards(
   }
   const selected: WorkboardCard[] = [];
   const fallback: WorkboardCard[] = [];
-  const selectedOwners = new Set<string>();
+  // R4 (card f88f4ec9): an owner may hold up to maxConcurrentClaimsPerOwner
+  // concurrent slots instead of one; the per-pass start count is still capped
+  // by the caller's limit (maxStarts).
+  const selectedByOwner = new Map<string, number>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
-    const currentOwnerCount = runningByOwner.get(owner) ?? 0;
+    const ownerRunning = (runningByOwner.get(owner) ?? 0) + (selectedByOwner.get(owner) ?? 0);
     const rejection = cardIsArchived(card)
       ? "Card is archived; restore it before starting."
       : cardHasActiveClaim(card, now)
@@ -270,8 +271,8 @@ function selectStartableCards(
               card.status !== "todo" &&
               card.status !== "ready"
             ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-            : currentOwnerCount >= maxConcurrentClaimsPerOwner
-              ? `Owner ${owner} has ${currentOwnerCount} active Workboard claims (concurrency limit ${maxConcurrentClaimsPerOwner}).`
+            : ownerRunning >= maxConcurrentClaimsPerOwner
+              ? `Owner ${owner} already has ${ownerRunning} active Workboard work at the concurrency limit ${maxConcurrentClaimsPerOwner}; complete or stop one before starting another card.`
               : undefined;
     if (rejection !== undefined) {
       if (mode === "exact") {
@@ -282,13 +283,11 @@ function selectStartableCards(
       }
       continue;
     }
-    if (selectedOwners.has(owner)) {
+    if ((selectedByOwner.get(owner) ?? 0) >= maxConcurrentClaimsPerOwner) {
       fallback.push(card);
       continue;
     }
-    selectedOwners.add(owner);
-    // Count this selected card toward the cap for subsequent iterations.
-    runningByOwner.set(owner, currentOwnerCount + 1);
+    selectedByOwner.set(owner, (selectedByOwner.get(owner) ?? 0) + 1);
     selected.push(card);
   }
   // Try each owner before a failed owner's extra cards consume the outage budget.
@@ -337,6 +336,11 @@ async function runWorkboardDispatch(
   const cards = await params.store.list();
   const candidates = directCard ? [directCard] : await params.store.list({ boardId });
   const ownerOverride = params.options?.ownerId?.trim() || undefined;
+  const maxConcurrentClaimsPerOwner = normalizeMaxConcurrentClaimsPerOwner(
+    params.options?.maxConcurrentClaimsPerOwner,
+  );
+  // R4 (card f88f4ec9): track per-owner starts per pass against the same
+  // concurrency cap the claim fence enforces.
   const startedOwners = new Map<string, number>();
   // Allow one fallback per worker slot without draining the queue during an outage.
   const maxAttempts = maxStarts * 2;
@@ -350,9 +354,7 @@ async function runWorkboardDispatch(
     ownerOverride,
     now,
     directCardId ? "exact" : "scheduled",
-    {
-      maxConcurrentClaimsPerOwner: params.options?.maxConcurrentClaimsPerOwner ?? 10,
-    },
+    maxConcurrentClaimsPerOwner,
   );
   if (selection.rejection) {
     startFailures.push(selection.rejection);
@@ -362,7 +364,7 @@ async function runWorkboardDispatch(
     if (acceptedStarts >= maxStarts || attemptedStarts >= maxAttempts) {
       break;
     }
-    if ((startedOwners.get(ownerId) ?? 0) >= (params.options?.maxConcurrentClaimsPerOwner ?? 10)) {
+    if ((startedOwners.get(ownerId) ?? 0) >= maxConcurrentClaimsPerOwner) {
       continue;
     }
     const sessionKey = workboardSessionKeyForCard(card);
@@ -469,6 +471,7 @@ async function runWorkboardDispatch(
             workspaceAccess: card.metadata?.automation?.workspaceAccess,
           },
           adoptWorkspaceAccess: persistWorkspaceAccess ? workspaceAccess : undefined,
+          maxConcurrentClaimsPerOwner,
         },
       );
       claimValue = claimed.token;
