@@ -72,6 +72,10 @@ export const WORKBOARD_DIAGNOSTIC_KINDS = [
   "missing_proof",
   "orphaned_session",
   "archived_but_active",
+  // PATCH-80d44431 (backport 2026-09-03, card a3922b20): reclaim→done
+  // proof-stub enforcement — diagnostic emitted when reclaim→done lands with
+  // no proof row and no artifacts.
+  "done_without_proof",
 ] as const;
 export const WORKBOARD_DIAGNOSTIC_SEVERITIES = ["warning", "error", "critical"] as const;
 export const WORKBOARD_NOTIFICATION_KINDS = ["completed", "failed", "stale"] as const;
