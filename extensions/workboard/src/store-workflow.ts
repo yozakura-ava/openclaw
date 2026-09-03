@@ -19,6 +19,8 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
+  assertReviewIndependenceFromScope,
+  diagnostic,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
@@ -139,8 +141,19 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
-      if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
-        throw new Error("card dependencies are not done.");
+      if (!activeClaim && guarded.status !== "ready") {
+        // PATCH workboard-claim-dep-gate (card bd165865): replace the buggy
+        // `status !== "ready"` proxy with the actual every-parent-done
+        // predicate (shared helper on WorkboardCoreStore). The old proxy
+        // permanently trapped cards in review/running with expired claims
+        // because it never consulted parent status. Error text now names
+        // the unsatisfied parents so operators can see which link is open.
+        const { satisfied, notDoneIds } = await this.dependenciesSatisfied(guarded);
+        if (!satisfied) {
+          throw new Error(
+            `card dependencies are not done: parents ${notDoneIds.join(", ")} not done`,
+          );
+        }
       }
       if (guarded.status === "scheduled") {
         throw new Error("card is scheduled for later.");
@@ -296,6 +309,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       }
     }
     const proof = proofInput ? normalizeProofInput(proofInput, now) : undefined;
+    // PATCH-d16f9796 (backport): enforce review-independence invariant on
+    // completion-attached clearance (proof.status === "passed"). Reject
+    // same-namespace reviewer before any metadata mutation.
+    if (proof) {
+      assertReviewIndependenceFromScope(existing, scope === null ? undefined : scope, proof);
+    }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
           .map((artifact) => normalizeArtifact({ ...artifact, createdAt: now }))
@@ -488,13 +507,30 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             ? "ready"
             : existing.status
           : normalizeStatus(input.status, existing.status);
-      const reclaimed = await this.updateCard(
+      const reclaimed0 = await this.updateCard(
         id,
         {
           status: targetStatus,
           execution: existing.execution?.status === "running" ? null : existing.execution,
           metadata: {
             ...existing.metadata,
+            // PATCH-80d44431 (backport 2026-09-03, card a3922b20): reclaim→done
+            // must never silently complete without proof — attach a
+            // skipped-status proof stub when no proof exists.
+            ...(targetStatus === "done" && !existing.metadata?.proof?.length
+              ? {
+                  proof: [
+                    normalizeProofInput(
+                      {
+                        status: "skipped",
+                        label: "reclaim recovery",
+                        note: `reclaim recovery: ${reason}`,
+                      },
+                      now,
+                    ),
+                  ],
+                }
+              : {}),
             claim: undefined,
             attempts: closeRunningAttempts(existing.metadata?.attempts, now, "stopped", reason),
             comments: [
@@ -506,6 +542,31 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
         { enforceStatusHolds: true },
       );
+      // PATCH-80d44431 (backport): if a reclaim→done still lands with no proof
+      // row and no artifacts, emit a done_without_proof diagnostic.
+      let reclaimed = reclaimed0;
+      if (
+        reclaimed0.status === "done" &&
+        !reclaimed0.metadata?.proof?.length &&
+        !reclaimed0.metadata?.artifacts?.length
+      ) {
+        reclaimed = await this.updateMetadata(reclaimed0.id, (existing) => ({
+          ...existing.metadata,
+          diagnostics: [
+            ...(existing.metadata?.diagnostics ?? []),
+            diagnostic(
+              {
+                kind: "done_without_proof",
+                severity: "warning",
+                title: "Reclaim to done completed without proof",
+                detail: `reclaim recovery: ${reason}`,
+                actions: [{ kind: "add_proof", label: "Add proof" }],
+              },
+              now,
+            ),
+          ],
+        }));
+      }
       return await this.promoteDependencyReady(reclaimed.id, now);
     });
   }

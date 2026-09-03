@@ -8,6 +8,7 @@ import type {
 import type { PersistedWorkboardAttachment } from "./persistence-types.js";
 import {
   assertCanMutateClaimedCard,
+  assertReviewIndependenceFromScope,
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
@@ -45,6 +46,12 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
   ): Promise<WorkboardCard> {
     const now = Date.now();
     const proof = normalizeProofInput(input, now);
+    // PATCH-d16f9796 (backport): reject self-review clearances before mutation.
+    const existingCard = await this.get(id);
+    if (!existingCard) {
+      throw new Error(`card not found: ${id}`);
+    }
+    assertReviewIndependenceFromScope(existingCard, scope === null ? undefined : scope, proof);
     return await this.updateMetadata(
       id,
       (existing) => {
@@ -67,6 +74,12 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
   ): Promise<WorkboardCard> {
     const now = Date.now();
     const proof = normalizeProofInput(proofInput, now);
+    // PATCH-d16f9796 (backport): reject self-review clearances before mutation.
+    const existingCard = await this.get(id);
+    if (!existingCard) {
+      throw new Error(`card not found: ${id}`);
+    }
+    assertReviewIndependenceFromScope(existingCard, scope === null ? undefined : scope, proof);
     const artifact = normalizeArtifact({ ...artifactInput, createdAt: now });
     if (!artifact) {
       throw new Error("artifact url or path is required.");

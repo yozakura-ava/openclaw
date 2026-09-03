@@ -1,0 +1,146 @@
+{
+  "timestamp": "2026-09-03T19:06:59.584168+00:00",
+  "workspace": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate",
+  "files_checked": 6,
+  "checks_total": 15,
+  "checks_passed": 9,
+  "checks_failed": 6,
+  "checks_skipped": 1,
+  "overall": "FAIL",
+  "results": [
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "eslint",
+      "file": "(all)",
+      "cmd": "eslint",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "No eslint config found \u2014 skipped",
+      "passed": true,
+      "skipped": true
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": 134,
+      "stdout": "",
+      "stderr": "<--- Last few GCs --->\n\n[700737:0x1ec2e000]    17128 ms: Scavenge (interleaved) 2028.6 (2075.2) -> 2025.9 (2076.4) MB, pooled: 0 MB, 14.72 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n[700737:0x1ec2e000]    17173 ms: Scavenge (interleaved) 2029.8 (2076.7) -> 2028.2 (2096.4) MB, pooled: 0 MB, 30.13 / 0.00 ms  (average mu = 0.446, current mu = 0.187) allocation failure; \n\n\n<--- JS stacktrace --->\n\nFATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n----- Native stack trace -----\n\n 1: 0xe46bbe node::OOMErrorHandler(char const*, v8::OOMDetails const&) [node]\n 2: 0x1244310 v8::Utils::ReportOOMFailure(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 3: 0x12445e7 v8::internal::V8::FatalProcessOutOfMemory(v8::internal::Isolate*, char const*, v8::OOMDetails const&) [node]\n 4: 0x14734f5  [node]\n 5: 0x148cd89 v8::internal::Heap::CollectGarbage(v8::internal::AllocationSpace, v8::internal::GarbageCollectionReason, v8::GCCallbackFlags) [node]\n 6: 0x1461488 v8::internal::HeapAllocator::AllocateRawWithLightRetrySlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 7: 0x14623b5 v8::internal::HeapAllocator::AllocateRawWithRetryOrFailSlowPath(int, v8::internal::AllocationType, v8::internal::AllocationOrigin, v8::internal::AllocationAlignment) [node]\n 8: 0x143afbe v8::internal::Factory::NewFillerObject(int, v8::internal::AllocationAlignment, v8::internal::AllocationType, v8::internal::AllocationOrigin) [node]\n 9: 0x189d8cc v8::internal::Runtime_AllocateInYoungGeneration(int, unsigned long*, v8::internal::Isolate*) [node]\n10: 0x7f70bee6caf6 \nAborted (core dumped)",
+      "passed": false
+    },
+    {
+      "check": "path_constant_consistency",
+      "passed": true,
+      "stdout": "All path constants consistent"
+    },
+    {
+      "check": "unwired_function",
+      "passed": true,
+      "stdout": "All functions wired"
+    }
+  ]
+}
