@@ -47,11 +47,11 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
     const now = Date.now();
     const proof = normalizeProofInput(input, now);
     // PATCH-d16f9796 (backport): reject self-review clearances before mutation.
-    assertReviewIndependenceFromScope(
-      await this.get(id),
-      scope === null ? undefined : scope,
-      proof,
-    );
+    const existingCard = await this.get(id);
+    if (!existingCard) {
+      throw new Error(`card not found: ${id}`);
+    }
+    assertReviewIndependenceFromScope(existingCard, scope === null ? undefined : scope, proof);
     return await this.updateMetadata(
       id,
       (existing) => {
@@ -75,11 +75,11 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
     const now = Date.now();
     const proof = normalizeProofInput(proofInput, now);
     // PATCH-d16f9796 (backport): reject self-review clearances before mutation.
-    assertReviewIndependenceFromScope(
-      await this.get(id),
-      scope === null ? undefined : scope,
-      proof,
-    );
+    const existingCard = await this.get(id);
+    if (!existingCard) {
+      throw new Error(`card not found: ${id}`);
+    }
+    assertReviewIndependenceFromScope(existingCard, scope === null ? undefined : scope, proof);
     const artifact = normalizeArtifact({ ...artifactInput, createdAt: now });
     if (!artifact) {
       throw new Error("artifact url or path is required.");

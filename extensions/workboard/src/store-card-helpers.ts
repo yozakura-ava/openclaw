@@ -376,7 +376,7 @@ export function assertReviewIndependenceFromScope(
   proof: { status?: string } | undefined,
 ): void {
   if (!proof || proof.status !== "passed") return;
-  const scopeObj = scope && typeof scope === "object" ? scope : null;
+  const scopeObj = scope && typeof scope === "object" ? (scope as Record<string, unknown>) : null;
   if (!scopeObj) return;
   const callerKey =
     typeof scopeObj.sessionKey === "string" && scopeObj.sessionKey

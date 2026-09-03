@@ -1,0 +1,146 @@
+{
+  "timestamp": "2026-09-03T19:07:38.044952+00:00",
+  "workspace": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate",
+  "files_checked": 6,
+  "checks_total": 15,
+  "checks_passed": 9,
+  "checks_failed": 6,
+  "checks_skipped": 1,
+  "overall": "FAIL",
+  "results": [
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "node_check",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "cmd": "node --check /root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "passed": true
+    },
+    {
+      "check": "eslint",
+      "file": "(all)",
+      "cmd": "eslint",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "No eslint config found \u2014 skipped",
+      "passed": true,
+      "skipped": true
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-workflow.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-enrichment.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/store-card-helpers.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/sqlite-store.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/packages/workboard-contract/src/index.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "tsc_typecheck",
+      "file": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/extensions/workboard/src/backport-restart-trio.test.ts",
+      "tsconfig": "/root/.openclaw/openclaw-canonical/.worktrees/bd165865-claim-dep-gate/tsconfig.json",
+      "cmd": "npx tsc --noEmit",
+      "exit_code": -1,
+      "stdout": "",
+      "stderr": "Timeout after 30s",
+      "passed": false
+    },
+    {
+      "check": "path_constant_consistency",
+      "passed": true,
+      "stdout": "All path constants consistent"
+    },
+    {
+      "check": "unwired_function",
+      "passed": true,
+      "stdout": "All functions wired"
+    }
+  ]
+}

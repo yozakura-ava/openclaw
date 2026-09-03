@@ -550,10 +550,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         !reclaimed0.metadata?.proof?.length &&
         !reclaimed0.metadata?.artifacts?.length
       ) {
-        reclaimed = await this.updateMetadata(reclaimed0.id, (metadata) => ({
-          ...metadata,
+        reclaimed = await this.updateMetadata(reclaimed0.id, (existing) => ({
+          ...existing.metadata,
           diagnostics: [
-            ...(metadata.diagnostics ?? []),
+            ...(existing.metadata?.diagnostics ?? []),
             diagnostic(
               {
                 kind: "done_without_proof",
