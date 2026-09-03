@@ -940,6 +940,27 @@ export class WorkboardCoreStore {
     return next;
   }
 
+  // Centralized every-parent-done predicate shared by assertActiveStatusAllowed
+  // and claim() (store-workflow.ts). Previously each call site evaluated parent
+  // status independently, and claim() used `status !== "ready"` as a proxy
+  // that never consulted parent status — trapping any card with parents whose
+  // status was review/running once its claim TTL expired (card bd165865).
+  // Returns the unsatisfied parent ids so callers can produce an error message
+  // that names them (helps operators diagnose stuck-card chains quickly).
+  // A parent id missing from the store yields status !== "done" → unsatisfied,
+  // which preserves the prior "missing parent is a hard reject" outcome.
+  protected async dependenciesSatisfied(
+    card: WorkboardCard,
+  ): Promise<{ satisfied: boolean; notDoneIds: string[] }> {
+    const parents = cardParentIds(card);
+    if (parents.length === 0) {
+      return { satisfied: true, notDoneIds: [] };
+    }
+    const cards = new Map((await this.list()).map((c) => [c.id, c]));
+    const notDoneIds = parents.filter((parentId) => cards.get(parentId)?.status !== "done");
+    return { satisfied: notDoneIds.length === 0, notDoneIds };
+  }
+
   private async assertActiveStatusAllowed(
     existing: WorkboardCard,
     next: WorkboardCard,
@@ -953,14 +974,9 @@ export class WorkboardCoreStore {
     ) {
       return;
     }
-    const parents = cardParentIds(next);
-    const cards =
-      parents.length > 0 ? new Map((await this.list()).map((card) => [card.id, card])) : undefined;
-    if (
-      parents.length > 0 &&
-      !parents.every((parentId) => cards?.get(parentId)?.status === "done")
-    ) {
-      throw new Error("card dependencies are not done.");
+    const { satisfied, notDoneIds } = await this.dependenciesSatisfied(next);
+    if (!satisfied) {
+      throw new Error(`card dependencies are not done: parents ${notDoneIds.join(", ")} not done`);
     }
     if (next.status === "done") {
       return;

@@ -139,8 +139,19 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
-      if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
-        throw new Error("card dependencies are not done.");
+      if (!activeClaim && guarded.status !== "ready") {
+        // PATCH workboard-claim-dep-gate (card bd165865): replace the buggy
+        // `status !== "ready"` proxy with the actual every-parent-done
+        // predicate (shared helper on WorkboardCoreStore). The old proxy
+        // permanently trapped cards in review/running with expired claims
+        // because it never consulted parent status. Error text now names
+        // the unsatisfied parents so operators can see which link is open.
+        const { satisfied, notDoneIds } = await this.dependenciesSatisfied(guarded);
+        if (!satisfied) {
+          throw new Error(
+            `card dependencies are not done: parents ${notDoneIds.join(", ")} not done`,
+          );
+        }
       }
       if (guarded.status === "scheduled") {
         throw new Error("card is scheduled for later.");
