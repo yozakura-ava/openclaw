@@ -157,13 +157,27 @@ export class WorkboardCoreStore {
       stores.attachments ?? (store as unknown as WorkboardKeyedStore<PersistedWorkboardAttachment>);
     this.forceCloseAuditPath =
       stores.forceCloseAuditPath ?? DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH;
+    // Replacement semantics (Aug 24 runbook, card 32d1c50d REWORK gap #3):
+    // when the operator explicitly passes forceCloseAllowedAgents or
+    // forceCloseOperatorIds (typically via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS),
+    // the env-supplied list replaces the built-in default — it does NOT
+    // merge. This matches the runbook's "env replaces default" contract
+    // and keeps a misconfigured allowlist from silently widening access via
+    // the default fallbacks. When no override is supplied, the default is
+    // used unchanged.
     this.forceCloseAllowedAgents = new Set(
-      [...DEFAULT_FORCE_CLOSE_AGENTS, ...(stores.forceCloseAllowedAgents ?? [])]
+      (stores.forceCloseAllowedAgents && stores.forceCloseAllowedAgents.length > 0
+        ? stores.forceCloseAllowedAgents
+        : DEFAULT_FORCE_CLOSE_AGENTS
+      )
         .map((agent) => agent.trim().toLowerCase())
         .filter(Boolean),
     );
     this.forceCloseOperatorIds = new Set(
-      [...DEFAULT_FORCE_CLOSE_OPERATORS, ...(stores.forceCloseOperatorIds ?? [])]
+      (stores.forceCloseOperatorIds && stores.forceCloseOperatorIds.length > 0
+        ? stores.forceCloseOperatorIds
+        : DEFAULT_FORCE_CLOSE_OPERATORS
+      )
         .map((agent) => agent.trim().toLowerCase())
         .filter(Boolean),
     );
@@ -530,11 +544,25 @@ export class WorkboardCoreStore {
     let oldestReadyAt: number | undefined;
     let updatedAt: number | undefined;
     let archived = 0;
+    // Force-close partition (card 32d1c50d, restored from commit a0cf0f66c72).
+    // Done cards with closureType === "force_close" go to `forceClosed`; all
+    // other done cards (regular verified completions) go to `verifiedDone`.
+    // A force-closed card is operator-supervised work — it must NEVER inflate
+    // verifiedDone, so the two counters are disjoint and exhaustive on done.
+    let verifiedDone = 0;
+    let forceClosed = 0;
     for (const card of cards) {
       byStatus[card.status] = (byStatus[card.status] ?? 0) + 1;
       byAgent[card.agentId ?? "(default)"] = (byAgent[card.agentId ?? "(default)"] ?? 0) + 1;
       if (card.metadata?.archivedAt) {
         archived += 1;
+      }
+      if (card.status === "done") {
+        if (card.metadata?.closureType === "force_close") {
+          forceClosed += 1;
+        } else {
+          verifiedDone += 1;
+        }
       }
       if (card.status === "ready" && !card.metadata?.archivedAt) {
         oldestReadyAt = Math.min(oldestReadyAt ?? card.updatedAt, card.updatedAt);
@@ -546,6 +574,8 @@ export class WorkboardCoreStore {
       total: cards.length,
       active: cards.length - archived,
       archived,
+      verifiedDone,
+      forceClosed,
       byStatus,
       byAgent,
       ...(oldestReadyAt ? { oldestReadyAgeMs: Math.max(0, now - oldestReadyAt) } : {}),

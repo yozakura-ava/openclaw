@@ -441,4 +441,103 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     // closureType is NOT set on regular completions — only on force-closes.
     expect(after?.metadata?.closureType).toBeUndefined();
   });
+
+  it("stats() partitions done cards into verifiedDone + forceClosed (REWORK gap #1)", async () => {
+    const store = buildStore();
+    await seedCard(store, cards, "card-vd-1", "ready");
+    await seedCard(store, cards, "card-vd-2", "ready");
+    await seedCard(store, cards, "card-fc-1", "ready");
+    // Two regular completions (via tsubaki claim → regular complete path).
+    for (const id of ["card-vd-1", "card-vd-2"]) {
+      await store.claim(id, { ownerId: "tsubaki", ttlSeconds: 60 }, "tsubaki");
+      await store.complete(
+        id,
+        { summary: `Verified completion for ${id}.` },
+        { ownerId: "tsubaki" },
+      );
+    }
+    // One force-close (avA, invalid reason).
+    await store.forceClose(
+      "card-fc-1",
+      { reasonCode: "invalid", explanation: "Operator force-close for stats-test fixture." },
+      "ava",
+    );
+    // One ready card untouched.
+    await seedCard(store, cards, "card-still-ready", "ready");
+
+    const stats = await store.stats();
+    expect(stats.verifiedDone).toBe(2);
+    expect(stats.forceClosed).toBe(1);
+    // The two counters are disjoint and sum to total done cards.
+    expect((stats.verifiedDone ?? 0) + (stats.forceClosed ?? 0)).toBe(3);
+    // Other metrics unchanged: 4 total, 4 active, 0 archived.
+    expect(stats.total).toBe(4);
+    expect(stats.active).toBe(4);
+    expect(stats.archived).toBe(0);
+  });
+
+  it("uses REPLACEMENT semantics when forceCloseAllowedAgents is supplied (REWORK gap #3)", async () => {
+    // When the operator passes forceCloseAllowedAgents, that list REPLACES
+    // the built-in default ['ava'] rather than merging — matches the Aug 24
+    // runbook. The default agent ('ava') must therefore fail to force-close
+    // when a non-ava-only allowlist is configured.
+    const store = buildStore({ allowedAgents: ["operator-x"] });
+    await seedCard(store, cards, "card-replaced", "ready");
+
+    // ava is the built-in default but is NOT in the override list — must reject.
+    await expect(
+      store.forceClose(
+        "card-replaced",
+        { reasonCode: "invalid", explanation: "Test replacement semantics fixture." },
+        "ava",
+      ),
+    ).rejects.toThrow(/force-close is orchestrator-only/);
+
+    // operator-x is in the override allowlist — must succeed.
+    await expect(
+      store.forceClose(
+        "card-replaced",
+        { reasonCode: "invalid", explanation: "Override allowlist accepts operator-x." },
+        "operator-x",
+      ),
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+  });
+
+  it("falls back to the built-in default when the override list is empty (REWORK gap #3)", async () => {
+    // Empty / whitespace-only override arrays must NOT silently widen the
+    // allowlist — the store treats them as "no override supplied" and uses
+    // the built-in default. This matches the runbook's "env replaces"
+    // wording: an empty env is no env at all.
+    const store = buildStore({ allowedAgents: [] });
+    await seedCard(store, cards, "card-empty-override", "ready");
+    await expect(
+      store.forceClose(
+        "card-empty-override",
+        { reasonCode: "invalid", explanation: "Empty override keeps the default avA agent." },
+        "ava",
+      ),
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+  });
+
+  it("operator IDs are also REPLACEMENT (Aug 24 runbook, card 32d1c50d)", async () => {
+    // Replacing operators entirely: drop craig and add a custom operator.
+    // Craig must therefore be rejected (he was in the built-in default) but
+    // the custom operator must succeed — proves replacement semantics.
+    const store = buildStore({ operatorIds: ["operator-only"] });
+    await seedCard(store, cards, "card-craig-replaced", "ready");
+    await expect(
+      store.forceClose(
+        "card-craig-replaced",
+        { reasonCode: "invalid", explanation: "Craig rejected after operator replacement." },
+        "craig",
+      ),
+    ).rejects.toThrow(/force-close is orchestrator-only/);
+    await expect(
+      store.forceClose(
+        "card-craig-replaced",
+        { reasonCode: "invalid", explanation: "Custom operator-only succeeds." },
+        "operator-only",
+      ),
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+  });
 });
