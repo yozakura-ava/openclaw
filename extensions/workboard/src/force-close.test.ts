@@ -540,4 +540,20 @@ describe("workboard_force_close (card 32d1c50d)", () => {
       ),
     ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
   });
+
+  it("registers workboard_force_close in WORKBOARD_TOOL_NAMES so the gateway enumerates it (regression for 2026-09-04 runtime-exposure bug)", async () => {
+    // This is a build-time invariant the gateway depends on: WORKBOARD_TOOL_NAMES
+    // is the list passed to api.registerTool({ names: [...WORKBOARD_TOOL_NAMES] }) in
+    // extensions/workboard/index.ts. A tool NOT in this list is filtered out of the
+    // callable tool index even though its definition ships in the bundle. The Aug 24
+    // force_close implementation was lost from infrastructure for the same kind of
+    // gap on the 2026-08-24 integration; this test pins the invariant going forward.
+    const { WORKBOARD_TOOL_NAMES } = await import("./workspace-access.js");
+    expect(WORKBOARD_TOOL_NAMES).toContain("workboard_force_close");
+    // Sanity: every entry is a string and non-empty.
+    for (const name of WORKBOARD_TOOL_NAMES) {
+      expect(typeof name).toBe("string");
+      expect(name.length).toBeGreaterThan(0);
+    }
+  });
 });
