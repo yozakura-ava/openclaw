@@ -637,13 +637,26 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return buildWorkerContext(card, await this.list());
   }
 
-  static openSqlite() {
+  static openSqlite(options?: {
+    forceCloseAuditPath?: string;
+    forceCloseAllowedAgents?: string[];
+    forceCloseOperatorIds?: string[];
+    activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
+  }) {
     const stores = createWorkboardSqliteStores();
     return new WorkboardStore(stores.cards, {
       boards: stores.boards,
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
       dataVersion: stores.dataVersion,
+      ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
+      ...(options?.forceCloseAllowedAgents
+        ? { forceCloseAllowedAgents: options.forceCloseAllowedAgents }
+        : {}),
+      ...(options?.forceCloseOperatorIds
+        ? { forceCloseOperatorIds: options.forceCloseOperatorIds }
+        : {}),
+      ...(options?.activeRunLookup ? { activeRunLookup: options.activeRunLookup } : {}),
     });
   }
 }

@@ -321,6 +321,17 @@ export type WorkboardBoardSummary = {
   byStatus: Partial<Record<WorkboardStatus, number>>;
   updatedAt?: number;
   archivedAt?: number;
+  /**
+   * Force-close metrics (card 32d1c50d, restored from commit a0cf0f66c72).
+   * `verifiedDone` counts regular done completions; `forceClosed` counts
+   * cards transitioned to done via the workboard_force_close orchestrator
+   * override (cards with `metadata.closureType === "force_close"`).
+   * Together they partition all done cards so dashboards can distinguish
+   * verified work from operator-closed work — force-closed cards must
+   * NEVER count as verified work in any aggregation.
+   */
+  verifiedDone?: number;
+  forceClosed?: number;
 };
 
 export type WorkboardOrchestrationSettings = {
@@ -364,6 +375,14 @@ export type WorkboardMetadata = {
   stale?: WorkboardStaleState;
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
+  /**
+   * Set when a card is moved to `done` via the workboard_force_close
+   * orchestrator-only escape hatch (card 32d1c50d). The single allowed
+   * value is "force_close"; a regular completion leaves this unset so
+   * `forceClosed` and `verifiedDone` metrics stay disjoint. The append-only
+   * audit trail lives at `data/workboard/force-closes.jsonl`.
+   */
+  closureType?: "force_close";
 };
 
 export type WorkboardCard = {
