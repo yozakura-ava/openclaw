@@ -11,6 +11,7 @@ import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { WorkboardStore } from "./store.js";
+import { WORKBOARD_TOOL_NAMES } from "./workspace-access.js";
 
 function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
   const entries = new Map<string, T>();
@@ -670,5 +671,51 @@ describe("workboard_force_close (card 32d1c50d)", () => {
       expect(typeof name).toBe("string");
       expect(name.length).toBeGreaterThan(0);
     }
+  });
+
+  it("declares workboard_force_close in the plugin manifest contracts.tools (card 32d1c50d live-fix, gateway-core tool-policy layer)", () => {
+    // Regression for the gateway-core layer that the WORKBOARD_TOOL_NAMES
+    // test cannot catch on its own. The plugin registry's registerTool body
+    // (src/plugins/registry-registrars-tools-hooks.ts) calls
+    // findUndeclaredPluginToolNames({ declaredNames: contracts.tools,
+    // toolNames: WORKBOARD_TOOL_NAMES }) and EARLY-RETURNS (rejecting the
+    // whole registration, surfacing ZERO workboard tools to agent sessions)
+    // if any registered name isn't in contracts.tools. So WORKBOARD_TOOL_NAMES
+    // and contracts.tools must stay in lockstep — otherwise a runtime tool
+    // listed by the plugin but missing from the manifest contract silently
+    // kills the entire plugin's tool surface.
+    //
+    // Failure mode (proven 2026-09-04 18:55 EDT, after PR #5 live-fix landed):
+    // - WORKBOARD_TOOL_NAMES added workboard_force_close (correct)
+    // - openclaw.plugin.json contracts.tools still missing force_close (regression)
+    // - fresh himari main session + isolated subagent both reported ZERO workboard_* tools
+    // - root cause: gateway-core filter rejected the entire plugin registration
+    //
+    // Both canonical source manifest AND deployed manifest must include force_close.
+    const canonicalManifestPath = path.resolve(
+      __dirname,
+      "..",
+      "openclaw.plugin.json"
+    );
+    const canonical = JSON.parse(
+      fs.readFileSync(canonicalManifestPath, "utf8")
+    ) as {
+      id: string;
+      contracts: { tools: string[] };
+      toolMetadata?: Record<string, { optional?: boolean }>;
+    };
+    expect(canonical.id).toBe("workboard");
+    expect(canonical.contracts.tools).toContain("workboard_force_close");
+    // Every runtime tool name must be declared in contracts.tools — otherwise
+    // the gateway-core filter rejects the entire plugin registration.
+    const declared = new Set(canonical.contracts.tools);
+    const undeclared = WORKBOARD_TOOL_NAMES.filter((name) => !declared.has(name));
+    expect(
+      undeclared,
+      `${canonicalManifestPath}: tools in WORKBOARD_TOOL_NAMES but missing from contracts.tools: ${undeclared.join(", ")}. ` +
+        `Gateway-core registerTool will reject the entire plugin (zero tools visible to agent sessions) if any name is undeclared.`,
+    ).toEqual([]);
+    // toolMetadata entry must exist with optional:true (matches sibling entries).
+    expect(canonical.toolMetadata?.["workboard_force_close"]).toEqual({ optional: true });
   });
 });
