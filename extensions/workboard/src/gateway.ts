@@ -158,6 +158,25 @@ export function registerWorkboardGatewayMethods(params: {
         redactCardResult(store.complete(readId(requestParams), requestParams, null)),
     ],
     [
+      "workboard.cards.forceClose",
+      WRITE_SCOPE,
+      async ({ params: requestParams }) =>
+        redactCardResult(
+          store.forceClose(
+            readId(requestParams),
+            {
+              token: requestParams.token,
+              reasonCode: requestParams.reason_code,
+              explanation: requestParams.explanation,
+              referenceCardId: requestParams.reference_card_id,
+            },
+            typeof requestParams.agent_id === "string"
+              ? requestParams.agent_id
+              : undefined,
+          ),
+        ),
+    ],
+    [
       "workboard.cards.block",
       WRITE_SCOPE,
       ({ params: requestParams }) =>

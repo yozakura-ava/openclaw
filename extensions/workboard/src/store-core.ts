@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type {
   WorkboardBoardMetadata,
   WorkboardChange,
@@ -42,6 +44,9 @@ import {
   sameWorkboardCardState,
 } from "./store-compensation.js";
 import {
+  DEFAULT_FORCE_CLOSE_AGENTS,
+  DEFAULT_FORCE_CLOSE_OPERATORS,
+  DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH,
   MAX_CARD_COMMENTS,
   MAX_CARD_WORKER_LOGS,
   POSITION_STEP,
@@ -110,6 +115,17 @@ export class WorkboardCoreStore {
   protected readonly boardStore: WorkboardKeyedStore<PersistedWorkboardBoard>;
   protected readonly subscriptionStore: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   protected readonly attachmentStore: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  // Force-close plumbing (card 32d1c50d, restored from commit a0cf0f66c72).
+  // The audit path is created lazily on first append; allowed agents/operators
+  // default to the constants exported from store-constants.ts (Riko: replacing,
+  // not extending, matches the runbook caveat flagged in the 2026-08-24 18:02
+  // validation session — wire additional agents via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS).
+  // The activeRunLookup is the integration point for the BQES / DBOS queue so
+  // force-close can refuse cards with an in-flight durable run.
+  protected readonly forceCloseAuditPath: string;
+  protected readonly forceCloseAllowedAgents: Set<string>;
+  protected readonly forceCloseOperatorIds: Set<string>;
+  protected readonly activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
 
   constructor(
     store: WorkboardKeyedStore,
@@ -118,6 +134,10 @@ export class WorkboardCoreStore {
       subscriptions?: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
       attachments?: WorkboardKeyedStore<PersistedWorkboardAttachment>;
       dataVersion?: () => number;
+      forceCloseAuditPath?: string;
+      forceCloseAllowedAgents?: string[];
+      forceCloseOperatorIds?: string[];
+      activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
     } = {},
   ) {
     this.changes = new WorkboardChangeTracker(stores.dataVersion);
@@ -135,6 +155,63 @@ export class WorkboardCoreStore {
       (store as unknown as WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>);
     this.attachmentStore =
       stores.attachments ?? (store as unknown as WorkboardKeyedStore<PersistedWorkboardAttachment>);
+    this.forceCloseAuditPath =
+      stores.forceCloseAuditPath ?? DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH;
+    // Replacement semantics (Aug 24 runbook, card 32d1c50d REWORK gap #3):
+    // when the operator explicitly passes forceCloseAllowedAgents or
+    // forceCloseOperatorIds (typically via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS),
+    // the env-supplied list replaces the built-in default — it does NOT
+    // merge. This matches the runbook's "env replaces default" contract
+    // and keeps a misconfigured allowlist from silently widening access via
+    // the default fallbacks. When no override is supplied, the default is
+    // used unchanged.
+    this.forceCloseAllowedAgents = new Set(
+      (stores.forceCloseAllowedAgents && stores.forceCloseAllowedAgents.length > 0
+        ? stores.forceCloseAllowedAgents
+        : DEFAULT_FORCE_CLOSE_AGENTS
+      )
+        .map((agent) => agent.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    this.forceCloseOperatorIds = new Set(
+      (stores.forceCloseOperatorIds && stores.forceCloseOperatorIds.length > 0
+        ? stores.forceCloseOperatorIds
+        : DEFAULT_FORCE_CLOSE_OPERATORS
+      )
+        .map((agent) => agent.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    this.activeRunLookup = stores.activeRunLookup;
+  }
+
+  /**
+   * Append a single audit entry to the configured force-closes JSONL file
+   * (card 32d1c50d). The directory is created on demand at mode 0700 and
+   * the file is re-chmod'd to 0600 on every write so a later process
+   * cannot silently widen read access. Failures here are propagated — the
+   * caller treats the audit append as part of the force-close transaction
+   * and surfaces the error to the orchestrator (no silent skip).
+   */
+  protected appendForceCloseAudit(entry: {
+    ts: string;
+    agent_id: string;
+    card_id: string;
+    reason_code: string;
+    explanation: string;
+    reference_card_id: string | null;
+    prior_status: string;
+    dbos_run_id: string | null;
+  }): void {
+    const directory = path.dirname(this.forceCloseAuditPath);
+    fs.mkdirSync(directory, { recursive: true, mode: 448 });
+    fs.appendFileSync(
+      this.forceCloseAuditPath,
+      `${JSON.stringify(entry)}\n`,
+      { encoding: "utf8", mode: 384 },
+    );
+    if (process.platform !== "win32") {
+      fs.chmodSync(this.forceCloseAuditPath, 384);
+    }
   }
 
   subscribeChanges(listener: (change: WorkboardChange) => void): () => void {
@@ -467,11 +544,25 @@ export class WorkboardCoreStore {
     let oldestReadyAt: number | undefined;
     let updatedAt: number | undefined;
     let archived = 0;
+    // Force-close partition (card 32d1c50d, restored from commit a0cf0f66c72).
+    // Done cards with closureType === "force_close" go to `forceClosed`; all
+    // other done cards (regular verified completions) go to `verifiedDone`.
+    // A force-closed card is operator-supervised work — it must NEVER inflate
+    // verifiedDone, so the two counters are disjoint and exhaustive on done.
+    let verifiedDone = 0;
+    let forceClosed = 0;
     for (const card of cards) {
       byStatus[card.status] = (byStatus[card.status] ?? 0) + 1;
       byAgent[card.agentId ?? "(default)"] = (byAgent[card.agentId ?? "(default)"] ?? 0) + 1;
       if (card.metadata?.archivedAt) {
         archived += 1;
+      }
+      if (card.status === "done") {
+        if (card.metadata?.closureType === "force_close") {
+          forceClosed += 1;
+        } else {
+          verifiedDone += 1;
+        }
       }
       if (card.status === "ready" && !card.metadata?.archivedAt) {
         oldestReadyAt = Math.min(oldestReadyAt ?? card.updatedAt, card.updatedAt);
@@ -483,6 +574,8 @@ export class WorkboardCoreStore {
       total: cards.length,
       active: cards.length - archived,
       archived,
+      verifiedDone,
+      forceClosed,
       byStatus,
       byAgent,
       ...(oldestReadyAt ? { oldestReadyAgeMs: Math.max(0, now - oldestReadyAt) } : {}),

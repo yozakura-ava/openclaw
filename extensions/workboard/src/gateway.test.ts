@@ -66,6 +66,7 @@ describe("workboard gateway methods", () => {
       "workboard.cards.reassign",
       "workboard.cards.reclaim",
       "workboard.cards.complete",
+      "workboard.cards.forceClose",
       "workboard.cards.block",
       "workboard.cards.unblock",
       "workboard.cards.bulk",
