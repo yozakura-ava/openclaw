@@ -458,6 +458,7 @@ export const sharedVitestConfig = {
       sourcePackageAlias("session-url-contract", "share-build"),
       sourcePackageAlias("session-url-contract"),
       sourcePackageAlias("workboard-contract"),
+      sourcePackageAlias("execution-contract"),
       ...sourcePackageAliasesFromExports("acp-core", acpCorePackageJson.exports),
       ...sourcePluginSdkSubpaths.map((subpath) => ({
         find: `openclaw/plugin-sdk/${subpath}`,

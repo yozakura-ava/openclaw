@@ -58,6 +58,7 @@ export type WorkboardCardStore = WorkboardKeyedStore & {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    maxConcurrentClaims: number,
   ): Promise<WorkboardOwnerClaimResult>;
   listBoardAggregates(): Promise<WorkboardBoardCardAggregate[]>;
 };

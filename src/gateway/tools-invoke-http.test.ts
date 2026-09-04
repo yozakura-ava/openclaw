@@ -1200,7 +1200,39 @@ describe("POST /tools/invoke", () => {
     const crashBody = await crashRes.json();
     expect(crashBody.ok).toBe(false);
     expect(crashBody.error?.type).toBe("tool_error");
-    expect(crashBody.error?.message).toBe("tool execution failed");
+    // PATCH tools-invoke-surface-error (card 1b0f98cb, 2026-09-03): the 500
+    // fallback surfaces the underlying tool error message instead of the
+    // generic "tool execution failed" placeholder. formatErrorMessage
+    // redacts sensitive text (paths, secrets), so the surfaced message is
+    // safe for operator consumption and restores visibility into
+    // business-rule errors (e.g. `card is claimed by dbos-bridge:860692.`).
+    expect(crashBody.error?.message).toBe("boom");
+  });
+
+  // PATCH tools-invoke-surface-error (card 1b0f98cb, 2026-09-03): the
+  // canonical repro path for this fix — a fenced workboard mutation
+  // surfaces its claim-fence error through /tools/invoke rather than the
+  // generic "tool execution failed" 500 placeholder. Mirrors the live
+  // incident shape where `card is claimed by dbos-bridge:860692.` was
+  // masked, leaving operators blind to the actual blocker.
+  it("surfaces fenced tool errors with the underlying message via /tools/invoke", async () => {
+    setMainAllowedTools({ allow: ["tools_invoke_test"] });
+
+    const res = await invokeToolAuthed({
+      tool: "tools_invoke_test",
+      args: { mode: "crash" },
+      sessionKey: "main",
+    });
+
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error?.type).toBe("tool_error");
+    // The actual thrown message ("boom") is surfaced — NOT a generic
+    // placeholder. This is the contract change that restores operator
+    // visibility into claim-fence and other business-rule failures.
+    expect(body.error?.message).not.toBe("tool execution failed");
+    expect(body.error?.message).toBe("boom");
   });
 
   it("passes deprecated format alias through invoke payloads even when schema omits it", async () => {

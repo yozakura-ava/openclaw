@@ -650,7 +650,7 @@ function normalizeComment(value: unknown): WorkboardComment | null {
   }
   const record = value;
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(record.body, undefined, 4096, "comment body");
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
@@ -982,44 +982,50 @@ export function normalizeProofInput(input: WorkboardProofInput, now: number): Wo
   };
 }
 
-function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): boolean {
-  return (["label", "command", "url", "note"] as const).some(
-    (field) => completion[field] !== undefined && completion[field] !== existing[field],
-  );
+function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): string[] {
+  // PATCH proofid-only-fix: return the list of mismatching fields so the caller
+  // can name them in the surfaced error. Empty array means no conflict.
+  const mismatched: string[] = [];
+  for (const field of ["label", "command", "url", "note"] as const) {
+    if (completion[field] !== undefined && completion[field] !== existing[field]) {
+      mismatched.push(field);
+    }
+  }
+  return mismatched;
 }
 
 export function appendCompletionProof(
   existing: readonly WorkboardProof[] | undefined,
-  proof: WorkboardProof | undefined,
+  proof: WorkboardProof,
   proofId?: string,
 ): WorkboardProof[] {
   const entries = [...(existing ?? [])];
   if (!proofId) {
-    return proof ? [...entries, proof].slice(-MAX_CARD_PROOF) : entries;
+    return [...entries, proof].slice(-MAX_CARD_PROOF);
   }
   const index = entries.findIndex((entry) => entry.id === proofId);
   const pending = index >= 0 ? entries[index] : undefined;
   if (!pending) {
     throw new Error(`proof not found: ${proofId}`);
   }
-  const completionProof = proof ?? pending;
-  if (completionProof.status === "unknown") {
+  if (proof.status === "unknown") {
+    throw new Error("completion proof status must be passed, failed, or skipped.");
+  }
+  const conflicts = completionProofConflicts(pending, proof);
+  if (conflicts.length > 0) {
     throw new Error(
-      proof
-        ? "completion proof status must be passed, failed, or skipped."
-        : "proof is required to resolve a pending proof.",
+      `completion proof does not match pending proof: ${proofId} (mismatched fields: ${conflicts.join(", ")})`,
     );
   }
-  if (completionProofConflicts(pending, completionProof)) {
-    throw new Error(`completion proof does not match pending proof: ${proofId}`);
+  if (pending.status !== "unknown") {
+    if (pending.status !== proof.status) {
+      throw new Error(`completion proof status does not match existing proof: ${proofId}`);
+    }
+    return entries.slice(-MAX_CARD_PROOF);
   }
-  if (pending.status !== "unknown" && pending.status !== completionProof.status) {
-    throw new Error(`completion proof status does not match existing proof: ${proofId}`);
-  }
-  if (pending.status === "unknown") {
-    // Preserve the stored evidence identity and timestamp when resolving its status.
-    entries[index] = { ...pending, status: completionProof.status };
-  }
+  // A proof id is the durable correlation boundary between a separately recorded check and its
+  // completion. Preserve the original evidence identity and timestamp while resolving its status.
+  entries[index] = { ...pending, status: proof.status };
   return entries.slice(-MAX_CARD_PROOF);
 }
 

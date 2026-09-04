@@ -41,7 +41,12 @@ import {
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import {
+  MAX_CARD_COMMENTS,
+  MAX_CARD_WORKER_LOGS,
+  POSITION_STEP,
+  normalizeMaxConcurrentClaimsPerOwner,
+} from "./store-constants.js";
 import type {
   WorkboardBoardInput,
   WorkboardBoardSummary,
@@ -84,7 +89,7 @@ type WorkboardUpdateCardOptions = {
   event?: Omit<WorkboardEvent, "id" | "at">;
   eventAt?: number;
   expectedUpdatedAt?: number;
-  ownerSlot?: { ownerId: string; now: number };
+  ownerSlot?: { ownerId: string; now: number; maxConcurrentClaims?: number };
   preserveProofId?: string;
 };
 
@@ -900,9 +905,12 @@ export class WorkboardCoreStore {
           expectedUpdatedAt,
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
+          normalizeMaxConcurrentClaimsPerOwner(options.ownerSlot.maxConcurrentClaims),
         );
         if (result === "owner_busy") {
-          throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
+          throw new Error(
+            `Owner ${options.ownerSlot.ownerId} already has active Workboard work (concurrency limit ${normalizeMaxConcurrentClaimsPerOwner(options.ownerSlot.maxConcurrentClaims)}).`,
+          );
         }
         if (result === "updated") {
           this.recordCardMutation(existing, next);
@@ -932,6 +940,27 @@ export class WorkboardCoreStore {
     return next;
   }
 
+  // Centralized every-parent-done predicate shared by assertActiveStatusAllowed
+  // and claim() (store-workflow.ts). Previously each call site evaluated parent
+  // status independently, and claim() used `status !== "ready"` as a proxy
+  // that never consulted parent status — trapping any card with parents whose
+  // status was review/running once its claim TTL expired (card bd165865).
+  // Returns the unsatisfied parent ids so callers can produce an error message
+  // that names them (helps operators diagnose stuck-card chains quickly).
+  // A parent id missing from the store yields status !== "done" → unsatisfied,
+  // which preserves the prior "missing parent is a hard reject" outcome.
+  protected async dependenciesSatisfied(
+    card: WorkboardCard,
+  ): Promise<{ satisfied: boolean; notDoneIds: string[] }> {
+    const parents = cardParentIds(card);
+    if (parents.length === 0) {
+      return { satisfied: true, notDoneIds: [] };
+    }
+    const cards = new Map((await this.list()).map((c) => [c.id, c]));
+    const notDoneIds = parents.filter((parentId) => cards.get(parentId)?.status !== "done");
+    return { satisfied: notDoneIds.length === 0, notDoneIds };
+  }
+
   private async assertActiveStatusAllowed(
     existing: WorkboardCard,
     next: WorkboardCard,
@@ -945,14 +974,9 @@ export class WorkboardCoreStore {
     ) {
       return;
     }
-    const parents = cardParentIds(next);
-    const cards =
-      parents.length > 0 ? new Map((await this.list()).map((card) => [card.id, card])) : undefined;
-    if (
-      parents.length > 0 &&
-      !parents.every((parentId) => cards?.get(parentId)?.status === "done")
-    ) {
-      throw new Error("card dependencies are not done.");
+    const { satisfied, notDoneIds } = await this.dependenciesSatisfied(next);
+    if (!satisfied) {
+      throw new Error(`card dependencies are not done: parents ${notDoneIds.join(", ")} not done`);
     }
     if (next.status === "done") {
       return;
@@ -993,7 +1017,7 @@ export class WorkboardCoreStore {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeBoundedString(input.body, undefined, 4096, "comment body");
     if (!body) {
       throw new Error("comment body is required.");
     }

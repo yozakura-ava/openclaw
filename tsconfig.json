@@ -218,6 +218,7 @@
       ],
       "@openclaw/session-url-contract/*": ["./packages/session-url-contract/src/*"],
       "@openclaw/workboard-contract": ["./packages/workboard-contract/src/index.ts"],
+      "@openclaw/execution-contract": ["./packages/execution-contract/src/index.ts"],
       "@openclaw/acp-core": ["./packages/acp-core/src/index.ts"],
       "@openclaw/acp-core/meta": ["./packages/acp-core/src/meta.ts"],
       "@openclaw/acp-core/session": ["./packages/acp-core/src/session.ts"],

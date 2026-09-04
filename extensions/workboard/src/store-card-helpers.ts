@@ -22,6 +22,7 @@ import {
   MAX_CARD_EVENTS,
   READY_STRANDED_MS,
   RUNNING_HEARTBEAT_STALE_MS,
+  isWorkboardClaimReclaimable,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import {
@@ -340,9 +341,23 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
   return next;
 }
 
+/**
+ * Options for `assertCanMutateClaimedCard`.
+ *
+ * `allowExpiredClaim`: when true, an assertion pass is granted for a card
+ * whose claim fence has expired (per `isWorkboardClaimReclaimable`). Used by
+ * `workboard_reclaim` so a dead-owner claim does not permanently fence
+ * recovery; the canonical TTL predicate is the authoritative fence — once
+ * expired, anyone may take the work (card 1b0f98cb, 2026-09-03).
+ */
+export interface AssertCanMutateClaimedCardOptions {
+  allowExpiredClaim?: boolean;
+}
+
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
+  options: AssertCanMutateClaimedCardOptions = {},
 ) {
   if (!scope) {
     return;
@@ -353,9 +368,19 @@ export function assertCanMutateClaimedCard(
   }
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
-  if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
-    throw new Error(`card is claimed by ${claim.ownerId}.`);
+  if (claim.ownerId === ownerId || safeEqualSecret(token, claim.token)) {
+    return;
   }
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // claim TTL is the authoritative fence. Once a claim is reclaimable per
+  // the canonical predicate (5-min grace past expiresAt), any caller may
+  // reclaim — including cross-owner recovery of a dead-owner claim. This
+  // closes the recurring-shape bug where dead-pid claims permanently
+  // fenced card writes. See ADR-025 candidate: claim-fence expiry contract.
+  if (options.allowExpiredClaim && isWorkboardClaimReclaimable(claim, Date.now())) {
+    return;
+  }
+  throw new Error(`card is claimed by ${claim.ownerId}.`);
 }
 
 export function retryBudgetExhausted(card: WorkboardCard): boolean {
@@ -363,7 +388,38 @@ export function retryBudgetExhausted(card: WorkboardCard): boolean {
   return Boolean(maxRetries && (card.metadata?.failureCount ?? 0) > maxRetries);
 }
 
-function diagnostic(
+// PATCH-d16f9796 (backport 2026-09-03, card a3922b20): review-independence
+// invariant — fail-closed namespace check at clearance/completion (annuls the
+// HR36 builder-as-reviewer fallback). Canonical policy:
+// docs/governance/review-independence.md (filed 2026-08-31).
+// A "passed" proof is a review clearance; its reviewer_session MUST NOT share
+// the card's builder agent namespace (`agent:<agentId>:*`). Otherwise the
+// proof is self-review and the API rejects it with an actionable error.
+export function assertReviewIndependenceFromScope(
+  card: WorkboardCard,
+  scope: WorkboardMutationScope | null | undefined,
+  proof: { status?: string } | undefined,
+): void {
+  if (!proof || proof.status !== "passed") return;
+  const scopeObj = scope && typeof scope === "object" ? (scope as Record<string, unknown>) : null;
+  if (!scopeObj) return;
+  const callerKey =
+    typeof scopeObj.sessionKey === "string" && scopeObj.sessionKey
+      ? scopeObj.sessionKey
+      : typeof scopeObj.ownerId === "string" && scopeObj.ownerId
+        ? scopeObj.ownerId
+        : null;
+  const agentId = typeof card.agentId === "string" && card.agentId ? card.agentId : null;
+  if (!callerKey || !agentId) return;
+  const namespacePrefix = `agent:${agentId}:`;
+  if (callerKey.startsWith(namespacePrefix)) {
+    throw new Error(
+      `review-independence invariant: review clearance rejected — reviewer_session shares builder agent namespace '${namespacePrefix}' (card agentId='${agentId}', reviewer_session='${callerKey}'). See docs/governance/review-independence.md (annulled HR36 fallback).`,
+    );
+  }
+}
+
+export function diagnostic(
   params: {
     kind: WorkboardDiagnosticKind;
     severity: WorkboardDiagnosticSeverity;

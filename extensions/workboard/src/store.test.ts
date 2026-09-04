@@ -544,9 +544,11 @@ describe("WorkboardStore", () => {
         agentId: "worker",
       });
 
+      // R4 (card f88f4ec9): the unary cross-host fence is the max=1 policy
+      // explicitly pinned here; the default cap is now 10.
       const claims = await Promise.allSettled([
-        first.claim(firstCard.id, { ownerId: "worker" }),
-        second.claim(secondCard.id, { ownerId: "worker" }),
+        first.claim(firstCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+        second.claim(secondCard.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
@@ -1729,6 +1731,83 @@ describe("WorkboardStore", () => {
     expect(archived.events?.at(-1)).toMatchObject({ kind: "archived" });
   });
 
+  it("completes with proofId only, no proof object (proofid-only-fix)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Proofid only", status: "running" });
+      const claimed = await store.claim(card.id, { ownerId: "main", token: "***" });
+      const pending = await store.addProof(
+        claimed.card.id,
+        {
+          label: "Targeted check",
+          command: "bash scripts/run_test_scope.sh workboard-store",
+          note: "Ran fine.",
+        },
+        { ownerId: "main", token: "***" },
+      );
+
+      vi.setSystemTime(6_000);
+      const pendingProof = (await store.get(card.id))?.metadata?.proof?.[0];
+      const completed = await store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Done via proofId only.",
+        proofId: pendingProof?.id,
+      });
+      expect(completed.status).toBe("done");
+      expect(completed.metadata?.proof?.[0]).toEqual(pendingProof);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects proofId-only completion when the proof is not on the card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Proofid missing", status: "running" });
+    await store.claim(card.id, { ownerId: "main", token: "***" });
+
+    await expect(
+      store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Nope.",
+        proofId: "not-on-this-card",
+      }),
+    ).rejects.toThrow(/not found on card/);
+  });
+
+  it("names mismatched fields when a correlated proof object differs", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Mismatch fields",
+      status: "running",
+      metadata: {
+        proof: [
+          {
+            id: "proof-xy",
+            status: "unknown",
+            createdAt: 1_000,
+            label: "Original",
+            command: "make check",
+          },
+        ],
+      },
+    });
+    await store.claim(card.id, { ownerId: "main", token: "***" });
+
+    await expect(
+      store.complete(card.id, {
+        ownerId: "main",
+        token: "***",
+        summary: "Mismatch.",
+        proofId: "proof-xy",
+        proof: { status: "passed", label: "Changed", note: "extra note" },
+      }),
+    ).rejects.toThrow(/mismatched fields: label/);
+  });
+
   it("resolves matching unknown proof on completion without duplicating it", async () => {
     vi.useFakeTimers();
     try {
@@ -1745,14 +1824,6 @@ describe("WorkboardStore", () => {
         ownerId: "main",
         token: "token-1",
       });
-
-      await expect(
-        store.complete(claimed.card.id, {
-          ownerId: "main",
-          token: "token-1",
-          proofId: pending.metadata?.proof?.[0]?.id,
-        }),
-      ).rejects.toThrow("proof is required to resolve a pending proof.");
 
       vi.setSystemTime(6_000);
       const completed = await store.complete(claimed.card.id, {
@@ -2207,6 +2278,100 @@ describe("WorkboardStore", () => {
     expect(tokenReleased.metadata?.claim).toBeUndefined();
   });
 
+  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
+  // reina-2026-08-31-008): owner-match takes precedence over token
+  // mismatch in assertClaimIdentity. Token-scrubbed heartbeats and
+  // token-less mutations must succeed for the claiming owner.
+  it("treats scrubbed token as no-op when caller proves owner identity (heartbeat)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Scrubbed-token heartbeat", status: "todo" });
+    const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Outbound tool args may scrub a valid token to "***" — heartbeat must still
+    // succeed because ownerId matches claim.ownerId (exact string compare).
+    const heartbeat = await store.heartbeat(card.id, {
+      ownerId: "main",
+      token: "***",
+    });
+    expect(heartbeat.metadata?.claim).toMatchObject({ ownerId: "main" });
+    expect(heartbeat.metadata?.claim?.token).toBe(claimed.token);
+
+    // The heartbeat must NOT clear running_without_heartbeat diagnostic since
+    // this is a normal renewal.
+    const second = await store.heartbeat(card.id, { ownerId: "main", token: "***" });
+    expect(second.metadata?.claim?.lastHeartbeatAt).toBeGreaterThanOrEqual(
+      heartbeat.metadata?.claim?.lastHeartbeatAt ?? 0,
+    );
+  });
+
+  it("lets owner-match succeed with no token on heartbeat and release", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Owner-match no-token path", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Heartbeat with NO token, just owner identity (the documented owner-match fallback).
+    await expect(store.heartbeat(card.id, { ownerId: "main" })).resolves.toMatchObject({
+      metadata: { claim: { ownerId: "main" } },
+    });
+
+    // releaseClaim with NO token, owner-match only.
+    const released = await store.releaseClaim(card.id, { ownerId: "main" });
+    expect(released.metadata?.claim).toBeUndefined();
+  });
+
+  it("still rejects cross-owner token-less mutations on a claimed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Cross-owner fence", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Cross-owner, no token — must throw "claim owner does not match." (fencing preserved).
+    await expect(store.heartbeat(card.id, { ownerId: "other" })).rejects.toThrow(
+      /claim owner does not match/,
+    );
+    await expect(store.releaseClaim(card.id, { ownerId: "other" })).rejects.toThrow(
+      /claim owner does not match/,
+    );
+  });
+
+  it("still rejects cross-owner scrubbed-token mutations on a claimed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Cross-owner scrubbed fence", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // Cross-owner + scrubbed token — owner mismatch must still reject, BUT with the
+    // token-mismatch message because the caller supplied a token (which is wrong).
+    await expect(store.heartbeat(card.id, { ownerId: "other", token: "***" })).rejects.toThrow(
+      /claim token does not match/,
+    );
+    await expect(store.releaseClaim(card.id, { ownerId: "other", token: "***" })).rejects.toThrow(
+      /claim token does not match/,
+    );
+  });
+
+  it("preserves the bridge pattern: valid token + no owner still works", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Bridge pattern preserved", status: "todo" });
+    const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // The dbos-bridge pattern supplies the token only, no owner override.
+    await expect(store.heartbeat(card.id, { token: claimed.token })).resolves.toMatchObject({
+      metadata: { claim: { ownerId: "main" } },
+    });
+    const released = await store.releaseClaim(card.id, { token: claimed.token });
+    expect(released.metadata?.claim).toBeUndefined();
+  });
+
+  it("rejects when neither token nor owner is supplied", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Neither auth", status: "todo" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    // No token, no owner — caller cannot authenticate, must be rejected as owner
+    // mismatch (cannot identify the caller).
+    await expect(store.heartbeat(card.id, {})).rejects.toThrow(/claim owner does not match/);
+    await expect(store.releaseClaim(card.id, {})).rejects.toThrow(/claim owner does not match/);
+  });
+
   it("atomically guards and adopts dispatcher workspace authority", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Legacy dispatch", status: "ready" });
@@ -2310,6 +2475,163 @@ describe("WorkboardStore", () => {
     }
   });
 
+  it("same-owner reclaim succeeds immediately at claim expiry (reclaim-expiry fix)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Self reclaim", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Inside the 5-min grace but past expiresAt: SAME owner reclaims fine.
+      vi.setSystemTime(expiresAt + 1);
+      const reclaimed = await store.claim(card.id, { ownerId: "original" });
+      expect(reclaimed.card.metadata?.claim?.ownerId).toBe("original");
+      expect(reclaimed.token).not.toBe(claimed.token);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cross-owner reclaim inside the grace window is still refused", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Cross grace", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      vi.setSystemTime(expiresAt + 2_000);
+      await expect(store.claim(card.id, { ownerId: "rival" })).rejects.toThrow(
+        /already claimed by original/,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // claim TTL is the authoritative fence. Once past the 5-min grace, a
+  // dead-owner claim no longer fences `workboard_reclaim` from any caller.
+  it("reclaim of dead-owner expired claim succeeds past the grace window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({
+        title: "Dead-owner reclaim target",
+        status: "running",
+        execution: {
+          id: "exec-dead",
+          kind: "agent-session",
+          engine: "codex",
+          mode: "autonomous",
+          status: "running",
+          model: "openai/gpt-5.5",
+          startedAt: 100,
+          updatedAt: 100,
+        },
+      });
+      const claimed = await store.claim(card.id, { ownerId: "dbos-bridge:860692", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Cross-owner caller (the live session) calls workboard_reclaim on a
+      // card whose claim belongs to a dead pid — past the 5-min reclaimable
+      // grace. The caller does NOT know the dead owner's token.
+      vi.setSystemTime(expiresAt + 5 * 60_000 + 1);
+      const reclaimed = await store.reclaim(
+        card.id,
+        { reason: "owner pid dead" },
+        { ownerId: "live-session:recoverer" },
+      );
+      expect(reclaimed.metadata?.claim).toBeUndefined();
+      expect(reclaimed.status).toBe("ready");
+      expect(reclaimed.execution).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // inside the 5-min grace, the dispatcher recovery semantics are preserved
+  // — `workboard_reclaim` must not steal a live-but-quiet worker's token.
+  it("reclaim of live-but-quiet owner claim inside the grace is still refused", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Grace-protected reclaim target", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Inside the 5-min grace: claim fence still active. Cross-owner
+      // reclaim must be refused even though `expiresAt` has passed.
+      vi.setSystemTime(expiresAt + 2_000);
+      await expect(
+        store.reclaim(
+          card.id,
+          { reason: "premature reclaim" },
+          { ownerId: "live-session:recoverer" },
+        ),
+      ).rejects.toThrow(/card is claimed by original\./);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // the fix must not weaken owner+token assertion for callers who DO have
+  // matching credentials — the assertion short-circuits before checking
+  // expiresAt, preserving the original contract for the happy path.
+  it("reclaim with matching owner succeeds regardless of expiresAt", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Same-owner reclaim", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 60 });
+      const claimedToken = claimed.token;
+      const reclaimed = await store.reclaim(
+        card.id,
+        { reason: "self reclaim" },
+        { ownerId: "original", token: claimedToken },
+      );
+      expect(reclaimed.metadata?.claim).toBeUndefined();
+      expect(reclaimed.status).toBe("ready");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("own expired claim frees the owner slot for another card", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const first = await store.create({ title: "Slot one", status: "ready" });
+      const second = await store.create({ title: "Slot two", status: "ready" });
+      const claimed = await store.claim(first.id, { ownerId: "worker", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Still inside the grace window: legacy behavior returns owner_busy.
+      vi.setSystemTime(expiresAt + 1_000);
+      await expect(store.claim(second.id, { ownerId: "worker" })).resolves.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {
@@ -4820,6 +5142,78 @@ describe("WorkboardStore", () => {
     await expect(store.create({ title: "Bad card", status: "later" })).rejects.toThrow(
       /status must be one of/,
     );
+  });
+
+  // ---- R4 multi-card concurrency (card f88f4ec9) ----
+
+  it("allows a second concurrent claim at maxConcurrentClaimsPerOwner=2 and refuses the third", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-max2-"));
+    const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+    try {
+      const store = new WorkboardStore(stores.cards);
+      const a = await store.create({ title: "A", status: "ready" });
+      const b = await store.create({ title: "B", status: "ready" });
+      const c = await store.create({ title: "C", status: "ready" });
+      await store.claim(a.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 });
+      await store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 });
+      await expect(
+        store.claim(c.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 2 }),
+      ).rejects.toThrow(/already has active Workboard work \(concurrency limit 2\)/);
+    } finally {
+      stores.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves legacy unary fence at maxConcurrentClaimsPerOwner=1", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-max1-"));
+    const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+    try {
+      const store = new WorkboardStore(stores.cards);
+      const a = await store.create({ title: "A", status: "ready" });
+      const b = await store.create({ title: "B", status: "ready" });
+      await store.claim(a.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 });
+      await expect(
+        store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+      ).rejects.toThrow(/already has active Workboard work \(concurrency limit 1\)/);
+    } finally {
+      stores.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("own expired claim does not count toward the concurrency limit", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wb-r4-exp-"));
+      const stores = createWorkboardSqliteStores({ dbPath: path.join(dir, "workboard.sqlite") });
+      try {
+        const store = new WorkboardStore(stores.cards);
+        const a = await store.create({ title: "A", status: "ready" });
+        const b = await store.create({ title: "B", status: "ready" });
+        const claimed = await store.claim(
+          a.id,
+          { ownerId: "worker", ttlSeconds: 1 },
+          { maxConcurrentClaimsPerOwner: 1 },
+        );
+        const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+        if (expiresAt === undefined) {
+          throw new Error("claim expiry missing");
+        }
+        // Past expiresAt but still inside the cross-owner grace window: the
+        // own-expired claim (card A) must not consume the worker's slot.
+        vi.setSystemTime(expiresAt + 60_000);
+        await expect(
+          store.claim(b.id, { ownerId: "worker" }, { maxConcurrentClaimsPerOwner: 1 }),
+        ).resolves.toBeDefined();
+      } finally {
+        stores.close();
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

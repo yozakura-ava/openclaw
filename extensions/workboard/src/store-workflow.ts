@@ -19,6 +19,8 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
+  assertReviewIndependenceFromScope,
+  diagnostic,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
@@ -63,12 +65,23 @@ import { WorkboardPromoteStore } from "./store-promote.js";
 function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInput): void {
   const token = normalizeOptionalString(input.token);
   const ownerId = normalizeOptionalString(input.ownerId);
-  if (token && !safeEqualSecret(token, claim.token)) {
-    throw new Error("claim token does not match.");
+  // Owner-match takes precedence over token mismatch. Outbound tool args
+  // can scrub a valid claim token to a masked placeholder (e.g. "***"), so
+  // an invalid-but-present token must not reject when the caller proves
+  // identity through the owner string. Fencing is preserved by the exact
+  // string compare below; cross-owner token-less mutations still throw.
+  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
+  // reina-2026-08-31-008).
+  if (ownerId && ownerId === claim.ownerId) {
+    return;
   }
-  if (!token && ownerId && ownerId !== claim.ownerId) {
-    throw new Error("claim owner does not match.");
+  if (token) {
+    if (!safeEqualSecret(token, claim.token)) {
+      throw new Error("claim token does not match.");
+    }
+    return;
   }
+  throw new Error("claim owner does not match.");
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
@@ -120,11 +133,27 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         (isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
           // Direct claims must honor the same running-worker heartbeat grace
           // as dispatcher recovery; otherwise they silently steal live tokens.
-          (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now)))
+          // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): the grace
+          // protects only OTHER owners — the claim's original owner may
+          // reclaim immediately once expiresAt has passed (self-recovery).
+          (guarded.status === "running" &&
+            !isWorkboardClaimReclaimable(existingClaim, now) &&
+            existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
-      if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
-        throw new Error("card dependencies are not done.");
+      if (!activeClaim && guarded.status !== "ready") {
+        // PATCH workboard-claim-dep-gate (card bd165865): replace the buggy
+        // `status !== "ready"` proxy with the actual every-parent-done
+        // predicate (shared helper on WorkboardCoreStore). The old proxy
+        // permanently trapped cards in review/running with expired claims
+        // because it never consulted parent status. Error text now names
+        // the unsatisfied parents so operators can see which link is open.
+        const { satisfied, notDoneIds } = await this.dependenciesSatisfied(guarded);
+        if (!satisfied) {
+          throw new Error(
+            `card dependencies are not done: parents ${notDoneIds.join(", ")} not done`,
+          );
+        }
       }
       if (guarded.status === "scheduled") {
         throw new Error("card is scheduled for later.");
@@ -153,7 +182,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
         {
           expectedUpdatedAt: guarded.updatedAt,
-          ownerSlot: { ownerId, now },
+          ownerSlot: { ownerId, now, maxConcurrentClaims: options.maxConcurrentClaimsPerOwner },
         },
       );
       return { card, token };
@@ -267,7 +296,25 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     if (input.proofId !== undefined && !proofId) {
       throw new Error("proofId must be a non-empty string.");
     }
+    // PATCH proofid-only-fix: proofId may resolve a previously-attached proof
+    // without an accompanying proof object — that is the canonical resolution
+    // path. The stored proof is the completion proof as-is; the proof OBJECT
+    // (with optional terminal status) is a legacy fallback that triggers
+    // byte-match validation in appendCompletionProof.
+    if (proofId && !proofInput) {
+      const entries = [...(existing.metadata?.proof ?? [])];
+      const pending = entries.find((entry) => entry && entry.id === proofId);
+      if (!pending) {
+        throw new Error(`proofId ${proofId} not found on card ${id}`);
+      }
+    }
     const proof = proofInput ? normalizeProofInput(proofInput, now) : undefined;
+    // PATCH-d16f9796 (backport): enforce review-independence invariant on
+    // completion-attached clearance (proof.status === "passed"). Reject
+    // same-namespace reviewer before any metadata mutation.
+    if (proof) {
+      assertReviewIndependenceFromScope(existing, scope === null ? undefined : scope, proof);
+    }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
           .map((artifact) => normalizeArtifact({ ...artifact, createdAt: now }))
@@ -312,7 +359,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
                 { id: randomUUID(), body: summary, createdAt: now },
               ].slice(-MAX_CARD_COMMENTS)
             : metadata.comments,
-          proof: appendCompletionProof(metadata.proof, proof, proofId),
+          proof: proof ? appendCompletionProof(metadata.proof, proof, proofId) : metadata.proof,
           artifacts: artifacts.length
             ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
             : metadata.artifacts,
@@ -323,7 +370,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       },
       {
         enforceStatusHolds: true,
-        preserveProofId: proofId ?? proof?.id,
+        ...(proof ? { preserveProofId: proofId ?? proof.id } : {}),
       },
     );
   }
@@ -449,7 +496,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       if (!existing) {
         throw new Error(`card not found: ${id}`);
       }
-      assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+      // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+      // reclaim of an expired claim from a dead owner is permitted. The TTL
+      // is the authoritative fence; once past, anyone may take the work.
+      assertCanMutateClaimedCard(existing, scope === null ? undefined : scope, {
+        allowExpiredClaim: true,
+      });
       const now = Date.now();
       const reason =
         normalizeBoundedString(input.reason, undefined, 1000, "reclaim reason") ??
@@ -460,13 +512,30 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             ? "ready"
             : existing.status
           : normalizeStatus(input.status, existing.status);
-      const reclaimed = await this.updateCard(
+      const reclaimed0 = await this.updateCard(
         id,
         {
           status: targetStatus,
           execution: existing.execution?.status === "running" ? null : existing.execution,
           metadata: {
             ...existing.metadata,
+            // PATCH-80d44431 (backport 2026-09-03, card a3922b20): reclaim→done
+            // must never silently complete without proof — attach a
+            // skipped-status proof stub when no proof exists.
+            ...(targetStatus === "done" && !existing.metadata?.proof?.length
+              ? {
+                  proof: [
+                    normalizeProofInput(
+                      {
+                        status: "skipped",
+                        label: "reclaim recovery",
+                        note: `reclaim recovery: ${reason}`,
+                      },
+                      now,
+                    ),
+                  ],
+                }
+              : {}),
             claim: undefined,
             attempts: closeRunningAttempts(existing.metadata?.attempts, now, "stopped", reason),
             comments: [
@@ -478,6 +547,31 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
         { enforceStatusHolds: true },
       );
+      // PATCH-80d44431 (backport): if a reclaim→done still lands with no proof
+      // row and no artifacts, emit a done_without_proof diagnostic.
+      let reclaimed = reclaimed0;
+      if (
+        reclaimed0.status === "done" &&
+        !reclaimed0.metadata?.proof?.length &&
+        !reclaimed0.metadata?.artifacts?.length
+      ) {
+        reclaimed = await this.updateMetadata(reclaimed0.id, (existing) => ({
+          ...existing.metadata,
+          diagnostics: [
+            ...(existing.metadata?.diagnostics ?? []),
+            diagnostic(
+              {
+                kind: "done_without_proof",
+                severity: "warning",
+                title: "Reclaim to done completed without proof",
+                detail: `reclaim recovery: ${reason}`,
+                actions: [{ kind: "add_proof", label: "Add proof" }],
+              },
+              now,
+            ),
+          ],
+        }));
+      }
       return await this.promoteDependencyReady(reclaimed.id, now);
     });
   }

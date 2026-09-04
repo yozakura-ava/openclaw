@@ -414,7 +414,6 @@ describe("workboard tools", () => {
       await tools.get("workboard_proof")?.execute("call-proof", {
         id: parent.id,
         token,
-        status: "passed",
         command: "pnpm test extensions/workboard",
       }),
     );
@@ -426,6 +425,7 @@ describe("workboard tools", () => {
         summary: "Done.",
         createdCardIds: [child.id],
         proofId: pendingProof.proofId,
+        proof: { status: "passed", command: "pnpm test extensions/workboard" },
       }),
     );
     expect(completed.card).toMatchObject({
@@ -658,5 +658,60 @@ describe("workboard tools", () => {
       }),
     );
     expect(claimed.card).toMatchObject({ status: "review" });
+  });
+});
+
+describe("workboard claim owner resolution", () => {
+  it("rejects anonymous claim owners when failLoudOwner is enabled", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const api = { runtime: {} } as unknown as OpenClawPluginApi;
+    const tools = new Map(
+      createWorkboardTools({
+        api,
+        store,
+        context: {} as never,
+        failLoudOwner: true,
+      }).map((tool) => [tool.name, tool]),
+    );
+    await tools.get("workboard_create")?.execute("anon", { title: "Anon claim" });
+    const card = (await store.list()).find((c) => c.title === "Anon claim");
+    expectDefined(card);
+    await expect(tools.get("workboard_claim")?.execute("c", { id: card!.id })).rejects.toThrow(
+      /agentId or sessionKey/,
+    );
+  });
+
+  it("keeps the legacy agent fallback when failLoudOwner is unset", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const api = { runtime: {} } as unknown as OpenClawPluginApi;
+    const tools = new Map(
+      createWorkboardTools({ api, store, context: {} as never }).map((tool) => [tool.name, tool]),
+    );
+    await tools.get("workboard_create")?.execute("legacy", { title: "Legacy fallback" });
+    const card = (await store.list()).find((c) => c.title === "Legacy fallback");
+    expectDefined(card);
+    await expect(
+      tools.get("workboard_claim")?.execute("c", { id: card!.id }),
+    ).resolves.toBeDefined();
+    expect((await store.get(card!.id))?.metadata?.claim?.ownerId).toBe("agent");
+  });
+
+  it("explicit ownerId override wins over tool-context identity", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const api = { runtime: {} } as unknown as OpenClawPluginApi;
+    const tools = new Map(
+      createWorkboardTools({
+        api,
+        store,
+        context: { agentId: "ctx-owner" } as never,
+      }).map((tool) => [tool.name, tool]),
+    );
+    await tools.get("workboard_create")?.execute("ovr", { title: "Override owner" });
+    const card = (await store.list()).find((c) => c.title === "Override owner");
+    expectDefined(card);
+    await expect(
+      tools.get("workboard_claim")?.execute("c", { id: card!.id, ownerId: "dbos-bridge:123" }),
+    ).resolves.toBeDefined();
+    expect((await store.get(card!.id))?.metadata?.claim?.ownerId).toBe("dbos-bridge:123");
   });
 });

@@ -16,6 +16,7 @@ import type {
   WorkboardRunAttempt,
   WorkboardWorkerLog,
 } from "@openclaw/workboard-contract";
+import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import {
   configureSqliteConnectionPragmas,
   migrateSqliteSchemaToStrict,
@@ -208,6 +209,17 @@ const WORKBOARD_SCHEMA_SQL = `
       to_status TEXT,
       session_key TEXT,
       run_id TEXT
+    ) STRICT;
+
+    -- PATCH-6c9736f1 (backport 2026-09-03, card a3922b20): audit table for
+    -- malformed child rows skipped by guardedChildRows().
+    CREATE TABLE IF NOT EXISTS workboard_bad_rows (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      card_id TEXT NOT NULL,
+      ordinal INTEGER,
+      table_name TEXT NOT NULL,
+      observed_at INTEGER NOT NULL,
+      detail TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_events_card_idx
       ON workboard_card_events(card_id, ordinal);
@@ -522,6 +534,45 @@ function childRows(
     .all(cardId) as Row[];
 }
 
+// PATCH-6c9736f1 (backport 2026-09-03, card a3922b20): skip malformed child
+// rows with missing/empty ids instead of crashing the read; audit each skip
+// into workboard_bad_rows.
+function guardedChildRows(
+  db: DatabaseSync,
+  table: string,
+  cardId: string,
+  preloaded?: CardChildRows,
+): Row[] {
+  const rows = childRows(db, table, cardId, preloaded);
+  const good: Row[] = [];
+  for (const row of rows) {
+    if (stringValue(row, "id")) {
+      good.push(row);
+      continue;
+    }
+    try {
+      db.exec(
+        "CREATE TABLE IF NOT EXISTS workboard_bad_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, card_id TEXT NOT NULL, ordinal INTEGER, table_name TEXT NOT NULL, observed_at INTEGER NOT NULL, detail TEXT) STRICT",
+      );
+      db.prepare(
+        "INSERT INTO workboard_bad_rows (card_id, ordinal, table_name, observed_at, detail) VALUES (?, ?, ?, ?, ?)",
+      ).run(
+        cardId,
+        numberValue(row, "ordinal") ?? null,
+        table,
+        Date.now(),
+        `missing or empty child id in ${table}; row skipped`,
+      );
+    } catch {
+      // audit is best-effort; never block the read path
+    }
+    console.warn(
+      `[workboard] skipping malformed ${table} row on card ${cardId}: missing or empty id`,
+    );
+  }
+  return good;
+}
+
 function workerProtocolRow(
   db: DatabaseSync,
   cardId: string,
@@ -549,7 +600,7 @@ function readEvents(
   cardId: string,
   preloaded?: CardChildRows,
 ): WorkboardEvent[] | undefined {
-  const events = childRows(db, "workboard_card_events", cardId, preloaded).map((row) => {
+  const events = guardedChildRows(db, "workboard_card_events", cardId, preloaded).map((row) => {
     const event: WorkboardEvent = {
       id: requiredString(row, "id"),
       kind: requiredString(row, "kind") as WorkboardEvent["kind"],
@@ -607,55 +658,59 @@ function readMetadata(
   preloaded?: CardChildRows,
 ): WorkboardMetadata | undefined {
   const cardId = requiredString(row, "id");
-  const attempts = childRows(db, "workboard_card_attempts", cardId, preloaded).map((child) => {
-    const entry: WorkboardRunAttempt = {
-      id: requiredString(child, "id"),
-      status: requiredString(child, "status") as WorkboardRunAttempt["status"],
-      startedAt: requiredNumber(child, "started_at"),
-    };
-    const endedAt = numberValue(child, "ended_at");
-    const engine = stringValue(child, "engine");
-    const mode = stringValue(child, "mode");
-    const model = stringValue(child, "model");
-    const sessionKey = stringValue(child, "session_key");
-    const runId = stringValue(child, "run_id");
-    const error = stringValue(child, "error");
-    if (endedAt !== undefined) {
-      entry.endedAt = endedAt;
-    }
-    if (engine) {
-      entry.engine = engine as WorkboardRunAttempt["engine"];
-    }
-    if (mode) {
-      entry.mode = mode as WorkboardRunAttempt["mode"];
-    }
-    if (model) {
-      entry.model = model;
-    }
-    if (sessionKey) {
-      entry.sessionKey = sessionKey;
-    }
-    if (runId) {
-      entry.runId = runId;
-    }
-    if (error) {
-      entry.error = error;
-    }
-    return entry;
-  });
-  const comments = childRows(db, "workboard_card_comments", cardId, preloaded).map((child) => {
-    const entry: WorkboardComment = {
-      id: requiredString(child, "id"),
-      body: requiredString(child, "body"),
-      createdAt: requiredNumber(child, "created_at"),
-    };
-    const updatedAt = numberValue(child, "updated_at");
-    if (updatedAt !== undefined) {
-      entry.updatedAt = updatedAt;
-    }
-    return entry;
-  });
-  const links = childRows(db, "workboard_card_links", cardId, preloaded).map((child) => {
+  const attempts = guardedChildRows(db, "workboard_card_attempts", cardId, preloaded).map(
+    (child) => {
+      const entry: WorkboardRunAttempt = {
+        id: requiredString(child, "id"),
+        status: requiredString(child, "status") as WorkboardRunAttempt["status"],
+        startedAt: requiredNumber(child, "started_at"),
+      };
+      const endedAt = numberValue(child, "ended_at");
+      const engine = stringValue(child, "engine");
+      const mode = stringValue(child, "mode");
+      const model = stringValue(child, "model");
+      const sessionKey = stringValue(child, "session_key");
+      const runId = stringValue(child, "run_id");
+      const error = stringValue(child, "error");
+      if (endedAt !== undefined) {
+        entry.endedAt = endedAt;
+      }
+      if (engine) {
+        entry.engine = engine as WorkboardRunAttempt["engine"];
+      }
+      if (mode) {
+        entry.mode = mode as WorkboardRunAttempt["mode"];
+      }
+      if (model) {
+        entry.model = model;
+      }
+      if (sessionKey) {
+        entry.sessionKey = sessionKey;
+      }
+      if (runId) {
+        entry.runId = runId;
+      }
+      if (error) {
+        entry.error = error;
+      }
+      return entry;
+    },
+  );
+  const comments = guardedChildRows(db, "workboard_card_comments", cardId, preloaded).map(
+    (child) => {
+      const entry: WorkboardComment = {
+        id: requiredString(child, "id"),
+        body: requiredString(child, "body"),
+        createdAt: requiredNumber(child, "created_at"),
+      };
+      const updatedAt = numberValue(child, "updated_at");
+      if (updatedAt !== undefined) {
+        entry.updatedAt = updatedAt;
+      }
+      return entry;
+    },
+  );
+  const links = guardedChildRows(db, "workboard_card_links", cardId, preloaded).map((child) => {
     const entry: WorkboardLink = {
       id: requiredString(child, "id"),
       type: requiredString(child, "type") as WorkboardLink["type"],
@@ -675,7 +730,7 @@ function readMetadata(
     }
     return entry;
   });
-  const proof = childRows(db, "workboard_card_proof", cardId, preloaded).map((child) => {
+  const proof = guardedChildRows(db, "workboard_card_proof", cardId, preloaded).map((child) => {
     const entry: WorkboardProof = {
       id: requiredString(child, "id"),
       status: requiredString(child, "status") as WorkboardProof["status"],
@@ -699,30 +754,32 @@ function readMetadata(
     }
     return entry;
   });
-  const artifacts = childRows(db, "workboard_card_artifacts", cardId, preloaded).map((child) => {
-    const entry: WorkboardArtifact = {
-      id: requiredString(child, "id"),
-      createdAt: requiredNumber(child, "created_at"),
-    };
-    const label = stringValue(child, "label");
-    const url = stringValue(child, "url");
-    const artifactPath = stringValue(child, "path");
-    const mimeType = stringValue(child, "mime_type");
-    if (label) {
-      entry.label = label;
-    }
-    if (url) {
-      entry.url = url;
-    }
-    if (artifactPath) {
-      entry.path = artifactPath;
-    }
-    if (mimeType) {
-      entry.mimeType = mimeType;
-    }
-    return entry;
-  });
-  const attachments = childRows(db, "workboard_card_attachments", cardId, preloaded).map(
+  const artifacts = guardedChildRows(db, "workboard_card_artifacts", cardId, preloaded).map(
+    (child) => {
+      const entry: WorkboardArtifact = {
+        id: requiredString(child, "id"),
+        createdAt: requiredNumber(child, "created_at"),
+      };
+      const label = stringValue(child, "label");
+      const url = stringValue(child, "url");
+      const artifactPath = stringValue(child, "path");
+      const mimeType = stringValue(child, "mime_type");
+      if (label) {
+        entry.label = label;
+      }
+      if (url) {
+        entry.url = url;
+      }
+      if (artifactPath) {
+        entry.path = artifactPath;
+      }
+      if (mimeType) {
+        entry.mimeType = mimeType;
+      }
+      return entry;
+    },
+  );
+  const attachments = guardedChildRows(db, "workboard_card_attachments", cardId, preloaded).map(
     (child) => {
       const entry: WorkboardAttachment = {
         id: requiredString(child, "id"),
@@ -742,23 +799,25 @@ function readMetadata(
       return entry;
     },
   );
-  const workerLogs = childRows(db, "workboard_worker_logs", cardId, preloaded).map((child) => {
-    const entry: WorkboardWorkerLog = {
-      id: requiredString(child, "id"),
-      createdAt: requiredNumber(child, "created_at"),
-      level: requiredString(child, "level") as WorkboardWorkerLog["level"],
-      message: requiredString(child, "message"),
-    };
-    const sessionKey = stringValue(child, "session_key");
-    const runId = stringValue(child, "run_id");
-    if (sessionKey) {
-      entry.sessionKey = sessionKey;
-    }
-    if (runId) {
-      entry.runId = runId;
-    }
-    return entry;
-  });
+  const workerLogs = guardedChildRows(db, "workboard_worker_logs", cardId, preloaded).map(
+    (child) => {
+      const entry: WorkboardWorkerLog = {
+        id: requiredString(child, "id"),
+        createdAt: requiredNumber(child, "created_at"),
+        level: requiredString(child, "level") as WorkboardWorkerLog["level"],
+        message: requiredString(child, "message"),
+      };
+      const sessionKey = stringValue(child, "session_key");
+      const runId = stringValue(child, "run_id");
+      if (sessionKey) {
+        entry.sessionKey = sessionKey;
+      }
+      if (runId) {
+        entry.runId = runId;
+      }
+      return entry;
+    },
+  );
   const diagnostics = childRows(db, "workboard_card_diagnostics", cardId, preloaded).map(
     (child) => ({
       kind: requiredString(child, "kind") as WorkboardDiagnostic["kind"],
@@ -771,7 +830,7 @@ function readMetadata(
       actions: (parseJson(child.actions_json) as WorkboardDiagnostic["actions"] | undefined) ?? [],
     }),
   );
-  const notifications = childRows(db, "workboard_card_notifications", cardId, preloaded).map(
+  const notifications = guardedChildRows(db, "workboard_card_notifications", cardId, preloaded).map(
     (child) => {
       const entry: WorkboardNotification = {
         id: requiredString(child, "id"),
@@ -1257,6 +1316,7 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    maxConcurrentClaims: number,
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
     return runSqliteImmediateTransactionSync(this.db, () => {
@@ -1268,11 +1328,29 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);
       const preloaded = loadCardChildRows(this.db);
+      // R4 multi-card concurrency (card f88f4ec9): count the owner's
+      // slot-consuming cards instead of refusing on the first match. The
+      // PATCH workboard-reclaim-expiry-fix (card eb0ce23a) semantics are
+      // preserved inside the count: a claim that belongs to the claiming
+      // owner AND is past expiresAt frees the owner slot (self-slot
+      // recovery). Cross-owner slots keep the full grace.
+      let ownerActiveClaims = 0;
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
-        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
-          return "owner_busy";
+        const slotClaim = card.metadata?.claim;
+        const ownExpiredClaim =
+          slotClaim?.ownerId === ownerId &&
+          !isFutureDateTimestampMs(slotClaim.expiresAt, { nowMs: now });
+        if (
+          !ownExpiredClaim &&
+          workboardCardConsumesOwnerSlot(card, now) &&
+          workboardCardSlotOwner(card) === ownerId
+        ) {
+          ownerActiveClaims += 1;
         }
+      }
+      if (ownerActiveClaims >= maxConcurrentClaims) {
+        return "owner_busy";
       }
       insertCard(this.db, value.card);
       return "updated";

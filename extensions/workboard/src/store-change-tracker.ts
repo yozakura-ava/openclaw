@@ -55,13 +55,21 @@ export class WorkboardChangeTracker {
         }
         return deleted;
       },
-      claimIfOwnerAvailable: async (key, value, expectedUpdatedAt, ownerId, now) => {
+      claimIfOwnerAvailable: async (
+        key,
+        value,
+        expectedUpdatedAt,
+        ownerId,
+        now,
+        maxConcurrentClaims,
+      ) => {
         const result = await store.claimIfOwnerAvailable(
           key,
           value,
           expectedUpdatedAt,
           ownerId,
           now,
+          maxConcurrentClaims,
         );
         if (result === "updated") {
           this.mutationRevision += 1;

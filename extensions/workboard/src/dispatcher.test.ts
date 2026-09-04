@@ -804,7 +804,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3 },
+      options: { now: 10, maxStarts: 3, maxConcurrentClaimsPerOwner: 1 },
     });
 
     expect(result.started.map((entry) => entry.cardId).toSorted()).toEqual(
@@ -861,7 +861,12 @@ describe("dispatchAndStartWorkboardCards", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3, ownerId: " shared-worker " },
+      options: {
+        now: 10,
+        maxStarts: 3,
+        ownerId: " shared-worker ",
+        maxConcurrentClaimsPerOwner: 1,
+      },
     });
 
     expect(result.started).toEqual([
@@ -895,7 +900,12 @@ describe("dispatchAndStartWorkboardCards", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3, ownerId: "shared-worker" },
+      options: {
+        now: 10,
+        maxStarts: 3,
+        ownerId: "shared-worker",
+        maxConcurrentClaimsPerOwner: 1,
+      },
     });
 
     expect(result.started).toEqual([]);
@@ -963,7 +973,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3 },
+      options: { now: 10, maxStarts: 3, maxConcurrentClaimsPerOwner: 1 },
     });
 
     expect(result.started).toEqual([
@@ -1031,7 +1041,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const result = await dispatchAndStartWorkboardCards({
       store,
       subagent: { run },
-      options: { now: 10, maxStarts: 3 },
+      options: { now: 10, maxStarts: 3, maxConcurrentClaimsPerOwner: 1 },
     });
 
     expect(result.started).toEqual([]);

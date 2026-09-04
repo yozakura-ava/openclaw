@@ -458,11 +458,20 @@ async function invokeGatewayToolWithSignal(
     if (!params.signal?.aborted) {
       logWarn(`tools-invoke: tool execution failed: ${String(err)}`);
     }
+    // PATCH tools-invoke-surface-error (card 1b0f98cb, 2026-09-03): the 500
+    // fallback previously masked the underlying tool error as "tool execution
+    // failed", making claim-fence and other business errors invisible to
+    // /tools/invoke callers (e.g. `card is claimed by dbos-bridge:860692.`).
+    // formatErrorMessage redacts sensitive text (paths, secrets), so the
+    // surfaced message is safe for operator consumption.
     return {
       ok: false,
       status: 500,
       toolName,
-      error: { type: "tool_error", message: "tool execution failed" },
+      error: {
+        type: "tool_error",
+        message: formatErrorMessage(err) || "tool execution failed",
+      },
     };
   }
 }

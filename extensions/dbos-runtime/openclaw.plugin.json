@@ -1,0 +1,13 @@
+{
+  "id": "dbos-runtime",
+  "name": "DBOS Runtime",
+  "description": "Authenticated PostgreSQL DBOS authority runtime used by the canonical Workboard pipeline.",
+  "activation": {
+    "onStartup": false
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
