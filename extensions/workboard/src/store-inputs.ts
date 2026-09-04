@@ -118,6 +118,13 @@ export type WorkboardCompleteInput = {
   artifacts?: unknown;
   createdCardIds?: unknown;
 };
+export type WorkboardForceCloseInput = {
+  ownerId?: unknown;
+  token?: unknown;
+  reasonCode?: unknown;
+  explanation?: unknown;
+  referenceCardId?: unknown;
+};
 export type WorkboardBlockInput = {
   ownerId?: unknown;
   token?: unknown;

@@ -27,6 +27,50 @@ export const RUNNING_HEARTBEAT_STALE_MS = 20 * 60 * 1000;
 export const BLOCKED_TOO_LONG_MS = 24 * 60 * 60 * 1000;
 const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 
+// workboard_force_close tool (card 32d1c50d, restored from commit
+// a0cf0f66c72 / branch canonical-bqes-dbos-cutover, validated 173/173 in the
+// 2026-08-24 session). The reason-code enum is closed: completion-shaped
+// reasons ("built", "verified", etc.) are deliberately NOT in this list so
+// the override can never become a general completion bypass. Reference card
+// is required for superseded/duplicate; cancelled/invalid accept a free
+// explanation without one.
+export const WORKBOARD_FORCE_CLOSE_REASON_CODES = [
+  "superseded",
+  "duplicate",
+  "cancelled",
+  "invalid",
+] as const;
+export type WorkboardForceCloseReasonCode =
+  (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
+
+// Default orchestrator agents allowed to invoke workboard_force_close. The
+// store constructor accepts a forceCloseAllowedAgents override which
+// REPLACES this default (does NOT extend it) — operators wanting to grant
+// additional agents should pass them via the env-driven wiring in
+// `readConfiguredForceCloseAgents()` rather than editing this default.
+export const DEFAULT_FORCE_CLOSE_AGENTS = ["ava"];
+
+// Operators (Craig and his operator:*/agent:* aliases) are always allowed
+// regardless of the configured agent allowlist. This matches the runbook
+// "operator is always allowed" clause and gives Craig a hard-coded escape
+// hatch even if the agent allowlist is misconfigured.
+export const DEFAULT_FORCE_CLOSE_OPERATORS = [
+  "craig",
+  "operator:craig",
+  "agent:craig",
+];
+
+// Append-only audit log for force-close actions. The directory is created
+// (mode 0700) on first write; the file is chmod 0600 on every append so
+// later permission drift cannot silently widen read access.
+export const DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH =
+  "/root/.openclaw/workspace/data/workboard/force-closes.jsonl";
+
+// Bounded by the same comment cap (4000 chars) so a runaway orchestrator
+// cannot append megabytes to a single force-close comment / audit entry.
+export const WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH = 20;
+export const WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH = 4000;
+
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
   now: number,

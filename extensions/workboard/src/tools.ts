@@ -517,6 +517,49 @@ export function createWorkboardTools(params: {
       },
     },
     {
+      name: "workboard_force_close",
+      label: "Workboard Force Close",
+      description:
+        "Orchestrator-only escape hatch for superseded, duplicate, cancelled, or invalid cards that will never receive a DBOS run ID. Restored from commit a0cf0f66c72 (card 32d1c50d).",
+      parameters: strictObject({
+        card_id: cardIdField(),
+        token: Type.Optional(
+          Type.String({ description: "Claim token; required when the card is claimed." }),
+        ),
+        reason_code: Type.Union([
+          Type.Literal("superseded"),
+          Type.Literal("duplicate"),
+          Type.Literal("cancelled"),
+          Type.Literal("invalid"),
+        ]),
+        explanation: Type.String({
+          minLength: 20,
+          description: "Required explanation of at least 20 characters.",
+        }),
+        reference_card_id: Type.Optional(
+          Type.String({ description: "Surviving card for superseded or duplicate work." }),
+        ),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = rawParams as Record<string, unknown>;
+        return redactedCardResult(
+          await store.forceClose(
+            readStringParam(record, "card_id", { required: true }),
+            {
+              token: typeof record.token === "string" ? record.token : undefined,
+              reasonCode: record.reason_code,
+              explanation: record.explanation,
+              referenceCardId:
+                typeof record.reference_card_id === "string"
+                  ? record.reference_card_id
+                  : undefined,
+            },
+            ownerId,
+          ),
+        );
+      },
+    },
+    {
       name: "workboard_attachment_add",
       label: "Workboard Attachment Add",
       description:

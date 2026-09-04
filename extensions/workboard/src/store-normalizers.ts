@@ -1166,6 +1166,13 @@ export function normalizeMetadata(
       typeof record.failureCount === "number" && Number.isFinite(record.failureCount)
         ? Math.max(0, Math.trunc(record.failureCount))
         : fallback.failureCount,
+    // Force-close marker (card 32d1c50d). The closed type allows only
+    // "force_close" — every other shape is normalized to undefined so a
+    // caller cannot smuggle a completion-shaped value into a force-close.
+    closureType:
+      record.closureType === "force_close"
+        ? "force_close"
+        : fallback.closureType,
   };
   return trimMetadataToBudget(normalized, options);
 }

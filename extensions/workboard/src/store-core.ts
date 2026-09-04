@@ -1,4 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import type {
   WorkboardBoardMetadata,
   WorkboardChange,
@@ -42,6 +44,9 @@ import {
   sameWorkboardCardState,
 } from "./store-compensation.js";
 import {
+  DEFAULT_FORCE_CLOSE_AGENTS,
+  DEFAULT_FORCE_CLOSE_OPERATORS,
+  DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH,
   MAX_CARD_COMMENTS,
   MAX_CARD_WORKER_LOGS,
   POSITION_STEP,
@@ -110,6 +115,17 @@ export class WorkboardCoreStore {
   protected readonly boardStore: WorkboardKeyedStore<PersistedWorkboardBoard>;
   protected readonly subscriptionStore: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   protected readonly attachmentStore: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  // Force-close plumbing (card 32d1c50d, restored from commit a0cf0f66c72).
+  // The audit path is created lazily on first append; allowed agents/operators
+  // default to the constants exported from store-constants.ts (Riko: replacing,
+  // not extending, matches the runbook caveat flagged in the 2026-08-24 18:02
+  // validation session — wire additional agents via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS).
+  // The activeRunLookup is the integration point for the BQES / DBOS queue so
+  // force-close can refuse cards with an in-flight durable run.
+  protected readonly forceCloseAuditPath: string;
+  protected readonly forceCloseAllowedAgents: Set<string>;
+  protected readonly forceCloseOperatorIds: Set<string>;
+  protected readonly activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
 
   constructor(
     store: WorkboardKeyedStore,
@@ -118,6 +134,10 @@ export class WorkboardCoreStore {
       subscriptions?: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
       attachments?: WorkboardKeyedStore<PersistedWorkboardAttachment>;
       dataVersion?: () => number;
+      forceCloseAuditPath?: string;
+      forceCloseAllowedAgents?: string[];
+      forceCloseOperatorIds?: string[];
+      activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
     } = {},
   ) {
     this.changes = new WorkboardChangeTracker(stores.dataVersion);
@@ -135,6 +155,49 @@ export class WorkboardCoreStore {
       (store as unknown as WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>);
     this.attachmentStore =
       stores.attachments ?? (store as unknown as WorkboardKeyedStore<PersistedWorkboardAttachment>);
+    this.forceCloseAuditPath =
+      stores.forceCloseAuditPath ?? DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH;
+    this.forceCloseAllowedAgents = new Set(
+      [...DEFAULT_FORCE_CLOSE_AGENTS, ...(stores.forceCloseAllowedAgents ?? [])]
+        .map((agent) => agent.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    this.forceCloseOperatorIds = new Set(
+      [...DEFAULT_FORCE_CLOSE_OPERATORS, ...(stores.forceCloseOperatorIds ?? [])]
+        .map((agent) => agent.trim().toLowerCase())
+        .filter(Boolean),
+    );
+    this.activeRunLookup = stores.activeRunLookup;
+  }
+
+  /**
+   * Append a single audit entry to the configured force-closes JSONL file
+   * (card 32d1c50d). The directory is created on demand at mode 0700 and
+   * the file is re-chmod'd to 0600 on every write so a later process
+   * cannot silently widen read access. Failures here are propagated — the
+   * caller treats the audit append as part of the force-close transaction
+   * and surfaces the error to the orchestrator (no silent skip).
+   */
+  protected appendForceCloseAudit(entry: {
+    ts: string;
+    agent_id: string;
+    card_id: string;
+    reason_code: string;
+    explanation: string;
+    reference_card_id: string | null;
+    prior_status: string;
+    dbos_run_id: string | null;
+  }): void {
+    const directory = path.dirname(this.forceCloseAuditPath);
+    fs.mkdirSync(directory, { recursive: true, mode: 448 });
+    fs.appendFileSync(
+      this.forceCloseAuditPath,
+      `${JSON.stringify(entry)}\n`,
+      { encoding: "utf8", mode: 384 },
+    );
+    if (process.platform !== "win32") {
+      fs.chmodSync(this.forceCloseAuditPath, 384);
+    }
   }
 
   subscribeChanges(listener: (change: WorkboardChange) => void): () => void {

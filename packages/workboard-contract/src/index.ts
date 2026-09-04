@@ -364,6 +364,14 @@ export type WorkboardMetadata = {
   stale?: WorkboardStaleState;
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
+  /**
+   * Set when a card is moved to `done` via the workboard_force_close
+   * orchestrator-only escape hatch (card 32d1c50d). The single allowed
+   * value is "force_close"; a regular completion leaves this unset so
+   * `forceClosed` and `verifiedDone` metrics stay disjoint. The append-only
+   * audit trail lives at `data/workboard/force-closes.jsonl`.
+   */
+  closureType?: "force_close";
 };
 
 export type WorkboardCard = {
