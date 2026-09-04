@@ -13,7 +13,9 @@
   "enabledByDefault": false,
   "activation": {
     "onStartup": true,
-    "onCommands": ["workboard"]
+    "onCommands": [
+      "workboard"
+    ]
   },
   "dashboard": {
     "dataBindings": [
@@ -42,7 +44,10 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "boardId": { "type": "string", "minLength": 1 }
+            "boardId": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         }
       }
@@ -50,7 +55,10 @@
   },
   "name": "Workboard",
   "description": "Dashboard workboard for agent-owned issues and sessions.",
-  "catalog": { "featured": true, "order": 10 },
+  "catalog": {
+    "featured": true,
+    "order": 10
+  },
   "contracts": {
     "tools": [
       "workboard_list",
@@ -87,10 +95,15 @@
       "workboard_worker_log",
       "workboard_protocol_violation",
       "workboard_unblock",
-      "workboard_move"
+      "workboard_move",
+      "workboard_force_close"
     ]
   },
-  "commandAliases": [{ "name": "workboard" }],
+  "commandAliases": [
+    {
+      "name": "workboard"
+    }
+  ],
   "toolMetadata": {
     "workboard_list": {
       "optional": true
@@ -195,6 +208,9 @@
       "optional": true
     },
     "workboard_move": {
+      "optional": true
+    },
+    "workboard_force_close": {
       "optional": true
     }
   },
