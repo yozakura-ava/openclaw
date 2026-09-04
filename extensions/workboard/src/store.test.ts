@@ -2516,6 +2516,103 @@ describe("WorkboardStore", () => {
     }
   });
 
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // claim TTL is the authoritative fence. Once past the 5-min grace, a
+  // dead-owner claim no longer fences `workboard_reclaim` from any caller.
+  it("reclaim of dead-owner expired claim succeeds past the grace window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({
+        title: "Dead-owner reclaim target",
+        status: "running",
+        execution: {
+          id: "exec-dead",
+          kind: "agent-session",
+          engine: "codex",
+          mode: "autonomous",
+          status: "running",
+          model: "openai/gpt-5.5",
+          startedAt: 100,
+          updatedAt: 100,
+        },
+      });
+      const claimed = await store.claim(card.id, { ownerId: "dbos-bridge:860692", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Cross-owner caller (the live session) calls workboard_reclaim on a
+      // card whose claim belongs to a dead pid — past the 5-min reclaimable
+      // grace. The caller does NOT know the dead owner's token.
+      vi.setSystemTime(expiresAt + 5 * 60_000 + 1);
+      const reclaimed = await store.reclaim(
+        card.id,
+        { reason: "owner pid dead" },
+        { ownerId: "live-session:recoverer" },
+      );
+      expect(reclaimed.metadata?.claim).toBeUndefined();
+      expect(reclaimed.status).toBe("ready");
+      expect(reclaimed.execution).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // inside the 5-min grace, the dispatcher recovery semantics are preserved
+  // — `workboard_reclaim` must not steal a live-but-quiet worker's token.
+  it("reclaim of live-but-quiet owner claim inside the grace is still refused", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Grace-protected reclaim target", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Inside the 5-min grace: claim fence still active. Cross-owner
+      // reclaim must be refused even though `expiresAt` has passed.
+      vi.setSystemTime(expiresAt + 2_000);
+      await expect(
+        store.reclaim(
+          card.id,
+          { reason: "premature reclaim" },
+          { ownerId: "live-session:recoverer" },
+        ),
+      ).rejects.toThrow(/card is claimed by original\./);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+  // the fix must not weaken owner+token assertion for callers who DO have
+  // matching credentials — the assertion short-circuits before checking
+  // expiresAt, preserving the original contract for the happy path.
+  it("reclaim with matching owner succeeds regardless of expiresAt", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Same-owner reclaim", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 60 });
+      const claimedToken = claimed.token;
+      const reclaimed = await store.reclaim(
+        card.id,
+        { reason: "self reclaim" },
+        { ownerId: "original", token: claimedToken },
+      );
+      expect(reclaimed.metadata?.claim).toBeUndefined();
+      expect(reclaimed.status).toBe("ready");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("own expired claim frees the owner slot for another card", async () => {
     vi.useFakeTimers();
     try {

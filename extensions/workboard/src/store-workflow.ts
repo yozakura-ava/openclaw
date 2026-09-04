@@ -496,7 +496,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       if (!existing) {
         throw new Error(`card not found: ${id}`);
       }
-      assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+      // PATCH workboard-reclaim-expired-claim (card 1b0f98cb, 2026-09-03):
+      // reclaim of an expired claim from a dead owner is permitted. The TTL
+      // is the authoritative fence; once past, anyone may take the work.
+      assertCanMutateClaimedCard(existing, scope === null ? undefined : scope, {
+        allowExpiredClaim: true,
+      });
       const now = Date.now();
       const reason =
         normalizeBoundedString(input.reason, undefined, 1000, "reclaim reason") ??
