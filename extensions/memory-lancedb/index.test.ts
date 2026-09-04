@@ -736,7 +736,7 @@ describe("memory plugin e2e", () => {
       provider: {
         id: "openai",
         model: options.model,
-        embedQuery,
+        embed: embedQuery,
         embedBatch: vi.fn(async () => [[0.1, 0.2, 0.3]]),
         close: closeProvider,
       },
@@ -831,6 +831,7 @@ describe("memory plugin e2e", () => {
       expect(closeProvider).toHaveBeenCalledTimes(2);
       expect(createProvider).toHaveBeenCalledOnce();
       expect(embedQuery).toHaveBeenCalledWith("project memory", {
+        inputType: "query",
         signal: expect.any(AbortSignal),
       });
     } finally {
@@ -847,7 +848,7 @@ describe("memory plugin e2e", () => {
         provider: {
           id: "openai",
           model: options.model ?? "text-embedding-3-small",
-          embedQuery: vi.fn(async (text: string) => {
+          embed: vi.fn(async (text: string) => {
             requests.push({ agentDir, text });
             return [0.1, 0.2, 0.3];
           }),
@@ -2412,6 +2413,51 @@ describe("memory plugin e2e", () => {
       cleanupAutoCaptureCursorHarness();
     }
   });
+
+  test.each(["repeated", "invocation-distinct"])(
+    "does not checkpoint %s display-only hook evidence",
+    async (contentKind) => {
+      const harness = await setupAutoCaptureCursorHarness();
+      const history = [
+        { role: "user", content: "I prefer Helix for editing code every day." },
+        { role: "user", content: "I prefer Fish for shell commands every day." },
+        { role: "user", content: "I prefer Deno for small scripts every day." },
+        { role: "assistant", content: "Preferences recorded." },
+      ];
+      const activity = (invocation: number) => ({
+        role: "custom",
+        customType: "tool-activity",
+        display: true,
+        excludeFromContext: true,
+        content: contentKind === "repeated" ? "completed" : `invocation-${invocation}`,
+      });
+      const newPreference = "I prefer SQLite for local application state.";
+      const context = { agentId: "main", sessionKey: "session-display-evidence" };
+      try {
+        await harness.agentEnd?.({ success: true, messages: [...history, activity(1)] }, context);
+        await harness.agentEnd?.(
+          {
+            success: true,
+            messages: [
+              ...history,
+              { role: "user", content: newPreference },
+              { role: "assistant", content: "New preference recorded." },
+              activity(2),
+            ],
+          },
+          context,
+        );
+
+        expect(harness.embeddingsCreate.mock.calls.map(([request]) => request.input)).toEqual([
+          ...history.slice(0, 3).map((message) => message.content),
+          newPreference,
+        ]);
+        expect(harness.add).toHaveBeenCalledTimes(4);
+      } finally {
+        cleanupAutoCaptureCursorHarness();
+      }
+    },
+  );
 
   test("does not advance auto-capture cursor when message processing fails", async () => {
     const embeddingsCreate = vi
