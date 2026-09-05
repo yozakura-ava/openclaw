@@ -400,9 +400,13 @@ export function assertReviewIndependenceFromScope(
   scope: WorkboardMutationScope | null | undefined,
   proof: { status?: string } | undefined,
 ): void {
-  if (!proof || proof.status !== "passed") return;
+  if (!proof || proof.status !== "passed") {
+    return;
+  }
   const scopeObj = scope && typeof scope === "object" ? (scope as Record<string, unknown>) : null;
-  if (!scopeObj) return;
+  if (!scopeObj) {
+    return;
+  }
   const callerKey =
     typeof scopeObj.sessionKey === "string" && scopeObj.sessionKey
       ? scopeObj.sessionKey
@@ -410,7 +414,9 @@ export function assertReviewIndependenceFromScope(
         ? scopeObj.ownerId
         : null;
   const agentId = typeof card.agentId === "string" && card.agentId ? card.agentId : null;
-  if (!callerKey || !agentId) return;
+  if (!callerKey || !agentId) {
+    return;
+  }
   const namespacePrefix = `agent:${agentId}:`;
   if (callerKey.startsWith(namespacePrefix)) {
     throw new Error(

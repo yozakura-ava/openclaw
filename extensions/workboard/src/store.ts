@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
   WorkboardCard,
+  WorkboardChange,
   WorkboardDiagnostic,
   WorkboardExecution,
   WorkboardExecutionStatus,
@@ -11,9 +12,13 @@ import type {
   WorkboardStaleState,
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
+import type { SqliteAuthorityLifecycle } from "openclaw/plugin-sdk/sqlite-runtime";
+import type { WorkboardDurableEventIntake } from "./durable-event-intake.js";
+import type { WorkboardKeyedStore } from "./persistence-types.js";
+import { createWorkboardPostgresAuthorityFromEnv } from "./postgres-authority-client.js";
+import type { WorkboardRemoteAuthority } from "./postgres-stores.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
-  buildWorkerContext,
   assertCanMutateClaimedCard,
   cardBoardId,
   cardRunId,
@@ -32,6 +37,7 @@ import {
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
 } from "./store-constants.js";
+import type { WorkboardCoreStoreOptions } from "./store-core.js";
 import type {
   WorkboardBulkInput,
   WorkboardCardPatch,
@@ -64,6 +70,12 @@ type WorkboardExecutionAssociationPatch = WorkboardCardPatch & {
   metadata?: WorkboardMetadata;
 };
 type WorkboardPreparedLaunch = Extract<WorkboardLaunchState, { phase: "prepared" }>;
+
+type WorkboardStoreOptions = WorkboardCoreStoreOptions & {
+  sqliteLifecycle?: SqliteAuthorityLifecycle;
+  sqliteRecover?: () => boolean;
+  sqliteClose?: () => void;
+};
 
 function preparedLaunchMatchesCard(
   card: WorkboardCard,
@@ -189,6 +201,56 @@ function lifecycleExecution(params: {
 
 // Capability layers split review boundaries only; the core still owns persistence and mutation order.
 export class WorkboardStore extends WorkboardNotificationStore {
+  private readonly sqliteLifecycle?: SqliteAuthorityLifecycle;
+  private readonly sqliteRecover?: () => boolean;
+  private readonly sqliteClose?: () => void;
+  private readonly durableEventIntake?: WorkboardDurableEventIntake;
+  private sqliteClosed = false;
+
+  constructor(store: WorkboardKeyedStore, options: WorkboardStoreOptions = {}) {
+    super(store, options);
+    this.sqliteLifecycle = options.sqliteLifecycle;
+    this.sqliteRecover = options.sqliteRecover;
+    this.sqliteClose = options.sqliteClose;
+    this.durableEventIntake = options.durableEventIntake;
+  }
+
+  async probeSqliteAuthority(): Promise<void> {
+    if (this.sqliteClosed) {
+      throw new Error("workboard store is closed");
+    }
+    await this.list();
+  }
+
+  recoverSqliteAuthority(): boolean {
+    if (this.sqliteClosed) {
+      return false;
+    }
+    return this.sqliteRecover?.() ?? false;
+  }
+
+  get sqliteAuthorityLifecycle(): SqliteAuthorityLifecycle | undefined {
+    return this.sqliteLifecycle;
+  }
+
+  close(): void {
+    if (this.sqliteClosed) {
+      return;
+    }
+    this.sqliteClosed = true;
+    this.sqliteClose?.();
+  }
+
+  async drainDurableChanges(
+    deliver: (change: WorkboardChange) => void | Promise<void>,
+  ): Promise<{ delivered: number; failed: number }> {
+    return await (this.durableEventIntake?.drain(deliver) ?? { delivered: 0, failed: 0 });
+  }
+
+  async replayDurableChanges(): Promise<number> {
+    return await (this.durableEventIntake?.replayDeadLetters() ?? 0);
+  }
+
   async prepareExecutionLaunch(
     id: string,
     input: {
@@ -629,25 +691,24 @@ export class WorkboardStore extends WorkboardNotificationStore {
     });
   }
 
-  async buildWorkerContext(id: string): Promise<string> {
-    const card = await this.get(id);
-    if (!card) {
-      throw new Error(`card not found: ${id}`);
-    }
-    return buildWorkerContext(card, await this.list());
-  }
-
   static openSqlite(options?: {
+    env?: NodeJS.ProcessEnv;
+    remoteAuthority?: WorkboardRemoteAuthority;
     forceCloseAuditPath?: string;
     forceCloseAllowedAgents?: string[];
     forceCloseOperatorIds?: string[];
     activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
   }) {
-    const stores = createWorkboardSqliteStores();
+    const env = options?.env ?? process.env;
+    const remoteAuthority =
+      options?.remoteAuthority ?? createWorkboardPostgresAuthorityFromEnv(env);
+    const stores = createWorkboardSqliteStores({ env, remoteAuthority });
     return new WorkboardStore(stores.cards, {
       boards: stores.boards,
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
+      audits: stores.audits,
+      durableEventIntake: stores.durableEventIntake,
       dataVersion: stores.dataVersion,
       ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
       ...(options?.forceCloseAllowedAgents
@@ -657,6 +718,9 @@ export class WorkboardStore extends WorkboardNotificationStore {
         ? { forceCloseOperatorIds: options.forceCloseOperatorIds }
         : {}),
       ...(options?.activeRunLookup ? { activeRunLookup: options.activeRunLookup } : {}),
+      sqliteLifecycle: stores.lifecycle,
+      sqliteRecover: stores.recover,
+      sqliteClose: stores.close,
     });
   }
 }

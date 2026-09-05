@@ -459,6 +459,7 @@ export function normalizeAutomation(
   const maxRetries = Object.hasOwn(record, "maxRetries")
     ? normalizePositiveInteger(record.maxRetries, "max retries")
     : fallback.maxRetries;
+  const queue = normalizeBoundedString(record.queue, fallback.queue, 120, "queue");
   const dispatchCount = Object.hasOwn(record, "dispatchCount")
     ? normalizeTimestamp(record.dispatchCount, 0) || undefined
     : fallback.dispatchCount;
@@ -483,6 +484,7 @@ export function normalizeAutomation(
     ...(workspaceAccess ? { workspaceAccess } : {}),
     ...(maxRuntimeSeconds ? { maxRuntimeSeconds } : {}),
     ...(maxRetries ? { maxRetries } : {}),
+    ...(queue ? { queue } : {}),
     ...(scheduledAt ? { scheduledAt } : {}),
     ...(summary ? { summary } : {}),
     ...(createdCardIds?.length ? { createdCardIds } : {}),
@@ -1169,10 +1171,11 @@ export function normalizeMetadata(
     // Force-close marker (card 32d1c50d). The closed type allows only
     // "force_close" — every other shape is normalized to undefined so a
     // caller cannot smuggle a completion-shaped value into a force-close.
-    closureType:
-      record.closureType === "force_close"
-        ? "force_close"
-        : fallback.closureType,
+    closureType: record.closureType === "force_close" ? "force_close" : fallback.closureType,
+    closureOperationId:
+      typeof record.closureOperationId === "string" && record.closureOperationId.trim().length > 0
+        ? record.closureOperationId.trim()
+        : fallback.closureOperationId,
   };
   return trimMetadataToBudget(normalized, options);
 }
@@ -1245,6 +1248,7 @@ function removeUndefinedAutomationFields(automation: WorkboardAutomation): Workb
     "workspaceAccess",
     "maxRuntimeSeconds",
     "maxRetries",
+    "queue",
     "scheduledAt",
     "summary",
     "createdCardIds",
@@ -1284,6 +1288,8 @@ export function removeUndefinedMetadataFields(metadata: WorkboardMetadata): Work
     "stale",
     "lifecycleStatusSourceUpdatedAt",
     "failureCount",
+    "closureType",
+    "closureOperationId",
   ] as const) {
     const value = next[key];
     if (

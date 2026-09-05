@@ -675,7 +675,7 @@ describe("workboard claim owner resolution", () => {
     );
     await tools.get("workboard_create")?.execute("anon", { title: "Anon claim" });
     const card = (await store.list()).find((c) => c.title === "Anon claim");
-    expectDefined(card);
+    expectDefined(card, "anonymous claim card");
     await expect(tools.get("workboard_claim")?.execute("c", { id: card!.id })).rejects.toThrow(
       /agentId or sessionKey/,
     );
@@ -689,7 +689,7 @@ describe("workboard claim owner resolution", () => {
     );
     await tools.get("workboard_create")?.execute("legacy", { title: "Legacy fallback" });
     const card = (await store.list()).find((c) => c.title === "Legacy fallback");
-    expectDefined(card);
+    expectDefined(card, "legacy fallback card");
     await expect(
       tools.get("workboard_claim")?.execute("c", { id: card!.id }),
     ).resolves.toBeDefined();
@@ -708,7 +708,7 @@ describe("workboard claim owner resolution", () => {
     );
     await tools.get("workboard_create")?.execute("ovr", { title: "Override owner" });
     const card = (await store.list()).find((c) => c.title === "Override owner");
-    expectDefined(card);
+    expectDefined(card, "override owner card");
     await expect(
       tools.get("workboard_claim")?.execute("c", { id: card!.id, ownerId: "dbos-bridge:123" }),
     ).resolves.toBeDefined();

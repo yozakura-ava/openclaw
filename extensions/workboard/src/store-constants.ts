@@ -40,8 +40,7 @@ export const WORKBOARD_FORCE_CLOSE_REASON_CODES = [
   "cancelled",
   "invalid",
 ] as const;
-export type WorkboardForceCloseReasonCode =
-  (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
+export type WorkboardForceCloseReasonCode = (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
 
 // Default orchestrator agents allowed to invoke workboard_force_close. The
 // store constructor accepts a forceCloseAllowedAgents override which
@@ -54,11 +53,7 @@ export const DEFAULT_FORCE_CLOSE_AGENTS = ["ava"];
 // regardless of the configured agent allowlist. This matches the runbook
 // "operator is always allowed" clause and gives Craig a hard-coded escape
 // hatch even if the agent allowlist is misconfigured.
-export const DEFAULT_FORCE_CLOSE_OPERATORS = [
-  "craig",
-  "operator:craig",
-  "agent:craig",
-];
+export const DEFAULT_FORCE_CLOSE_OPERATORS = ["craig", "operator:craig", "agent:craig"];
 
 // Append-only audit log for force-close actions. The directory is created
 // (mode 0700) on first write; the file is chmod 0600 on every append so

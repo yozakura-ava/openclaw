@@ -3,13 +3,11 @@ import { isDeepStrictEqual } from "node:util";
 import type {
   WorkboardArtifact,
   WorkboardCard,
-  WorkboardClaim,
   WorkboardMetadata,
   WorkboardNotification,
   WorkboardRunAttempt,
 } from "@openclaw/workboard-contract";
 import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
-import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   assertCanMutateClaimedCard,
@@ -21,9 +19,9 @@ import {
   closeRunningAttempts,
   assertReviewIndependenceFromScope,
   diagnostic,
-  latestRunningAttempt,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
+import { assertClaimIdentity } from "./store-claim-helpers.js";
 import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
@@ -32,10 +30,8 @@ import {
   MAX_CARD_COMMENTS,
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
-  WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
-  WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH,
-  WORKBOARD_FORCE_CLOSE_REASON_CODES,
 } from "./store-constants.js";
+import { executeForceClose } from "./store-force-close.js";
 import type {
   WorkboardBlockInput,
   WorkboardCardPatch,
@@ -64,87 +60,8 @@ import {
   normalizeStatus,
   normalizeStringList,
   removeUndefinedMetadataFields,
-  trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
-
-// workboard_force_close helpers (card 32d1c50d).
-// `normalizeForceCloseReasonCode` rejects every reason outside the closed
-// enum so the override can never widen into a general completion bypass.
-function normalizeForceCloseReasonCode(
-  value: unknown,
-): (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number] {
-  if (typeof value === "string" && (WORKBOARD_FORCE_CLOSE_REASON_CODES as readonly string[]).includes(value)) {
-    return value as (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
-  }
-  throw new Error(
-    `force-close reason_code must be one of: ${WORKBOARD_FORCE_CLOSE_REASON_CODES.join(", ")}.`,
-  );
-}
-
-// `forceCloseReasonRequiresReference` encodes the design rule that
-// superseded and duplicate closures must point at a surviving card so the
-// audit trail is queryable for "where did the work land?". Cancelled and
-// invalid closures are allowed without a reference.
-function forceCloseReasonRequiresReference(
-  reasonCode: (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number],
-): boolean {
-  return reasonCode === "superseded" || reasonCode === "duplicate";
-}
-
-// `collectOpenDescendantIds` walks the parent/child link tree from a seed
-// card and returns every descendant whose status is not "done". Recursion
-// is bounded by the card list (one row per descendant) and tolerates
-// orphaned links — a missing link target is simply skipped, never
-// re-thrown, because force-close must surface a stable set of open IDs
-// even when the link graph is mid-edit.
-async function collectOpenDescendantIds(
-  cardId: string,
-  store: { get: (id: string) => Promise<WorkboardCard | undefined> },
-): Promise<string[]> {
-  const open: string[] = [];
-  const visited = new Set<string>();
-  const queue: string[] = [];
-  const directChildren = await (async () => {
-    const seed = await store.get(cardId);
-    return seed ? cardChildIds(seed) : [];
-  })();
-  queue.push(...directChildren);
-  while (queue.length > 0) {
-    const next = queue.shift();
-    if (!next || visited.has(next)) continue;
-    visited.add(next);
-    const child = await store.get(next);
-    if (!child) continue;
-    if (child.status !== "done") {
-      open.push(child.id);
-    }
-    queue.push(...cardChildIds(child));
-  }
-  return open.toSorted();
-}
-
-function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInput): void {
-  const token = normalizeOptionalString(input.token);
-  const ownerId = normalizeOptionalString(input.ownerId);
-  // Owner-match takes precedence over token mismatch. Outbound tool args
-  // can scrub a valid claim token to a masked placeholder (e.g. "***"), so
-  // an invalid-but-present token must not reject when the caller proves
-  // identity through the owner string. Fencing is preserved by the exact
-  // string compare below; cross-owner token-less mutations still throw.
-  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
-  // reina-2026-08-31-008).
-  if (ownerId && ownerId === claim.ownerId) {
-    return;
-  }
-  if (token) {
-    if (!safeEqualSecret(token, claim.token)) {
-      throw new Error("claim token does not match.");
-    }
-    return;
-  }
-  throw new Error("claim owner does not match.");
-}
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
   async claim(
@@ -464,154 +381,26 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
    */
   async forceClose(
     id: string,
-    input: WorkboardForceCloseInput = {},
+    input: WorkboardForceCloseInput | undefined,
     agentId: string | undefined,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(async () => {
-      const normalizedAgentId = normalizeOptionalString(agentId)?.toLowerCase();
-      if (
-        !normalizedAgentId ||
-        (!this.forceCloseAllowedAgents.has(normalizedAgentId) &&
-          !this.forceCloseOperatorIds.has(normalizedAgentId))
-      ) {
-        throw new Error("force-close is orchestrator-only");
-      }
-
-      const cardId = normalizeOptionalString(id);
-      if (!cardId) {
-        throw new Error("card id is required.");
-      }
-
-      const existing = await this.get(cardId);
-      if (!existing) {
-        throw new Error(`card not found: ${cardId}`);
-      }
-      if (existing.status === "done") {
-        if (existing.metadata?.closureType === "force_close") {
-          throw new Error(`card is already force-closed: ${cardId}`);
-        }
-        throw new Error(`card is already done: ${cardId}`);
-      }
-
-      const reasonCode = normalizeForceCloseReasonCode(input.reasonCode);
-      const explanation = normalizeBoundedString(
-        input.explanation,
-        undefined,
-        WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
-        "force-close explanation",
-      );
-      if (
-        !explanation ||
-        explanation.length < WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH
-      ) {
-        throw new Error(
-          `force-close explanation must be at least ${WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH} characters.`,
-        );
-      }
-
-      const referenceCardId = normalizeOptionalString(input.referenceCardId);
-      if (forceCloseReasonRequiresReference(reasonCode) && !referenceCardId) {
-        throw new Error(`force-close reason ${reasonCode} requires reference_card_id.`);
-      }
-      if (referenceCardId) {
-        const reference = await this.get(referenceCardId);
-        if (!reference) {
-          throw new Error(`reference card not found: ${referenceCardId}`);
-        }
-        if (reference.metadata?.closureType === "force_close") {
-          throw new Error(`reference card is force-closed: ${referenceCardId}`);
-        }
-      }
-
-      const openDescendants = await collectOpenDescendantIds(cardId, this);
-      if (openDescendants.length > 0) {
-        throw new Error(`card has open descendants: ${openDescendants.join(", ")}`);
-      }
-
-      const token = normalizeOptionalString(input.token);
-      const claim = existing.metadata?.claim;
-      if (claim) {
-        if (claim.ownerId !== normalizedAgentId) {
-          throw new Error(`card is claimed by ${claim.ownerId}.`);
-        }
-        if (!token) {
-          throw new Error("force-close requires the claim token for a claimed card.");
-        }
-        if (claim.token !== token) {
-          throw new Error("claim token does not match.");
-        }
-      }
-      assertCanMutateClaimedCard(existing, {
-        ownerId: normalizedAgentId,
-        token,
-      });
-
-      const localActiveRunId =
-        existing.execution?.status === "running"
-          ? cardRunId(existing)
-          : latestRunningAttempt(existing)?.runId;
-      // Canonical WorkboardAutomation has no `queue` field; the queue name
-      // would be a BQES-specific concern wired in via the gateway's
-      // activeRunLookup adapter. Pass undefined so the lookup callback can
-      // fall back to its own cardId-only resolution path.
-      const durableActiveRunId = await this.activeRunLookup?.(existing.id, undefined);
-      const activeRunId = localActiveRunId ?? durableActiveRunId;
-      if (
-        activeRunId ||
-        existing.execution?.status === "running" ||
-        latestRunningAttempt(existing)
-      ) {
-        throw new Error(
-          `active DBOS run exists for card ${existing.id}: ${activeRunId ?? "unknown"}`,
-        );
-      }
-
-      const now = Date.now();
-      const comment = `[FORCE-CLOSE] ${reasonCode}: ${explanation}`;
-      const notification: WorkboardNotification = {
-        id: randomUUID(),
-        kind: "completed",
-        createdAt: now,
-        sequence: this.nextNotificationSequence(now),
-        message: capText(comment, 240) ?? "Workboard card force-closed.",
-        ...(cardSessionKey(existing) ? { sessionKey: cardSessionKey(existing) } : {}),
-      };
-      const audit = {
-        ts: new Date(now).toISOString(),
-        agent_id: normalizedAgentId,
-        card_id: existing.id,
-        reason_code: reasonCode,
-        explanation,
-        reference_card_id: referenceCardId ?? null,
-        prior_status: existing.status,
-        dbos_run_id: null,
-      };
-      this.appendForceCloseAudit(audit);
-
-      const metadata: WorkboardMetadata = trimMetadataToBudget({
-        ...clearDiagnostics(existing.metadata, ["missing_proof"]),
-        claim: undefined,
-        closureType: "force_close",
-        comments: [
-          ...(existing.metadata?.comments ?? []),
-          { id: randomUUID(), body: comment, createdAt: now },
-        ].slice(-MAX_CARD_COMMENTS),
-        notifications: [...(existing.metadata?.notifications ?? []), notification].slice(
-          -MAX_CARD_NOTIFICATIONS,
-        ),
-      });
-
-      return await this.updateCard(
-        existing.id,
-        {
-          status: "done",
-          metadata,
-        },
-        {
-          enforceStatusHolds: true,
-        },
-      );
-    });
+    return await executeForceClose(
+      {
+        enqueueMutation: (run) => this.enqueueMutation(run),
+        withCardCompensation: (run) => this.withCardCompensation(run),
+        get: (cardId) => this.get(cardId),
+        list: () => this.list(),
+        updateCard: (cardId, patch, options) => this.updateCard(cardId, patch, options),
+        nextNotificationSequence: (now) => this.nextNotificationSequence(now),
+        recordForceCloseAudit: (entry) => this.recordForceCloseAudit(entry),
+        forceCloseAllowedAgents: this.forceCloseAllowedAgents,
+        forceCloseOperatorIds: this.forceCloseOperatorIds,
+        activeRunLookup: this.activeRunLookup,
+      },
+      id,
+      input,
+      agentId,
+    );
   }
 
   protected buildBlockedCardPatch(
@@ -794,10 +583,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         !reclaimed0.metadata?.proof?.length &&
         !reclaimed0.metadata?.artifacts?.length
       ) {
-        reclaimed = await this.updateMetadata(reclaimed0.id, (existing) => ({
-          ...existing.metadata,
+        reclaimed = await this.updateMetadata(reclaimed0.id, (current) => ({
+          ...current.metadata,
           diagnostics: [
-            ...(existing.metadata?.diagnostics ?? []),
+            ...(current.metadata?.diagnostics ?? []),
             diagnostic(
               {
                 kind: "done_without_proof",

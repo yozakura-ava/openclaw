@@ -6,6 +6,8 @@ import type {
   WorkboardNotificationSubscription,
 } from "@openclaw/workboard-contract";
 
+export type { PersistedWorkboardForceCloseAudit } from "./force-close-audit.js";
+
 export type PersistedWorkboardCard = {
   version: 1;
   card: WorkboardCard;

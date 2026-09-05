@@ -5,54 +5,25 @@
 // committed. There is deliberately no gateway fallback path.
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   deriveIdempotencyKey,
   deriveWorkflowId,
   requireNonEmpty,
   stableJson,
   type AdmissionGate,
-  type ExecutionIdentityInput,
-  type AdmissionEnvelope,
 } from "@openclaw/execution-contract";
+import {
+  openNodeSqliteDatabase,
+  runSqliteImmediateTransactionSync,
+  runSqliteAuthorityWriteSync,
+} from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import type { DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
 import { DbosRuntimeError } from "./dbos-errors.js";
+export type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 
 export type DbosWorkflowState = "admitted" | "running" | "succeeded" | "failed" | "quarantined";
-
-export type DbosWorkflowInput = ExecutionIdentityInput & {
-  attemptId: string;
-  idempotencyKey: string;
-  ownerEpoch: string;
-  now?: number;
-};
-
-/** Durable DBOS authority used by production dispatchers. */
-export type DbosAuthority = {
-  admit(
-    input: DbosWorkflowInput & { envelope?: AdmissionEnvelope },
-  ): DbosReceipt | Promise<DbosReceipt>;
-  start(workflowId: string, ownerEpoch: string): unknown;
-  fail?(workflowId: string, detail: string): unknown;
-  complete?(workflowId: string, evidence: unknown): unknown;
-};
-
-export type DbosReceipt = {
-  workflowId: string;
-  idempotencyKey: string;
-  cardId: string;
-  queue: string;
-  runId: string;
-  attemptId: string;
-  ownerEpoch: string;
-  acknowledgedAt: number;
-  /** Authority metadata is required on the production HTTP response. */
-  operationKey?: string;
-  state?: "admitted";
-  serverTimestamp?: number;
-  sdkWorkflowId?: string;
-};
 
 export type DbosResourceState = {
   ownedChild: boolean;
@@ -79,6 +50,7 @@ export type ReconciliationFinding = {
 };
 
 type Row = Record<string, unknown>;
+type SqliteDatabase = ReturnType<typeof openNodeSqliteDatabase>;
 const DEFAULT_DB_PATH = ["plugins", "workboard", "dbos.sqlite"] as const;
 export const WORKBOARD_DBOS_STATE_MAP: Readonly<Record<string, DbosWorkflowState | null>> = {
   triage: null,
@@ -112,16 +84,14 @@ function parse<T>(value: unknown, fallback: T): T {
   return typeof value === "string" && value.length > 0 ? (JSON.parse(value) as T) : fallback;
 }
 
-function transaction<T>(db: DatabaseSync, fn: () => T): T {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+function transaction<T>(db: SqliteDatabase, fn: () => T): T {
+  return runSqliteAuthorityWriteSync(() =>
+    runSqliteImmediateTransactionSync(db, fn, {
+      databaseLabel: "dbos compatibility database",
+      maxHoldMs: 5_000,
+      operationLabel: "dbos.write",
+    }),
+  );
 }
 
 function normalize(input: DbosWorkflowInput): DbosWorkflowInput {
@@ -179,14 +149,14 @@ export function resolveDbosDbPath(env: NodeJS.ProcessEnv = process.env): string 
  * a second live workflow store.
  */
 export class DbosRuntime {
-  readonly db: DatabaseSync;
+  readonly db: ReturnType<typeof openNodeSqliteDatabase>;
   private readonly now: () => number;
   private readonly gate?: AdmissionGate;
 
   constructor(options: { dbPath?: string; now?: () => number; gate?: AdmissionGate } = {}) {
     const dbPath = options.dbPath ?? resolveDbosDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(dbPath);
+    this.db = openNodeSqliteDatabase(dbPath);
     this.now = options.now ?? Date.now;
     this.gate = options.gate;
     this.db.exec(`
@@ -558,5 +528,4 @@ export {
   createProductionDbosAuthority,
   requireDbosReceipt,
 } from "./dbos-client.js";
-export type { DbosRequestFailureKind } from "./dbos-errors.js";
 export type { DbosHttpClientOptions } from "./dbos-client.js";

@@ -124,7 +124,19 @@ export type WorkboardForceCloseInput = {
   reasonCode?: unknown;
   explanation?: unknown;
   referenceCardId?: unknown;
+  cascadeDescendants?: unknown;
+  operationId?: unknown;
 };
+
+export class WorkboardForceCloseValidationError extends Error {
+  readonly blockingCardIds: readonly string[];
+
+  constructor(message: string, blockingCardIds: readonly string[]) {
+    super(message);
+    this.name = "WorkboardForceCloseValidationError";
+    this.blockingCardIds = [...blockingCardIds];
+  }
+}
 export type WorkboardBlockInput = {
   ownerId?: unknown;
   token?: unknown;
@@ -202,6 +214,7 @@ export type WorkboardNotificationEventsInput = WorkboardNotificationListOptions 
 export type WorkboardMutationScope = {
   ownerId?: unknown;
   token?: unknown;
+  sessionKey?: unknown;
 };
 
 export type WorkboardDiagnosticsResult = {

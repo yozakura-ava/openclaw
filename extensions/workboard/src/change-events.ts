@@ -10,7 +10,7 @@ export function createWorkboardChangeEventService(store: WorkboardStore): OpenCl
 
   return {
     id: "workboard-change-events",
-    start(ctx) {
+    async start(ctx) {
       const gatewayEvents = ctx.gatewayEvents;
       if (!gatewayEvents || unsubscribe) {
         return;
@@ -21,10 +21,29 @@ export function createWorkboardChangeEventService(store: WorkboardStore): OpenCl
         });
       };
       unsubscribe = store.subscribeChanges(emit);
+      const replayDurableChanges =
+        typeof store.replayDurableChanges === "function"
+          ? store.replayDurableChanges.bind(store)
+          : undefined;
+      const drainDurableChanges =
+        typeof store.drainDurableChanges === "function"
+          ? store.drainDurableChanges.bind(store)
+          : undefined;
+      if (replayDurableChanges) {
+        await replayDurableChanges();
+      }
+      if (drainDurableChanges) {
+        await drainDurableChanges(emit);
+      }
       store.announceChangeEpoch();
       timer = setInterval(() => {
         try {
           store.reconcileExternalChanges();
+          if (drainDurableChanges) {
+            void drainDurableChanges(emit).catch((error: unknown) => {
+              ctx.logger.warn(`workboard durable event drain failed: ${String(error)}`);
+            });
+          }
         } catch (error) {
           ctx.logger.warn(`workboard external change check failed: ${String(error)}`);
         }

@@ -284,6 +284,7 @@ export type WorkboardAutomation = {
   workspaceAccess?: WorkboardWorkspaceAccess;
   maxRuntimeSeconds?: number;
   maxRetries?: number;
+  queue?: string;
   scheduledAt?: number;
   summary?: string;
   createdCardIds?: string[];
@@ -383,6 +384,8 @@ export type WorkboardMetadata = {
    * audit trail lives at `data/workboard/force-closes.jsonl`.
    */
   closureType?: "force_close";
+  /** Stable operation identity for an orchestrated force-close cascade. */
+  closureOperationId?: string;
 };
 
 export type WorkboardCard = {

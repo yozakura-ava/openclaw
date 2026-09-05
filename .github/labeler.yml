@@ -94,6 +94,10 @@
           - "extensions/workboard/**"
           - "docs/plugins/workboard.md"
           - "docs/plugins/reference/workboard.md"
+"extensions: dbos-runtime":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "extensions/dbos-runtime/**"
 "plugin: beam":
   - changed-files:
       - any-glob-to-any-file:

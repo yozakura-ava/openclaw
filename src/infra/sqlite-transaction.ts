@@ -27,6 +27,7 @@ export type SqliteTransactionOptions = {
   busyTimeoutMs?: number;
   databaseLabel?: string;
   logger?: Pick<SubsystemLogger, "warn">;
+  maxHoldMs?: number;
   operationLabel?: string;
   slowTransactionHoldMs?: number;
 };
@@ -226,7 +227,7 @@ function setTransactionDepth(db: DatabaseSync, depth: number): void {
   transactionDepthByDatabase.set(db, depth);
 }
 
-function runSqliteTransactionSync<T>(
+function runSqliteTransactionSyncCore<T>(
   db: DatabaseSync,
   operation: () => T,
   mode: SqliteTransactionMode,
@@ -277,10 +278,13 @@ function runSqliteTransactionSync<T>(
   }
 
   try {
-    logSlowTransactionHold({
-      elapsedMs: Date.now() - transactionStartedAt,
-      options,
-    });
+    const holdTimeMs = Date.now() - transactionStartedAt;
+    logSlowTransactionHold({ elapsedMs: holdTimeMs, options });
+    if (options?.maxHoldMs !== undefined && holdTimeMs > options.maxHoldMs) {
+      throw new Error(
+        `SQLite transaction exceeded ${options.maxHoldMs}ms hold-time limit (${holdTimeMs}ms)`,
+      );
+    }
     commitImmediateTransaction(db, options);
     transactionStillActive = false;
     return result;
@@ -297,6 +301,20 @@ function runSqliteTransactionSync<T>(
       setTransactionDepth(db, 0);
     }
   }
+}
+
+function runSqliteTransactionSync<T>(
+  db: DatabaseSync,
+  operation: () => T,
+  mode: SqliteTransactionMode,
+  options?: SqliteTransactionOptions,
+): T {
+  // This helper is intentionally a synchronous compatibility boundary. The
+  // process-wide authority queue is opt-in for async authority writers below;
+  // putting every legacy SQLite transaction behind its runSync gate causes
+  // unrelated migrations, doctor paths, and state stores to reject whenever an
+  // authority writer is waiting in the async queue.
+  return runSqliteTransactionSyncCore(db, operation, mode, options);
 }
 
 /** Run synchronous reads against one deferred SQLite snapshot. */

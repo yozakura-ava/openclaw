@@ -8,10 +8,10 @@ import {
   type AdmissionEnvelope,
   type AdmissionGate,
 } from "@openclaw/execution-contract";
-import { loadDbosSharedSecret, signDbosRequest } from "./authority-server.js";
+import { loadDbosSharedSecret, signDbosRequest } from "./authority-auth.js";
+import type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
 import { DbosRequestError, DbosRuntimeError } from "./dbos-errors.js";
-import type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./dbos.js";
 
 export function requireDbosReceipt(receipt: DbosReceipt | undefined): DbosReceipt {
   if (!receipt) {

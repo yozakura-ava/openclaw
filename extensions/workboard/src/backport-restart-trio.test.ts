@@ -6,9 +6,9 @@ import path from "node:path";
 // - d16f9796: review-independence invariant on passed clearances
 // - 6c9736f1: guardedChildRows skips malformed child rows (sqlite store)
 import { DatabaseSync } from "node:sqlite";
+import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { describe, expect, it } from "vitest";
-import type { WorkboardKeyedStore } from "./persistence-types.js";
-import type { PersistedWorkboardCard } from "./persistence-types.js";
+import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import { WorkboardStore } from "./store.js";
 
@@ -50,7 +50,7 @@ describe("80d44431 backport: reclaim→done proof stub", () => {
       status: "skipped",
       label: "reclaim recovery",
     });
-    expect(proof[0].note).toContain("operator recovery");
+    expect(proof[0]?.note).toContain("operator recovery");
     // no done_without_proof diagnostic when the stub lands
     expect(reclaimed.metadata?.diagnostics?.map((entry) => entry.kind) ?? []).not.toContain(
       "done_without_proof",
@@ -108,37 +108,37 @@ describe("d16f9796 backport: review-independence invariant", () => {
 });
 
 describe("6c9736f1 backport: guardedChildRows skips malformed rows", () => {
-  it("skips a comment row with an empty id and audits it to workboard_bad_rows", () => {
+  it("skips a comment row with an empty id and audits it to workboard_bad_rows", async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-backport-trio-"));
     const dbPath = path.join(dir, "workboard.sqlite");
     try {
       const stores = createWorkboardSqliteStores({ dbPath });
-      const card = {
+      const card: WorkboardCard = {
         id: "card-malformed",
         title: "Malformed child",
         status: "todo",
         priority: "normal",
-        boardId: "default",
+        labels: [],
         position: 0,
         createdAt: 1,
         updatedAt: 1,
-        automation: null,
+        metadata: {},
       };
-      void stores.cards.register("card-malformed", { version: 1, card });
+      await stores.cards.register("card-malformed", { version: 1, card });
       const db = new DatabaseSync(dbPath);
       db.prepare(
         "INSERT INTO workboard_card_comments (id, card_id, ordinal, body, created_at) VALUES (?, ?, ?, ?, ?)",
       ).run("", "card-malformed", 0, "malformed row", 123);
-      const read = stores.cards.lookup("card-malformed");
+      const read = await stores.cards.lookup("card-malformed");
       const bad = db
         .prepare("SELECT * FROM workboard_bad_rows WHERE card_id = ?")
         .all("card-malformed") as Array<{ table_name: string }>;
       db.close();
       stores.close();
-      // synchronous register/lookup contract: entries resolve immediately
+      // The store boundary is asynchronous even though node:sqlite itself is synchronous.
       expect(read).toBeDefined();
       expect(bad).toHaveLength(1);
-      expect(bad[0].table_name).toBe("workboard_card_comments");
+      expect(bad[0]?.table_name).toBe("workboard_card_comments");
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

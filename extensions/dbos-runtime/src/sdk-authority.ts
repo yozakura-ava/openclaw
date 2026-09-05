@@ -2,9 +2,9 @@ import { DBOS, DBOSWorkflowConflictError, type WorkflowHandle } from "@dbos-inc/
 import type { Pool } from "pg";
 
 /** The DBOS system schema owned by the authenticated authority service. */
-export const DBOS_AUTHORITY_SCHEMA = "openclaw_authority";
-export const DBOS_AUTHORITY_QUEUE = "canonical-authority";
-export const DBOS_AUTHORITY_WORKFLOW = "openclawAuthorityOperation";
+const DBOS_AUTHORITY_SCHEMA = "openclaw_authority";
+const DBOS_AUTHORITY_QUEUE = "canonical-authority";
+const DBOS_AUTHORITY_WORKFLOW = "openclawAuthorityOperation";
 
 export type AuthoritySdkOperation = {
   operationId: string;

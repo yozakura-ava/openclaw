@@ -5,7 +5,7 @@ export class DbosRuntimeError extends Error {
   }
 }
 
-export type DbosRequestFailureKind = "timeout" | "transport" | "http";
+type DbosRequestFailureKind = "timeout" | "transport" | "http";
 
 export class DbosRequestError extends DbosRuntimeError {
   constructor(
