@@ -466,6 +466,14 @@ export function normalizeAutomation(
   const lastDispatchAt = Object.hasOwn(record, "lastDispatchAt")
     ? normalizeTimestamp(record.lastDispatchAt, 0) || undefined
     : fallback.lastDispatchAt;
+  // Pipeline auto-dispatch dedup counters (card ee4dda8f). Stripped if
+  // non-numeric; allowed to be 0 so a `pipelineStrikes: 0` reset round-trips.
+  const pipelineStrikes = Object.hasOwn(record, "pipelineStrikes")
+    ? (normalizeTimestamp(record.pipelineStrikes, 0) ?? 0)
+    : fallback.pipelineStrikes;
+  const pipelineStrikesUpdatedAt = Object.hasOwn(record, "pipelineStrikesUpdatedAt")
+    ? normalizeTimestamp(record.pipelineStrikesUpdatedAt, 0) || undefined
+    : fallback.pipelineStrikesUpdatedAt;
   const workspace = Object.hasOwn(record, "workspace")
     ? normalizeWorkspace(record.workspace, fallback.workspace)
     : fallback.workspace;
@@ -490,6 +498,8 @@ export function normalizeAutomation(
     ...(createdCardIds?.length ? { createdCardIds } : {}),
     ...(dispatchCount ? { dispatchCount } : {}),
     ...(lastDispatchAt ? { lastDispatchAt } : {}),
+    ...(pipelineStrikes !== undefined ? { pipelineStrikes } : {}),
+    ...(pipelineStrikesUpdatedAt ? { pipelineStrikesUpdatedAt } : {}),
     ...(launch ? { launch } : {}),
   });
   return Object.keys(next).length ? next : undefined;

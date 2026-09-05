@@ -3211,8 +3211,16 @@ describe("WorkboardStore", () => {
     const stores = createWorkboardSqliteStores({ dbPath });
     try {
       const store = new WorkboardStore(stores.cards);
-      const poisoned = await store.create({ title: "Oversized notification", status: "ready" });
-      const sibling = await store.create({ title: "Unaffected sibling", status: "ready" });
+      const poisoned = await store.create({
+        title: "Oversized notification",
+        status: "ready",
+        agentId: "riko",
+      });
+      const sibling = await store.create({
+        title: "Unaffected sibling",
+        status: "ready",
+        agentId: "riko",
+      });
       const oversized = `${"x".repeat(238)}🦞${" tail".repeat(60)}`;
       const rawDb = new DatabaseSync(dbPath);
       try {
@@ -3254,7 +3262,7 @@ describe("WorkboardStore", () => {
     try {
       vi.setSystemTime(1_000);
       const store = new WorkboardStore(createMemoryStore());
-      const ready = await store.create({ title: "Ready", status: "ready" });
+      const ready = await store.create({ title: "Ready", status: "ready", agentId: "riko" });
       const readyUpdatedAt = ready.updatedAt;
       const expired = await store.create({ title: "Expired", status: "running" });
       await store.claim(expired.id, { ownerId: "main", token: "token-1", ttlSeconds: 1 });

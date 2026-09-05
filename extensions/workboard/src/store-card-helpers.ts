@@ -778,6 +778,61 @@ export function isActiveDependencyTarget(
   );
 }
 
+// Pipeline auto-dispatch dedup helpers (card ee4dda8f).
+
+/**
+ * Most-recent run attempt on this card (any terminal status), used to detect
+ * "just failed" within the dispatch cooldown window.
+ */
+export function latestRunAttempt(card: WorkboardCard): WorkboardRunAttempt | undefined {
+  const attempts = card.metadata?.attempts;
+  if (!attempts || attempts.length === 0) {
+    return undefined;
+  }
+  return attempts[attempts.length - 1];
+}
+
+/**
+ * True when the card's most-recent attempt ended in a non-successful status
+ * (failed/blocked/stopped) within `cooldownMs` of `now`. Pipeline auto-dispatch
+ * must NOT re-dispatch a card that recently failed; doing so creates duplicate
+ * escalation cards and burns the worker slot.
+ */
+export function hasRecentFailedAttempt(
+  card: WorkboardCard,
+  now: number,
+  cooldownMs: number,
+): boolean {
+  const attempt = latestRunAttempt(card);
+  if (!attempt || attempt.status === "running" || attempt.status === "succeeded") {
+    return false;
+  }
+  if (typeof attempt.endedAt !== "number") {
+    return false;
+  }
+  return now - attempt.endedAt < cooldownMs;
+}
+
+/**
+ * Consecutive pipeline strikes accumulated on the card. 0 means the card has
+ * not recently failed dispatch attempts.
+ */
+export function pipelineStrikeCount(card: WorkboardCard): number {
+  const strikes = card.metadata?.automation?.pipelineStrikes;
+  return typeof strikes === "number" && Number.isFinite(strikes) && strikes > 0
+    ? Math.trunc(strikes)
+    : 0;
+}
+
+/**
+ * True when the card has exhausted its pipeline retry budget and must be
+ * parked in `blocked` rather than re-dispatched. Caller parks the card with
+ * a notification + worker-log entry explaining the saturation.
+ */
+export function pipelineStrikesExhausted(card: WorkboardCard, maxStrikes: number): boolean {
+  return pipelineStrikeCount(card) >= maxStrikes;
+}
+
 export function closeRunningAttempts(
   attempts: WorkboardRunAttempt[] | undefined,
   now: number,

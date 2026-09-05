@@ -290,6 +290,10 @@ export type WorkboardAutomation = {
   createdCardIds?: string[];
   dispatchCount?: number;
   lastDispatchAt?: number;
+  /** Consecutive pipeline auto-dispatch strikes without progress (card ee4dda8f). */
+  pipelineStrikes?: number;
+  /** Timestamp of the most recent pipeline-strike bump (card ee4dda8f). */
+  pipelineStrikesUpdatedAt?: number;
   launch?: WorkboardLaunchState;
 };
 
