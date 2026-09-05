@@ -20,16 +20,21 @@ import {
   cardSessionKey,
   closeRunningAttempts,
   computeCardDiagnostics,
+  hasRecentFailedAttempt,
   isDependencyPromotableStatus,
   latestRunningAttempt,
   mergeDiagnostics,
+  pipelineStrikeCount,
   retryBudgetExhausted,
   shouldSkipPersistedLifecycleStatusUpdate,
   shouldSyncWorkboardLifecycleStatus,
 } from "./store-card-helpers.js";
 import {
+  DISPATCH_COOLDOWN_MS,
   isWorkboardClaimReclaimable,
   MAX_CARD_NOTIFICATIONS,
+  MAX_CARD_WORKER_LOGS,
+  MAX_PIPELINE_RETRY_STRIKES,
   secondsToDurationMs,
 } from "./store-constants.js";
 import type {
@@ -40,7 +45,12 @@ import type {
   WorkboardDispatchResult,
   WorkboardMutationScope,
 } from "./store-inputs.js";
-import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
+import {
+  capText,
+  normalizeAutomation,
+  normalizeBoardId,
+  normalizeTimestamp,
+} from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
@@ -520,7 +530,74 @@ export class WorkboardStore extends WorkboardNotificationStore {
           blocked.push(latest);
         }
         if (latest.status === "ready" && !latest.metadata?.archivedAt) {
-          latest = await this.recordDispatch(latest, now);
+          // Pipeline auto-dispatch dedup (card ee4dda8f):
+          //   - Routing gate: unrouted cards never get a dispatch record
+          //     bumped. The Himari triage lane owns routing; the pipeline
+          //     must wait.
+          //   - Dedup gate + strike counter: a recent failed attempt means
+          //     we just dispatched this card. Bump pipelineStrikes; on
+          //     saturation (>= MAX_PIPELINE_RETRY_STRIKES) park in
+          //     `blocked` with a notification and a worker-log entry for
+          //     orchestrator review. Recovery (no recent failure) resets
+          //     any stale strikes before recording the dispatch.
+          if (!latest.agentId || latest.agentId.trim() === "") {
+            // Routing gate: silent skip, no strike, no recordDispatch.
+          } else if (hasRecentFailedAttempt(latest, now, DISPATCH_COOLDOWN_MS)) {
+            const nextStrikes = pipelineStrikeCount(latest) + 1;
+            if (nextStrikes >= MAX_PIPELINE_RETRY_STRIKES) {
+              const saturationReason = `Card exhausted pipeline auto-dispatch retries (${nextStrikes}/${MAX_PIPELINE_RETRY_STRIKES} strikes within ${DISPATCH_COOLDOWN_MS}ms cooldown). Orchestrator review required.`;
+              const execution =
+                latest.execution?.status === "running"
+                  ? { ...latest.execution, status: "blocked" as const, updatedAt: now }
+                  : latest.execution;
+              latest = await this.updateCard(latest.id, {
+                status: "blocked",
+                ...(execution ? { execution } : {}),
+                metadata: {
+                  ...latest.metadata,
+                  automation: normalizeAutomation(
+                    {
+                      ...latest.metadata?.automation,
+                      // Reset on park so an operator-driven unblock starts
+                      // with a fresh strike budget.
+                      pipelineStrikes: 0,
+                      pipelineStrikesUpdatedAt: now,
+                    },
+                    latest.metadata?.automation,
+                  ),
+                  notifications: [
+                    ...(latest.metadata?.notifications ?? []),
+                    {
+                      id: randomUUID(),
+                      kind: "failed" as const,
+                      createdAt: now,
+                      sequence: this.nextNotificationSequence(now),
+                      message: saturationReason,
+                    },
+                  ].slice(-MAX_CARD_NOTIFICATIONS),
+                  workerLogs: [
+                    ...(latest.metadata?.workerLogs ?? []),
+                    {
+                      id: randomUUID(),
+                      level: "warning" as const,
+                      message: `Pipeline dispatch saturated; orchestrator review recommended. ${saturationReason}`,
+                      createdAt: now,
+                    },
+                  ].slice(-MAX_CARD_WORKER_LOGS),
+                },
+              });
+              blocked.push(latest);
+            } else {
+              latest = await this.recordDispatch(latest, now, {
+                pipelineStrikes: nextStrikes,
+              });
+            }
+          } else if (pipelineStrikeCount(latest) > 0) {
+            // Recovery: clear stale strikes before recording dispatch.
+            latest = await this.recordDispatch(latest, now, { pipelineStrikes: 0 });
+          } else {
+            latest = await this.recordDispatch(latest, now);
+          }
         }
         if (await this.shouldAutoOrchestrate(latest)) {
           const latestBoardId = cardBoardId(latest);
