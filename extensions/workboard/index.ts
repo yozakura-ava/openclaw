@@ -110,8 +110,10 @@ export default definePluginEntry({
     api.registerService(lifecycleSync);
     api.registerService(storeAuthorityGuard);
     api.on("gateway_start", () => lifecycleSync.onGatewayStart());
-    api.on("gateway_stop", () => lifecycleSync.onGatewayStop());
-    api.on("gateway_stop", () => bqes.close());
+    api.on("gateway_stop", () => {
+      lifecycleSync.onGatewayStop();
+      bqes.close();
+    });
     api.on("subagent_ended", async (event) => {
       await syncWorkboardSubagentEnded({
         store,

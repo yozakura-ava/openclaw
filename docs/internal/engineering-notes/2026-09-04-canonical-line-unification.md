@@ -33,12 +33,12 @@ Neither the restart-trio patches nor the 8.2 port is dropped.
 
 ## Preserved Branches (no force-moves)
 
-| Branch                            | Commit    | Role                                            |
-| --------------------------------- | --------- | ----------------------------------------------- |
-| `workboard-owner-fallback-fix`    | `82acd082808` | Line A HEAD — restart-trio + dep-gate         |
-| `canonical/2026.8.2`              | `bc958b9beac` | Line B HEAD — v2026.8.2 deployment port       |
+| Branch                                | Commit        | Role                                                         |
+| ------------------------------------- | ------------- | ------------------------------------------------------------ |
+| `workboard-owner-fallback-fix`        | `82acd082808` | Line A HEAD — restart-trio + dep-gate                        |
+| `canonical/2026.8.2`                  | `bc958b9beac` | Line B HEAD — v2026.8.2 deployment port                      |
 | `riko/canonical-unification-20260904` | `153b6fc53ad` | Build lane (Riko-attributed) — same tip as integration alias |
-| `canonical/integration-20260904`  | `153b6fc53ad` | **Rebuild source (designated)**                |
+| `canonical/integration-20260904`      | `153b6fc53ad` | **Rebuild source (designated)**                              |
 
 ## Conflict Resolution Summary
 
