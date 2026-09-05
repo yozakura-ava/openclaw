@@ -11,6 +11,7 @@ import type {
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { WorkboardDurableEventIntake } from "./durable-event-intake.js";
 import type {
   PersistedWorkboardForceCloseAudit,
   WorkboardForceCloseAuditEntry,
@@ -120,6 +121,7 @@ export type WorkboardCoreStoreOptions = {
   forceCloseOperatorIds?: string[];
   activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
   audits?: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
+  durableEventIntake?: WorkboardDurableEventIntake;
 };
 
 export class WorkboardCoreStore {
@@ -149,7 +151,12 @@ export class WorkboardCoreStore {
   protected readonly forceCloseAuditStore?: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
 
   constructor(store: WorkboardKeyedStore, stores: WorkboardCoreStoreOptions = {}) {
-    this.changes = new WorkboardChangeTracker(stores.dataVersion);
+    this.changes = new WorkboardChangeTracker(
+      stores.dataVersion,
+      stores.durableEventIntake
+        ? (change) => stores.durableEventIntake!.enqueue(change)
+        : undefined,
+    );
     if (isWorkboardCardStore(store)) {
       this.cardStore = this.changes.trackCardStore(store);
       this.store = this.cardStore;

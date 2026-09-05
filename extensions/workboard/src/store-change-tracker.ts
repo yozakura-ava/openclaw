@@ -9,7 +9,10 @@ export class WorkboardChangeTracker {
   private externalDataVersion: number | undefined;
   private readonly listeners = new Set<(change: WorkboardChange) => void>();
 
-  constructor(private readonly readDataVersion?: () => number) {
+  constructor(
+    private readonly readDataVersion?: () => number,
+    private readonly persistChange?: (change: WorkboardChange) => Promise<void>,
+  ) {
     this.externalDataVersion = readDataVersion?.();
   }
 
@@ -86,7 +89,7 @@ export class WorkboardChangeTracker {
   }
 
   announceEpoch(): void {
-    this.emit();
+    void this.emit();
   }
 
   reconcileExternalChanges(): boolean {
@@ -98,7 +101,7 @@ export class WorkboardChangeTracker {
       return false;
     }
     this.externalDataVersion = current;
-    this.emit();
+    void this.emit();
     return true;
   }
 
@@ -108,13 +111,16 @@ export class WorkboardChangeTracker {
       return await run();
     } finally {
       if (this.mutationRevision !== initialRevision) {
-        this.emit();
+        await this.emit();
       }
     }
   }
 
-  private emit(): void {
+  private async emit(): Promise<void> {
     const change = { epoch: this.epoch, revision: ++this.revision };
+    if (this.persistChange) {
+      await this.persistChange(change);
+    }
     for (const listener of this.listeners) {
       try {
         listener(change);

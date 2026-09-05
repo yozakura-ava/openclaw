@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
   WorkboardCard,
+  WorkboardChange,
   WorkboardDiagnostic,
   WorkboardExecution,
   WorkboardExecutionStatus,
@@ -12,6 +13,7 @@ import type {
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import type { SqliteAuthorityLifecycle } from "openclaw/plugin-sdk/sqlite-runtime";
+import type { WorkboardDurableEventIntake } from "./durable-event-intake.js";
 import type { WorkboardKeyedStore } from "./persistence-types.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
@@ -202,6 +204,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
   private readonly sqliteLifecycle?: SqliteAuthorityLifecycle;
   private readonly sqliteRecover?: () => boolean;
   private readonly sqliteClose?: () => void;
+  private readonly durableEventIntake?: WorkboardDurableEventIntake;
   private sqliteClosed = false;
 
   constructor(store: WorkboardKeyedStore, options: WorkboardStoreOptions = {}) {
@@ -209,6 +212,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
     this.sqliteLifecycle = options.sqliteLifecycle;
     this.sqliteRecover = options.sqliteRecover;
     this.sqliteClose = options.sqliteClose;
+    this.durableEventIntake = options.durableEventIntake;
   }
 
   async probeSqliteAuthority(): Promise<void> {
@@ -235,6 +239,16 @@ export class WorkboardStore extends WorkboardNotificationStore {
     }
     this.sqliteClosed = true;
     this.sqliteClose?.();
+  }
+
+  async drainDurableChanges(
+    deliver: (change: WorkboardChange) => void | Promise<void>,
+  ): Promise<{ delivered: number; failed: number }> {
+    return await (this.durableEventIntake?.drain(deliver) ?? { delivered: 0, failed: 0 });
+  }
+
+  async replayDurableChanges(): Promise<number> {
+    return await (this.durableEventIntake?.replayDeadLetters() ?? 0);
   }
 
   async prepareExecutionLaunch(
@@ -697,6 +711,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
       audits: stores.audits,
+      durableEventIntake: stores.durableEventIntake,
       dataVersion: stores.dataVersion,
       ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
       ...(options?.forceCloseAllowedAgents

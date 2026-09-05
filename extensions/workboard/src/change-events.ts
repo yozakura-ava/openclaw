@@ -10,7 +10,7 @@ export function createWorkboardChangeEventService(store: WorkboardStore): OpenCl
 
   return {
     id: "workboard-change-events",
-    start(ctx) {
+    async start(ctx) {
       const gatewayEvents = ctx.gatewayEvents;
       if (!gatewayEvents || unsubscribe) {
         return;
@@ -21,10 +21,28 @@ export function createWorkboardChangeEventService(store: WorkboardStore): OpenCl
         });
       };
       unsubscribe = store.subscribeChanges(emit);
+      const replayDurableChanges = (
+        store as unknown as { replayDurableChanges?: () => Promise<number> }
+      ).replayDurableChanges;
+      const drainDurableChanges = (
+        store as unknown as {
+          drainDurableChanges?: (
+            deliver: (change: WorkboardChange) => void,
+          ) => Promise<{ delivered: number; failed: number }>;
+        }
+      ).drainDurableChanges;
+      if (replayDurableChanges && drainDurableChanges) {
+        await replayDurableChanges.call(store);
+        await drainDurableChanges.call(store, emit);
+      }
       store.announceChangeEpoch();
       timer = setInterval(() => {
         try {
           store.reconcileExternalChanges();
+          const drain = drainDurableChanges?.call(store, emit);
+          void (drain ?? Promise.resolve()).catch((error: unknown) => {
+            ctx.logger.warn(`workboard durable event drain failed: ${String(error)}`);
+          });
         } catch (error) {
           ctx.logger.warn(`workboard external change check failed: ${String(error)}`);
         }

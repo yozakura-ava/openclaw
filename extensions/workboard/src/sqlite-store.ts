@@ -30,6 +30,12 @@ import {
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import {
+  WORKBOARD_DURABLE_EVENT_MAX_DEPTH,
+  WorkboardDurableEventIntake,
+  type WorkboardDurableEvent,
+  type WorkboardDurableEventPersistence,
+} from "./durable-event-intake.js";
 import type { WorkboardForceCloseAuditEntry } from "./force-close-audit.js";
 import type {
   PersistedWorkboardAttachment,
@@ -54,6 +60,7 @@ type WorkboardSqliteStores = {
   subscriptions: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
   audits: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
+  durableEventIntake: WorkboardDurableEventIntake;
   dataVersion: () => number;
   lifecycle: SqliteAuthorityLifecycle;
   recover: () => boolean;
@@ -393,6 +400,20 @@ const WORKBOARD_SCHEMA_SQL = `
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_force_close_audits_operation_idx
       ON workboard_force_close_audits(operation_id, created_at, id);
+
+    CREATE TABLE IF NOT EXISTS workboard_durable_events (
+      id TEXT PRIMARY KEY,
+      idempotency_key TEXT NOT NULL UNIQUE,
+      payload_json TEXT NOT NULL,
+      state TEXT NOT NULL CHECK (state IN ('pending', 'acked', 'dead_letter')),
+      attempts INTEGER NOT NULL,
+      next_attempt_at INTEGER NOT NULL,
+      last_error TEXT,
+      created_at INTEGER NOT NULL,
+      acked_at INTEGER
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS workboard_durable_events_due_idx
+      ON workboard_durable_events(state, next_attempt_at, created_at, id);
   `;
 
 function ensureWorkboardSchema(db: DatabaseSync): void {
@@ -1839,6 +1860,146 @@ class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<Persist
   }
 }
 
+class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPersistence {
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
+
+  private read(row: Row): WorkboardDurableEvent {
+    const payload = parseJson(row.payload_json);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error("workboard durable event payload is invalid");
+    }
+    const event = payload as WorkboardDurableEvent;
+    if (!event.id || !event.idempotencyKey || !event.change) {
+      throw new Error("workboard durable event identity is invalid");
+    }
+    return event;
+  }
+
+  async enqueue(event: WorkboardDurableEvent): Promise<boolean> {
+    return runSqliteImmediateTransactionSync(
+      this.db,
+      () => {
+        const existing = this.db
+          .prepare("SELECT 1 AS found FROM workboard_durable_events WHERE idempotency_key = ?")
+          .get(event.idempotencyKey);
+        if (existing) {
+          return true;
+        }
+        const pending = this.db
+          .prepare("SELECT COUNT(*) AS count FROM workboard_durable_events WHERE state = 'pending'")
+          .get() as Row;
+        if (requiredNumber(pending, "count") >= WORKBOARD_DURABLE_EVENT_MAX_DEPTH) {
+          return false;
+        }
+        this.db
+          .prepare(
+            `INSERT INTO workboard_durable_events
+             (id, idempotency_key, payload_json, state, attempts, next_attempt_at, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            event.id,
+            event.idempotencyKey,
+            JSON.stringify(event),
+            event.state,
+            event.attempts,
+            event.nextAttemptAt,
+            event.createdAt,
+          );
+        return true;
+      },
+      {
+        databaseLabel: "workboard database",
+        operationLabel: "workboard.durable-event.enqueue",
+        maxHoldMs: 5_000,
+      },
+    );
+  }
+
+  async due(now: number, limit: number): Promise<WorkboardDurableEvent[]> {
+    return this.db
+      .prepare(
+        `SELECT * FROM workboard_durable_events
+         WHERE state = 'pending' AND next_attempt_at <= ?
+         ORDER BY created_at ASC, id ASC LIMIT ?`,
+      )
+      .all(now, limit)
+      .map((row) => this.read(row as Row));
+  }
+
+  async acknowledge(id: string): Promise<void> {
+    runSqliteImmediateTransactionSync(
+      this.db,
+      () => {
+        this.db
+          .prepare(
+            "UPDATE workboard_durable_events SET state = 'acked', acked_at = ? WHERE id = ? AND state = 'pending'",
+          )
+          .run(Date.now(), id);
+      },
+      {
+        databaseLabel: "workboard database",
+        operationLabel: "workboard.durable-event.acknowledge",
+        maxHoldMs: 5_000,
+      },
+    );
+  }
+
+  async fail(id: string, error: string, now: number): Promise<void> {
+    runSqliteImmediateTransactionSync(
+      this.db,
+      () => {
+        const row = this.db
+          .prepare("SELECT attempts FROM workboard_durable_events WHERE id = ?")
+          .get(id) as Row | undefined;
+        if (!row) {
+          return;
+        }
+        const attempts = requiredNumber(row, "attempts") + 1;
+        const deadLetter = attempts >= WorkboardDurableEventIntake.maxAttempts();
+        const nextAttemptAt = deadLetter
+          ? now
+          : now + WorkboardDurableEventIntake.retryDelay(attempts);
+        this.db
+          .prepare(
+            `UPDATE workboard_durable_events
+             SET state = ?, attempts = ?, next_attempt_at = ?, last_error = ?
+             WHERE id = ? AND state = 'pending'`,
+          )
+          .run(deadLetter ? "dead_letter" : "pending", attempts, nextAttemptAt, error, id);
+      },
+      {
+        databaseLabel: "workboard database",
+        operationLabel: "workboard.durable-event.fail",
+        maxHoldMs: 5_000,
+      },
+    );
+  }
+
+  async replayDeadLetters(now: number): Promise<number> {
+    return runSqliteImmediateTransactionSync(
+      this.db,
+      () =>
+        Number(
+          this.db
+            .prepare(
+              "UPDATE workboard_durable_events SET state = 'pending', next_attempt_at = ?, last_error = NULL WHERE state = 'dead_letter'",
+            )
+            .run(now).changes,
+        ),
+      {
+        databaseLabel: "workboard database",
+        operationLabel: "workboard.durable-event.replay",
+        maxHoldMs: 5_000,
+      },
+    );
+  }
+}
+
 export function createWorkboardSqliteStores(
   options: {
     dbPath?: string;
@@ -1876,7 +2037,7 @@ export function createWorkboardSqliteStores(
       const previous = connection;
       connection = replacement;
       generation += 1;
-      for (const store of [cards, boards, subscriptions, attachments, audits]) {
+      for (const store of [cards, boards, subscriptions, attachments, audits, durableEvents]) {
         store.rebind(connection.db);
       }
       try {
@@ -1961,6 +2122,8 @@ export function createWorkboardSqliteStores(
   const subscriptions = new WorkboardSqliteSubscriptionStore(connection.db);
   const attachments = new WorkboardSqliteAttachmentStore(connection.db);
   const audits = new WorkboardSqliteForceCloseAuditStore(connection.db);
+  const durableEvents = new WorkboardSqliteDurableEventPersistence(connection.db);
+  const durableEventIntake = new WorkboardDurableEventIntake(durableEvents);
   const recoverableCards = recoverable(cards);
   const recoverableBoards = recoverable(boards);
   const recoverableSubscriptions = recoverable(subscriptions);
@@ -1972,6 +2135,7 @@ export function createWorkboardSqliteStores(
     subscriptions: recoverableSubscriptions,
     attachments: recoverableAttachments,
     audits: recoverableAudits,
+    durableEventIntake,
     lifecycle,
     recover: () => replaceConnection(0),
     // This connection-local primitive changes only after another connection commits.
