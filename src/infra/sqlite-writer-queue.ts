@@ -111,6 +111,7 @@ export class SqliteWriterQueue {
     return new Promise<T>((resolve, reject) => {
       this.jobs.push({
         run: operation,
+        // SAFETY: Promise<T> resolve accepts the same value shape as the erased QueueJob value.
         resolve: resolve as (value: unknown) => void,
         reject,
       });

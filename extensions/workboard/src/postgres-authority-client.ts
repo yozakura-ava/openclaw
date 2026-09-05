@@ -103,6 +103,7 @@ export class HttpWorkboardAuthorityClient implements WorkboardAuthorityClient {
           body,
           signal: controller.signal,
         });
+        // SAFETY: the authority endpoint response is decoded under the caller's typed endpoint contract.
         const responseBody = (await response.json()) as T & { error?: string };
         if (response.ok) {
           return responseBody;

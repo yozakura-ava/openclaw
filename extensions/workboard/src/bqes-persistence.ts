@@ -108,15 +108,20 @@ export function readAdmission(row: BqesRow): BqesAdmission {
     attemptId: bqesText(row, "attempt_id"),
     idempotencyKey: bqesText(row, "idempotency_key"),
     workflowId: bqesText(row, "workflow_id"),
+    // SAFETY: the value was JSON-encoded by the BQES schema and is only used as an optional receipt.
     dbosReceipt: parseBqesValue(row.dbos_receipt) as BqesDbosReceipt | undefined,
     sourceIdentity: bqesText(row, "source_identity"),
     artifactIdentity: bqesText(row, "artifact_identity"),
     ownerEpoch: bqesText(row, "owner_epoch"),
+    // SAFETY: admission rows persist bounded string arrays through bqesJson.
     allowedFiles: (parseBqesValue(row.allowed_files) as string[] | undefined) ?? [],
     targetFiles:
+      // SAFETY: admission rows persist bounded string arrays through bqesJson.
       (parseBqesValue(row.target_files) as string[] | undefined) ??
+      // SAFETY: the legacy fallback uses the same bounded string-array schema.
       (parseBqesValue(row.allowed_files) as string[] | undefined) ??
       [],
+    // SAFETY: admission rows persist bounded string arrays through bqesJson.
     acceptanceCriteria: (parseBqesValue(row.acceptance_criteria) as string[] | undefined) ?? [],
     verificationCommand: bqesText(row, "verification_command"),
     ...(typeof row.artifact_path === "string" && row.artifact_path
@@ -126,9 +131,15 @@ export function readAdmission(row: BqesRow): BqesAdmission {
       ? { buildArtifactPath: row.build_artifact_path }
       : {}),
     ...(parseBqesValue(row.documented_exempt_paths)
-      ? { documentedExemptPaths: parseBqesValue(row.documented_exempt_paths) as string[] }
+      ? {
+          documentedExemptPaths:
+            // SAFETY: documented exemptions are persisted as a bounded string array by the admission writer.
+            parseBqesValue(row.documented_exempt_paths) as string[],
+        }
       : {}),
+    // SAFETY: bqesText reads the state column written from the closed admission-state union.
     state: bqesText(row, "state") as BqesAdmission["state"],
+    // SAFETY: evidence is JSON persisted by the BQES completion path and remains optional.
     evidence: parseBqesValue(row.evidence) as BqesCompletionEvidence | undefined,
     createdAt: bqesNumber(row, "created_at"),
     updatedAt: bqesNumber(row, "updated_at"),
@@ -190,6 +201,7 @@ export function initializeBqesSchema(db: SqliteDatabase, now: () => number): voi
       reviewer_session_expires_at INTEGER
     );
   `);
+  // SAFETY: node:sqlite returns PRAGMA rows with the named table_info columns.
   const admissionColumns = db.prepare("PRAGMA table_info(bqes_admissions)").all() as Array<{
     name?: unknown;
   }>;
@@ -211,6 +223,7 @@ export function initializeBqesSchema(db: SqliteDatabase, now: () => number): voi
   }
   const verificationColumns = db
     .prepare("PRAGMA table_info(bqes_verification_passes)")
+    // SAFETY: node:sqlite returns PRAGMA rows with the optional name column.
     .all() as Array<{ name?: unknown }>;
   if (!verificationColumns.some((column) => column.name === "reviewer_principal")) {
     db.exec(

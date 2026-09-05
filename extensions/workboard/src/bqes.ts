@@ -77,6 +77,7 @@ export class BqesService implements AdmissionGate {
     assertCanonicalControl("admission");
     const row = this.db
       .prepare("SELECT frozen, reason FROM bqes_admission_fence WHERE id = 1")
+      // SAFETY: the singleton admission-fence query returns the schema's frozen/reason columns.
       .get() as Row;
     if (Number(row.frozen) === 1) {
       const reason = typeof row.reason === "string" ? row.reason : undefined;
@@ -89,6 +90,7 @@ export class BqesService implements AdmissionGate {
     return transaction(this.db, () => {
       const current = this.db
         .prepare("SELECT frozen FROM bqes_admission_fence WHERE id = 1")
+        // SAFETY: the singleton admission-fence query returns the schema's frozen column.
         .get() as Row;
       if (Number(current.frozen) === 1) {
         throw new BqesAdmissionError("admission is already frozen");
@@ -111,6 +113,7 @@ export class BqesService implements AdmissionGate {
     transaction(this.db, () => {
       const row = this.db
         .prepare("SELECT frozen, token FROM bqes_admission_fence WHERE id = 1")
+        // SAFETY: the singleton admission-fence query returns the schema's frozen/token columns.
         .get() as Row;
       if (Number(row.frozen) !== 1) {
         return;
@@ -129,6 +132,7 @@ export class BqesService implements AdmissionGate {
   admissionState(): { frozen: boolean; reason?: string; updatedAt: number } {
     const row = this.db
       .prepare("SELECT frozen, reason, updated_at FROM bqes_admission_fence WHERE id = 1")
+      // SAFETY: the singleton admission-fence query returns the schema's frozen/reason/updated_at columns.
       .get() as Row;
     return {
       frozen: Number(row.frozen) === 1,
@@ -154,6 +158,7 @@ export class BqesService implements AdmissionGate {
     return transaction(this.db, () => {
       const existing = this.db
         .prepare("SELECT * FROM bqes_admissions WHERE idempotency_key = ?")
+        // SAFETY: the admission query returns a row matching the BQES Row schema when present.
         .get(input.idempotencyKey) as Row | undefined;
       if (existing) {
         const admission = readAdmission(existing);
@@ -211,6 +216,7 @@ export class BqesService implements AdmissionGate {
       return readAdmission(
         this.db
           .prepare("SELECT * FROM bqes_admissions WHERE idempotency_key = ?")
+          // SAFETY: the insert above makes the idempotency-key row exist in this transaction.
           .get(input.idempotencyKey) as Row,
       );
     });
@@ -219,6 +225,7 @@ export class BqesService implements AdmissionGate {
   get(idempotencyKey: string): BqesAdmission | undefined {
     const row = this.db
       .prepare("SELECT * FROM bqes_admissions WHERE idempotency_key = ?")
+      // SAFETY: the keyed admission query returns a BQES Row when present.
       .get(idempotencyKey) as Row | undefined;
     if (!row) {
       return undefined;
@@ -226,6 +233,7 @@ export class BqesService implements AdmissionGate {
     const admission = readAdmission(row);
     const pass = this.db
       .prepare("SELECT * FROM bqes_verification_passes WHERE idempotency_key = ?")
+      // SAFETY: the keyed verification query returns a BQES Row when present.
       .get(idempotencyKey) as Row | undefined;
     return pass
       ? {
@@ -273,6 +281,7 @@ export class BqesService implements AdmissionGate {
       )
       .all(
         ...(normalizedQueue ? [normalizedCardId, normalizedQueue] : [normalizedCardId]),
+        // SAFETY: the admission SELECT projects rows compatible with the BQES Row shape.
       ) as Row[];
     if (rows.length === 0) {
       return undefined;
@@ -604,6 +613,7 @@ export class BqesService implements AdmissionGate {
       .prepare(
         "SELECT COALESCE(MAX(sequence), 0) + 1 AS next FROM bqes_events WHERE idempotency_key = ?",
       )
+      // SAFETY: the aggregate event query always returns one row with the next sequence value.
       .get(idempotencyKey) as Row;
     this.db
       .prepare("INSERT INTO bqes_events VALUES (?, ?, ?, ?, ?)")

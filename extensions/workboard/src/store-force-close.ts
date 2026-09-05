@@ -166,8 +166,10 @@ function normalizeForceCloseReasonCode(
 ): (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number] {
   if (
     typeof value === "string" &&
+    // SAFETY: the tuple is widened only for membership testing against an unknown input.
     (WORKBOARD_FORCE_CLOSE_REASON_CODES as readonly string[]).includes(value)
   ) {
+    // SAFETY: includes above proves value is one of the closed reason-code literals.
     return value as (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
   }
   throw new Error(

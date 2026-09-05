@@ -159,7 +159,10 @@ export class SqliteAuthorityLifecycle {
         primaryErrorCode:
           context.primaryErrorCode ??
           (error && typeof error === "object" && "code" in error
-            ? String((error as { code: unknown }).code)
+            ? String(
+                // SAFETY: the preceding object/code-in guard proves the error has a code property.
+                (error as { code: unknown }).code,
+              )
             : "RECOVERY_FAILED"),
         recoveryResult: "probe_failed",
       });

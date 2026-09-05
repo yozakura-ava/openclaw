@@ -1804,6 +1804,7 @@ class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<Persist
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("workboard force-close audit payload is invalid");
     }
+    // SAFETY: the object/null validation above precedes decoding the append-only audit payload.
     return { version: 1, audit: payload as WorkboardForceCloseAuditEntry };
   }
 
@@ -1842,6 +1843,7 @@ class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<Persist
   async lookup(key: string): Promise<PersistedWorkboardForceCloseAudit | undefined> {
     const row = this.db
       .prepare("SELECT * FROM workboard_force_close_audits WHERE id = ?")
+      // SAFETY: the keyed audit query returns the declared audit row shape when present.
       .get(key) as Row | undefined;
     return row ? this.read(row) : undefined;
   }
@@ -1852,13 +1854,16 @@ class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<Persist
 
   async entries(): Promise<Array<{ key: string; value: PersistedWorkboardForceCloseAudit }>> {
     return (
-      this.db
-        .prepare("SELECT * FROM workboard_force_close_audits ORDER BY created_at ASC, id ASC")
-        .all() as Row[]
-    ).map((row) => ({
-      key: requiredString(row, "id"),
-      value: this.read(row),
-    }));
+      (
+        this.db
+          .prepare("SELECT * FROM workboard_force_close_audits ORDER BY created_at ASC, id ASC")
+          // SAFETY: the audit table query returns rows matching the shared SQLite Row shape.
+          .all() as Row[]
+      ).map((row) => ({
+        key: requiredString(row, "id"),
+        value: this.read(row),
+      }))
+    );
   }
 }
 
@@ -1874,6 +1879,7 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       throw new Error("workboard durable event payload is invalid");
     }
+    // SAFETY: the object/null validation above precedes decoding the durable event payload.
     const event = payload as WorkboardDurableEvent;
     if (!event.id || !event.idempotencyKey || !event.change) {
       throw new Error("workboard durable event identity is invalid");
@@ -1893,6 +1899,7 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
         }
         const pending = this.db
           .prepare("SELECT COUNT(*) AS count FROM workboard_durable_events WHERE state = 'pending'")
+          // SAFETY: the aggregate pending-count query always returns one SQLite Row.
           .get() as Row;
         if (requiredNumber(pending, "count") >= WORKBOARD_DURABLE_EVENT_MAX_DEPTH) {
           return false;
@@ -1923,14 +1930,17 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
   }
 
   async due(now: number, limit: number): Promise<WorkboardDurableEvent[]> {
-    return this.db
-      .prepare(
-        `SELECT * FROM workboard_durable_events
+    return (
+      this.db
+        .prepare(
+          `SELECT * FROM workboard_durable_events
          WHERE state = 'pending' AND next_attempt_at <= ?
          ORDER BY created_at ASC, id ASC LIMIT ?`,
-      )
-      .all(now, limit)
-      .map((row) => this.read(row as Row));
+        )
+        .all(now, limit)
+        // SAFETY: node:sqlite returns object rows for the durable-event SELECT.
+        .map((row) => this.read(row as Row))
+    );
   }
 
   async acknowledge(id: string): Promise<void> {
@@ -1957,6 +1967,7 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
       () => {
         const row = this.db
           .prepare("SELECT attempts FROM workboard_durable_events WHERE id = ?")
+          // SAFETY: the keyed durable-event query returns the declared row shape when present.
           .get(id) as Row | undefined;
         if (!row) {
           return;
@@ -2061,7 +2072,10 @@ export function createWorkboardSqliteStores(
     } catch (error) {
       const primaryErrorCode =
         error && typeof error === "object" && "code" in error
-          ? String((error as { code: unknown }).code)
+          ? String(
+              // SAFETY: the preceding object/code-in guard proves the error has a code property.
+              (error as { code: unknown }).code,
+            )
           : "RECONNECT_FAILED";
       lifecycle.transition("unavailable", {
         ...context("workboard.sqlite.reconnect", retryCount),
@@ -2078,6 +2092,7 @@ export function createWorkboardSqliteStores(
   };
   const isDeadConnectionError = (error: unknown): boolean => {
     const code =
+      // SAFETY: the conditional narrows error to an object before reading its optional code.
       error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
     const message = error instanceof Error ? error.message : String(error);
     return (
@@ -2104,7 +2119,10 @@ export function createWorkboardSqliteStores(
               ...context(String(property), 0),
               primaryErrorCode:
                 error && typeof error === "object" && "code" in error
-                  ? String((error as { code: unknown }).code)
+                  ? String(
+                      // SAFETY: the preceding object/code-in guard proves the error has a code property.
+                      (error as { code: unknown }).code,
+                    )
                   : "SQLITE_MISUSE",
               recoveryResult: "connection_dead",
             });

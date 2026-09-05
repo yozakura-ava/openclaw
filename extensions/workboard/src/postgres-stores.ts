@@ -119,6 +119,7 @@ class RemoteBackedKeyedStore<T> implements WorkboardKeyedStore<T> {
 
   async lookup(key: string): Promise<T | undefined> {
     const record = await this.remoteRecord(key);
+    // SAFETY: isValueRecord validates the persisted envelope before exposing its generic payload.
     return isValueRecord(record) ? (record.value as T) : undefined;
   }
 
@@ -144,6 +145,7 @@ class RemoteBackedKeyedStore<T> implements WorkboardKeyedStore<T> {
     await this.ensureMigrated();
     const rows = await this.remote.list(this.namespace);
     return rows.flatMap((row) =>
+      // SAFETY: isValueRecord validates each persisted envelope before exposing its generic payload.
       isValueRecord(row.record) ? [{ key: row.key, value: row.record.value as T }] : [],
     );
   }

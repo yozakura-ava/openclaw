@@ -81,10 +81,12 @@ function claimConsumesSlot(value: unknown, now: number): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
   }
+  // SAFETY: the guard above proves value is a non-array object; only its optional card field is read.
   const card = (value as { card?: unknown }).card;
   if (!card || typeof card !== "object" || Array.isArray(card)) {
     return false;
   }
+  // SAFETY: the guard above proves card is a non-array object before its bounded fields are read.
   const candidate = card as {
     status?: unknown;
     execution?: { status?: unknown };
@@ -106,10 +108,12 @@ function slotOwner(value: unknown, now: number): string {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return "workboard-dispatcher";
   }
+  // SAFETY: the guard above proves value is a non-array object; only its optional card field is read.
   const card = (value as { card?: unknown }).card;
   if (!card || typeof card !== "object" || Array.isArray(card)) {
     return "workboard-dispatcher";
   }
+  // SAFETY: the guard above proves card is a non-array object before its bounded fields are read.
   const candidate = card as {
     agentId?: unknown;
     metadata?: { claim?: { ownerId?: unknown; expiresAt?: unknown } };
