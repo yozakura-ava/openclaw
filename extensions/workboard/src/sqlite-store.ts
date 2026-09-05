@@ -23,7 +23,8 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-runtime";
 import {
   openNodeSqliteDatabase,
-  runSqliteImmediateTransactionSync,
+  runSqliteAuthorityWrite,
+  runSqliteImmediateTransactionSync as runSqliteImmediateTransactionSyncCore,
   SqliteAuthorityLifecycle,
   type SqliteAuthorityLifecycleContext,
   getSqliteAuthorityWriterQueue,
@@ -56,6 +57,20 @@ const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
 const WORKBOARD_SQLITE_DIR_MODE = 0o700;
 const WORKBOARD_SQLITE_FILE_MODE = 0o600;
 type Row = Record<string, unknown>;
+function runSqliteImmediateTransactionSync<T>(
+  db: DatabaseSync,
+  operation: () => T,
+  options?: {
+    databaseLabel?: string;
+    maxHoldMs?: number;
+    operationLabel?: string;
+  },
+): Promise<T> {
+  return runSqliteAuthorityWrite(() =>
+    runSqliteImmediateTransactionSyncCore(db, operation, options),
+  );
+}
+
 type WorkboardSqliteStores = {
   cards: WorkboardCardStore;
   boards: WorkboardKeyedStore<PersistedWorkboardBoard>;
@@ -1331,7 +1346,7 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
 
   async register(key: string, value: PersistedWorkboardCard): Promise<void> {
     this.validatePayload(key, value);
-    runSqliteImmediateTransactionSync(this.db, () => insertCard(this.db, value.card));
+    await runSqliteImmediateTransactionSync(this.db, () => insertCard(this.db, value.card));
   }
 
   async registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean> {
@@ -1431,7 +1446,7 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
   }
 
   async delete(key: string): Promise<boolean> {
-    const result = runSqliteImmediateTransactionSync(this.db, () => this.deleteCard(key));
+    const result = await runSqliteImmediateTransactionSync(this.db, () => this.deleteCard(key));
     return result.changes > 0;
   }
 
@@ -1500,9 +1515,10 @@ class WorkboardSqliteBoardStore implements WorkboardKeyedStore<PersistedWorkboar
       throw new Error("invalid workboard board payload");
     }
     const board = value.board;
-    this.db
-      .prepare(
-        `
+    await runSqliteAuthorityWrite(() =>
+      this.db
+        .prepare(
+          `
           INSERT INTO workboard_boards (
             id, name, description, icon, color, automation_job_id, default_workspace_json,
             orchestration_json, created_at, updated_at, archived_at
@@ -1519,20 +1535,21 @@ class WorkboardSqliteBoardStore implements WorkboardKeyedStore<PersistedWorkboar
             updated_at = excluded.updated_at,
             archived_at = excluded.archived_at
         `,
-      )
-      .run(
-        board.id,
-        bindNull(board.name),
-        bindNull(board.description),
-        bindNull(board.icon),
-        bindNull(board.color),
-        bindNull(board.automationJobId),
-        jsonValue(board.defaultWorkspace),
-        jsonValue(board.orchestration),
-        board.createdAt,
-        board.updatedAt,
-        bindNull(board.archivedAt),
-      );
+        )
+        .run(
+          board.id,
+          bindNull(board.name),
+          bindNull(board.description),
+          bindNull(board.icon),
+          bindNull(board.color),
+          bindNull(board.automationJobId),
+          jsonValue(board.defaultWorkspace),
+          jsonValue(board.orchestration),
+          board.createdAt,
+          board.updatedAt,
+          bindNull(board.archivedAt),
+        ),
+    );
   }
 
   async lookup(key: string): Promise<PersistedWorkboardBoard | undefined> {
@@ -1573,7 +1590,9 @@ class WorkboardSqliteBoardStore implements WorkboardKeyedStore<PersistedWorkboar
   }
 
   async delete(key: string): Promise<boolean> {
-    const result = this.db.prepare("DELETE FROM workboard_boards WHERE id = ?").run(key);
+    const result = await runSqliteAuthorityWrite(() =>
+      this.db.prepare("DELETE FROM workboard_boards WHERE id = ?").run(key),
+    );
     return result.changes > 0;
   }
 
@@ -1603,9 +1622,10 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
       throw new Error("invalid workboard notification subscription payload");
     }
     const subscription = value.subscription;
-    this.db
-      .prepare(
-        `
+    await runSqliteAuthorityWrite(() =>
+      this.db
+        .prepare(
+          `
           INSERT INTO workboard_notification_subscriptions (
             id, board_id, card_id, session_key, run_id, target, event_kinds_json,
             last_event_at, last_event_id, last_event_sequence, delivered_event_ids_json,
@@ -1625,22 +1645,23 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
             created_at = excluded.created_at,
             updated_at = excluded.updated_at
         `,
-      )
-      .run(
-        subscription.id,
-        subscription.boardId,
-        bindNull(subscription.cardId),
-        bindNull(subscription.sessionKey),
-        bindNull(subscription.runId),
-        bindNull(subscription.target),
-        jsonValue(subscription.eventKinds),
-        bindNull(subscription.lastEventAt),
-        bindNull(subscription.lastEventId),
-        bindNull(subscription.lastEventSequence),
-        jsonValue(subscription.deliveredEventIds),
-        subscription.createdAt,
-        subscription.updatedAt,
-      );
+        )
+        .run(
+          subscription.id,
+          subscription.boardId,
+          bindNull(subscription.cardId),
+          bindNull(subscription.sessionKey),
+          bindNull(subscription.runId),
+          bindNull(subscription.target),
+          jsonValue(subscription.eventKinds),
+          bindNull(subscription.lastEventAt),
+          bindNull(subscription.lastEventId),
+          bindNull(subscription.lastEventSequence),
+          jsonValue(subscription.deliveredEventIds),
+          subscription.createdAt,
+          subscription.updatedAt,
+        ),
+    );
   }
 
   async lookup(key: string): Promise<PersistedWorkboardNotificationSubscription | undefined> {
@@ -1683,9 +1704,9 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
   }
 
   async delete(key: string): Promise<boolean> {
-    const result = this.db
-      .prepare("DELETE FROM workboard_notification_subscriptions WHERE id = ?")
-      .run(key);
+    const result = await runSqliteAuthorityWrite(() =>
+      this.db.prepare("DELETE FROM workboard_notification_subscriptions WHERE id = ?").run(key),
+    );
     return result.changes > 0;
   }
 
@@ -1721,15 +1742,17 @@ class WorkboardSqliteAttachmentStore implements WorkboardKeyedStore<PersistedWor
       throw new Error("invalid workboard attachment payload");
     }
     const attachment = value.attachment;
-    this.db
-      .prepare(
-        `
+    await runSqliteAuthorityWrite(() =>
+      this.db
+        .prepare(
+          `
           INSERT INTO workboard_attachment_blobs (attachment_id, content)
           VALUES (?, ?)
           ON CONFLICT(attachment_id) DO UPDATE SET content = excluded.content
         `,
-      )
-      .run(attachment.id, asBlobContent(value.contentBase64));
+        )
+        .run(attachment.id, asBlobContent(value.contentBase64)),
+    );
   }
 
   async lookup(key: string): Promise<PersistedWorkboardAttachment | undefined> {
@@ -1762,7 +1785,7 @@ class WorkboardSqliteAttachmentStore implements WorkboardKeyedStore<PersistedWor
   }
 
   async delete(key: string): Promise<boolean> {
-    const deleted = runSqliteImmediateTransactionSync(this.db, () => {
+    const deleted = await runSqliteImmediateTransactionSync(this.db, () => {
       this.db.prepare("DELETE FROM workboard_attachment_blobs WHERE attachment_id = ?").run(key);
       return this.db.prepare("DELETE FROM workboard_card_attachments WHERE id = ?").run(key);
     });
@@ -1813,7 +1836,7 @@ class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<Persist
       throw new Error("invalid workboard force-close audit payload");
     }
     const audit = value.audit;
-    runSqliteImmediateTransactionSync(
+    await runSqliteImmediateTransactionSync(
       this.db,
       () => {
         this.db
@@ -1944,7 +1967,7 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
   }
 
   async acknowledge(id: string): Promise<void> {
-    runSqliteImmediateTransactionSync(
+    await runSqliteImmediateTransactionSync(
       this.db,
       () => {
         this.db
@@ -1962,7 +1985,7 @@ class WorkboardSqliteDurableEventPersistence implements WorkboardDurableEventPer
   }
 
   async fail(id: string, error: string, now: number): Promise<void> {
-    runSqliteImmediateTransactionSync(
+    await runSqliteImmediateTransactionSync(
       this.db,
       () => {
         const row = this.db
