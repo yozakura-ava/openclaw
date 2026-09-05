@@ -76,10 +76,7 @@ const PNPM_STEP_NODE_FALLBACKS = new Map([
   ["ui:build", ["scripts/ui.js", "build"]],
 ]);
 export const BUILD_ALL_STEPS: BuildAllStep[] = [
-  nodeStep("clean:dist", [
-    "-e",
-    'require("node:fs").rmSync("dist", { recursive: true, force: true })',
-  ]),
+  tsxStep("clean:dist", "scripts/clean-build-output.mts"),
   { label: "plugins:assets:build", kind: "pnpm", pnpmArgs: ["plugins:assets:build"] },
   tsxStep("tsdown", "scripts/tsdown-build.mts"),
   {
@@ -148,6 +145,7 @@ export const BUILD_ALL_STEPS: BuildAllStep[] = [
     pnpmArgs: ["plugins:assets:copy"],
   },
   nodeStep("runtime-postbuild", ["scripts/runtime-postbuild.mjs"]),
+  tsxStep("check-runtime-snapshot-topology", "scripts/check-runtime-snapshot-topology.mts"),
   tsxStep("build-stamp", "scripts/build-stamp.mts"),
   tsxStep("runtime-postbuild-stamp", "scripts/runtime-postbuild-stamp.mts"),
   {
@@ -181,6 +179,7 @@ export const BUILD_ALL_STEPS: BuildAllStep[] = [
 ];
 
 const FULL_BUILD_STEP_LABELS = [
+  "clean:dist",
   "plugins:assets:build",
   "tsdown-ai",
   "tsdown-packages",
@@ -189,6 +188,7 @@ const FULL_BUILD_STEP_LABELS = [
   "check-cli-bootstrap-imports",
   "plugins:assets:copy",
   "runtime-postbuild",
+  "check-runtime-snapshot-topology",
   "build-stamp",
   "runtime-postbuild-stamp",
   "write-plugin-sdk-entry-dts",
@@ -200,14 +200,16 @@ const FULL_BUILD_STEP_LABELS = [
 
 export const BUILD_ALL_PROFILES: Record<string, string[]> = {
   full: [...FULL_BUILD_STEP_LABELS],
-  package: ["clean:dist", ...FULL_BUILD_STEP_LABELS],
+  package: [...FULL_BUILD_STEP_LABELS],
   ciArtifacts: [
+    "clean:dist",
     "plugins:assets:build",
     "tsdown",
     "external-plugins:local-dist",
     "check-cli-bootstrap-imports",
     "plugins:assets:copy",
     "runtime-postbuild",
+    "check-runtime-snapshot-topology",
     "build-stamp",
     "runtime-postbuild-stamp",
     "write-plugin-sdk-entry-dts",
@@ -217,40 +219,48 @@ export const BUILD_ALL_PROFILES: Record<string, string[]> = {
     "write-cli-startup-metadata",
   ],
   gatewayWatch: [
+    "clean:dist",
     "tsdown",
     "external-plugins:local-dist",
     "check-cli-bootstrap-imports",
     "runtime-postbuild",
+    "check-runtime-snapshot-topology",
     "build-stamp",
     "runtime-postbuild-stamp",
   ],
   qaRuntime: [
+    "clean:dist",
     "plugins:assets:build",
     "tsdown",
     "external-plugins:local-dist",
     "check-cli-bootstrap-imports",
     "plugins:assets:copy",
     "runtime-postbuild",
+    "check-runtime-snapshot-topology",
     "build-stamp",
     "runtime-postbuild-stamp",
   ],
   sourcePerformance: [
+    "clean:dist",
     "plugins:assets:build",
     "tsdown",
     "external-plugins:local-dist",
     "check-cli-bootstrap-imports",
     "plugins:assets:copy",
     "runtime-postbuild",
+    "check-runtime-snapshot-topology",
     "build-stamp",
     "runtime-postbuild-stamp",
     "write-build-info",
     "write-cli-startup-metadata",
   ],
   cliStartup: [
+    "clean:dist",
     "tsdown",
     "external-plugins:local-dist",
     "check-cli-bootstrap-imports",
     "runtime-postbuild",
+    "check-runtime-snapshot-topology",
     "build-stamp",
     "runtime-postbuild-stamp",
     "write-cli-startup-metadata",
@@ -258,12 +268,14 @@ export const BUILD_ALL_PROFILES: Record<string, string[]> = {
 };
 
 const FULL_RUNTIME_ONLY_STEPS = [
+  "clean:dist",
   "plugins:assets:build",
   "tsdown",
   "external-plugins:local-dist",
   "check-cli-bootstrap-imports",
   "plugins:assets:copy",
   "runtime-postbuild",
+  "check-runtime-snapshot-topology",
   "build-stamp",
   "runtime-postbuild-stamp",
   "ui:build",

@@ -80,6 +80,7 @@ type WorkboardLifecycleMatchHandler = (input: {
 type WorkboardLifecycleService = OpenClawPluginService & {
   onGatewayStart: () => void;
   onGatewayStop: () => void;
+  onStoreAvailable: () => void;
 };
 
 function needsWorkboardLifecycleReconciliation(card: WorkboardCard): boolean {
@@ -438,10 +439,13 @@ export function createWorkboardLifecycleService(params: {
     options: WorkboardLifecycleSessionReadOptions,
   ) => Promise<WorkboardLifecycleSessionSnapshot>;
   now?: () => number;
+  isStoreAvailable?: () => boolean;
+  onStoreFailure?: (error: unknown) => void;
 }): WorkboardLifecycleService {
   let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let begin: (() => void) | undefined;
+  let begun = false;
   let cleanupCursor = 0;
   const cleanupWorktrees = async (
     cards: readonly WorkboardCard[],
@@ -470,6 +474,7 @@ export function createWorkboardLifecycleService(params: {
   const stop = () => {
     generation += 1;
     begin = undefined;
+    begun = false;
     if (timer) {
       clearTimeout(timer);
       timer = undefined;
@@ -479,9 +484,12 @@ export function createWorkboardLifecycleService(params: {
     id: "workboard-lifecycle-sync",
     start(ctx) {
       const owner = ++generation;
-      let begun = false;
+      begun = false;
       const reconcile = async () => {
         try {
+          if (params.isStoreAvailable?.() === false) {
+            return;
+          }
           let cards = await params.store.list();
           if (generation !== owner) {
             return;
@@ -508,6 +516,7 @@ export function createWorkboardLifecycleService(params: {
               cards = await params.store.list();
             } catch (error) {
               ctx.logger.warn(`workboard lifecycle sync failed: ${String(error)}`);
+              params.onStoreFailure?.(error);
             }
           }
           if (generation === owner) {
@@ -515,8 +524,9 @@ export function createWorkboardLifecycleService(params: {
           }
         } catch (error) {
           ctx.logger.warn(`workboard lifecycle recovery failed: ${String(error)}`);
+          params.onStoreFailure?.(error);
         } finally {
-          if (generation === owner) {
+          if (generation === owner && params.isStoreAvailable?.() !== false) {
             timer = setTimeout(() => void reconcile(), WORKBOARD_LIFECYCLE_SWEEP_MS);
             timer.unref?.();
           }
@@ -543,6 +553,10 @@ export function createWorkboardLifecycleService(params: {
     onGatewayStop() {
       workboardLifecycleGatewayState.ready = false;
       stop();
+    },
+    onStoreAvailable() {
+      begun = false;
+      begin?.();
     },
   };
 }

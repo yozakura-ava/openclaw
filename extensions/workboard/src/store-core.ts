@@ -125,7 +125,11 @@ export class WorkboardCoreStore {
   protected readonly forceCloseAuditPath: string;
   protected readonly forceCloseAllowedAgents: Set<string>;
   protected readonly forceCloseOperatorIds: Set<string>;
-  protected readonly activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
+  protected readonly activeRunLookup?: (
+    cardId: string,
+    queue?: string,
+  ) => Promise<string | undefined>;
+  protected readonly dataVersion?: () => number;
 
   constructor(
     store: WorkboardKeyedStore,
@@ -140,6 +144,7 @@ export class WorkboardCoreStore {
       activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
     } = {},
   ) {
+    this.dataVersion = stores.dataVersion;
     this.changes = new WorkboardChangeTracker(stores.dataVersion);
     if (isWorkboardCardStore(store)) {
       this.cardStore = this.changes.trackCardStore(store);
@@ -204,11 +209,10 @@ export class WorkboardCoreStore {
   }): void {
     const directory = path.dirname(this.forceCloseAuditPath);
     fs.mkdirSync(directory, { recursive: true, mode: 448 });
-    fs.appendFileSync(
-      this.forceCloseAuditPath,
-      `${JSON.stringify(entry)}\n`,
-      { encoding: "utf8", mode: 384 },
-    );
+    fs.appendFileSync(this.forceCloseAuditPath, `${JSON.stringify(entry)}\n`, {
+      encoding: "utf8",
+      mode: 384,
+    });
     if (process.platform !== "win32") {
       fs.chmodSync(this.forceCloseAuditPath, 384);
     }

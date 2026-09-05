@@ -189,6 +189,27 @@ function lifecycleExecution(params: {
 
 // Capability layers split review boundaries only; the core still owns persistence and mutation order.
 export class WorkboardStore extends WorkboardNotificationStore {
+  private readonly closeStore?: () => void;
+
+  constructor(
+    store: ConstructorParameters<typeof WorkboardNotificationStore>[0],
+    options: ConstructorParameters<typeof WorkboardNotificationStore>[1] & {
+      close?: () => void;
+    } = {},
+  ) {
+    super(store, options);
+    this.closeStore = options.close;
+  }
+
+  /** Fail-fast health probe used by the guarded SQLite lifecycle owner. */
+  checkHealth(): void {
+    this.dataVersion?.();
+  }
+
+  close(): void {
+    this.closeStore?.();
+  }
+
   async prepareExecutionLaunch(
     id: string,
     input: {
@@ -638,17 +659,23 @@ export class WorkboardStore extends WorkboardNotificationStore {
   }
 
   static openSqlite(options?: {
+    dbPath?: string;
+    env?: NodeJS.ProcessEnv;
     forceCloseAuditPath?: string;
     forceCloseAllowedAgents?: string[];
     forceCloseOperatorIds?: string[];
     activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
   }) {
-    const stores = createWorkboardSqliteStores();
+    const stores = createWorkboardSqliteStores({
+      ...(options?.dbPath ? { dbPath: options.dbPath } : {}),
+      ...(options?.env ? { env: options.env } : {}),
+    });
     return new WorkboardStore(stores.cards, {
       boards: stores.boards,
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
       dataVersion: stores.dataVersion,
+      close: stores.close,
       ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
       ...(options?.forceCloseAllowedAgents
         ? { forceCloseAllowedAgents: options.forceCloseAllowedAgents }

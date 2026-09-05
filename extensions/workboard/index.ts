@@ -2,7 +2,10 @@
 import { definePluginEntry } from "./api.js";
 import { registerWorkboardGatewayMethods } from "./runtime-api.js";
 import { createWorkboardAutomationNudgeService } from "./src/automation-nudge.js";
-import { createWorkboardChangeEventService } from "./src/change-events.js";
+import {
+  createWorkboardChangeEventService,
+  type WorkboardChangeEventService,
+} from "./src/change-events.js";
 import { registerWorkboardCommand } from "./src/command.js";
 import {
   createWorkboardLifecycleService,
@@ -11,6 +14,7 @@ import {
   syncWorkboardSubagentEnded,
 } from "./src/lifecycle-sync.js";
 import { normalizeMaxConcurrentClaimsPerOwner } from "./src/store-constants.js";
+import { createGuardedWorkboardStore, WorkboardStoreGuard } from "./src/store-guard.js";
 import { WorkboardStore } from "./src/store.js";
 import { createWorkboardTools } from "./src/tools.js";
 import {
@@ -25,9 +29,7 @@ import {
  * extending it, so the consumer of this helper must compare length to 0
  * before treating it as a real override.
  */
-function parseForceCloseAgentsEnv(
-  value: string | undefined,
-): string[] | undefined {
+function parseForceCloseAgentsEnv(value: string | undefined): string[] | undefined {
   if (!value) return undefined;
   const parsed = value
     .split(",")
@@ -84,21 +86,38 @@ export default definePluginEntry({
     const configuredForceCloseAgents = parseForceCloseAgentsEnv(
       process.env.OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS,
     );
-    const store = WorkboardStore.openSqlite({
-      ...(configuredForceCloseAgents
-        ? { forceCloseAllowedAgents: configuredForceCloseAgents }
-        : {}),
-      activeRunLookup: createActiveRunLookup(api),
+    const storeGuard = new WorkboardStoreGuard({
+      open: () =>
+        WorkboardStore.openSqlite({
+          ...(configuredForceCloseAgents
+            ? { forceCloseAllowedAgents: configuredForceCloseAgents }
+            : {}),
+          activeRunLookup: createActiveRunLookup(api),
+        }),
     });
+    const store = createGuardedWorkboardStore(storeGuard);
     const automationNudge = createWorkboardAutomationNudgeService({
       store,
       gateway: api.runtime.gateway,
+      isStoreAvailable: () => storeGuard.isAvailable(),
+      onStoreFailure: (error) => storeGuard.reportFailure(error),
     });
     const lifecycleSync = createWorkboardLifecycleService({
       store,
       worktrees: api.runtime.worktrees,
+      isStoreAvailable: () => storeGuard.isAvailable(),
+      onStoreFailure: (error) => storeGuard.reportFailure(error),
       readSessions: async (options) =>
         await readWorkboardLifecycleSessions(api.runtime.gateway, options),
+    });
+    const changeEvents: WorkboardChangeEventService = createWorkboardChangeEventService({
+      store,
+      isStoreAvailable: () => storeGuard.isAvailable(),
+      onStoreFailure: (error) => storeGuard.reportFailure(error),
+    });
+    storeGuard.onAvailable(() => {
+      changeEvents.onStoreAvailable();
+      lifecycleSync.onStoreAvailable();
     });
     api.session.controls.registerControlUiDescriptor({
       surface: "tab",
@@ -129,26 +148,47 @@ export default definePluginEntry({
     });
     registerWorkboardGatewayMethods({ api, store });
     registerWorkboardCommand({ api, store });
-    api.registerService(createWorkboardChangeEventService(store));
+    api.registerService({
+      id: "workboard-store-availability",
+      start(ctx) {
+        storeGuard.start(ctx.logger);
+      },
+      stop() {
+        storeGuard.stop();
+      },
+    });
+    api.registerService(changeEvents);
     api.registerService(automationNudge);
     api.registerService(lifecycleSync);
     api.on("gateway_start", () => lifecycleSync.onGatewayStart());
     api.on("gateway_stop", () => lifecycleSync.onGatewayStop());
     api.on("subagent_ended", async (event) => {
-      await syncWorkboardSubagentEnded({
-        store,
-        worktrees: api.runtime.worktrees,
-        event,
-        onMatched: automationNudge.nudge,
-      });
+      const activeStore = storeGuard.get();
+      if (!activeStore) return;
+      try {
+        await syncWorkboardSubagentEnded({
+          store: activeStore,
+          worktrees: api.runtime.worktrees,
+          event,
+          onMatched: automationNudge.nudge,
+        });
+      } catch (error) {
+        storeGuard.reportFailure(error);
+      }
     });
     api.on("agent_end", async (event, context) => {
-      await syncWorkboardAgentEnded({
-        store,
-        event,
-        context,
-        onMatched: automationNudge.nudge,
-      });
+      const activeStore = storeGuard.get();
+      if (!activeStore) return;
+      try {
+        await syncWorkboardAgentEnded({
+          store: activeStore,
+          event,
+          context,
+          onMatched: automationNudge.nudge,
+        });
+      } catch (error) {
+        storeGuard.reportFailure(error);
+      }
     });
     api.registerCli(
       async ({ program }) => {

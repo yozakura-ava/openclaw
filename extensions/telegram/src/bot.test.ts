@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/config-contracts";
 import {
   clearPluginInteractiveHandlers,
@@ -12,6 +15,13 @@ import {
 } from "openclaw/plugin-sdk/plugin-state-test-runtime";
 import { createNonExitingRuntimeEnv } from "openclaw/plugin-sdk/plugin-test-runtime";
 import type { MsgContext } from "openclaw/plugin-sdk/reply-runtime";
+import {
+  clearRuntimeConfigSnapshot,
+  getRuntimeConfigSnapshot,
+  getRuntimeConfigSourceSnapshot,
+  setRuntimeConfigSnapshot,
+} from "openclaw/plugin-sdk/runtime-config-snapshot";
+import { resolveConfiguredSecretInputString } from "openclaw/plugin-sdk/secret-input-runtime";
 import {
   listSessionEntries,
   normalizeSessionDeliveryState,
@@ -973,6 +983,73 @@ describe("createTelegramBot", () => {
     createTelegramBot({ token: "tok" });
 
     expect(getOnHandler("message")).toEqual(expect.any(Function));
+  });
+
+  it("processes inbound Telegram through the active runtime snapshot resolved from a file SecretRef", async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-telegram-runtime-snapshot-"));
+    const secretPath = path.join(directory, "secrets.json");
+    fs.writeFileSync(
+      secretPath,
+      JSON.stringify({ telegram: { botToken: "123456:runtime-snapshot-fixture" } }),
+      { encoding: "utf8", mode: 0o600 },
+    );
+    const sourceConfig = {
+      secrets: {
+        providers: {
+          default: { source: "file", path: secretPath, mode: "json" },
+        },
+      },
+      channels: {
+        telegram: {
+          dmPolicy: "open",
+          allowFrom: ["*"],
+          botToken: { source: "file", provider: "default", id: "/telegram/botToken" },
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    try {
+      const resolved = await resolveConfiguredSecretInputString({
+        config: sourceConfig,
+        env: {},
+        value: sourceConfig.channels?.telegram?.botToken,
+        path: "channels.telegram.botToken",
+      });
+      expect(resolved).toEqual({ value: "123456:runtime-snapshot-fixture" });
+      const runtimeConfig = structuredClone(sourceConfig);
+      runtimeConfig.channels!.telegram!.botToken = resolved.value;
+      setRuntimeConfigSnapshot(runtimeConfig, sourceConfig);
+      loadConfig.mockReturnValue(getRuntimeConfigSnapshot()!);
+      expect(getRuntimeConfigSourceSnapshot()?.channels?.telegram?.botToken).toMatchObject({
+        source: "file",
+        provider: "default",
+      });
+
+      const replyDone = waitForReplyCalls(1);
+      createTelegramBot({
+        token: runtimeConfig.channels!.telegram!.botToken as string,
+        config: getRuntimeConfigSnapshot()!,
+      });
+      const messageHandler = getOnHandler("message") as (
+        ctx: Record<string, unknown>,
+      ) => Promise<void>;
+      await messageHandler({
+        me: { id: 999, username: "openclaw_bot" },
+        getFile: getEmptyTelegramFile,
+        message: {
+          chat: { id: 418181497, type: "private" },
+          text: "runtime snapshot inbound fixture",
+          date: 1_736_380_800,
+          message_id: 991,
+          from: { id: 418181497, is_bot: false, first_name: "Ava" },
+        },
+      });
+      await replyDone;
+      expect(replySpy).toHaveBeenCalledTimes(1);
+    } finally {
+      clearRuntimeConfigSnapshot();
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("routes poll answers through the recorded forum topic", async () => {

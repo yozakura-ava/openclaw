@@ -63,6 +63,8 @@ function isCronOriginSession(sessionKey: string | undefined): boolean {
 export function createWorkboardAutomationNudgeService(params: {
   store: WorkboardStore;
   gateway: Pick<OpenClawPluginApi["runtime"]["gateway"], "request">;
+  isStoreAvailable?: () => boolean;
+  onStoreFailure?: (error: unknown) => void;
 }): WorkboardAutomationNudgeService {
   const serviceOwner = {};
 
@@ -145,6 +147,7 @@ export function createWorkboardAutomationNudgeService(params: {
       if (
         !owner ||
         !state.logger ||
+        params.isStoreAvailable?.() === false ||
         isCronOriginSession(input.sessionKey) ||
         input.cards.length === 0
       ) {
@@ -164,6 +167,7 @@ export function createWorkboardAutomationNudgeService(params: {
           }),
         );
       } catch (error) {
+        params.onStoreFailure?.(error);
         if (state.owner === owner) {
           state.logger?.warn(`workboard automation nudge failed: ${String(error)}`);
         }
