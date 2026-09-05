@@ -10,6 +10,7 @@ import {
   runSqliteDeferredTransactionSync,
   runSqliteImmediateTransactionSync,
 } from "./sqlite-transaction.js";
+import { getSqliteAuthorityWriterQueue } from "./sqlite-writer-queue.js";
 
 const openDatabases: Array<import("node:sqlite").DatabaseSync> = [];
 type WriterLockChild = ChildProcessByStdio<null, Readable, Readable>;
@@ -128,6 +129,28 @@ describe("runSqliteDeferredTransactionSync", () => {
 });
 
 describe("runSqliteImmediateTransactionSync", () => {
+  it("does not reject a legacy sync transaction while an authority writer is queued", async () => {
+    const db = createDatabase();
+    let release!: () => void;
+    const queued = getSqliteAuthorityWriterQueue().run(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    expect(() =>
+      runSqliteImmediateTransactionSync(db, () => {
+        db.prepare("INSERT INTO entries(id, value) VALUES (?, ?)").run("sync", "works");
+      }),
+    ).not.toThrow();
+    expect(readEntries(db)).toEqual(["sync"]);
+
+    await Promise.resolve();
+    release();
+    await queued;
+  });
+
   it("keeps outer writes when a nested savepoint rolls back", () => {
     const db = createDatabase();
 
