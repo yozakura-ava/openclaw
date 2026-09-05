@@ -8,6 +8,7 @@ import {
 import {
   openNodeSqliteDatabase,
   runSqliteImmediateTransactionSync,
+  runSqliteAuthorityWriteSync,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import type {
   BqesAdmission,
@@ -41,11 +42,13 @@ export function bqesNumber(row: BqesRow, key: string): number {
 }
 
 export function transaction<T>(db: SqliteDatabase, fn: () => T): T {
-  return runSqliteImmediateTransactionSync(db, fn, {
-    databaseLabel: "workboard-bqes",
-    operationLabel: "workboard.bqes.write",
-    maxHoldMs: 5_000,
-  });
+  return runSqliteAuthorityWriteSync(() =>
+    runSqliteImmediateTransactionSync(db, fn, {
+      databaseLabel: "workboard-bqes",
+      operationLabel: "workboard.bqes.write",
+      maxHoldMs: 5_000,
+    }),
+  );
 }
 
 export function normalizeInput(input: BqesAdmissionInput): BqesAdmissionInput {

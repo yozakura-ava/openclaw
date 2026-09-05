@@ -224,3 +224,13 @@ export function getSqliteAuthorityWriterQueue(): SqliteWriterQueue {
   sqliteAuthorityWriterQueue ??= new SqliteWriterQueue({ name: "sqlite-authority" });
   return sqliteAuthorityWriterQueue;
 }
+
+/** Enqueue an approved asynchronous SQLite authority mutation. */
+export function runSqliteAuthorityWrite<T>(operation: () => T | PromiseLike<T>): Promise<T> {
+  return getSqliteAuthorityWriterQueue().run(operation);
+}
+
+/** Route a legacy synchronous authority adapter through the same FIFO gate. */
+export function runSqliteAuthorityWriteSync<T>(operation: () => T): T {
+  return getSqliteAuthorityWriterQueue().runSync(operation);
+}

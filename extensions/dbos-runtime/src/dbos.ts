@@ -15,6 +15,7 @@ import {
 import {
   openNodeSqliteDatabase,
   runSqliteImmediateTransactionSync,
+  runSqliteAuthorityWriteSync,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import type { DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
@@ -84,11 +85,13 @@ function parse<T>(value: unknown, fallback: T): T {
 }
 
 function transaction<T>(db: SqliteDatabase, fn: () => T): T {
-  return runSqliteImmediateTransactionSync(db, fn, {
-    databaseLabel: "dbos compatibility database",
-    maxHoldMs: 5_000,
-    operationLabel: "dbos.write",
-  });
+  return runSqliteAuthorityWriteSync(() =>
+    runSqliteImmediateTransactionSync(db, fn, {
+      databaseLabel: "dbos compatibility database",
+      maxHoldMs: 5_000,
+      operationLabel: "dbos.write",
+    }),
+  );
 }
 
 function normalize(input: DbosWorkflowInput): DbosWorkflowInput {

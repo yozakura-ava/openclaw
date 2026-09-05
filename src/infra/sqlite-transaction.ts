@@ -6,7 +6,6 @@ import { createSubsystemLogger, type SubsystemLogger } from "../logging/subsyste
 // so cold control-plane paths using transactions do not load kysely.
 import { clearNodeSqliteKyselyCacheForDatabase } from "./kysely-sync-cache-state.js";
 import { shouldReportSqliteLockFailure } from "./sqlite-busy-timeout.js";
-import { getSqliteAuthorityWriterQueue } from "./sqlite-writer-queue.js";
 
 const transactionDepthByDatabase = new WeakMap<DatabaseSync, number>();
 
@@ -310,12 +309,12 @@ function runSqliteTransactionSync<T>(
   mode: SqliteTransactionMode,
   options?: SqliteTransactionOptions,
 ): T {
-  if (getTransactionDepth(db) > 0) {
-    return runSqliteTransactionSyncCore(db, operation, mode, options);
-  }
-  return getSqliteAuthorityWriterQueue().runSync(() =>
-    runSqliteTransactionSyncCore(db, operation, mode, options),
-  );
+  // This helper is intentionally a synchronous compatibility boundary. The
+  // process-wide authority queue is opt-in for async authority writers below;
+  // putting every legacy SQLite transaction behind its runSync gate causes
+  // unrelated migrations, doctor paths, and state stores to reject whenever an
+  // authority writer is waiting in the async queue.
+  return runSqliteTransactionSyncCore(db, operation, mode, options);
 }
 
 /** Run synchronous reads against one deferred SQLite snapshot. */

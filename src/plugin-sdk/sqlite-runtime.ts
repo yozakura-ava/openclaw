@@ -18,6 +18,8 @@ export { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.j
 export {
   DEFAULT_SQLITE_WRITER_QUEUE_MAX_DEPTH,
   getSqliteAuthorityWriterQueue,
+  runSqliteAuthorityWrite,
+  runSqliteAuthorityWriteSync,
   SqliteWriterQueue,
   SqliteWriterQueueError,
   type SqliteWriterQueueOptions,
