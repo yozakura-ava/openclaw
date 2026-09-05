@@ -31,6 +31,12 @@ after the restart, but the source fix starts the authority guard during plugin
 registration and registers it as an independent service; it no longer depends
 on `gateway_start`.
 
+Ava's additional root-cause finding is consistent with the source and incident
+evidence: this gateway process skipped `onGatewayStart`, so the Workboard store
+guard never started. The database file was healthy, and the paused state had no
+lock, corruption, disable, or retry signal. The remediation starts the guard at
+plugin registration, probes immediately, and schedules independent recovery.
+
 ## Implemented behavior
 
 - Bounded FIFO SQLite writer queue and lifecycle state machine with structured
@@ -44,12 +50,19 @@ on `gateway_start`.
   applied, and storage-failed outcomes; JSONL remains a legacy/test adapter.
 - Runtime cleanup closes the store on disable/restart when no session or run
   owns the lifecycle.
+- Authenticated PostgreSQL Workboard authority with JSONB records, tombstones,
+  compare-and-set mutations, atomic claim limits, duplicate-operation ledger,
+  and bounded SQLite compatibility projection; gateway PostgreSQL credentials
+  are never used.
+- Durable Workboard change intake persists pending/acked/dead-letter state and
+  replays it after restart.
 
 ## Current gates
 
-The complete Workboard suite passes 20 files and 400 tests. Extension lint,
+The complete Workboard suite passes 23 files and 407 tests. Extension lint,
 extension production typecheck, and extension test typecheck pass. The full
-artifact build, protected integration review, deployment, readiness window,
-rollback rehearsal, and cleanup retention remain required before acceptance.
+artifact build and strict smoke build pass. Protected integration review,
+post-merge artifact promotion, deployment, readiness window, rollback
+rehearsal, and cleanup retention remain required before acceptance.
 
 Admission and autonomous closure remain frozen through validation.

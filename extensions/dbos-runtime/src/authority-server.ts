@@ -1,6 +1,5 @@
 // Authenticated HTTP boundary for the PostgreSQL DBOS authority.
 import { createHmac, timingSafeEqual } from "node:crypto";
-import fs from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import {
@@ -9,9 +8,12 @@ import {
   requireNonEmpty,
 } from "@openclaw/execution-contract";
 import { validateAdmissionEnvelope, type DbosAuthorityBackend } from "./authority.js";
+import type { WorkboardAuthorityBackend } from "./workboard-authority.js";
+export { loadDbosSharedSecret, signDbosRequest } from "./authority-auth.js";
 
 export type DbosAuthorityServerOptions = {
   backend: DbosAuthorityBackend;
+  workboard?: WorkboardAuthorityBackend;
   sharedSecret: string;
   allowedHosts?: readonly string[];
   maxBodyBytes?: number;
@@ -19,14 +21,6 @@ export type DbosAuthorityServerOptions = {
   maxReplayNonces?: number;
   now?: () => number;
 };
-
-function readCredential(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const pathName = env.OPENCLAW_DBOS_HMAC_CREDENTIAL;
-  if (!pathName) {
-    return undefined;
-  }
-  return fs.readFileSync(pathName, "utf8").trim();
-}
 
 async function readBody(request: IncomingMessage, limit: number): Promise<string> {
   let total = 0;
@@ -121,6 +115,7 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
       if (request.method === "GET" && pathName === "/ready") {
         try {
           await options.backend.health();
+          await options.workboard?.health();
           return jsonResponse(response, 200, { ready: true });
         } catch (error) {
           return jsonResponse(response, 503, {
@@ -133,7 +128,8 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
         request.method !== "POST" ||
         !(
           pathName === "/v1/workflows/admit" ||
-          /^\/v1\/workflows\/[^/]+\/(start|fail|complete)$/.test(pathName)
+          /^\/v1\/workflows\/[^/]+\/(start|fail|complete)$/.test(pathName) ||
+          /^\/v1\/workboard\/(read|list|write)$/.test(pathName)
         )
       ) {
         return jsonResponse(response, 404, { error: "not found" });
@@ -142,6 +138,45 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
         const body = await readBody(request, maxBodyBytes);
         authenticate(request, body, pathName);
         const input = JSON.parse(body) as Record<string, unknown>;
+        if (pathName.startsWith("/v1/workboard/")) {
+          if (!options.workboard) {
+            throw new Error("Workboard PostgreSQL authority is not configured");
+          }
+          const namespace = requireNonEmpty(input.namespace, "Workboard namespace");
+          if (pathName.endsWith("/read")) {
+            const key = requireNonEmpty(input.key, "Workboard key");
+            return jsonResponse(response, 200, {
+              record: await options.workboard.read(namespace, key),
+            });
+          }
+          if (pathName.endsWith("/list")) {
+            return jsonResponse(response, 200, {
+              records: await options.workboard.list(namespace),
+            });
+          }
+          const operationId = requireNonEmpty(input.operationId, "Workboard operation id");
+          const mode = input.mode;
+          if (mode !== "insert" && mode !== "upsert" && mode !== "delete" && mode !== "claim") {
+            throw new Error("Workboard write mode is invalid");
+          }
+          return jsonResponse(response, 200, {
+            result: await options.workboard.write({
+              operationId,
+              namespace,
+              key: requireNonEmpty(input.key, "Workboard key"),
+              mode,
+              value: input.value,
+              ...(typeof input.expectedUpdatedAt === "number"
+                ? { expectedUpdatedAt: input.expectedUpdatedAt }
+                : {}),
+              ...(typeof input.ownerId === "string" ? { ownerId: input.ownerId } : {}),
+              ...(typeof input.now === "number" ? { now: input.now } : {}),
+              ...(typeof input.maxConcurrentClaims === "number"
+                ? { maxConcurrentClaims: input.maxConcurrentClaims }
+                : {}),
+            }),
+          });
+        }
         const operationKey = requireNonEmpty(
           input.operationKey ?? input.idempotencyKey,
           "DBOS operation key",
@@ -216,21 +251,4 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
       }
     })();
   });
-}
-
-export function loadDbosSharedSecret(env: NodeJS.ProcessEnv = process.env): string {
-  return requireNonEmpty(readCredential(env), "DBOS HMAC secret");
-}
-
-export function signDbosRequest(
-  secret: string,
-  method: string,
-  pathName: string,
-  timestamp: string,
-  nonce: string,
-  body: string,
-): string {
-  return createHmac("sha256", requireNonEmpty(secret, "DBOS HMAC secret"))
-    .update(`${method}\n${pathName}\n${timestamp}\n${nonce}\n${body}`)
-    .digest("hex");
 }

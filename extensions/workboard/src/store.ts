@@ -1,4 +1,5 @@
 // Workboard plugin module implements store behavior.
+/* oxlint-disable max-lines -- Workboard core remains a compatibility facade while authority stores are split. */
 import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
@@ -15,6 +16,8 @@ import type {
 import type { SqliteAuthorityLifecycle } from "openclaw/plugin-sdk/sqlite-runtime";
 import type { WorkboardDurableEventIntake } from "./durable-event-intake.js";
 import type { WorkboardKeyedStore } from "./persistence-types.js";
+import { createWorkboardPostgresAuthorityFromEnv } from "./postgres-authority-client.js";
+import type { WorkboardRemoteAuthority } from "./postgres-stores.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
   buildWorkerContext,
@@ -700,12 +703,17 @@ export class WorkboardStore extends WorkboardNotificationStore {
   }
 
   static openSqlite(options?: {
+    env?: NodeJS.ProcessEnv;
+    remoteAuthority?: WorkboardRemoteAuthority;
     forceCloseAuditPath?: string;
     forceCloseAllowedAgents?: string[];
     forceCloseOperatorIds?: string[];
     activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
   }) {
-    const stores = createWorkboardSqliteStores();
+    const env = options?.env ?? process.env;
+    const remoteAuthority =
+      options?.remoteAuthority ?? createWorkboardPostgresAuthorityFromEnv(env);
+    const stores = createWorkboardSqliteStores({ env, remoteAuthority });
     return new WorkboardStore(stores.cards, {
       boards: stores.boards,
       subscriptions: stores.subscriptions,

@@ -3,6 +3,7 @@ import { Pool, type PoolConfig } from "pg";
 import { createDbosAuthorityServer, loadDbosSharedSecret } from "./authority-server.js";
 import { PostgresDbosAuthorityBackend } from "./authority.js";
 import { createDbosSdkAuthority } from "./sdk-authority.js";
+import { PostgresWorkboardAuthorityBackend } from "./workboard-authority.js";
 
 function credentialValue(pathName: string | undefined, label: string): string | undefined {
   if (!pathName) {
@@ -64,8 +65,11 @@ const sdk = createDbosSdkAuthority({ pool, systemDatabaseUrl: systemDatabaseUrl(
 await sdk.launch();
 const backend = new PostgresDbosAuthorityBackend(pool, sdk);
 await backend.migrate();
+const workboard = new PostgresWorkboardAuthorityBackend(pool);
+await workboard.migrate();
 const server = createDbosAuthorityServer({
   backend,
+  workboard,
   sharedSecret: loadDbosSharedSecret(),
   allowedHosts: (process.env.OPENCLAW_DBOS_ALLOWED_HOSTS ?? "127.0.0.1,localhost,::1")
     .split(",")

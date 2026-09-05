@@ -16,6 +16,13 @@ export {
   signDbosRequest,
 } from "./src/authority-server.js";
 export type { DbosAuthorityServerOptions } from "./src/authority-server.js";
+export { PostgresWorkboardAuthorityBackend } from "./src/workboard-authority.js";
+export type {
+  WorkboardAuthorityBackend,
+  WorkboardAuthorityRecord,
+  WorkboardAuthorityWrite,
+  WorkboardAuthorityWriteResult,
+} from "./src/workboard-authority.js";
 export type {
   DbosAuthority,
   DbosReceipt,

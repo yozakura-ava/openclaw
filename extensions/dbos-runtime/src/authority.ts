@@ -14,7 +14,7 @@ import {
   type AdmissionEnvelope,
 } from "@openclaw/execution-contract";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
-import type { DbosReceipt, DbosWorkflowInput } from "./dbos.js";
+import type { DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import type { AuthoritySdkOperation, DbosSdkAuthority } from "./sdk-authority.js";
 
 const DBOS_QUEUE_CONCURRENCY = 2;

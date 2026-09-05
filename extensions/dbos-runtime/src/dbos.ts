@@ -12,48 +12,15 @@ import {
   requireNonEmpty,
   stableJson,
   type AdmissionGate,
-  type ExecutionIdentityInput,
-  type AdmissionEnvelope,
 } from "@openclaw/execution-contract";
 import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
 import { DbosRuntimeError } from "./dbos-errors.js";
+export type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 
 export type DbosWorkflowState = "admitted" | "running" | "succeeded" | "failed" | "quarantined";
-
-export type DbosWorkflowInput = ExecutionIdentityInput & {
-  attemptId: string;
-  idempotencyKey: string;
-  ownerEpoch: string;
-  now?: number;
-};
-
-/** Durable DBOS authority used by production dispatchers. */
-export type DbosAuthority = {
-  admit(
-    input: DbosWorkflowInput & { envelope?: AdmissionEnvelope },
-  ): DbosReceipt | Promise<DbosReceipt>;
-  start(workflowId: string, ownerEpoch: string): unknown;
-  fail?(workflowId: string, detail: string): unknown;
-  complete?(workflowId: string, evidence: unknown): unknown;
-};
-
-export type DbosReceipt = {
-  workflowId: string;
-  idempotencyKey: string;
-  cardId: string;
-  queue: string;
-  runId: string;
-  attemptId: string;
-  ownerEpoch: string;
-  acknowledgedAt: number;
-  /** Authority metadata is required on the production HTTP response. */
-  operationKey?: string;
-  state?: "admitted";
-  serverTimestamp?: number;
-  sdkWorkflowId?: string;
-};
 
 export type DbosResourceState = {
   ownedChild: boolean;

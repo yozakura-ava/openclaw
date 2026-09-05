@@ -47,6 +47,8 @@ import type {
   WorkboardKeyedStore,
   WorkboardOwnerClaimResult,
 } from "./persistence-types.js";
+import type { WorkboardRemoteAuthority } from "./postgres-stores.js";
+import { createRemoteBackedStores } from "./postgres-stores.js";
 import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
 const WORKBOARD_DB_RELATIVE_PATH = ["plugins", "workboard", "workboard.sqlite"] as const;
 const SCHEMA_VERSION = 3;
@@ -2004,6 +2006,7 @@ export function createWorkboardSqliteStores(
   options: {
     dbPath?: string;
     env?: NodeJS.ProcessEnv;
+    remoteAuthority?: WorkboardRemoteAuthority;
   } = {},
 ): WorkboardSqliteStores {
   const dbPath = options.dbPath ?? resolveWorkboardSqlitePath(options.env);
@@ -2129,12 +2132,24 @@ export function createWorkboardSqliteStores(
   const recoverableSubscriptions = recoverable(subscriptions);
   const recoverableAttachments = recoverable(attachments);
   const recoverableAudits = recoverable(audits);
+  const remoteStores = options.remoteAuthority
+    ? createRemoteBackedStores(
+        {
+          cards: recoverableCards,
+          boards: recoverableBoards,
+          subscriptions: recoverableSubscriptions,
+          attachments: recoverableAttachments,
+          audits: recoverableAudits,
+        },
+        options.remoteAuthority,
+      )
+    : undefined;
   return {
-    cards: recoverableCards,
-    boards: recoverableBoards,
-    subscriptions: recoverableSubscriptions,
-    attachments: recoverableAttachments,
-    audits: recoverableAudits,
+    cards: remoteStores?.cards ?? recoverableCards,
+    boards: remoteStores?.boards ?? recoverableBoards,
+    subscriptions: remoteStores?.subscriptions ?? recoverableSubscriptions,
+    attachments: remoteStores?.attachments ?? recoverableAttachments,
+    audits: remoteStores?.audits ?? recoverableAudits,
     durableEventIntake,
     lifecycle,
     recover: () => replaceConnection(0),

@@ -62,7 +62,11 @@ describe("WorkboardDurableEventIntake", () => {
     const intake = new WorkboardDurableEventIntake(store, () => 100);
     await intake.enqueue(change);
     const delivered: WorkboardChange[] = [];
-    await expect(intake.drain((entry) => delivered.push(entry))).resolves.toEqual({
+    await expect(
+      intake.drain((entry) => {
+        delivered.push(entry);
+      }),
+    ).resolves.toEqual({
       delivered: 1,
       failed: 0,
     });
