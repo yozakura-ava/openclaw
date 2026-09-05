@@ -5,20 +5,20 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { PostgresWorkboardAuthorityBackend } from "./workboard-authority.js";
 
 const livePostgres =
-  process.env.OPENCLAW_DBOS_WORKBOARD_TEST === "1" &&
-  typeof process.env.OPENCLAW_DBOS_WORKBOARD_TEST_URL === "string";
+  process.env.OPENCLAW_DBOS_POSTGRES_TEST === "1" &&
+  typeof process.env.OPENCLAW_DBOS_POSTGRES_TEST_URL === "string";
 
 function connection() {
   return {
-    connectionString: process.env.OPENCLAW_DBOS_WORKBOARD_TEST_URL,
-    ...(process.env.OPENCLAW_DBOS_WORKBOARD_TEST_PASSWORD_FILE
+    connectionString: process.env.OPENCLAW_DBOS_POSTGRES_TEST_URL,
+    ...(process.env.OPENCLAW_DBOS_POSTGRES_TEST_PASSWORD_FILE
       ? {
           password: fs
-            .readFileSync(process.env.OPENCLAW_DBOS_WORKBOARD_TEST_PASSWORD_FILE, "utf8")
+            .readFileSync(process.env.OPENCLAW_DBOS_POSTGRES_TEST_PASSWORD_FILE, "utf8")
             .trim(),
         }
-      : process.env.OPENCLAW_DBOS_WORKBOARD_TEST_PASSWORD
-        ? { password: process.env.OPENCLAW_DBOS_WORKBOARD_TEST_PASSWORD }
+      : process.env.OPENCLAW_DBOS_POSTGRES_TEST_PASSWORD
+        ? { password: process.env.OPENCLAW_DBOS_POSTGRES_TEST_PASSWORD }
         : {}),
   };
 }

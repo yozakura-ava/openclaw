@@ -1,5 +1,4 @@
 // Workboard plugin module implements store behavior.
-/* oxlint-disable max-lines -- Workboard core remains a compatibility facade while authority stores are split. */
 import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
@@ -20,7 +19,6 @@ import { createWorkboardPostgresAuthorityFromEnv } from "./postgres-authority-cl
 import type { WorkboardRemoteAuthority } from "./postgres-stores.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
-  buildWorkerContext,
   assertCanMutateClaimedCard,
   cardBoardId,
   cardRunId,
@@ -52,7 +50,6 @@ import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalize
 import { WorkboardNotificationStore } from "./store-notifications.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
-export { WorkboardForceCloseValidationError } from "./store-inputs.js";
 export { WorkboardCardConflictError } from "./store-core.js";
 
 type WorkboardExecutionAssociationInput = {
@@ -692,14 +689,6 @@ export class WorkboardStore extends WorkboardNotificationStore {
         count: rows.reduce((total, row) => total + row.diagnostics.length, 0),
       };
     });
-  }
-
-  async buildWorkerContext(id: string): Promise<string> {
-    const card = await this.get(id);
-    if (!card) {
-      throw new Error(`card not found: ${id}`);
-    }
-    return buildWorkerContext(card, await this.list());
   }
 
   static openSqlite(options?: {

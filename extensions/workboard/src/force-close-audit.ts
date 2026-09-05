@@ -2,11 +2,7 @@ import { createHash } from "node:crypto";
 import type { WorkboardStatus } from "@openclaw/workboard-contract";
 import type { WorkboardForceCloseReasonCode } from "./store-constants.js";
 
-export type WorkboardForceCloseAuditOutcome =
-  | "accepted"
-  | "applied"
-  | "rejected"
-  | "storage_failed";
+type WorkboardForceCloseAuditOutcome = "accepted" | "applied" | "rejected" | "storage_failed";
 
 export type WorkboardForceCloseAuditEntry = {
   ts: string;

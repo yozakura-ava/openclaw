@@ -11,9 +11,10 @@ describe("Workboard PostgreSQL authority client", () => {
       retries: 1,
       fetchImpl: async (input, init) => {
         attempts += 1;
-        expect(String(input)).toBe("http://127.0.0.1:8787/v1/workboard/write");
+        expect(input).toBe("http://127.0.0.1:8787/v1/workboard/write");
         expect(init?.method).toBe("POST");
-        const body = String(init?.body);
+        expect(typeof init?.body).toBe("string");
+        const body = typeof init?.body === "string" ? init.body : "";
         const headers = new Headers(init?.headers);
         const expected = createHmac("sha256", "test-secret")
           .update(

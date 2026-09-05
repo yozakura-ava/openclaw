@@ -19,7 +19,7 @@ import type { AuthoritySdkOperation, DbosSdkAuthority } from "./sdk-authority.js
 
 const DBOS_QUEUE_CONCURRENCY = 2;
 
-export type AuthorityAck = {
+type AuthorityAck = {
   workflowId: string;
   idempotencyKey: string;
   cardId: string;

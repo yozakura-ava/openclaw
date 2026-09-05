@@ -1,18 +1,14 @@
-/* oxlint-disable max-lines -- serialized Workboard workflow methods remain co-located; split is a follow-up boundary. */
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import type {
   WorkboardArtifact,
   WorkboardCard,
-  WorkboardClaim,
   WorkboardMetadata,
   WorkboardNotification,
   WorkboardRunAttempt,
 } from "@openclaw/workboard-contract";
 import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
-import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import type { WorkboardForceCloseAuditEntry } from "./force-close-audit.js";
 import {
   assertCanMutateClaimedCard,
   cardBoardId,
@@ -23,9 +19,9 @@ import {
   closeRunningAttempts,
   assertReviewIndependenceFromScope,
   diagnostic,
-  latestRunningAttempt,
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
+import { assertClaimIdentity } from "./store-claim-helpers.js";
 import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
@@ -34,10 +30,8 @@ import {
   MAX_CARD_COMMENTS,
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
-  WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
-  WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH,
-  WORKBOARD_FORCE_CLOSE_REASON_CODES,
 } from "./store-constants.js";
+import { executeForceClose } from "./store-force-close.js";
 import type {
   WorkboardBlockInput,
   WorkboardCardPatch,
@@ -54,7 +48,6 @@ import type {
   WorkboardReclaimInput,
   WorkboardSpecifyInput,
 } from "./store-inputs.js";
-import { WorkboardForceCloseValidationError } from "./store-inputs.js";
 import {
   appendCompletionProof,
   capText,
@@ -67,175 +60,8 @@ import {
   normalizeStatus,
   normalizeStringList,
   removeUndefinedMetadataFields,
-  trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
-
-// workboard_force_close helpers (card 32d1c50d).
-// `normalizeForceCloseReasonCode` rejects every reason outside the closed
-// enum so the override can never widen into a general completion bypass.
-function normalizeForceCloseReasonCode(
-  value: unknown,
-): (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number] {
-  if (
-    typeof value === "string" &&
-    (WORKBOARD_FORCE_CLOSE_REASON_CODES as readonly string[]).includes(value)
-  ) {
-    return value as (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
-  }
-  throw new Error(
-    `force-close reason_code must be one of: ${WORKBOARD_FORCE_CLOSE_REASON_CODES.join(", ")}.`,
-  );
-}
-
-// `forceCloseReasonRequiresReference` encodes the design rule that
-// superseded and duplicate closures must point at a surviving card so the
-// audit trail is queryable for "where did the work land?". Cancelled and
-// invalid closures are allowed without a reference.
-function forceCloseReasonRequiresReference(
-  reasonCode: (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number],
-): boolean {
-  return reasonCode === "superseded" || reasonCode === "duplicate";
-}
-
-const MAX_FORCE_CLOSE_CASCADE_DEPTH = 64;
-const MAX_FORCE_CLOSE_CASCADE_DESCENDANTS = 1_000;
-
-type ForceCloseDescendantGraph = {
-  cardsById: Map<string, WorkboardCard>;
-  descendants: Array<{ card: WorkboardCard; depth: number }>;
-  malformedIds: string[];
-  cycleIds: string[];
-};
-
-async function descendantGraph(
-  card: WorkboardCard,
-  store: { list: () => Promise<WorkboardCard[]> },
-): Promise<ForceCloseDescendantGraph> {
-  const cards = await store.list();
-  const cardsById = new Map(cards.map((candidate) => [candidate.id, candidate]));
-  const childrenByParent = new Map<string, string[]>();
-  const malformedIds = new Set<string>();
-
-  const addEdge = (parentId: string, childId: string, ownerId: string) => {
-    const children = childrenByParent.get(parentId) ?? [];
-    if (!children.includes(childId)) {
-      children.push(childId);
-    }
-    childrenByParent.set(parentId, children);
-    if (!cardsById.has(parentId) || !cardsById.has(childId)) {
-      malformedIds.add(ownerId);
-    }
-  };
-
-  for (const candidate of cards) {
-    for (const link of candidate.metadata?.links ?? []) {
-      if (link.type !== "parent" && link.type !== "child") {
-        continue;
-      }
-      const targetId = typeof link.targetCardId === "string" ? link.targetCardId.trim() : "";
-      if (!targetId) {
-        malformedIds.add(candidate.id);
-        continue;
-      }
-      if (link.type === "parent") {
-        addEdge(targetId, candidate.id, candidate.id);
-      } else {
-        addEdge(candidate.id, targetId, candidate.id);
-      }
-    }
-  }
-
-  const depthById = new Map<string, number>();
-  const queue: Array<{ id: string; depth: number }> = (childrenByParent.get(card.id) ?? []).map(
-    (id) => ({ id, depth: 1 }),
-  );
-  const descendants: Array<{ card: WorkboardCard; depth: number }> = [];
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    if (current.depth > MAX_FORCE_CLOSE_CASCADE_DEPTH) {
-      malformedIds.add(current.id);
-      continue;
-    }
-    const previousDepth = depthById.get(current.id);
-    if (previousDepth !== undefined && previousDepth <= current.depth) {
-      continue;
-    }
-    depthById.set(current.id, current.depth);
-    const child = cardsById.get(current.id);
-    if (!child) {
-      malformedIds.add(current.id);
-      continue;
-    }
-    descendants.push({ card: child, depth: current.depth });
-    if (descendants.length > MAX_FORCE_CLOSE_CASCADE_DESCENDANTS) {
-      malformedIds.add(card.id);
-      break;
-    }
-    for (const childId of childrenByParent.get(child.id) ?? []) {
-      queue.push({ id: childId, depth: current.depth + 1 });
-    }
-  }
-
-  const cycleIds = new Set<string>();
-  const visiting = new Set<string>();
-  const visited = new Set<string>();
-  const visit = (candidateId: string, ancestry: string[]) => {
-    if (visiting.has(candidateId)) {
-      const cycleStart = ancestry.indexOf(candidateId);
-      for (const cycleId of ancestry.slice(Math.max(0, cycleStart))) {
-        cycleIds.add(cycleId);
-      }
-      return;
-    }
-    if (visited.has(candidateId)) {
-      return;
-    }
-    visiting.add(candidateId);
-    for (const childId of childrenByParent.get(candidateId) ?? []) {
-      visit(childId, [...ancestry, candidateId]);
-    }
-    visiting.delete(candidateId);
-    visited.add(candidateId);
-  };
-  visit(card.id, []);
-
-  return {
-    cardsById,
-    descendants: descendants
-      .filter(({ card: descendant }, index, all) => {
-        const first = all.findIndex((entry) => entry.card.id === descendant.id);
-        return first === index;
-      })
-      .toSorted(
-        (left, right) => right.depth - left.depth || left.card.id.localeCompare(right.card.id),
-      ),
-    malformedIds: [...malformedIds].toSorted(),
-    cycleIds: [...cycleIds].toSorted(),
-  };
-}
-
-function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInput): void {
-  const token = normalizeOptionalString(input.token);
-  const ownerId = normalizeOptionalString(input.ownerId);
-  // Owner-match takes precedence over token mismatch. Outbound tool args
-  // can scrub a valid claim token to a masked placeholder (e.g. "***"), so
-  // an invalid-but-present token must not reject when the caller proves
-  // identity through the owner string. Fencing is preserved by the exact
-  // string compare below; cross-owner token-less mutations still throw.
-  // PATCH workboard-claim-token-authority-fix (card 3a911999, sprint
-  // reina-2026-08-31-008).
-  if (ownerId && ownerId === claim.ownerId) {
-    return;
-  }
-  if (token) {
-    if (!safeEqualSecret(token, claim.token)) {
-      throw new Error("claim token does not match.");
-    }
-    return;
-  }
-  throw new Error("claim owner does not match.");
-}
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
   async claim(
@@ -558,299 +384,22 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     input: WorkboardForceCloseInput | undefined,
     agentId: string | undefined,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(
-      async () =>
-        await this.withCardCompensation(async () => {
-          const forceCloseInput = input ?? {};
-          const normalizedAgentId = normalizeOptionalString(agentId)?.toLowerCase();
-          if (
-            !normalizedAgentId ||
-            (!this.forceCloseAllowedAgents.has(normalizedAgentId) &&
-              !this.forceCloseOperatorIds.has(normalizedAgentId))
-          ) {
-            throw new Error("force-close is orchestrator-only");
-          }
-
-          const cardId = normalizeOptionalString(id);
-          if (!cardId) {
-            throw new Error("card id is required.");
-          }
-          const existing = await this.get(cardId);
-          if (!existing) {
-            throw new Error(`card not found: ${cardId}`);
-          }
-
-          const reasonCode = normalizeForceCloseReasonCode(forceCloseInput.reasonCode);
-          const explanation = normalizeBoundedString(
-            forceCloseInput.explanation,
-            undefined,
-            WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
-            "force-close explanation",
-          );
-          if (!explanation || explanation.length < WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH) {
-            throw new Error(
-              `force-close explanation must be at least ${WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH} characters.`,
-            );
-          }
-          const cascadeDescendants =
-            forceCloseInput.cascadeDescendants === undefined
-              ? false
-              : forceCloseInput.cascadeDescendants === true
-                ? true
-                : (() => {
-                    throw new Error("cascadeDescendants must be a boolean.");
-                  })();
-          const referenceCardId = normalizeOptionalString(forceCloseInput.referenceCardId);
-          if (forceCloseReasonRequiresReference(reasonCode) && !referenceCardId) {
-            throw new Error(`force-close reason ${reasonCode} requires reference_card_id.`);
-          }
-          if (referenceCardId) {
-            const reference = await this.get(referenceCardId);
-            if (!reference) {
-              throw new Error(`reference card not found: ${referenceCardId}`);
-            }
-            if (reference.id === existing.id) {
-              throw new WorkboardForceCloseValidationError(
-                "force-close reference card cannot be the card being closed",
-                [existing.id],
-              );
-            }
-            if (reference.metadata?.closureType === "force_close") {
-              throw new Error(`reference card is force-closed: ${referenceCardId}`);
-            }
-          }
-
-          const graph = await descendantGraph(existing, this);
-          const openDescendants = graph.descendants
-            .map(({ card }) => card)
-            .filter((card) => card.status !== "done")
-            .map((card) => card.id)
-            .toSorted();
-          const graphProblems = [...graph.malformedIds, ...graph.cycleIds].filter(
-            (candidateId, index, ids) => ids.indexOf(candidateId) === index,
-          );
-          if (!cascadeDescendants && openDescendants.length > 0) {
-            throw new WorkboardForceCloseValidationError(
-              `card has open descendants; retry with cascadeDescendants after validating active runs and claims (card has open descendants: ${openDescendants.join(", ")})`,
-              openDescendants,
-            );
-          }
-          if (cascadeDescendants && graphProblems.length > 0) {
-            throw new WorkboardForceCloseValidationError(
-              `force-close cascade blocked by malformed or cyclic descendant links: ${graphProblems.join(", ")}`,
-              graphProblems,
-            );
-          }
-          if (
-            cascadeDescendants &&
-            referenceCardId &&
-            graph.descendants.some(({ card }) => card.id === referenceCardId)
-          ) {
-            throw new WorkboardForceCloseValidationError(
-              "force-close reference card cannot be a descendant of the card being closed",
-              [referenceCardId],
-            );
-          }
-
-          const operationId =
-            normalizeOptionalString(forceCloseInput.operationId) ??
-            createHash("sha256")
-              .update("openclaw:workboard-force-close:v1\0")
-              .update(cardId)
-              .update("\0")
-              .update(reasonCode)
-              .update("\0")
-              .update(explanation)
-              .update("\0")
-              .update(referenceCardId ?? "")
-              .update("\0")
-              .update(openDescendants.join(","))
-              .digest("hex");
-
-          if (existing.status === "done") {
-            if (
-              existing.metadata?.closureType === "force_close" &&
-              existing.metadata.closureOperationId === operationId
-            ) {
-              return existing;
-            }
-            if (existing.metadata?.closureType === "force_close") {
-              throw new Error(`card is already force-closed: ${cardId}`);
-            }
-            throw new Error(`card is already done: ${cardId}`);
-          }
-
-          const token = normalizeOptionalString(forceCloseInput.token);
-          const claim = existing.metadata?.claim;
-          if (claim) {
-            if (claim.ownerId !== normalizedAgentId) {
-              throw new Error(`card is claimed by ${claim.ownerId}.`);
-            }
-            if (!token) {
-              throw new Error("force-close requires the claim token for a claimed card.");
-            }
-            if (claim.token !== token) {
-              throw new Error("claim token does not match.");
-            }
-          }
-          assertCanMutateClaimedCard(existing, { ownerId: normalizedAgentId, token });
-
-          const localActiveRunId =
-            existing.execution?.status === "running"
-              ? cardRunId(existing)
-              : latestRunningAttempt(existing)?.runId;
-          const durableActiveRunId = await this.activeRunLookup?.(
-            existing.id,
-            existing.metadata?.automation?.queue,
-          );
-          const activeRunId = localActiveRunId ?? durableActiveRunId;
-          if (
-            activeRunId ||
-            existing.execution?.status === "running" ||
-            latestRunningAttempt(existing)
-          ) {
-            throw new Error(
-              `active DBOS run exists for card ${existing.id}: ${activeRunId ?? "unknown"}`,
-            );
-          }
-
-          const cardsToClose = cascadeDescendants
-            ? [
-                ...graph.descendants
-                  .filter(({ card }) => card.status !== "done")
-                  .map(({ card }) => card),
-                existing,
-              ]
-            : [existing];
-          const blockingIds: string[] = [];
-          if (cascadeDescendants) {
-            for (const candidate of cardsToClose.slice(0, -1)) {
-              if (candidate.metadata?.claim) {
-                blockingIds.push(candidate.id);
-              }
-              const localRunId =
-                candidate.execution?.status === "running"
-                  ? cardRunId(candidate)
-                  : latestRunningAttempt(candidate)?.runId;
-              const durableRunId = await this.activeRunLookup?.(
-                candidate.id,
-                candidate.metadata?.automation?.queue,
-              );
-              if (
-                localRunId ||
-                durableRunId ||
-                candidate.execution?.status === "running" ||
-                latestRunningAttempt(candidate)
-              ) {
-                blockingIds.push(candidate.id);
-              }
-            }
-          }
-          const uniqueBlockingIds = blockingIds.filter(
-            (candidateId, index, ids) => ids.indexOf(candidateId) === index,
-          );
-          if (uniqueBlockingIds.length > 0) {
-            throw new WorkboardForceCloseValidationError(
-              `force-close cascade blocked by active runs or unresolved claims: ${uniqueBlockingIds.join(", ")}`,
-              uniqueBlockingIds,
-            );
-          }
-
-          const now = Date.now();
-          const closed: WorkboardCard[] = [];
-          const auditRecords: WorkboardForceCloseAuditEntry[] = [];
-          const aggregateAudit: WorkboardForceCloseAuditEntry | undefined = cascadeDescendants
-            ? {
-                ts: new Date(now).toISOString(),
-                agent_id: normalizedAgentId,
-                card_id: existing.id,
-                reason_code: reasonCode,
-                explanation,
-                reference_card_id: referenceCardId ?? null,
-                prior_status: existing.status,
-                dbos_run_id: null,
-                outcome: "accepted",
-                operation_id: operationId,
-                aggregate: true,
-                card_ids: cardsToClose.map((candidate) => candidate.id),
-              }
-            : undefined;
-          try {
-            if (aggregateAudit && this.forceCloseAuditStore) {
-              await this.recordForceCloseAudit(aggregateAudit);
-              auditRecords.push(aggregateAudit);
-            }
-            for (const candidate of cardsToClose) {
-              const audit: WorkboardForceCloseAuditEntry = {
-                ts: new Date(now).toISOString(),
-                agent_id: normalizedAgentId,
-                card_id: candidate.id,
-                reason_code: reasonCode,
-                explanation,
-                reference_card_id: referenceCardId ?? null,
-                prior_status: candidate.status,
-                dbos_run_id: null,
-                outcome: "accepted",
-                operation_id: operationId,
-              };
-              if (this.forceCloseAuditStore) {
-                await this.recordForceCloseAudit(audit);
-                auditRecords.push(audit);
-              }
-              const comment = `[FORCE-CLOSE] ${reasonCode}: ${explanation}`;
-              const notification: WorkboardNotification = {
-                id: randomUUID(),
-                kind: "completed",
-                createdAt: now,
-                sequence: this.nextNotificationSequence(now),
-                message: capText(comment, 240) ?? "Workboard card force-closed.",
-                ...(cardSessionKey(candidate) ? { sessionKey: cardSessionKey(candidate) } : {}),
-              };
-              const metadata: WorkboardMetadata = trimMetadataToBudget({
-                ...clearDiagnostics(candidate.metadata, ["missing_proof"]),
-                claim: undefined,
-                closureType: "force_close",
-                closureOperationId: operationId,
-                comments: [
-                  ...(candidate.metadata?.comments ?? []),
-                  { id: randomUUID(), body: comment, createdAt: now },
-                ].slice(-MAX_CARD_COMMENTS),
-                notifications: [...(candidate.metadata?.notifications ?? []), notification].slice(
-                  -MAX_CARD_NOTIFICATIONS,
-                ),
-              });
-              const updated = await this.updateCard(
-                candidate.id,
-                { status: "done", metadata },
-                { enforceStatusHolds: !cascadeDescendants },
-              );
-              closed.push(updated);
-              await this.recordForceCloseAudit({ ...audit, outcome: "applied" });
-            }
-            if (aggregateAudit) {
-              await this.recordForceCloseAudit({
-                ...aggregateAudit,
-                outcome: "applied",
-                card_ids: closed.map((card) => card.id),
-              });
-            }
-            return closed.at(-1)!;
-          } catch (error) {
-            if (this.forceCloseAuditStore) {
-              await Promise.all(
-                auditRecords.map(async (audit) => {
-                  try {
-                    await this.recordForceCloseAudit({ ...audit, outcome: "storage_failed" });
-                  } catch {
-                    // Preserve the original mutation or audit failure. A
-                    // durable accepted intent remains available for replay.
-                  }
-                }),
-              );
-            }
-            throw error;
-          }
-        }),
+    return await executeForceClose(
+      {
+        enqueueMutation: (run) => this.enqueueMutation(run),
+        withCardCompensation: (run) => this.withCardCompensation(run),
+        get: (cardId) => this.get(cardId),
+        list: () => this.list(),
+        updateCard: (cardId, patch, options) => this.updateCard(cardId, patch, options),
+        nextNotificationSequence: (now) => this.nextNotificationSequence(now),
+        recordForceCloseAudit: (entry) => this.recordForceCloseAudit(entry),
+        forceCloseAllowedAgents: this.forceCloseAllowedAgents,
+        forceCloseOperatorIds: this.forceCloseOperatorIds,
+        activeRunLookup: this.activeRunLookup,
+      },
+      id,
+      input,
+      agentId,
     );
   }
 

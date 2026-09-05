@@ -21,28 +21,29 @@ export function createWorkboardChangeEventService(store: WorkboardStore): OpenCl
         });
       };
       unsubscribe = store.subscribeChanges(emit);
-      const replayDurableChanges = (
-        store as unknown as { replayDurableChanges?: () => Promise<number> }
-      ).replayDurableChanges;
-      const drainDurableChanges = (
-        store as unknown as {
-          drainDurableChanges?: (
-            deliver: (change: WorkboardChange) => void,
-          ) => Promise<{ delivered: number; failed: number }>;
-        }
-      ).drainDurableChanges;
-      if (replayDurableChanges && drainDurableChanges) {
-        await replayDurableChanges.call(store);
-        await drainDurableChanges.call(store, emit);
+      const replayDurableChanges =
+        typeof store.replayDurableChanges === "function"
+          ? store.replayDurableChanges.bind(store)
+          : undefined;
+      const drainDurableChanges =
+        typeof store.drainDurableChanges === "function"
+          ? store.drainDurableChanges.bind(store)
+          : undefined;
+      if (replayDurableChanges) {
+        await replayDurableChanges();
+      }
+      if (drainDurableChanges) {
+        await drainDurableChanges(emit);
       }
       store.announceChangeEpoch();
       timer = setInterval(() => {
         try {
           store.reconcileExternalChanges();
-          const drain = drainDurableChanges?.call(store, emit);
-          void (drain ?? Promise.resolve()).catch((error: unknown) => {
-            ctx.logger.warn(`workboard durable event drain failed: ${String(error)}`);
-          });
+          if (drainDurableChanges) {
+            void drainDurableChanges(emit).catch((error: unknown) => {
+              ctx.logger.warn(`workboard durable event drain failed: ${String(error)}`);
+            });
+          }
         } catch (error) {
           ctx.logger.warn(`workboard external change check failed: ${String(error)}`);
         }

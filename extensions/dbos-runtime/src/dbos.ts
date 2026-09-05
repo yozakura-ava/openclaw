@@ -12,8 +12,10 @@ import {
   stableJson,
   type AdmissionGate,
 } from "@openclaw/execution-contract";
-import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
-import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
+import {
+  openNodeSqliteDatabase,
+  runSqliteImmediateTransactionSync,
+} from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import type { DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
@@ -523,5 +525,4 @@ export {
   createProductionDbosAuthority,
   requireDbosReceipt,
 } from "./dbos-client.js";
-export type { DbosRequestFailureKind } from "./dbos-errors.js";
 export type { DbosHttpClientOptions } from "./dbos-client.js";

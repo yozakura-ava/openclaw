@@ -4,7 +4,7 @@ export const WORKBOARD_DURABLE_EVENT_MAX_DEPTH = 1024;
 const WORKBOARD_DURABLE_EVENT_MAX_ATTEMPTS = 8;
 const WORKBOARD_DURABLE_EVENT_BACKOFF_MS = 1_000;
 
-export type WorkboardDurableEventState = "pending" | "acked" | "dead_letter";
+type WorkboardDurableEventState = "pending" | "acked" | "dead_letter";
 
 export type WorkboardDurableEvent = {
   id: string;

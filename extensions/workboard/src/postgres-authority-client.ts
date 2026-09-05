@@ -70,7 +70,7 @@ function signedHeaders(
   };
 }
 
-class HttpWorkboardAuthorityClient implements WorkboardAuthorityClient {
+export class HttpWorkboardAuthorityClient implements WorkboardAuthorityClient {
   readonly enabled = true as const;
   private readonly baseUrl: string;
   private readonly secret: string;
@@ -191,9 +191,6 @@ class HttpWorkboardAuthorityClient implements WorkboardAuthorityClient {
 export function createWorkboardPostgresAuthorityFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): HttpWorkboardAuthorityClient | undefined {
-  if (env.OPENCLAW_WORKBOARD_PG_MODE === "disabled") {
-    return undefined;
-  }
   const baseUrl = env.OPENCLAW_DBOS_URL?.trim();
   if (!baseUrl) {
     return undefined;

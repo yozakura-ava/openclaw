@@ -121,6 +121,9 @@ const repositoryScriptEntries = [
   "scripts/verify-mac-node-worker.mjs!",
   "scripts/verify-stable-main-closeout.mjs!",
   "scripts/write-package-dist-inventory.ts!",
+  // Built as the standalone PostgreSQL/DBOS authority entrypoint by the
+  // checked-in authority artifact builder.
+  "extensions/dbos-runtime/src/server.ts!",
   "scripts/write-plugin-sdk-entry-dts.ts!",
   "security/opengrep/check-rule-metadata.mjs!",
   "security/opengrep/compile-rules.mjs!",
@@ -732,6 +735,7 @@ const config = {
       "src/host/a2ui-app/bootstrap-v0.9.js!",
     ]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/cloudflare-ai-gateway`]: bundledPluginWorkspace(),
+    [`${BUNDLED_PLUGIN_ROOT_DIR}/dbos-runtime`]: bundledPluginWorkspace(["src/server.ts!"]),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/chutes`]: bundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/clawrouter`]: bundledPluginWorkspace(),
     [`${BUNDLED_PLUGIN_ROOT_DIR}/cohere`]: bundledPluginWorkspace(),

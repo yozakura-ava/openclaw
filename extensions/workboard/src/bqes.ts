@@ -1,4 +1,3 @@
-/* oxlint-disable max-lines -- BQES admission, receipt, and replay state machine is intentionally co-located. */
 import { randomUUID } from "node:crypto";
 // Durable BQES admission and completion authority for Workboard-controlled runs.
 // This is intentionally independent from card JSON so a card cannot manufacture
@@ -6,279 +5,51 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import {
+  assertCanonicalControl,
   deriveIdempotencyKey,
   deriveWorkflowId,
-  stableJson,
   requireNonEmpty,
-  normalizeRepositoryRelativeManifest,
-  parseApprovedVerificationCommand,
-  assertCanonicalControl,
+  stableJson,
   type AdmissionGate,
-  type ExecutionIdentityInput,
 } from "@openclaw/execution-contract";
-import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
 import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
+import {
+  bqesJson as json,
+  bqesNumber as number,
+  bqesText as text,
+  initializeBqesSchema,
+  normalizeInput,
+  readAdmission,
+  sameAdmission,
+  transaction,
+  type BqesRow,
+} from "./bqes-persistence.js";
+import type {
+  BqesAdmission,
+  BqesAdmissionInput,
+  BqesCompletionEvidence,
+  BqesDbosReceipt,
+  BqesFreezeReceipt,
+  BqesReviewer,
+  BqesVerificationPass,
+  ReceiptReconciliation,
+} from "./bqes-types.js";
 
-export type BqesDbosReceipt = {
-  workflowId: string;
-  idempotencyKey: string;
-  cardId: string;
-  queue: string;
-  runId: string;
-  attemptId: string;
-  ownerEpoch: string;
-  acknowledgedAt: number;
-};
+export type {
+  BqesAdmission,
+  BqesAdmissionInput,
+  BqesCompletionEvidence,
+  BqesDbosReceipt,
+  BqesFreezeReceipt,
+  BqesReviewer,
+  BqesVerificationPass,
+  ReceiptReconciliation,
+} from "./bqes-types.js";
 
-export type BqesState = "admitted" | "running" | "completed" | "failed" | "quarantined";
-export type BqesOperationState =
-  | "admitted"
-  | "receipt_persisted"
-  | "running"
-  | "verification_pending"
-  | "verified"
-  | "completion_pending"
-  | "completed"
-  | "failed"
-  | "quarantined"
-  | "ambiguous"
-  | "reconciliation_pending";
-export type BqesFailureState =
-  | "retryable_transport_failure"
-  | "terminal_authority_rejection"
-  | "quarantined"
-  | "ambiguous_requires_ava"
-  | "reconciliation_pending";
-export type BqesTerminalOwnership = "reaped" | "externally_handed_off";
+type Row = BqesRow;
 
-export type BqesAdmissionInput = ExecutionIdentityInput & {
-  attemptId: string;
-  idempotencyKey: string;
-  sourceIdentity: string;
-  artifactIdentity: string;
-  ownerEpoch: string;
-  allowedFiles: string[];
-  targetFiles?: string[];
-  acceptanceCriteria: string[];
-  verificationCommand: string;
-  artifactPath?: string;
-  buildArtifactPath?: string;
-  documentedExemptPaths?: string[];
-  now?: number;
-};
-
-export type BqesCompletionEvidence = {
-  sourceIdentity: string;
-  artifactIdentity: string;
-  ownerEpoch: string;
-  verification: { command: string; exitCode: number; outputHash: string };
-  verificationProofHash: string;
-  delivery: {
-    idempotencyKey: string;
-    acknowledged: true;
-    acknowledgedAt: number;
-  };
-  ownership: {
-    state: BqesTerminalOwnership;
-    activeOwnedDescendants: number;
-    openDescriptors: number;
-    pendingCleanup: number;
-  };
-  provenance: {
-    sourceSha: string;
-    artifactDigest: string;
-    buildIdentity: string;
-  };
-};
-
-export type BqesVerificationPass = {
-  proofHash: string;
-  verifiedAt: number;
-  reviewerPrincipal?: string;
-  reviewerSession?: string;
-  reviewerSessionIssuedAt?: number;
-  reviewerSessionExpiresAt?: number;
-};
-
-export type BqesReviewer = {
-  principal: string;
-  session: string;
-  issuedAt: number;
-  expiresAt: number;
-};
-
-export type BqesAdmission = BqesAdmissionInput & {
-  workflowId: string;
-  dbosReceipt?: BqesDbosReceipt;
-  state: BqesState;
-  evidence?: BqesCompletionEvidence;
-  verificationPass?: BqesVerificationPass;
-  createdAt: number;
-  updatedAt: number;
-};
-
-export type BqesFreezeReceipt = {
-  token: string;
-  reason: string;
-  frozenAt: number;
-};
-export type ReceiptReconciliation = {
-  outcome: "persisted" | "duplicate" | "replayed";
-  admission: BqesAdmission;
-};
-
-type Row = Record<string, unknown>;
-type SqliteDatabase = ReturnType<typeof openNodeSqliteDatabase>;
-
-const DEFAULT_DB_PATH = ["plugins", "workboard", "bqes.sqlite"] as const;
-const BQES_SCHEMA_VERSION = 3;
-
-function json(value: unknown): string {
-  return JSON.stringify(value);
-}
-
-function parse(value: unknown): unknown {
-  return typeof value === "string" && value.length > 0 ? JSON.parse(value) : undefined;
-}
-
-function text(row: Row, key: string): string {
-  return requireNonEmpty(row[key], `BQES ${key}`);
-}
-
-function number(row: Row, key: string): number {
-  const value = row[key];
-  const result = typeof value === "bigint" ? Number(value) : value;
-  if (typeof result !== "number" || !Number.isFinite(result)) {
-    throw new Error(`BQES ${key} is invalid.`);
-  }
-  return result;
-}
-
-function transaction<T>(db: SqliteDatabase, fn: () => T): T {
-  return runSqliteImmediateTransactionSync(db, fn, {
-    databaseLabel: "workboard-bqes",
-    operationLabel: "workboard.bqes.write",
-    maxHoldMs: 5_000,
-  });
-}
-
-function normalizeInput(input: BqesAdmissionInput): BqesAdmissionInput {
-  const identity = {
-    cardId: requireNonEmpty(input.cardId, "BQES cardId"),
-    queue: requireNonEmpty(input.queue, "BQES queue"),
-    runId: requireNonEmpty(input.runId, "BQES runId"),
-  };
-  const normalized: BqesAdmissionInput = {
-    ...identity,
-    attemptId: requireNonEmpty(input.attemptId, "BQES attemptId"),
-    idempotencyKey: requireNonEmpty(input.idempotencyKey, "BQES idempotencyKey"),
-    sourceIdentity: requireNonEmpty(input.sourceIdentity, "BQES sourceIdentity"),
-    artifactIdentity: requireNonEmpty(input.artifactIdentity, "BQES artifactIdentity"),
-    ownerEpoch: requireNonEmpty(input.ownerEpoch, "BQES ownerEpoch"),
-    allowedFiles: normalizeRepositoryRelativeManifest(input.allowedFiles, "BQES allowed files"),
-    targetFiles: normalizeRepositoryRelativeManifest(
-      input.targetFiles ?? input.allowedFiles,
-      "BQES target files",
-    ),
-    acceptanceCriteria: Array.isArray(input.acceptanceCriteria)
-      ? input.acceptanceCriteria.map((entry) => requireNonEmpty(entry, "BQES acceptance criterion"))
-      : [],
-    verificationCommand: parseApprovedVerificationCommand(input.verificationCommand).command,
-    ...(typeof input.artifactPath === "string" && input.artifactPath.trim()
-      ? { artifactPath: input.artifactPath.trim() }
-      : {}),
-    ...(typeof input.buildArtifactPath === "string" && input.buildArtifactPath.trim()
-      ? { buildArtifactPath: input.buildArtifactPath.trim() }
-      : {}),
-    ...(Array.isArray(input.documentedExemptPaths)
-      ? {
-          documentedExemptPaths: normalizeRepositoryRelativeManifest(
-            input.documentedExemptPaths,
-            "BQES documented exemptions",
-          ),
-        }
-      : {}),
-    ...(input.now === undefined ? {} : { now: input.now }),
-  };
-  if (normalized.acceptanceCriteria.length === 0) {
-    throw new Error("BQES acceptanceCriteria is required.");
-  }
-  const allowed = new Set(normalized.allowedFiles);
-  if (normalized.targetFiles?.some((entry) => !allowed.has(entry))) {
-    throw new Error("BQES target files must be contained in allowed files.");
-  }
-  const expectedKey = deriveIdempotencyKey(identity);
-  if (normalized.idempotencyKey !== expectedKey) {
-    throw new Error("BQES idempotency key does not match card, queue, and run identity.");
-  }
-  return normalized;
-}
-
-function readAdmission(row: Row): BqesAdmission {
-  return {
-    cardId: text(row, "card_id"),
-    queue: text(row, "queue"),
-    runId: text(row, "run_id"),
-    attemptId: text(row, "attempt_id"),
-    idempotencyKey: text(row, "idempotency_key"),
-    workflowId: text(row, "workflow_id"),
-    dbosReceipt: parse(row.dbos_receipt) as BqesDbosReceipt | undefined,
-    sourceIdentity: text(row, "source_identity"),
-    artifactIdentity: text(row, "artifact_identity"),
-    ownerEpoch: text(row, "owner_epoch"),
-    allowedFiles: (parse(row.allowed_files) as string[] | undefined) ?? [],
-    targetFiles:
-      (parse(row.target_files) as string[] | undefined) ??
-      (parse(row.allowed_files) as string[] | undefined) ??
-      [],
-    acceptanceCriteria: (parse(row.acceptance_criteria) as string[] | undefined) ?? [],
-    verificationCommand: text(row, "verification_command"),
-    ...(typeof row.artifact_path === "string" && row.artifact_path
-      ? { artifactPath: row.artifact_path }
-      : {}),
-    ...(typeof row.build_artifact_path === "string" && row.build_artifact_path
-      ? { buildArtifactPath: row.build_artifact_path }
-      : {}),
-    ...(parse(row.documented_exempt_paths)
-      ? { documentedExemptPaths: parse(row.documented_exempt_paths) as string[] }
-      : {}),
-    state: text(row, "state") as BqesState,
-    evidence: parse(row.evidence) as BqesCompletionEvidence | undefined,
-    createdAt: number(row, "created_at"),
-    updatedAt: number(row, "updated_at"),
-    now: number(row, "created_at"),
-  };
-}
-
-function sameAdmission(left: BqesAdmission, input: BqesAdmissionInput): boolean {
-  // Receipt, verification, and terminal evidence are authority-owned state.
-  // They must not make a legitimate idempotent admission replay conflict.
-  const immutable = (value: BqesAdmission | BqesAdmissionInput) => ({
-    cardId: value.cardId,
-    queue: value.queue,
-    runId: value.runId,
-    attemptId: value.attemptId,
-    idempotencyKey: value.idempotencyKey,
-    sourceIdentity: value.sourceIdentity,
-    artifactIdentity: value.artifactIdentity,
-    ownerEpoch: value.ownerEpoch,
-    allowedFiles: value.allowedFiles,
-    targetFiles: value.targetFiles ?? value.allowedFiles,
-    acceptanceCriteria: value.acceptanceCriteria,
-    verificationCommand: value.verificationCommand,
-    artifactPath: value.artifactPath,
-    buildArtifactPath: value.buildArtifactPath,
-    documentedExemptPaths: value.documentedExemptPaths,
-  });
-  return stableJson(immutable(left)) === stableJson(immutable(input));
-}
-
-export function resolveBqesDbPath(env: NodeJS.ProcessEnv = process.env): string {
-  return path.join(resolveStateDir(env), ...DEFAULT_DB_PATH);
-}
-
-export class BqesAdmissionError extends Error {
+class BqesAdmissionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "BqesAdmissionError";
@@ -290,91 +61,12 @@ export class BqesService implements AdmissionGate {
   private readonly now: () => number;
 
   constructor(options: { dbPath?: string; now?: () => number } = {}) {
-    const dbPath = options.dbPath ?? resolveBqesDbPath();
+    const dbPath =
+      options.dbPath ?? path.join(resolveStateDir(), "plugins", "workboard", "bqes.sqlite");
     fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = openNodeSqliteDatabase(dbPath);
     this.now = options.now ?? Date.now;
-    this.db.exec(`
-      PRAGMA busy_timeout = 5000;
-      PRAGMA foreign_keys = ON;
-      CREATE TABLE IF NOT EXISTS bqes_schema_migrations (id INTEGER PRIMARY KEY, applied_at INTEGER NOT NULL);
-      CREATE TABLE IF NOT EXISTS bqes_admission_fence (
-        id INTEGER PRIMARY KEY CHECK (id = 1), frozen INTEGER NOT NULL, token TEXT, reason TEXT, updated_at INTEGER NOT NULL
-      );
-      INSERT OR IGNORE INTO bqes_admission_fence (id, frozen, updated_at) VALUES (1, 0, 0);
-      CREATE TABLE IF NOT EXISTS bqes_admissions (
-        idempotency_key TEXT PRIMARY KEY, card_id TEXT NOT NULL, queue TEXT NOT NULL, run_id TEXT NOT NULL,
-        attempt_id TEXT NOT NULL, workflow_id TEXT NOT NULL UNIQUE, source_identity TEXT NOT NULL,
-        artifact_identity TEXT NOT NULL, owner_epoch TEXT NOT NULL, allowed_files TEXT NOT NULL,
-        acceptance_criteria TEXT NOT NULL, target_files TEXT NOT NULL, verification_command TEXT NOT NULL,
-        artifact_path TEXT, build_artifact_path TEXT, state TEXT NOT NULL,
-        dbos_receipt TEXT, evidence TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-        UNIQUE(card_id, run_id, attempt_id)
-      );
-      CREATE TABLE IF NOT EXISTS bqes_events (
-        idempotency_key TEXT NOT NULL REFERENCES bqes_admissions(idempotency_key) ON DELETE CASCADE,
-        sequence INTEGER NOT NULL, state TEXT NOT NULL, detail TEXT NOT NULL, at INTEGER NOT NULL,
-        PRIMARY KEY(idempotency_key, sequence)
-      );
-      CREATE TABLE IF NOT EXISTS bqes_verification_passes (
-        idempotency_key TEXT PRIMARY KEY REFERENCES bqes_admissions(idempotency_key) ON DELETE CASCADE,
-        proof_hash TEXT NOT NULL,
-        verified_at INTEGER NOT NULL,
-        reviewer_principal TEXT NOT NULL DEFAULT '',
-        reviewer_session TEXT NOT NULL DEFAULT '',
-        reviewer_session_issued_at INTEGER,
-        reviewer_session_expires_at INTEGER
-      );
-    `);
-    const admissionColumns = this.db.prepare("PRAGMA table_info(bqes_admissions)").all() as Array<{
-      name?: unknown;
-    }>;
-    if (!admissionColumns.some((column) => column.name === "dbos_receipt")) {
-      this.db.exec("ALTER TABLE bqes_admissions ADD COLUMN dbos_receipt TEXT");
-    }
-    if (!admissionColumns.some((column) => column.name === "target_files")) {
-      this.db.exec(
-        "ALTER TABLE bqes_admissions ADD COLUMN target_files TEXT NOT NULL DEFAULT '[]'",
-      );
-      this.db.exec(
-        "UPDATE bqes_admissions SET target_files = allowed_files WHERE target_files = '[]'",
-      );
-    }
-    if (!admissionColumns.some((column) => column.name === "artifact_path")) {
-      this.db.exec("ALTER TABLE bqes_admissions ADD COLUMN artifact_path TEXT");
-    }
-    if (!admissionColumns.some((column) => column.name === "build_artifact_path")) {
-      this.db.exec("ALTER TABLE bqes_admissions ADD COLUMN build_artifact_path TEXT");
-    }
-    if (!admissionColumns.some((column) => column.name === "documented_exempt_paths")) {
-      this.db.exec("ALTER TABLE bqes_admissions ADD COLUMN documented_exempt_paths TEXT");
-    }
-    const verificationColumns = this.db
-      .prepare("PRAGMA table_info(bqes_verification_passes)")
-      .all() as Array<{ name?: unknown }>;
-    if (!verificationColumns.some((column) => column.name === "reviewer_principal")) {
-      this.db.exec(
-        "ALTER TABLE bqes_verification_passes ADD COLUMN reviewer_principal TEXT NOT NULL DEFAULT ''",
-      );
-    }
-    if (!verificationColumns.some((column) => column.name === "reviewer_session")) {
-      this.db.exec(
-        "ALTER TABLE bqes_verification_passes ADD COLUMN reviewer_session TEXT NOT NULL DEFAULT ''",
-      );
-    }
-    if (!verificationColumns.some((column) => column.name === "reviewer_session_issued_at")) {
-      this.db.exec(
-        "ALTER TABLE bqes_verification_passes ADD COLUMN reviewer_session_issued_at INTEGER",
-      );
-    }
-    if (!verificationColumns.some((column) => column.name === "reviewer_session_expires_at")) {
-      this.db.exec(
-        "ALTER TABLE bqes_verification_passes ADD COLUMN reviewer_session_expires_at INTEGER",
-      );
-    }
-    this.db
-      .prepare("INSERT OR IGNORE INTO bqes_schema_migrations (id, applied_at) VALUES (?, ?)")
-      .run(BQES_SCHEMA_VERSION, this.now());
+    initializeBqesSchema(this.db, this.now);
   }
 
   close(): void {

@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { deriveIdempotencyKey } from "../../../packages/execution-contract/src/index.js";
-import { BqesAdmissionError, BqesService } from "./bqes.js";
+import { BqesService } from "./bqes.js";
 
 function makeService() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-bqes-"));
@@ -66,7 +66,7 @@ describe("durable BQES admission", () => {
     expect(service.admit(input()).state).toBe("admitted");
     service.start(admission.idempotencyKey, "epoch-1");
     expect(() => service.admit({ ...input(), sourceIdentity: "different" })).toThrow(
-      BqesAdmissionError,
+      "conflicting BQES idempotency identity",
     );
     service.close();
   });
