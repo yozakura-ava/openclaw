@@ -35,6 +35,7 @@ import {
   WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
   WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH,
   WORKBOARD_FORCE_CLOSE_REASON_CODES,
+  normalizeWorkboardForceCloseActorId,
 } from "./store-constants.js";
 import type {
   WorkboardBlockInput,
@@ -74,7 +75,10 @@ import { WorkboardPromoteStore } from "./store-promote.js";
 function normalizeForceCloseReasonCode(
   value: unknown,
 ): (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number] {
-  if (typeof value === "string" && (WORKBOARD_FORCE_CLOSE_REASON_CODES as readonly string[]).includes(value)) {
+  if (
+    typeof value === "string" &&
+    (WORKBOARD_FORCE_CLOSE_REASON_CODES as readonly string[]).includes(value)
+  ) {
     return value as (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
   }
   throw new Error(
@@ -112,10 +116,14 @@ async function collectOpenDescendantIds(
   queue.push(...directChildren);
   while (queue.length > 0) {
     const next = queue.shift();
-    if (!next || visited.has(next)) continue;
+    if (!next || visited.has(next)) {
+      continue;
+    }
     visited.add(next);
     const child = await store.get(next);
-    if (!child) continue;
+    if (!child) {
+      continue;
+    }
     if (child.status !== "done") {
       open.push(child.id);
     }
@@ -468,7 +476,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     agentId: string | undefined,
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
-      const normalizedAgentId = normalizeOptionalString(agentId)?.toLowerCase();
+      const normalizedAgentId = normalizeWorkboardForceCloseActorId(agentId);
       if (
         !normalizedAgentId ||
         (!this.forceCloseAllowedAgents.has(normalizedAgentId) &&
@@ -500,10 +508,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         WORKBOARD_FORCE_CLOSE_EXPLANATION_MAX_LENGTH,
         "force-close explanation",
       );
-      if (
-        !explanation ||
-        explanation.length < WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH
-      ) {
+      if (!explanation || explanation.length < WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH) {
         throw new Error(
           `force-close explanation must be at least ${WORKBOARD_FORCE_CLOSE_EXPLANATION_MIN_LENGTH} characters.`,
         );
@@ -531,7 +536,9 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const token = normalizeOptionalString(input.token);
       const claim = existing.metadata?.claim;
       if (claim) {
-        if (claim.ownerId !== normalizedAgentId) {
+        const normalizedClaimOwner =
+          normalizeWorkboardForceCloseActorId(claim.ownerId) ?? claim.ownerId.toLowerCase();
+        if (normalizedClaimOwner !== normalizedAgentId) {
           throw new Error(`card is claimed by ${claim.ownerId}.`);
         }
         if (!token) {
@@ -554,7 +561,20 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       // would be a BQES-specific concern wired in via the gateway's
       // activeRunLookup adapter. Pass undefined so the lookup callback can
       // fall back to its own cardId-only resolution path.
-      const durableActiveRunId = await this.activeRunLookup?.(existing.id, undefined);
+      let durableActiveRunId: string | undefined;
+      try {
+        durableActiveRunId = await this.activeRunLookup?.(existing.id, undefined);
+      } catch (error) {
+        const lookupFailure = new Error(
+          "DBOS active-run lookup failed; refusing to force-close the card",
+          { cause: error },
+        );
+        Object.defineProperty(lookupFailure, "code", {
+          configurable: true,
+          value: "WORKBOARD_DBOS_LOOKUP_FAILED",
+        });
+        throw lookupFailure;
+      }
       const activeRunId = localActiveRunId ?? durableActiveRunId;
       if (
         activeRunId ||
@@ -586,7 +606,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         prior_status: existing.status,
         dbos_run_id: null,
       };
-      this.appendForceCloseAudit(audit);
+      await this.appendForceCloseAudit(audit);
 
       const metadata: WorkboardMetadata = trimMetadataToBudget({
         ...clearDiagnostics(existing.metadata, ["missing_proof"]),
@@ -794,10 +814,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         !reclaimed0.metadata?.proof?.length &&
         !reclaimed0.metadata?.artifacts?.length
       ) {
-        reclaimed = await this.updateMetadata(reclaimed0.id, (existing) => ({
-          ...existing.metadata,
+        reclaimed = await this.updateMetadata(reclaimed0.id, (metadataExisting) => ({
+          ...metadataExisting.metadata,
           diagnostics: [
-            ...(existing.metadata?.diagnostics ?? []),
+            ...(metadataExisting.metadata?.diagnostics ?? []),
             diagnostic(
               {
                 kind: "done_without_proof",

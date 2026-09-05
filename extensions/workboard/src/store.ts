@@ -195,6 +195,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
     store: ConstructorParameters<typeof WorkboardNotificationStore>[0],
     options: ConstructorParameters<typeof WorkboardNotificationStore>[1] & {
       close?: () => void;
+      healthCheck?: () => void;
     } = {},
   ) {
     super(store, options);
@@ -203,7 +204,10 @@ export class WorkboardStore extends WorkboardNotificationStore {
 
   /** Fail-fast health probe used by the guarded SQLite lifecycle owner. */
   checkHealth(): void {
-    this.dataVersion?.();
+    this.healthProbe?.();
+    if (!this.healthProbe) {
+      this.dataVersion?.();
+    }
   }
 
   close(): void {
@@ -675,6 +679,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
       dataVersion: stores.dataVersion,
+      healthCheck: stores.healthCheck,
       close: stores.close,
       ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
       ...(options?.forceCloseAllowedAgents

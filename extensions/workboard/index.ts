@@ -1,4 +1,5 @@
 // Workboard plugin entrypoint registers its OpenClaw integration.
+import { createProductionDbosAuthority } from "@openclaw/dbos-runtime";
 import { definePluginEntry } from "./api.js";
 import { registerWorkboardGatewayMethods } from "./runtime-api.js";
 import { createWorkboardAutomationNudgeService } from "./src/automation-nudge.js";
@@ -22,15 +23,11 @@ import {
   WORKBOARD_TOOL_NAMES,
 } from "./src/workspace-access.js";
 
-/**
- * Parse the OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS env var into a clean
- * allowlist. Whitespace + empty entries are filtered; per the Aug 24
- * runbook, an env-supplied list REPLACES the built-in default rather than
- * extending it, so the consumer of this helper must compare length to 0
- * before treating it as a real override.
- */
+/** Parse the optional deployment override into a clean allowlist. */
 function parseForceCloseAgentsEnv(value: string | undefined): string[] | undefined {
-  if (!value) return undefined;
+  if (!value) {
+    return undefined;
+  }
   const parsed = value
     .split(",")
     .map((agent) => agent.trim())
@@ -39,32 +36,14 @@ function parseForceCloseAgentsEnv(value: string | undefined): string[] | undefin
 }
 
 /**
- * activeRunLookup adapter (card 32d1c50d REWORK gap #2).
- *
- * The Aug 24 graveyard dist used a `bqes.findActiveByCardId(cardId, queue)`
- * helper to reject force-closes when a durable DBOS run is in flight. The
- * canonical source does not yet have a BQES service, and the
- * PostgresDbosClient in extensions/dbos-runtime exposes only admit/start/
- * fail/complete — no equivalent list/find method.
- *
- * Until either (a) BQES is ported to the canonical source or (b)
- * PostgresDbosClient gains a `findActiveByCardId` RPC, the lookup
- * intentionally returns undefined and the force-close rejection falls back
- * to the in-memory `execution.status === "running"` + `latestRunningAttempt`
- * check. That still catches every locally-active run; only durable runs that
- * exist purely on the DBOS authority and have no local card projection are
- * not blocked. Flagged in the card as a follow-up dependency on the BQES
- * port.
+ * Use the PostgreSQL DBOS authority as the durable force-close fence. A
+ * missing/unconfigured authority is intentionally an error: force-close must
+ * fail closed instead of treating an unqueryable durable run as absent.
  */
-function createActiveRunLookup(
-  _api: unknown,
-): (cardId: string, queue?: string) => Promise<string | undefined> {
-  return async (_cardId: string, _queue?: string) => {
-    // Intentionally no-op until BQES / findActiveByCardId is ported.
-    // The store will still block on locally-active execution and on the
-    // latest running attempt metadata; this only affects durable-only runs.
-    return undefined;
-  };
+function createActiveRunLookup(): (cardId: string, queue?: string) => Promise<string | undefined> {
+  const authority = createProductionDbosAuthority();
+  return async (cardId: string, queue?: string) =>
+    await authority.findActiveByCardId(cardId, queue);
 }
 
 export default definePluginEntry({
@@ -72,17 +51,9 @@ export default definePluginEntry({
   name: "Workboard",
   description: "Dashboard workboard for agent-owned issues and sessions.",
   register(api) {
-    // force-close wiring (card 32d1c50d REWORK gap #2):
-    // 1. OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS — env-supplied comma-separated
-    //    allowlist that REPLACES the built-in DEFAULT_FORCE_CLOSE_AGENTS.
-    //    Empty/missing env falls back to the default unchanged.
-    // 2. activeRunLookup — optional durable-run lookup callback (BQES /
-    //    DBOS adapter). The store rejects force-closes when the lookup
-    //    returns a run id, matching the Aug 24 design's "no override over
-    //    an active durable run" guard. When no live queue is registered
-    //    the lookup is left undefined and the rejection falls back to the
-    //    in-memory execution / running-attempt check, which still catches
-    //    every locally-active run.
+    // Force-close is exceptional and fail-closed. The default policy lives in
+    // store-constants.ts; the optional env override is only an explicit
+    // deployment choice. Durable-run state always comes from PostgreSQL DBOS.
     const configuredForceCloseAgents = parseForceCloseAgentsEnv(
       process.env.OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS,
     );
@@ -92,28 +63,30 @@ export default definePluginEntry({
           ...(configuredForceCloseAgents
             ? { forceCloseAllowedAgents: configuredForceCloseAgents }
             : {}),
-          activeRunLookup: createActiveRunLookup(api),
+          activeRunLookup: createActiveRunLookup(),
         }),
     });
-    const store = createGuardedWorkboardStore(storeGuard);
+    const gatewayStore = createGuardedWorkboardStore(storeGuard, "gateway");
+    const toolStore = createGuardedWorkboardStore(storeGuard, "tool");
+    const lifecycleStore = createGuardedWorkboardStore(storeGuard, "lifecycle");
     const automationNudge = createWorkboardAutomationNudgeService({
-      store,
+      store: lifecycleStore,
       gateway: api.runtime.gateway,
       isStoreAvailable: () => storeGuard.isAvailable(),
-      onStoreFailure: (error) => storeGuard.reportFailure(error),
+      onStoreFailure: (error) => storeGuard.reportFailure(error, { source: "lifecycle" }),
     });
     const lifecycleSync = createWorkboardLifecycleService({
-      store,
+      store: lifecycleStore,
       worktrees: api.runtime.worktrees,
       isStoreAvailable: () => storeGuard.isAvailable(),
-      onStoreFailure: (error) => storeGuard.reportFailure(error),
+      onStoreFailure: (error) => storeGuard.reportFailure(error, { source: "lifecycle" }),
       readSessions: async (options) =>
         await readWorkboardLifecycleSessions(api.runtime.gateway, options),
     });
     const changeEvents: WorkboardChangeEventService = createWorkboardChangeEventService({
-      store,
+      store: lifecycleStore,
       isStoreAvailable: () => storeGuard.isAvailable(),
-      onStoreFailure: (error) => storeGuard.reportFailure(error),
+      onStoreFailure: (error) => storeGuard.reportFailure(error, { source: "lifecycle" }),
     });
     storeGuard.onAvailable(() => {
       changeEvents.onStoreAvailable();
@@ -146,8 +119,8 @@ export default definePluginEntry({
       label: "Workboard summary",
       requiredScopes: ["operator.read"],
     });
-    registerWorkboardGatewayMethods({ api, store });
-    registerWorkboardCommand({ api, store });
+    registerWorkboardGatewayMethods({ api, store: gatewayStore });
+    registerWorkboardCommand({ api, store: gatewayStore });
     api.registerService({
       id: "workboard-store-availability",
       start(ctx) {
@@ -164,7 +137,9 @@ export default definePluginEntry({
     api.on("gateway_stop", () => lifecycleSync.onGatewayStop());
     api.on("subagent_ended", async (event) => {
       const activeStore = storeGuard.get();
-      if (!activeStore) return;
+      if (!activeStore) {
+        return;
+      }
       try {
         await syncWorkboardSubagentEnded({
           store: activeStore,
@@ -173,12 +148,14 @@ export default definePluginEntry({
           onMatched: automationNudge.nudge,
         });
       } catch (error) {
-        storeGuard.reportFailure(error);
+        storeGuard.reportFailure(error, { source: "lifecycle" });
       }
     });
     api.on("agent_end", async (event, context) => {
       const activeStore = storeGuard.get();
-      if (!activeStore) return;
+      if (!activeStore) {
+        return;
+      }
       try {
         await syncWorkboardAgentEnded({
           store: activeStore,
@@ -187,13 +164,13 @@ export default definePluginEntry({
           onMatched: automationNudge.nudge,
         });
       } catch (error) {
-        storeGuard.reportFailure(error);
+        storeGuard.reportFailure(error, { source: "lifecycle" });
       }
     });
     api.registerCli(
       async ({ program }) => {
         const { registerWorkboardCli } = await import("./src/cli.js");
-        registerWorkboardCli({ program, store });
+        registerWorkboardCli({ program, store: gatewayStore });
       },
       {
         descriptors: [
@@ -217,7 +194,7 @@ export default definePluginEntry({
           createWorkboardTools({
             api,
             context,
-            store,
+            store: toolStore,
             failLoudOwner,
             maxConcurrentClaimsPerOwner,
           }),

@@ -1,7 +1,7 @@
 // Workboard tests cover gateway plugin behavior.
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
-import { registerWorkboardGatewayMethods } from "./gateway.js";
+import { registerWorkboardGatewayMethods, resolveForceCloseCaller } from "./gateway.js";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { WorkboardStore } from "./store.js";
 
@@ -24,6 +24,27 @@ function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T>
 }
 
 describe("workboard gateway methods", () => {
+  it("uses trusted connected-client identity instead of a spoofable agent_id parameter", () => {
+    expect(
+      resolveForceCloseCaller({
+        client: { internal: { agentToolCaller: { agentId: "himari", sessionKey: "himari" } } },
+        params: { agent_id: "tomoe" },
+      } as never),
+    ).toBe("himari");
+    expect(
+      resolveForceCloseCaller({
+        client: { authenticatedUserProfile: { profileId: "craig" } },
+        params: { agent_id: "himari" },
+      } as never),
+    ).toBe("craig");
+    expect(
+      resolveForceCloseCaller({
+        client: { internal: { operatorRoleActor: { kind: "system" } } },
+        params: { agent_id: "himari" },
+      } as never),
+    ).toBe("craig");
+  });
+
   it("registers CRUD methods with read/write scopes", async () => {
     type RegisteredMethod = {
       handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];

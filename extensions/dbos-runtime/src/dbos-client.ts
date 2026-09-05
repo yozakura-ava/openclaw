@@ -347,6 +347,25 @@ export class PostgresDbosClient implements DbosAuthority {
     );
   }
 
+  async findActiveByCardId(cardId: string, queue?: string): Promise<string | undefined> {
+    const normalizedCardId = requireNonEmpty(cardId, "DBOS cardId");
+    const normalizedQueue = queue === undefined ? undefined : requireNonEmpty(queue, "DBOS queue");
+    const response = await this.request<{ runId?: unknown }>("/v1/workflows/active", {
+      cardId: normalizedCardId,
+      ...(normalizedQueue ? { queue: normalizedQueue } : {}),
+      operationKey: this.operationKey("active", normalizedCardId, {
+        queue: normalizedQueue,
+      }),
+    });
+    if (response.runId === undefined || response.runId === null) {
+      return undefined;
+    }
+    if (typeof response.runId !== "string" || response.runId.trim() === "") {
+      throw new DbosRuntimeError("DBOS active-run lookup returned an invalid run id");
+    }
+    return response.runId;
+  }
+
   private requireAcknowledgement(
     value: unknown,
     workflowId: string,

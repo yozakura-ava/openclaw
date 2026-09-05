@@ -36,6 +36,8 @@ export type DbosAuthority = {
   start(workflowId: string, ownerEpoch: string): unknown;
   fail?(workflowId: string, detail: string): unknown;
   complete?(workflowId: string, evidence: unknown): unknown;
+  /** Read-only authority lookup used to fence Workboard force-close. */
+  findActiveByCardId?(cardId: string, queue?: string): Promise<string | undefined>;
 };
 
 export type DbosReceipt = {

@@ -29,7 +29,7 @@ export function createWorkboardChangeEventService(
     store: WorkboardStore;
     isStoreAvailable?: () => boolean;
     onStoreFailure?: (error: unknown) => void;
-  } = "isStoreAvailable" in input || "onStoreFailure" in input ? input : { store: input };
+  } = "subscribeChanges" in input ? { store: input } : input;
   const isStoreAvailable = params.isStoreAvailable ?? (() => true);
   let unsubscribe: (() => void) | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;

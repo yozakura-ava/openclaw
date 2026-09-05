@@ -49,6 +49,7 @@ type WorkboardSqliteStores = {
   subscriptions: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
   dataVersion: () => number;
+  healthCheck: () => void;
   close: () => void;
 };
 
@@ -1744,6 +1745,13 @@ export function createWorkboardSqliteStores(
     // This connection-local primitive changes only after another connection commits.
     dataVersion: () =>
       requiredNumber(db.prepare("PRAGMA data_version").get() as Row, "data_version"),
+    healthCheck: () => {
+      const result = db.prepare("PRAGMA quick_check").get() as Row;
+      if (result.quick_check !== "ok") {
+        throw new Error(`workboard database health check failed: ${String(result.quick_check)}`);
+      }
+      db.prepare("SELECT 1 FROM workboard_schema_migrations LIMIT 1").get();
+    },
     close: () => {
       maintenance.close();
       db.close();

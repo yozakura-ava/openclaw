@@ -58,6 +58,8 @@ function backend(): DbosAuthorityBackend {
       acknowledgedAt: 1_000,
       serverTimestamp: 1_000,
     }),
+    findActiveByCardId: async (cardId) =>
+      cardId === "active-card" ? "dbos:run-active" : undefined,
     health: async () => true,
   };
 }
@@ -109,6 +111,10 @@ describe("authenticated DBOS authority boundary", () => {
       }),
     ).resolves.toMatchObject({ workflowId: deriveWorkflowId(identity) });
     await expect(fetch(`${baseUrl}/ready`)).resolves.toMatchObject({ status: 200 });
+    await expect(client.findActiveByCardId("active-card", "workboard")).resolves.toBe(
+      "dbos:run-active",
+    );
+    await expect(client.findActiveByCardId("idle-card", "workboard")).resolves.toBeUndefined();
 
     const operationKey = "openclaw:dbos-operation:" + "a".repeat(64);
     const body = JSON.stringify({ ownerEpoch: "epoch-1", operationKey });

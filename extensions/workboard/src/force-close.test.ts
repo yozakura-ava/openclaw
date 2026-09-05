@@ -7,10 +7,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkboardCard } from "@openclaw/workboard-contract";
-import { WorkboardStore } from "./store.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
+import { WorkboardStore } from "./store.js";
 import { WORKBOARD_TOOL_NAMES } from "./workspace-access.js";
 
 function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
@@ -125,11 +125,11 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     const lines = fs.readFileSync(auditPath, "utf8").trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(4);
     const entries = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(entries.map((e) => e.reason_code).sort()).toEqual(
-      ["cancelled", "duplicate", "invalid", "superseded"].sort(),
+    expect(entries.map((e) => e.reason_code).toSorted()).toEqual(
+      ["cancelled", "duplicate", "invalid", "superseded"].toSorted(),
     );
     expect(entries.every((e) => e.dbos_run_id === null)).toBe(true);
-    expect(entries.every((e) => e.agent_id === "ava")).toBe(true);
+    expect(entries.every((e) => e.agent_id === "main")).toBe(true);
   });
 
   it("rejects unknown reason codes with the exact closed-enum message", async () => {
@@ -291,21 +291,13 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     // tsubaki would be rejected by the allowlist check before the claim
     // check, which is exactly the design ("force-close is orchestrator-only"
     // trumps any other authorization).
-    const avaClaim = await store.claim(
-      "card-claimed",
-      { ownerId: "ava", ttlSeconds: 60 },
-      "ava",
-    );
+    const avaClaim = await store.claim("card-claimed", { ownerId: "ava", ttlSeconds: 60 }, "ava");
     const claimToken = avaClaim.token;
 
     // Different claim owner: tsubaki claims a fresh card and ava tries to
     // close it — must be rejected with the claim-owner mismatch error.
     await seedCard(store, cards, "card-other-owner", "ready");
-    await store.claim(
-      "card-other-owner",
-      { ownerId: "tsubaki", ttlSeconds: 60 },
-      "tsubaki",
-    );
+    await store.claim("card-other-owner", { ownerId: "tsubaki", ttlSeconds: 60 }, "tsubaki");
     await expect(
       store.forceClose(
         "card-other-owner",
@@ -424,6 +416,30 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     expect(entries.map((e) => e.card_id)).toEqual(["card-1", "card-2", "card-3"]);
   });
 
+  it("releases the mutation queue when audit persistence fails", async () => {
+    const store = buildStore();
+    await seedCard(store, cards, "card-audit-failure", "ready");
+    fs.mkdirSync(auditPath);
+
+    await expect(
+      store.forceClose(
+        "card-audit-failure",
+        { reasonCode: "invalid", explanation: "Audit failure must not hold the queue." },
+        "ava",
+      ),
+    ).rejects.toThrow();
+    expect((await store.get("card-audit-failure"))?.status).toBe("ready");
+
+    fs.rmSync(auditPath, { recursive: true, force: true });
+    await expect(
+      store.forceClose(
+        "card-audit-failure",
+        { reasonCode: "invalid", explanation: "The next mutation must still run normally." },
+        "ava",
+      ),
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+  });
+
   it("preserves the normal completion path: a force-close never runs alongside a regular complete", async () => {
     const store = buildStore();
     await seedCard(store, cards, "card-complete", "ready");
@@ -477,11 +493,39 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     expect(stats.archived).toBe(0);
   });
 
-  it("uses REPLACEMENT semantics when forceCloseAllowedAgents is supplied (REWORK gap #3)", async () => {
-    // When the operator passes forceCloseAllowedAgents, that list REPLACES
-    // the built-in default ['ava'] rather than merging — matches the Aug 24
-    // runbook. The default agent ('ava') must therefore fail to force-close
-    // when a non-ava-only allowlist is configured.
+  it("uses the canonical runtime allowlist for Ava, Himari, and Reina", async () => {
+    const store = buildStore();
+    for (const agentId of ["main", "himari", "reina"]) {
+      await seedCard(store, cards, `card-${agentId}`, "ready");
+      await expect(
+        store.forceClose(
+          `card-${agentId}`,
+          { reasonCode: "invalid", explanation: `Canonical force-close policy allows ${agentId}.` },
+          agentId,
+        ),
+      ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+    }
+    await seedCard(store, cards, "card-ava-alias", "ready");
+    await expect(
+      store.forceClose(
+        "card-ava-alias",
+        { reasonCode: "invalid", explanation: "The legacy Ava alias remains supported." },
+        "ava",
+      ),
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+    await seedCard(store, cards, "card-denied", "ready");
+    await expect(
+      store.forceClose(
+        "card-denied",
+        { reasonCode: "invalid", explanation: "A non-orchestrator agent must be denied." },
+        "tomoe",
+      ),
+    ).rejects.toThrow(/force-close is orchestrator-only/);
+  });
+
+  it("uses replacement semantics for explicit forceCloseAllowedAgents overrides", async () => {
+    // An explicit agent override replaces the canonical agent list. Operator
+    // aliases remain independent and are tested below.
     const store = buildStore({ allowedAgents: ["operator-x"] });
     await seedCard(store, cards, "card-replaced", "ready");
 
@@ -504,7 +548,7 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
   });
 
-  it("falls back to the built-in default when the override list is empty (REWORK gap #3)", async () => {
+  it("falls back to the built-in default when the override list is empty", async () => {
     // Empty / whitespace-only override arrays must NOT silently widen the
     // allowlist — the store treats them as "no override supplied" and uses
     // the built-in default. This matches the runbook's "env replaces"
@@ -520,22 +564,22 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
   });
 
-  it("operator IDs are also REPLACEMENT (Aug 24 runbook, card 32d1c50d)", async () => {
-    // Replacing operators entirely: drop craig and add a custom operator.
-    // Craig must therefore be rejected (he was in the built-in default) but
-    // the custom operator must succeed — proves replacement semantics.
+  it("operator aliases remain supported when an agent override is supplied", async () => {
+    // Agent overrides are explicit, but the canonical operator aliases remain
+    // available as an operator escape hatch.
     const store = buildStore({ operatorIds: ["operator-only"] });
     await seedCard(store, cards, "card-craig-replaced", "ready");
     await expect(
       store.forceClose(
         "card-craig-replaced",
-        { reasonCode: "invalid", explanation: "Craig rejected after operator replacement." },
+        { reasonCode: "invalid", explanation: "Craig remains a supported operator alias." },
         "craig",
       ),
-    ).rejects.toThrow(/force-close is orchestrator-only/);
+    ).resolves.toMatchObject({ status: "done", metadata: { closureType: "force_close" } });
+    await seedCard(store, cards, "card-operator-custom", "ready");
     await expect(
       store.forceClose(
-        "card-craig-replaced",
+        "card-operator-custom",
         { reasonCode: "invalid", explanation: "Custom operator-only succeeds." },
         "operator-only",
       ),
@@ -549,10 +593,10 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     // callable tool index even though its definition ships in the bundle. The Aug 24
     // force_close implementation was lost from infrastructure for the same kind of
     // gap on the 2026-08-24 integration; this test pins the invariant going forward.
-    const { WORKBOARD_TOOL_NAMES } = await import("./workspace-access.js");
-    expect(WORKBOARD_TOOL_NAMES).toContain("workboard_force_close");
+    const { WORKBOARD_TOOL_NAMES: registeredToolNames } = await import("./workspace-access.js");
+    expect(registeredToolNames).toContain("workboard_force_close");
     // Sanity: every entry is a string and non-empty.
-    for (const name of WORKBOARD_TOOL_NAMES) {
+    for (const name of registeredToolNames) {
       expect(typeof name).toBe("string");
       expect(name.length).toBeGreaterThan(0);
     }
@@ -577,14 +621,8 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     // - root cause: gateway-core filter rejected the entire plugin registration
     //
     // Both canonical source manifest AND deployed manifest must include force_close.
-    const canonicalManifestPath = path.resolve(
-      __dirname,
-      "..",
-      "openclaw.plugin.json"
-    );
-    const canonical = JSON.parse(
-      fs.readFileSync(canonicalManifestPath, "utf8")
-    ) as {
+    const canonicalManifestPath = path.resolve(__dirname, "..", "openclaw.plugin.json");
+    const canonical = JSON.parse(fs.readFileSync(canonicalManifestPath, "utf8")) as {
       id: string;
       contracts: { tools: string[] };
       toolMetadata?: Record<string, { optional?: boolean }>;

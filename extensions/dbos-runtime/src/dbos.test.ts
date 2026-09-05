@@ -29,6 +29,32 @@ function input(runId = "run-1") {
 }
 
 describe("durable DBOS runtime", () => {
+  it("queries the authenticated PostgreSQL authority for active card runs", async () => {
+    const calls: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const client = new PostgresDbosClient({
+      baseUrl: "https://dbos.test",
+      fetchImpl: async (url, init) => {
+        calls.push({
+          url: String(url),
+          body: JSON.parse(typeof init?.body === "string" ? init.body : "{}") as Record<
+            string,
+            unknown
+          >,
+        });
+        return new Response(JSON.stringify({ runId: "dbos:run-active" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    await expect(client.findActiveByCardId("card-1", "workboard")).resolves.toBe("dbos:run-active");
+    expect(calls[0]).toMatchObject({
+      url: "https://dbos.test/v1/workflows/active",
+      body: { cardId: "card-1", queue: "workboard" },
+    });
+  });
+
   it("requires a systemd credential for the production authority", () => {
     expect(() =>
       createProductionDbosAuthority({

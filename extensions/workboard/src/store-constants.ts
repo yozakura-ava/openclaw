@@ -40,25 +40,37 @@ export const WORKBOARD_FORCE_CLOSE_REASON_CODES = [
   "cancelled",
   "invalid",
 ] as const;
-export type WorkboardForceCloseReasonCode =
-  (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
+export type WorkboardForceCloseReasonCode = (typeof WORKBOARD_FORCE_CLOSE_REASON_CODES)[number];
 
-// Default orchestrator agents allowed to invoke workboard_force_close. The
-// store constructor accepts a forceCloseAllowedAgents override which
-// REPLACES this default (does NOT extend it) — operators wanting to grant
-// additional agents should pass them via the env-driven wiring in
-// `readConfiguredForceCloseAgents()` rather than editing this default.
-export const DEFAULT_FORCE_CLOSE_AGENTS = ["ava"];
+// Canonical runtime ids allowed to invoke workboard_force_close. Ava's
+// configured runtime id is `main`; the `ava` alias remains accepted below so
+// older direct callers do not lose access when the identity is normalized.
+// The store constructor accepts a forceCloseAllowedAgents override for
+// explicit deployments/tests; it replaces this default and never widens it
+// implicitly.
+export const WORKBOARD_FORCE_CLOSE_ALLOWED_AGENT_IDS = ["main", "himari", "reina"] as const;
+export const DEFAULT_FORCE_CLOSE_AGENTS = [...WORKBOARD_FORCE_CLOSE_ALLOWED_AGENT_IDS];
+
+const WORKBOARD_FORCE_CLOSE_AGENT_ALIASES: Readonly<Record<string, string>> = {
+  ava: "main",
+  main: "main",
+  himari: "himari",
+  reina: "reina",
+};
+
+export function normalizeWorkboardForceCloseActorId(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  return normalized ? (WORKBOARD_FORCE_CLOSE_AGENT_ALIASES[normalized] ?? normalized) : undefined;
+}
 
 // Operators (Craig and his operator:*/agent:* aliases) are always allowed
 // regardless of the configured agent allowlist. This matches the runbook
 // "operator is always allowed" clause and gives Craig a hard-coded escape
 // hatch even if the agent allowlist is misconfigured.
-export const DEFAULT_FORCE_CLOSE_OPERATORS = [
-  "craig",
-  "operator:craig",
-  "agent:craig",
-];
+export const DEFAULT_FORCE_CLOSE_OPERATORS = ["craig", "operator:craig", "agent:craig"];
 
 // Append-only audit log for force-close actions. The directory is created
 // (mode 0700) on first write; the file is chmod 0600 on every append so

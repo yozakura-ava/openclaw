@@ -50,6 +50,7 @@ import {
   MAX_CARD_COMMENTS,
   MAX_CARD_WORKER_LOGS,
   POSITION_STEP,
+  normalizeWorkboardForceCloseActorId,
   normalizeMaxConcurrentClaimsPerOwner,
 } from "./store-constants.js";
 import type {
@@ -115,11 +116,10 @@ export class WorkboardCoreStore {
   protected readonly boardStore: WorkboardKeyedStore<PersistedWorkboardBoard>;
   protected readonly subscriptionStore: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   protected readonly attachmentStore: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  protected readonly healthProbe?: () => void;
   // Force-close plumbing (card 32d1c50d, restored from commit a0cf0f66c72).
   // The audit path is created lazily on first append; allowed agents/operators
-  // default to the constants exported from store-constants.ts (Riko: replacing,
-  // not extending, matches the runbook caveat flagged in the 2026-08-24 18:02
-  // validation session — wire additional agents via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS).
+  // default to the constants exported from store-constants.ts.
   // The activeRunLookup is the integration point for the BQES / DBOS queue so
   // force-close can refuse cards with an in-flight durable run.
   protected readonly forceCloseAuditPath: string;
@@ -142,9 +142,11 @@ export class WorkboardCoreStore {
       forceCloseAllowedAgents?: string[];
       forceCloseOperatorIds?: string[];
       activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
+      healthCheck?: () => void;
     } = {},
   ) {
     this.dataVersion = stores.dataVersion;
+    this.healthProbe = stores.healthCheck;
     this.changes = new WorkboardChangeTracker(stores.dataVersion);
     if (isWorkboardCardStore(store)) {
       this.cardStore = this.changes.trackCardStore(store);
@@ -162,27 +164,16 @@ export class WorkboardCoreStore {
       stores.attachments ?? (store as unknown as WorkboardKeyedStore<PersistedWorkboardAttachment>);
     this.forceCloseAuditPath =
       stores.forceCloseAuditPath ?? DEFAULT_WORKBOARD_FORCE_CLOSE_AUDIT_PATH;
-    // Replacement semantics (Aug 24 runbook, card 32d1c50d REWORK gap #3):
-    // when the operator explicitly passes forceCloseAllowedAgents or
-    // forceCloseOperatorIds (typically via OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS),
-    // the env-supplied list replaces the built-in default — it does NOT
-    // merge. This matches the runbook's "env replaces default" contract
-    // and keeps a misconfigured allowlist from silently widening access via
-    // the default fallbacks. When no override is supplied, the default is
-    // used unchanged.
     this.forceCloseAllowedAgents = new Set(
       (stores.forceCloseAllowedAgents && stores.forceCloseAllowedAgents.length > 0
         ? stores.forceCloseAllowedAgents
         : DEFAULT_FORCE_CLOSE_AGENTS
       )
-        .map((agent) => agent.trim().toLowerCase())
-        .filter(Boolean),
+        .map(normalizeWorkboardForceCloseActorId)
+        .filter((agent): agent is string => Boolean(agent)),
     );
     this.forceCloseOperatorIds = new Set(
-      (stores.forceCloseOperatorIds && stores.forceCloseOperatorIds.length > 0
-        ? stores.forceCloseOperatorIds
-        : DEFAULT_FORCE_CLOSE_OPERATORS
-      )
+      [...DEFAULT_FORCE_CLOSE_OPERATORS, ...(stores.forceCloseOperatorIds ?? [])]
         .map((agent) => agent.trim().toLowerCase())
         .filter(Boolean),
     );
@@ -197,7 +188,7 @@ export class WorkboardCoreStore {
    * caller treats the audit append as part of the force-close transaction
    * and surfaces the error to the orchestrator (no silent skip).
    */
-  protected appendForceCloseAudit(entry: {
+  protected async appendForceCloseAudit(entry: {
     ts: string;
     agent_id: string;
     card_id: string;
@@ -206,15 +197,15 @@ export class WorkboardCoreStore {
     reference_card_id: string | null;
     prior_status: string;
     dbos_run_id: string | null;
-  }): void {
+  }): Promise<void> {
     const directory = path.dirname(this.forceCloseAuditPath);
-    fs.mkdirSync(directory, { recursive: true, mode: 448 });
-    fs.appendFileSync(this.forceCloseAuditPath, `${JSON.stringify(entry)}\n`, {
+    await fs.promises.mkdir(directory, { recursive: true, mode: 448 });
+    await fs.promises.appendFile(this.forceCloseAuditPath, `${JSON.stringify(entry)}\n`, {
       encoding: "utf8",
       mode: 384,
     });
     if (process.platform !== "win32") {
-      fs.chmodSync(this.forceCloseAuditPath, 384);
+      await fs.promises.chmod(this.forceCloseAuditPath, 384);
     }
   }
 

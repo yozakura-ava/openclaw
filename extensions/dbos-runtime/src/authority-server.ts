@@ -133,6 +133,7 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
         request.method !== "POST" ||
         !(
           pathName === "/v1/workflows/admit" ||
+          pathName === "/v1/workflows/active" ||
           /^\/v1\/workflows\/[^/]+\/(start|fail|complete)$/.test(pathName)
         )
       ) {
@@ -150,6 +151,16 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
           throw new Error("DBOS operation key format is invalid");
         }
         const operation = pathName.split("/").at(-1);
+        if (operation === "active") {
+          const cardId = requireNonEmpty(input.cardId, "cardId");
+          const queue =
+            input.queue === undefined ? undefined : requireNonEmpty(input.queue, "queue");
+          if (!options.backend.findActiveByCardId) {
+            throw new Error("DBOS active-run lookup is not supported by this authority");
+          }
+          const runId = await options.backend.findActiveByCardId(cardId, queue);
+          return jsonResponse(response, 200, { runId: runId ?? null });
+        }
         if (operation === "admit") {
           const identity = {
             cardId: requireNonEmpty(input.cardId, "cardId"),

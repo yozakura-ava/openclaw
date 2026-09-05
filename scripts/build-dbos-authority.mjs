@@ -3,13 +3,17 @@
 // Build the PostgreSQL DBOS authority as an explicit deployment artifact.
 // The normal gateway tsdown entry does not include this standalone server.
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { resolvePnpmRunner } from "./pnpm-runner.mts";
 
-const root = process.cwd();
+const root = path.resolve(import.meta.dirname, "..");
+const sourceCommit = execFileSync("git", ["rev-parse", "HEAD"], {
+  cwd: root,
+  encoding: "utf8",
+}).trim();
 const stage = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-dbos-authority-build-"));
 const output = path.join(root, "dist");
 
@@ -57,6 +61,20 @@ try {
     const targetName = entry.name === "server.mjs" ? "dbos-authority.mjs" : entry.name;
     fs.copyFileSync(path.join(stage, entry.name), path.join(output, targetName));
   }
+  fs.writeFileSync(
+    path.join(output, "dbos-authority-build.json"),
+    `${JSON.stringify(
+      {
+        artifact: "dbos-authority",
+        source: "extensions/dbos-runtime/src/server.ts",
+        sourceCommit,
+        builtAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    )}\n`,
+    { encoding: "utf8", mode: 0o600 },
+  );
   console.log("[build-dbos-authority] wrote dist/dbos-authority.mjs and helper chunks");
 } finally {
   fs.rmSync(stage, { recursive: true, force: true });

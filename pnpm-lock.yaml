@@ -2211,6 +2211,9 @@ importers:
 
   extensions/workboard:
     dependencies:
+      '@openclaw/dbos-runtime':
+        specifier: workspace:*
+        version: link:../dbos-runtime
       typebox:
         specifier: 1.3.17
         version: 1.3.17

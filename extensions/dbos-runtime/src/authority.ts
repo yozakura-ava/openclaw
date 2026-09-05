@@ -44,6 +44,8 @@ export type DbosAuthorityBackend = {
   start(workflowId: string, ownerEpoch: string, operationKey: string): Promise<AuthorityAck>;
   fail(workflowId: string, detail: string, operationKey: string): Promise<AuthorityAck>;
   complete(workflowId: string, evidence: unknown, operationKey: string): Promise<AuthorityAck>;
+  /** Return one active admitted/running run for a card, if present. */
+  findActiveByCardId?(cardId: string, queue?: string): Promise<string | undefined>;
   health(): Promise<boolean>;
 };
 
@@ -234,6 +236,8 @@ export class PostgresDbosAuthorityBackend implements DbosAuthorityBackend {
         response JSONB NOT NULL,
         created_at BIGINT NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS openclaw_dbos_workflows_active_card_idx
+        ON openclaw_dbos_workflows(card_id, state, updated_at DESC);
     `);
     await this.pool.query(
       "ALTER TABLE openclaw_dbos_workflows ADD COLUMN IF NOT EXISTS result_hash TEXT",
@@ -268,6 +272,22 @@ export class PostgresDbosAuthorityBackend implements DbosAuthorityBackend {
   async health(): Promise<boolean> {
     await this.pool.query("SELECT 1");
     return (await this.sdk?.health()) ?? true;
+  }
+
+  async findActiveByCardId(cardId: string, queue?: string): Promise<string | undefined> {
+    const normalizedCardId = requireNonEmpty(cardId, "DBOS cardId");
+    const normalizedQueue = queue === undefined ? undefined : requireNonEmpty(queue, "DBOS queue");
+    const result = await this.pool.query<{ run_id: string }>(
+      `SELECT run_id
+         FROM openclaw_dbos_workflows
+        WHERE card_id = $1
+          AND state IN ('admitted', 'running')
+          AND ($2::text IS NULL OR queue = $2)
+        ORDER BY updated_at DESC, workflow_id DESC
+        LIMIT 1`,
+      [normalizedCardId, normalizedQueue ?? null],
+    );
+    return result.rows[0]?.run_id;
   }
 
   private async executeSdkOperation(operation: AuthoritySdkOperation): Promise<void> {

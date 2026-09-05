@@ -20,6 +20,31 @@ import { WorkboardStore } from "./store.js";
 const READ_SCOPE = "operator.read" as const;
 const WRITE_SCOPE = "operator.write" as const;
 
+export function resolveForceCloseCaller(context: {
+  client?: import("./gateway-helpers.js").GatewayMethodContext["client"];
+  params: Record<string, unknown>;
+}): string | undefined {
+  const client = context.client;
+  if (!client) {
+    // In-process calls have no connected client and are already inside the
+    // trusted Gateway boundary. Keep the legacy host-side caller hook only on
+    // that path; connected callers may not spoof agent_id in request params.
+    return typeof context.params.agent_id === "string" ? context.params.agent_id : undefined;
+  }
+  const trustedAgentId = client.internal?.agentToolCaller?.agentId;
+  if (typeof trustedAgentId === "string" && trustedAgentId.trim()) {
+    return trustedAgentId;
+  }
+  const actor = client.internal?.operatorRoleActor;
+  if (actor?.kind === "operator") {
+    return actor.profileId;
+  }
+  if (actor?.kind === "system") {
+    return "craig";
+  }
+  return client.authenticatedUserProfile?.profileId;
+}
+
 function redactDiagnosticsRows(result: Awaited<ReturnType<WorkboardStore["diagnostics"]>>) {
   return {
     ...result,
@@ -160,7 +185,7 @@ export function registerWorkboardGatewayMethods(params: {
     [
       "workboard.cards.forceClose",
       WRITE_SCOPE,
-      async ({ params: requestParams }) =>
+      async ({ params: requestParams, client }) =>
         redactCardResult(
           store.forceClose(
             readId(requestParams),
@@ -170,9 +195,7 @@ export function registerWorkboardGatewayMethods(params: {
               explanation: requestParams.explanation,
               referenceCardId: requestParams.reference_card_id,
             },
-            typeof requestParams.agent_id === "string"
-              ? requestParams.agent_id
-              : undefined,
+            resolveForceCloseCaller({ client, params: requestParams }),
           ),
         ),
     ],
