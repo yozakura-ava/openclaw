@@ -124,6 +124,7 @@ const repositoryScriptEntries = [
   // Built as the standalone PostgreSQL/DBOS authority entrypoint by the
   // checked-in authority artifact builder.
   "extensions/dbos-runtime/src/server.ts!",
+  "scripts/build-dbos-authority.mjs!",
   "scripts/write-plugin-sdk-entry-dts.ts!",
   "security/opengrep/check-rule-metadata.mjs!",
   "security/opengrep/compile-rules.mjs!",
