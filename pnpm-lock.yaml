@@ -2211,6 +2211,9 @@ importers:
 
   extensions/workboard:
     dependencies:
+      '@openclaw/execution-contract':
+        specifier: workspace:*
+        version: link:../../packages/execution-contract
       typebox:
         specifier: 1.3.17
         version: 1.3.17

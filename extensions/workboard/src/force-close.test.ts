@@ -7,10 +7,10 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkboardCard } from "@openclaw/workboard-contract";
-import { WorkboardStore } from "./store.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
+import { WorkboardStore } from "./store.js";
 
 function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
   const entries = new Map<string, T>();
@@ -37,7 +37,7 @@ function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T>
 // constructing a card via the public API then mutating by returned id.
 async function seedCard(
   store: WorkboardStore,
-  cards: WorkboardKeyedStore<PersistedWorkboardCard>,
+  cards: WorkboardKeyedStore,
   id: string,
   status: "todo" | "ready" | "running" | "review" | "blocked" = "ready",
 ): Promise<WorkboardCard> {
@@ -61,12 +61,12 @@ async function seedCard(
 
 let auditDir = "";
 let auditPath = "";
-let cards: WorkboardKeyedStore<PersistedWorkboardCard>;
+let cards: WorkboardKeyedStore;
 
 beforeEach(() => {
   auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "force-close-audit-"));
   auditPath = path.join(auditDir, "force-closes.jsonl");
-  cards = createMemoryStore<PersistedWorkboardCard>();
+  cards = createMemoryStore();
 });
 
 afterEach(() => {
@@ -124,8 +124,10 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     const lines = fs.readFileSync(auditPath, "utf8").trim().split("\n").filter(Boolean);
     expect(lines).toHaveLength(4);
     const entries = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
-    expect(entries.map((e) => e.reason_code).sort()).toEqual(
-      ["cancelled", "duplicate", "invalid", "superseded"].sort(),
+    expect(
+      entries.map((e) => e.reason_code).toSorted((a, b) => String(a).localeCompare(String(b))),
+    ).toEqual(
+      ["cancelled", "duplicate", "invalid", "superseded"].toSorted((a, b) => a.localeCompare(b)),
     );
     expect(entries.every((e) => e.dbos_run_id === null)).toBe(true);
     expect(entries.every((e) => e.agent_id === "ava")).toBe(true);
@@ -282,6 +284,131 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     ).rejects.toThrow(/card has open descendants: card-child, card-grandchild/);
   });
 
+  it("cascades a validated descendant graph deepest-first and records one aggregate", async () => {
+    const store = buildStore();
+    const parent = await store.create({ title: "Cascade parent", status: "ready" });
+    const child = await store.create({
+      title: "Cascade child",
+      status: "ready",
+      parents: [parent.id],
+    });
+    const grandchild = await store.create({
+      title: "Cascade grandchild",
+      status: "ready",
+      parents: [child.id],
+    });
+
+    await expect(
+      store.forceClose(
+        parent.id,
+        {
+          reasonCode: "cancelled",
+          explanation: "The validated card tree is cancelled by the operator.",
+          cascadeDescendants: true,
+          operationId: "cascade-operation-1",
+        },
+        "ava",
+      ),
+    ).resolves.toMatchObject({ id: parent.id, status: "done" });
+
+    await expect(store.get(grandchild.id)).resolves.toMatchObject({
+      status: "done",
+      metadata: { closureType: "force_close", closureOperationId: "cascade-operation-1" },
+    });
+    await expect(store.get(child.id)).resolves.toMatchObject({
+      status: "done",
+      metadata: { closureType: "force_close" },
+    });
+    const entries = fs
+      .readFileSync(auditPath, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(entries).toHaveLength(4);
+    expect(entries.slice(0, 3).map((entry) => entry.card_id)).toEqual([
+      grandchild.id,
+      child.id,
+      parent.id,
+    ]);
+    expect(entries.at(-1)).toMatchObject({
+      aggregate: true,
+      outcome: "applied",
+      operation_id: "cascade-operation-1",
+      card_ids: [grandchild.id, child.id, parent.id],
+    });
+  });
+
+  it("validates every descendant before mutation when a child is claimed", async () => {
+    const store = buildStore();
+    const parent = await seedCard(store, cards, "cascade-parent", "ready");
+    const child = await seedCard(store, cards, "cascade-child", "ready");
+    await store.claim(child.id, { ownerId: "worker", ttlSeconds: 60 });
+
+    const parentEntry = await cards.lookup(parent.id);
+    const childEntry = await cards.lookup(child.id);
+    if (!parentEntry || !childEntry) {
+      throw new Error("cascade fixture was not persisted");
+    }
+    await cards.register(parent.id, {
+      ...parentEntry,
+      card: {
+        ...parentEntry.card,
+        metadata: {
+          ...parentEntry.card.metadata,
+          links: [{ id: "parent-child", type: "child", targetCardId: child.id, createdAt: 1 }],
+        },
+      },
+    });
+    await cards.register(child.id, {
+      ...childEntry,
+      card: {
+        ...childEntry.card,
+        metadata: {
+          ...childEntry.card.metadata,
+          links: [{ id: "child-parent", type: "parent", targetCardId: parent.id, createdAt: 1 }],
+        },
+      },
+    });
+
+    await expect(
+      store.forceClose(
+        parent.id,
+        {
+          reasonCode: "cancelled",
+          explanation: "The claimed descendant must be released first.",
+          cascadeDescendants: true,
+        },
+        "ava",
+      ),
+    ).rejects.toMatchObject({ blockingCardIds: [child.id] });
+    await expect(store.get(parent.id)).resolves.toMatchObject({ status: "ready" });
+    await expect(store.get(child.id)).resolves.toMatchObject({ status: "running" });
+  });
+
+  it("makes a repeated cascade retry idempotent with the same operation ID", async () => {
+    const store = buildStore();
+    const parent = await store.create({ title: "Idempotent cascade", status: "ready" });
+    const child = await store.create({
+      title: "Idempotent child",
+      status: "ready",
+      parents: [parent.id],
+    });
+    const input = {
+      reasonCode: "cancelled" as const,
+      explanation: "The same validated cascade may be retried safely.",
+      cascadeDescendants: true,
+      operationId: "cascade-operation-retry",
+    };
+    await store.forceClose(parent.id, input, "ava");
+    const lineCount = fs.readFileSync(auditPath, "utf8").split("\n").filter(Boolean).length;
+    await expect(store.forceClose(parent.id, input, "ava")).resolves.toMatchObject({
+      id: parent.id,
+      status: "done",
+    });
+    expect(fs.readFileSync(auditPath, "utf8").split("\n").filter(Boolean)).toHaveLength(lineCount);
+    await expect(store.get(child.id)).resolves.toMatchObject({ status: "done" });
+  });
+
   it("rejects cards claimed by a different agent, missing claim tokens, or token mismatch (the #7 fix)", async () => {
     const store = buildStore();
     await seedCard(store, cards, "card-claimed", "ready");
@@ -290,21 +417,13 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     // tsubaki would be rejected by the allowlist check before the claim
     // check, which is exactly the design ("force-close is orchestrator-only"
     // trumps any other authorization).
-    const avaClaim = await store.claim(
-      "card-claimed",
-      { ownerId: "ava", ttlSeconds: 60 },
-      "ava",
-    );
+    const avaClaim = await store.claim("card-claimed", { ownerId: "ava", ttlSeconds: 60 });
     const claimToken = avaClaim.token;
 
     // Different claim owner: tsubaki claims a fresh card and ava tries to
     // close it — must be rejected with the claim-owner mismatch error.
     await seedCard(store, cards, "card-other-owner", "ready");
-    await store.claim(
-      "card-other-owner",
-      { ownerId: "tsubaki", ttlSeconds: 60 },
-      "tsubaki",
-    );
+    await store.claim("card-other-owner", { ownerId: "tsubaki", ttlSeconds: 60 });
     await expect(
       store.forceClose(
         "card-other-owner",
@@ -350,7 +469,7 @@ describe("workboard_force_close (card 32d1c50d)", () => {
   });
 
   it("rejects cards whose execution is locally running or whose activeRunLookup returns a run ID", async () => {
-    const localCards = createMemoryStore<PersistedWorkboardCard>();
+    const localCards = createMemoryStore();
     const boards = createMemoryStore<{ id: string }>();
     const subscriptions = createMemoryStore();
     const attachments = createMemoryStore();
@@ -426,15 +545,11 @@ describe("workboard_force_close (card 32d1c50d)", () => {
   it("preserves the normal completion path: a force-close never runs alongside a regular complete", async () => {
     const store = buildStore();
     await seedCard(store, cards, "card-complete", "ready");
-    const claim = await store.claim(
-      "card-complete",
-      { ownerId: "tsubaki", ttlSeconds: 60 },
-      "tsubaki",
-    );
+    const claim = await store.claim("card-complete", { ownerId: "tsubaki", ttlSeconds: 60 });
     await store.complete(
       "card-complete",
-      { summary: "Regular verified completion path.", token: claim.metadata?.claim?.token },
-      { ownerId: "tsubaki", token: claim.metadata?.claim?.token },
+      { summary: "Regular verified completion path.", token: claim.card.metadata?.claim?.token },
+      { ownerId: "tsubaki", token: claim.card.metadata?.claim?.token },
     );
     const after = await store.get("card-complete");
     expect(after?.status).toBe("done");
@@ -449,7 +564,7 @@ describe("workboard_force_close (card 32d1c50d)", () => {
     await seedCard(store, cards, "card-fc-1", "ready");
     // Two regular completions (via tsubaki claim → regular complete path).
     for (const id of ["card-vd-1", "card-vd-2"]) {
-      await store.claim(id, { ownerId: "tsubaki", ttlSeconds: 60 }, "tsubaki");
+      await store.claim(id, { ownerId: "tsubaki", ttlSeconds: 60 });
       await store.complete(
         id,
         { summary: `Verified completion for ${id}.` },

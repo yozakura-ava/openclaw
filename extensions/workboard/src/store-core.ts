@@ -11,6 +11,11 @@ import type {
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type {
+  PersistedWorkboardForceCloseAudit,
+  WorkboardForceCloseAuditEntry,
+} from "./force-close-audit.js";
+import { forceCloseAuditKey } from "./force-close-audit.js";
 import { isWorkboardCardStore } from "./persistence-types.js";
 import type {
   PersistedWorkboardAttachment,
@@ -105,6 +110,18 @@ type WorkboardMutationJournalEntry = {
 
 const WORKBOARD_CAS_ATTEMPTS = 3;
 
+export type WorkboardCoreStoreOptions = {
+  boards?: WorkboardKeyedStore<PersistedWorkboardBoard>;
+  subscriptions?: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
+  attachments?: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  dataVersion?: () => number;
+  forceCloseAuditPath?: string;
+  forceCloseAllowedAgents?: string[];
+  forceCloseOperatorIds?: string[];
+  activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
+  audits?: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
+};
+
 export class WorkboardCoreStore {
   private mutationQueue: Promise<unknown> = Promise.resolve();
   private lastNotificationSequence = 0;
@@ -125,21 +142,13 @@ export class WorkboardCoreStore {
   protected readonly forceCloseAuditPath: string;
   protected readonly forceCloseAllowedAgents: Set<string>;
   protected readonly forceCloseOperatorIds: Set<string>;
-  protected readonly activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
+  protected readonly activeRunLookup?: (
+    cardId: string,
+    queue?: string,
+  ) => Promise<string | undefined>;
+  protected readonly forceCloseAuditStore?: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
 
-  constructor(
-    store: WorkboardKeyedStore,
-    stores: {
-      boards?: WorkboardKeyedStore<PersistedWorkboardBoard>;
-      subscriptions?: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
-      attachments?: WorkboardKeyedStore<PersistedWorkboardAttachment>;
-      dataVersion?: () => number;
-      forceCloseAuditPath?: string;
-      forceCloseAllowedAgents?: string[];
-      forceCloseOperatorIds?: string[];
-      activeRunLookup?: (cardId: string, queue?: string) => Promise<string | undefined>;
-    } = {},
-  ) {
+  constructor(store: WorkboardKeyedStore, stores: WorkboardCoreStoreOptions = {}) {
     this.changes = new WorkboardChangeTracker(stores.dataVersion);
     if (isWorkboardCardStore(store)) {
       this.cardStore = this.changes.trackCardStore(store);
@@ -182,6 +191,22 @@ export class WorkboardCoreStore {
         .filter(Boolean),
     );
     this.activeRunLookup = stores.activeRunLookup;
+    this.forceCloseAuditStore = stores.audits;
+  }
+
+  protected async recordForceCloseAudit(entry: WorkboardForceCloseAuditEntry): Promise<void> {
+    if (this.forceCloseAuditStore) {
+      await this.forceCloseAuditStore.register(forceCloseAuditKey(entry), {
+        version: 1,
+        audit: entry,
+      });
+      return;
+    }
+    // The JSONL adapter remains available for explicitly injected legacy/test
+    // stores. Production SQLite uses the append-only audit store instead.
+    if (entry.outcome === "applied") {
+      this.appendForceCloseAudit(entry);
+    }
   }
 
   /**
@@ -201,14 +226,17 @@ export class WorkboardCoreStore {
     reference_card_id: string | null;
     prior_status: string;
     dbos_run_id: string | null;
+    operation_id?: string;
+    outcome?: "accepted" | "applied" | "rejected" | "storage_failed";
+    aggregate?: boolean;
+    card_ids?: string[];
   }): void {
     const directory = path.dirname(this.forceCloseAuditPath);
     fs.mkdirSync(directory, { recursive: true, mode: 448 });
-    fs.appendFileSync(
-      this.forceCloseAuditPath,
-      `${JSON.stringify(entry)}\n`,
-      { encoding: "utf8", mode: 384 },
-    );
+    fs.appendFileSync(this.forceCloseAuditPath, `${JSON.stringify(entry)}\n`, {
+      encoding: "utf8",
+      mode: 384,
+    });
     if (process.platform !== "win32") {
       fs.chmodSync(this.forceCloseAuditPath, 384);
     }

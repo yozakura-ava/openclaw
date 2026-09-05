@@ -169,10 +169,11 @@ export function registerWorkboardGatewayMethods(params: {
               reasonCode: requestParams.reason_code,
               explanation: requestParams.explanation,
               referenceCardId: requestParams.reference_card_id,
+              cascadeDescendants:
+                requestParams.cascadeDescendants ?? requestParams.cascade_descendants,
+              operationId: requestParams.operationId ?? requestParams.operation_id,
             },
-            typeof requestParams.agent_id === "string"
-              ? requestParams.agent_id
-              : undefined,
+            typeof requestParams.agent_id === "string" ? requestParams.agent_id : undefined,
           ),
         ),
     ],

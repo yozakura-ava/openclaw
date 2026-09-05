@@ -24,13 +24,18 @@ import {
 import {
   openNodeSqliteDatabase,
   runSqliteImmediateTransactionSync,
+  SqliteAuthorityLifecycle,
+  type SqliteAuthorityLifecycleContext,
+  getSqliteAuthorityWriterQueue,
 } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { WorkboardForceCloseAuditEntry } from "./force-close-audit.js";
 import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,
   PersistedWorkboardCard,
+  PersistedWorkboardForceCloseAudit,
   PersistedWorkboardNotificationSubscription,
   WorkboardCardStore,
   WorkboardKeyedStore,
@@ -48,7 +53,10 @@ type WorkboardSqliteStores = {
   boards: WorkboardKeyedStore<PersistedWorkboardBoard>;
   subscriptions: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
   attachments: WorkboardKeyedStore<PersistedWorkboardAttachment>;
+  audits: WorkboardKeyedStore<PersistedWorkboardForceCloseAudit>;
   dataVersion: () => number;
+  lifecycle: SqliteAuthorityLifecycle;
+  recover: () => boolean;
   close: () => void;
 };
 
@@ -185,7 +193,8 @@ const WORKBOARD_SCHEMA_SQL = `
       archived_at INTEGER,
       stale_json TEXT,
       lifecycle_status_source_updated_at INTEGER,
-      failure_count INTEGER
+      failure_count INTEGER,
+      closure_operation_id TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);
@@ -373,6 +382,17 @@ const WORKBOARD_SCHEMA_SQL = `
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     ) STRICT;
+
+    CREATE TABLE IF NOT EXISTS workboard_force_close_audits (
+      id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL,
+      record_type TEXT NOT NULL CHECK (record_type IN ('card', 'cascade')),
+      outcome TEXT NOT NULL CHECK (outcome IN ('accepted', 'applied', 'rejected', 'storage_failed')),
+      payload_json TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS workboard_force_close_audits_operation_idx
+      ON workboard_force_close_audits(operation_id, created_at, id);
   `;
 
 function ensureWorkboardSchema(db: DatabaseSync): void {
@@ -384,6 +404,7 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     "lifecycle_status_source_updated_at",
     "lifecycle_status_source_updated_at INTEGER",
   );
+  ensureColumn(db, "workboard_cards", "closure_operation_id", "closure_operation_id TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
@@ -892,6 +913,9 @@ function readMetadata(
     ...(numberValue(row, "failure_count") !== undefined
       ? { failureCount: numberValue(row, "failure_count") }
       : {}),
+    ...(stringValue(row, "closure_operation_id")
+      ? { closureOperationId: stringValue(row, "closure_operation_id") }
+      : {}),
   });
 }
 
@@ -968,14 +992,14 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
         execution_id, execution_kind, execution_engine, execution_mode, execution_status,
         execution_model, execution_session_key, execution_run_id, execution_started_at,
         execution_updated_at, automation_json, claim_json, template_id, archived_at, stale_json,
-        lifecycle_status_source_updated_at, failure_count
+        lifecycle_status_source_updated_at, failure_count, closure_operation_id
       ) VALUES (
         @id, @board_id, @title, @notes, @status, @priority, @agent_id, @session_key, @run_id,
         @task_id, @source_url, @position, @created_at, @updated_at, @started_at, @completed_at,
         @execution_id, @execution_kind, @execution_engine, @execution_mode, @execution_status,
         @execution_model, @execution_session_key, @execution_run_id, @execution_started_at,
         @execution_updated_at, @automation_json, @claim_json, @template_id, @archived_at,
-        @stale_json, @lifecycle_status_source_updated_at, @failure_count
+        @stale_json, @lifecycle_status_source_updated_at, @failure_count, @closure_operation_id
       )
       ON CONFLICT(id) DO UPDATE SET
         board_id = excluded.board_id,
@@ -1009,7 +1033,8 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
         archived_at = excluded.archived_at,
         stale_json = excluded.stale_json,
         lifecycle_status_source_updated_at = excluded.lifecycle_status_source_updated_at,
-        failure_count = excluded.failure_count
+        failure_count = excluded.failure_count,
+        closure_operation_id = excluded.closure_operation_id
     `,
   ).run({
     id: card.id,
@@ -1045,6 +1070,7 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     stale_json: jsonValue(metadata?.stale),
     lifecycle_status_source_updated_at: bindNull(metadata?.lifecycleStatusSourceUpdatedAt),
     failure_count: bindNull(metadata?.failureCount),
+    closure_operation_id: bindNull(metadata?.closureOperationId),
   });
 
   insertChildren(db, "workboard_card_labels", card.id, card.labels, (label, ordinal) => {
@@ -1268,7 +1294,11 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
 }
 
 class WorkboardSqliteCardStore implements WorkboardCardStore {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
 
   private validatePayload(key: string, value: PersistedWorkboardCard): void {
     if (value.version !== 1 || value.card.id !== key) {
@@ -1436,7 +1466,11 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
 }
 
 class WorkboardSqliteBoardStore implements WorkboardKeyedStore<PersistedWorkboardBoard> {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
 
   async register(key: string, value: PersistedWorkboardBoard): Promise<void> {
     if (value.version !== 1 || value.board.id !== key) {
@@ -1535,7 +1569,11 @@ class WorkboardSqliteBoardStore implements WorkboardKeyedStore<PersistedWorkboar
 }
 
 class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedWorkboardNotificationSubscription> {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
 
   async register(key: string, value: PersistedWorkboardNotificationSubscription): Promise<void> {
     if (value.version !== 1 || value.subscription.id !== key) {
@@ -1649,7 +1687,11 @@ class WorkboardSqliteSubscriptionStore implements WorkboardKeyedStore<PersistedW
 }
 
 class WorkboardSqliteAttachmentStore implements WorkboardKeyedStore<PersistedWorkboardAttachment> {
-  constructor(private readonly db: DatabaseSync) {}
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
 
   async register(key: string, value: PersistedWorkboardAttachment): Promise<void> {
     if (value.version !== 1 || value.attachment.id !== key) {
@@ -1727,26 +1769,219 @@ class WorkboardSqliteAttachmentStore implements WorkboardKeyedStore<PersistedWor
   }
 }
 
+class WorkboardSqliteForceCloseAuditStore implements WorkboardKeyedStore<PersistedWorkboardForceCloseAudit> {
+  constructor(private db: DatabaseSync) {}
+
+  rebind(db: DatabaseSync): void {
+    this.db = db;
+  }
+
+  private read(row: Row): PersistedWorkboardForceCloseAudit {
+    const payload = parseJson(row.payload_json);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      throw new Error("workboard force-close audit payload is invalid");
+    }
+    return { version: 1, audit: payload as WorkboardForceCloseAuditEntry };
+  }
+
+  async register(key: string, value: PersistedWorkboardForceCloseAudit): Promise<void> {
+    if (value.version !== 1 || !value.audit || typeof value.audit !== "object") {
+      throw new Error("invalid workboard force-close audit payload");
+    }
+    const audit = value.audit;
+    runSqliteImmediateTransactionSync(
+      this.db,
+      () => {
+        this.db
+          .prepare(
+            `INSERT INTO workboard_force_close_audits
+             (id, operation_id, record_type, outcome, payload_json, created_at)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`,
+          )
+          .run(
+            key,
+            audit.operation_id,
+            audit.aggregate === true ? "cascade" : "card",
+            audit.outcome,
+            JSON.stringify(audit),
+            Date.parse(audit.ts) || Date.now(),
+          );
+      },
+      {
+        databaseLabel: "workboard database",
+        operationLabel: "workboard.force-close-audit.write",
+        maxHoldMs: 5_000,
+      },
+    );
+  }
+
+  async lookup(key: string): Promise<PersistedWorkboardForceCloseAudit | undefined> {
+    const row = this.db
+      .prepare("SELECT * FROM workboard_force_close_audits WHERE id = ?")
+      .get(key) as Row | undefined;
+    return row ? this.read(row) : undefined;
+  }
+
+  async delete(_key: string): Promise<boolean> {
+    throw new Error("workboard force-close audits are append-only");
+  }
+
+  async entries(): Promise<Array<{ key: string; value: PersistedWorkboardForceCloseAudit }>> {
+    return (
+      this.db
+        .prepare("SELECT * FROM workboard_force_close_audits ORDER BY created_at ASC, id ASC")
+        .all() as Row[]
+    ).map((row) => ({
+      key: requiredString(row, "id"),
+      value: this.read(row),
+    }));
+  }
+}
+
 export function createWorkboardSqliteStores(
   options: {
     dbPath?: string;
     env?: NodeJS.ProcessEnv;
   } = {},
 ): WorkboardSqliteStores {
-  const { db, maintenance } = createDatabase(
-    options.dbPath ?? resolveWorkboardSqlitePath(options.env),
-  );
+  const dbPath = options.dbPath ?? resolveWorkboardSqlitePath(options.env);
+  let connection = createDatabase(dbPath);
+  let generation = 1;
+  let closed = false;
+  const lifecycle = new SqliteAuthorityLifecycle({
+    onRecord: (record) => {
+      if (record.kind !== "transition" || record.to === "healthy") {
+        console.warn(`[workboard] sqlite authority lifecycle ${JSON.stringify(record)}`);
+      }
+    },
+    watchdogIntervalMs: 15_000,
+  });
+  const context = (operation: string, retryCount: number): SqliteAuthorityLifecycleContext => ({
+    operation,
+    source: "workboard",
+    databaseIdentity: dbPath,
+    storeGeneration: String(generation),
+    retryCount,
+    queueDepth: getSqliteAuthorityWriterQueue().snapshot.depth,
+    transactionHoldTimeMs: 0,
+    eventLoopLagMs: 0,
+  });
+  const replaceConnection = (retryCount: number): boolean => {
+    if (closed) {
+      return false;
+    }
+    try {
+      const replacement = createDatabase(dbPath);
+      const previous = connection;
+      connection = replacement;
+      generation += 1;
+      for (const store of [cards, boards, subscriptions, attachments, audits]) {
+        store.rebind(connection.db);
+      }
+      try {
+        previous.maintenance.close();
+      } catch {
+        // A dead connection may already have lost its maintenance handle.
+      }
+      try {
+        previous.db.close();
+      } catch {
+        // Closing an already-invalid SQLite handle is harmless here.
+      }
+      lifecycle.transition("healthy", {
+        ...context("workboard.sqlite.reconnect", retryCount),
+        recoveryResult: "reconnected",
+      });
+      return true;
+    } catch (error) {
+      const primaryErrorCode =
+        error && typeof error === "object" && "code" in error
+          ? String((error as { code: unknown }).code)
+          : "RECONNECT_FAILED";
+      lifecycle.transition("unavailable", {
+        ...context("workboard.sqlite.reconnect", retryCount),
+        primaryErrorCode,
+        recoveryResult: "reconnect_failed",
+      });
+      lifecycle.scheduleRetry({
+        delayMs: 250,
+        context: { ...context("workboard.sqlite.reconnect", retryCount + 1), primaryErrorCode },
+        attempt: async () => replaceConnection(retryCount + 1),
+      });
+      return false;
+    }
+  };
+  const isDeadConnectionError = (error: unknown): boolean => {
+    const code =
+      error && typeof error === "object" ? (error as { code?: unknown }).code : undefined;
+    const message = error instanceof Error ? error.message : String(error);
+    return (
+      code === "SQLITE_MISUSE" ||
+      code === "ERR_INVALID_STATE" ||
+      /database (?:is )?closed|invalid.*database|not open/i.test(message)
+    );
+  };
+  const recoverable = <T extends object>(store: T): T =>
+    new Proxy(store, {
+      get(target, property, receiver) {
+        const value = Reflect.get(target, property, receiver);
+        if (typeof value !== "function") {
+          return value;
+        }
+        return async (...args: unknown[]) => {
+          try {
+            return await Reflect.apply(value, target, args);
+          } catch (error) {
+            if (!isDeadConnectionError(error)) {
+              throw error;
+            }
+            lifecycle.transition("degraded", {
+              ...context(String(property), 0),
+              primaryErrorCode:
+                error && typeof error === "object" && "code" in error
+                  ? String((error as { code: unknown }).code)
+                  : "SQLITE_MISUSE",
+              recoveryResult: "connection_dead",
+            });
+            lifecycle.transition("recovering", {
+              ...context(String(property), 0),
+              recoveryResult: "reconnect_started",
+            });
+            if (!replaceConnection(0)) {
+              throw error;
+            }
+            return await Reflect.apply(value, target, args);
+          }
+        };
+      },
+    });
+  const cards = new WorkboardSqliteCardStore(connection.db);
+  const boards = new WorkboardSqliteBoardStore(connection.db);
+  const subscriptions = new WorkboardSqliteSubscriptionStore(connection.db);
+  const attachments = new WorkboardSqliteAttachmentStore(connection.db);
+  const audits = new WorkboardSqliteForceCloseAuditStore(connection.db);
+  const recoverableCards = recoverable(cards);
+  const recoverableBoards = recoverable(boards);
+  const recoverableSubscriptions = recoverable(subscriptions);
+  const recoverableAttachments = recoverable(attachments);
+  const recoverableAudits = recoverable(audits);
   return {
-    cards: new WorkboardSqliteCardStore(db),
-    boards: new WorkboardSqliteBoardStore(db),
-    subscriptions: new WorkboardSqliteSubscriptionStore(db),
-    attachments: new WorkboardSqliteAttachmentStore(db),
+    cards: recoverableCards,
+    boards: recoverableBoards,
+    subscriptions: recoverableSubscriptions,
+    attachments: recoverableAttachments,
+    audits: recoverableAudits,
+    lifecycle,
+    recover: () => replaceConnection(0),
     // This connection-local primitive changes only after another connection commits.
     dataVersion: () =>
-      requiredNumber(db.prepare("PRAGMA data_version").get() as Row, "data_version"),
+      requiredNumber(connection.db.prepare("PRAGMA data_version").get() as Row, "data_version"),
     close: () => {
-      maintenance.close();
-      db.close();
+      closed = true;
+      lifecycle.close();
+      connection.maintenance.close();
+      connection.db.close();
     },
   };
 }

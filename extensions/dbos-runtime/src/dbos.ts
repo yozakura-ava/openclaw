@@ -15,6 +15,7 @@ import {
   type ExecutionIdentityInput,
   type AdmissionEnvelope,
 } from "@openclaw/execution-contract";
+import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
 import { DbosRuntimeError } from "./dbos-errors.js";
@@ -113,15 +114,11 @@ function parse<T>(value: unknown, fallback: T): T {
 }
 
 function transaction<T>(db: DatabaseSync, fn: () => T): T {
-  db.exec("BEGIN IMMEDIATE");
-  try {
-    const result = fn();
-    db.exec("COMMIT");
-    return result;
-  } catch (error) {
-    db.exec("ROLLBACK");
-    throw error;
-  }
+  return runSqliteImmediateTransactionSync(db, fn, {
+    databaseLabel: "dbos compatibility database",
+    maxHoldMs: 5_000,
+    operationLabel: "dbos.write",
+  });
 }
 
 function normalize(input: DbosWorkflowInput): DbosWorkflowInput {

@@ -6,6 +6,7 @@ import { createSubsystemLogger, type SubsystemLogger } from "../logging/subsyste
 // so cold control-plane paths using transactions do not load kysely.
 import { clearNodeSqliteKyselyCacheForDatabase } from "./kysely-sync-cache-state.js";
 import { shouldReportSqliteLockFailure } from "./sqlite-busy-timeout.js";
+import { getSqliteAuthorityWriterQueue } from "./sqlite-writer-queue.js";
 
 const transactionDepthByDatabase = new WeakMap<DatabaseSync, number>();
 
@@ -27,6 +28,7 @@ export type SqliteTransactionOptions = {
   busyTimeoutMs?: number;
   databaseLabel?: string;
   logger?: Pick<SubsystemLogger, "warn">;
+  maxHoldMs?: number;
   operationLabel?: string;
   slowTransactionHoldMs?: number;
 };
@@ -226,7 +228,7 @@ function setTransactionDepth(db: DatabaseSync, depth: number): void {
   transactionDepthByDatabase.set(db, depth);
 }
 
-function runSqliteTransactionSync<T>(
+function runSqliteTransactionSyncCore<T>(
   db: DatabaseSync,
   operation: () => T,
   mode: SqliteTransactionMode,
@@ -277,10 +279,13 @@ function runSqliteTransactionSync<T>(
   }
 
   try {
-    logSlowTransactionHold({
-      elapsedMs: Date.now() - transactionStartedAt,
-      options,
-    });
+    const holdTimeMs = Date.now() - transactionStartedAt;
+    logSlowTransactionHold({ elapsedMs: holdTimeMs, options });
+    if (options?.maxHoldMs !== undefined && holdTimeMs > options.maxHoldMs) {
+      throw new Error(
+        `SQLite transaction exceeded ${options.maxHoldMs}ms hold-time limit (${holdTimeMs}ms)`,
+      );
+    }
     commitImmediateTransaction(db, options);
     transactionStillActive = false;
     return result;
@@ -297,6 +302,20 @@ function runSqliteTransactionSync<T>(
       setTransactionDepth(db, 0);
     }
   }
+}
+
+function runSqliteTransactionSync<T>(
+  db: DatabaseSync,
+  operation: () => T,
+  mode: SqliteTransactionMode,
+  options?: SqliteTransactionOptions,
+): T {
+  if (getTransactionDepth(db) > 0) {
+    return runSqliteTransactionSyncCore(db, operation, mode, options);
+  }
+  return getSqliteAuthorityWriterQueue().runSync(() =>
+    runSqliteTransactionSyncCore(db, operation, mode, options),
+  );
 }
 
 /** Run synchronous reads against one deferred SQLite snapshot. */

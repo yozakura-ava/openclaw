@@ -15,4 +15,19 @@ export {
 export { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 export { prepareSqliteReadOnlyLocationSync } from "../infra/sqlite-readonly-location.js";
 export { runSqliteImmediateTransactionSync } from "../infra/sqlite-transaction.js";
+export {
+  DEFAULT_SQLITE_WRITER_QUEUE_MAX_DEPTH,
+  getSqliteAuthorityWriterQueue,
+  SqliteWriterQueue,
+  SqliteWriterQueueError,
+  type SqliteWriterQueueOptions,
+  type SqliteWriterQueueSnapshot,
+} from "../infra/sqlite-writer-queue.js";
+export {
+  SQLITE_AUTHORITY_LIFECYCLE_STATES,
+  SqliteAuthorityLifecycle,
+  type SqliteAuthorityLifecycleContext,
+  type SqliteAuthorityLifecycleRecord,
+  type SqliteAuthorityLifecycleState,
+} from "../infra/sqlite-authority-lifecycle.js";
 export { tableExists } from "../state/openclaw-state-db-schema-helpers.js";

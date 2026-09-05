@@ -11,6 +11,8 @@ import type {
   WorkboardStaleState,
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
+import type { SqliteAuthorityLifecycle } from "openclaw/plugin-sdk/sqlite-runtime";
+import type { WorkboardKeyedStore } from "./persistence-types.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
   buildWorkerContext,
@@ -32,6 +34,7 @@ import {
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
 } from "./store-constants.js";
+import type { WorkboardCoreStoreOptions } from "./store-core.js";
 import type {
   WorkboardBulkInput,
   WorkboardCardPatch,
@@ -44,6 +47,7 @@ import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalize
 import { WorkboardNotificationStore } from "./store-notifications.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
+export { WorkboardForceCloseValidationError } from "./store-inputs.js";
 export { WorkboardCardConflictError } from "./store-core.js";
 
 type WorkboardExecutionAssociationInput = {
@@ -64,6 +68,12 @@ type WorkboardExecutionAssociationPatch = WorkboardCardPatch & {
   metadata?: WorkboardMetadata;
 };
 type WorkboardPreparedLaunch = Extract<WorkboardLaunchState, { phase: "prepared" }>;
+
+type WorkboardStoreOptions = WorkboardCoreStoreOptions & {
+  sqliteLifecycle?: SqliteAuthorityLifecycle;
+  sqliteRecover?: () => boolean;
+  sqliteClose?: () => void;
+};
 
 function preparedLaunchMatchesCard(
   card: WorkboardCard,
@@ -189,6 +199,44 @@ function lifecycleExecution(params: {
 
 // Capability layers split review boundaries only; the core still owns persistence and mutation order.
 export class WorkboardStore extends WorkboardNotificationStore {
+  private readonly sqliteLifecycle?: SqliteAuthorityLifecycle;
+  private readonly sqliteRecover?: () => boolean;
+  private readonly sqliteClose?: () => void;
+  private sqliteClosed = false;
+
+  constructor(store: WorkboardKeyedStore, options: WorkboardStoreOptions = {}) {
+    super(store, options);
+    this.sqliteLifecycle = options.sqliteLifecycle;
+    this.sqliteRecover = options.sqliteRecover;
+    this.sqliteClose = options.sqliteClose;
+  }
+
+  async probeSqliteAuthority(): Promise<void> {
+    if (this.sqliteClosed) {
+      throw new Error("workboard store is closed");
+    }
+    await this.list();
+  }
+
+  recoverSqliteAuthority(): boolean {
+    if (this.sqliteClosed) {
+      return false;
+    }
+    return this.sqliteRecover?.() ?? false;
+  }
+
+  get sqliteAuthorityLifecycle(): SqliteAuthorityLifecycle | undefined {
+    return this.sqliteLifecycle;
+  }
+
+  close(): void {
+    if (this.sqliteClosed) {
+      return;
+    }
+    this.sqliteClosed = true;
+    this.sqliteClose?.();
+  }
+
   async prepareExecutionLaunch(
     id: string,
     input: {
@@ -648,6 +696,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
       boards: stores.boards,
       subscriptions: stores.subscriptions,
       attachments: stores.attachments,
+      audits: stores.audits,
       dataVersion: stores.dataVersion,
       ...(options?.forceCloseAuditPath ? { forceCloseAuditPath: options.forceCloseAuditPath } : {}),
       ...(options?.forceCloseAllowedAgents
@@ -657,6 +706,9 @@ export class WorkboardStore extends WorkboardNotificationStore {
         ? { forceCloseOperatorIds: options.forceCloseOperatorIds }
         : {}),
       ...(options?.activeRunLookup ? { activeRunLookup: options.activeRunLookup } : {}),
+      sqliteLifecycle: stores.lifecycle,
+      sqliteRecover: stores.recover,
+      sqliteClose: stores.close,
     });
   }
 }

@@ -539,6 +539,15 @@ export function createWorkboardTools(params: {
         reference_card_id: Type.Optional(
           Type.String({ description: "Surviving card for superseded or duplicate work." }),
         ),
+        cascade_descendants: Type.Optional(
+          Type.Boolean({
+            description:
+              "Validate and force-close eligible descendants deepest-first before closing the parent.",
+          }),
+        ),
+        operation_id: Type.Optional(
+          Type.String({ description: "Stable idempotency key for a retryable cascade operation." }),
+        ),
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
@@ -550,9 +559,10 @@ export function createWorkboardTools(params: {
               reasonCode: record.reason_code,
               explanation: record.explanation,
               referenceCardId:
-                typeof record.reference_card_id === "string"
-                  ? record.reference_card_id
-                  : undefined,
+                typeof record.reference_card_id === "string" ? record.reference_card_id : undefined,
+              cascadeDescendants: record.cascade_descendants,
+              operationId:
+                typeof record.operation_id === "string" ? record.operation_id : undefined,
             },
             ownerId,
           ),

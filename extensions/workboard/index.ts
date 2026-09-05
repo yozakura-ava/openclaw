@@ -2,6 +2,7 @@
 import { definePluginEntry } from "./api.js";
 import { registerWorkboardGatewayMethods } from "./runtime-api.js";
 import { createWorkboardAutomationNudgeService } from "./src/automation-nudge.js";
+import { BqesService } from "./src/bqes.js";
 import { createWorkboardChangeEventService } from "./src/change-events.js";
 import { registerWorkboardCommand } from "./src/command.js";
 import {
@@ -10,7 +11,9 @@ import {
   syncWorkboardAgentEnded,
   syncWorkboardSubagentEnded,
 } from "./src/lifecycle-sync.js";
+import { createWorkboardStoreAuthorityGuard } from "./src/store-authority-guard.js";
 import { normalizeMaxConcurrentClaimsPerOwner } from "./src/store-constants.js";
+import { registerWorkboardStoreLifecycle } from "./src/store-lifecycle.js";
 import { WorkboardStore } from "./src/store.js";
 import { createWorkboardTools } from "./src/tools.js";
 import {
@@ -25,10 +28,10 @@ import {
  * extending it, so the consumer of this helper must compare length to 0
  * before treating it as a real override.
  */
-function parseForceCloseAgentsEnv(
-  value: string | undefined,
-): string[] | undefined {
-  if (!value) return undefined;
+function parseForceCloseAgentsEnv(value: string | undefined): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
   const parsed = value
     .split(",")
     .map((agent) => agent.trim())
@@ -36,59 +39,26 @@ function parseForceCloseAgentsEnv(
   return parsed.length > 0 ? parsed : undefined;
 }
 
-/**
- * activeRunLookup adapter (card 32d1c50d REWORK gap #2).
- *
- * The Aug 24 graveyard dist used a `bqes.findActiveByCardId(cardId, queue)`
- * helper to reject force-closes when a durable DBOS run is in flight. The
- * canonical source does not yet have a BQES service, and the
- * PostgresDbosClient in extensions/dbos-runtime exposes only admit/start/
- * fail/complete — no equivalent list/find method.
- *
- * Until either (a) BQES is ported to the canonical source or (b)
- * PostgresDbosClient gains a `findActiveByCardId` RPC, the lookup
- * intentionally returns undefined and the force-close rejection falls back
- * to the in-memory `execution.status === "running"` + `latestRunningAttempt`
- * check. That still catches every locally-active run; only durable runs that
- * exist purely on the DBOS authority and have no local card projection are
- * not blocked. Flagged in the card as a follow-up dependency on the BQES
- * port.
- */
-function createActiveRunLookup(
-  _api: unknown,
-): (cardId: string, queue?: string) => Promise<string | undefined> {
-  return async (_cardId: string, _queue?: string) => {
-    // Intentionally no-op until BQES / findActiveByCardId is ported.
-    // The store will still block on locally-active execution and on the
-    // latest running attempt metadata; this only affects durable-only runs.
-    return undefined;
-  };
-}
-
 export default definePluginEntry({
   id: "workboard",
   name: "Workboard",
   description: "Dashboard workboard for agent-owned issues and sessions.",
   register(api) {
-    // force-close wiring (card 32d1c50d REWORK gap #2):
+    // Force-close wiring:
     // 1. OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS — env-supplied comma-separated
     //    allowlist that REPLACES the built-in DEFAULT_FORCE_CLOSE_AGENTS.
     //    Empty/missing env falls back to the default unchanged.
-    // 2. activeRunLookup — optional durable-run lookup callback (BQES /
-    //    DBOS adapter). The store rejects force-closes when the lookup
-    //    returns a run id, matching the Aug 24 design's "no override over
-    //    an active durable run" guard. When no live queue is registered
-    //    the lookup is left undefined and the rejection falls back to the
-    //    in-memory execution / running-attempt check, which still catches
-    //    every locally-active run.
+    // 2. activeRunLookup — BQES is the durable-run lookup and remains the
+    //    authority for active admissions that were not projected locally.
     const configuredForceCloseAgents = parseForceCloseAgentsEnv(
       process.env.OPENCLAW_WORKBOARD_FORCE_CLOSE_AGENTS,
     );
+    const bqes = new BqesService();
     const store = WorkboardStore.openSqlite({
       ...(configuredForceCloseAgents
         ? { forceCloseAllowedAgents: configuredForceCloseAgents }
         : {}),
-      activeRunLookup: createActiveRunLookup(api),
+      activeRunLookup: async (cardId, queue) => bqes.findActiveByCardId(cardId, queue)?.runId,
     });
     const automationNudge = createWorkboardAutomationNudgeService({
       store,
@@ -100,6 +70,12 @@ export default definePluginEntry({
       readSessions: async (options) =>
         await readWorkboardLifecycleSessions(api.runtime.gateway, options),
     });
+    const storeAuthorityGuard = createWorkboardStoreAuthorityGuard(store);
+    // Start the authority probe during registration as well as through the
+    // host service lifecycle. A missed gateway_start/service-start callback
+    // must not leave Workboard without a recovery guard.
+    storeAuthorityGuard.startGuard(api.logger);
+    registerWorkboardStoreLifecycle(api, store, () => storeAuthorityGuard.stop());
     api.session.controls.registerControlUiDescriptor({
       surface: "tab",
       id: "workboard",
@@ -132,8 +108,10 @@ export default definePluginEntry({
     api.registerService(createWorkboardChangeEventService(store));
     api.registerService(automationNudge);
     api.registerService(lifecycleSync);
+    api.registerService(storeAuthorityGuard);
     api.on("gateway_start", () => lifecycleSync.onGatewayStart());
     api.on("gateway_stop", () => lifecycleSync.onGatewayStop());
+    api.on("gateway_stop", () => bqes.close());
     api.on("subagent_ended", async (event) => {
       await syncWorkboardSubagentEnded({
         store,
