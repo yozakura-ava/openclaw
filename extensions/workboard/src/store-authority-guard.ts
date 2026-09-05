@@ -30,9 +30,13 @@ export function createWorkboardStoreAuthorityGuard(store: WorkboardStore): OpenC
       return;
     }
     try {
+      if (typeof store.probeSqliteAuthority !== "function") {
+        throw new Error("workboard SQLite authority probe is unavailable");
+      }
       await store.probeSqliteAuthority();
     } catch (error) {
-      const recovered = store.recoverSqliteAuthority();
+      const recovered =
+        typeof store.recoverSqliteAuthority === "function" ? store.recoverSqliteAuthority() : false;
       logger.warn(
         `workboard SQLite authority probe failed; recovery=${recovered ? "succeeded" : "scheduled_or_failed"}: ${String(error)}`,
       );

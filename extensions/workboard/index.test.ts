@@ -2,7 +2,12 @@ import { capturePluginRegistration } from "openclaw/plugin-sdk/plugin-test-runti
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./src/store.js", () => ({
-  WorkboardStore: { openSqlite: () => ({}) },
+  WorkboardStore: {
+    openSqlite: () => ({
+      probeSqliteAuthority: vi.fn().mockResolvedValue(undefined),
+      recoverSqliteAuthority: vi.fn(() => false),
+    }),
+  },
 }));
 
 import plugin from "./index.js";

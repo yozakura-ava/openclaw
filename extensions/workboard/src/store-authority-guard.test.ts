@@ -33,4 +33,15 @@ describe("Workboard SQLite authority guard", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("recovery=succeeded"));
     service.stop();
   });
+
+  it("keeps a partial host store from creating an unhandled rejection", async () => {
+    const warn = vi.fn();
+    const service = createWorkboardStoreAuthorityGuard({} as WorkboardStore);
+
+    void service.start({ logger: { warn } } as never);
+    await vi.waitFor(() =>
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("probe is unavailable")),
+    );
+    service.stop();
+  });
 });
