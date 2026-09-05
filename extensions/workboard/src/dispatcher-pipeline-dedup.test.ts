@@ -125,6 +125,51 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       expect(after?.metadata?.automation?.dispatchCount ?? 0).toBe(0);
       expect(after?.metadata?.automation?.lastDispatchAt).toBeUndefined();
     });
+
+    it("selectStartableCards selects a blank-agent card via the operator exact start path", async () => {
+      // Rin verdict (ee4dda8f iter 3): the routing gate applies ONLY to
+      // the auto-dispatch (scheduled) path. Operator-initiated exact starts
+      // routed through `prepareStart({ cardId })` must still launch the card
+      // regardless of agentId — the operator owns the lane assignment and
+      // explicitly named the card to start.
+      const keyed = createMemoryStore();
+      const store = new WorkboardStore(keyed);
+      const card = await store.create({
+        title: "Operator-launched blank-agent card",
+        status: "ready",
+        workspaceAccess: { unrestricted: true },
+      });
+      // Force a blank agentId — same shape as the default-owner fallback
+      // path that R4 (card f88f4ec9) exercises.
+      await keyed.register(card.id, {
+        version: 1,
+        card: { ...card, agentId: "" },
+      });
+      expect((await store.get(card.id))?.agentId).toBe("");
+
+      let runInvocations = 0;
+      const subagent = {
+        run: async () => {
+          runInvocations += 1;
+          return { runId: "run-exact-blank-agent" };
+        },
+      };
+
+      const result = await dispatchAndStartWorkboardCards({
+        store,
+        subagent,
+        options: { now: 1_000_000, maxStarts: 5, cardId: card.id },
+      });
+
+      expect(runInvocations).toBe(1);
+      expect(result.started).toHaveLength(1);
+      expect(result.started[0]).toMatchObject({ cardId: card.id });
+      expect(result.startFailures).toEqual([]);
+
+      const after = await store.get(card.id);
+      expect(after?.status).toBe("running");
+      expect(after?.metadata?.claim).toBeDefined();
+    });
   });
 
   describe("dedup gate (recent failed attempt)", () => {
