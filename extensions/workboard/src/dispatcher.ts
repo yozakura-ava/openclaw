@@ -262,11 +262,12 @@ function selectStartableCards(
     // unknown agentId — those need an explicit operator handoff. Human-
     // initiated (exact) dispatches bypass this gate and remain allowed.
     if (mode === "scheduled" && isBlankAgentId(card.agentId)) {
+      continue;
+    }
 
-    // Pipeline auto-dispatch dedup (card ee4dda8f): silently skip cards
-    // whose most-recent attempt failed within DISPATCH_COOLDOWN_MS. Active
-    // claims are caught by `cardHasActiveClaim` below; this catches the
-    // post-TTL window between claim expiry and the next legit dispatch.
+    // Skip cards whose latest attempt failed within the cooldown window.
+    // Active claims are caught by `cardHasActiveClaim` below; this catches
+    // the post-TTL window between claim expiry and the next legit dispatch.
     if (hasRecentFailedAttempt(card, now, DISPATCH_COOLDOWN_MS)) {
       continue;
     }
