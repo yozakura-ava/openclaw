@@ -2151,6 +2151,22 @@ describe("WorkboardStore", () => {
     expect(saved?.metadata?.comments?.map((comment) => comment.body)).toContain("Operator note.");
   });
 
+  it("surfaces split-and-retry instruction when comment body exceeds 4096 chars (card 9cfd6ba9)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Comment length regression" });
+
+    await expect(store.addComment(card.id, { body: "x".repeat(4097) })).rejects.toThrow(
+      /^comment body must be 4096 characters or fewer \(got 4097\)\. Split into multiple workboard_comment calls of <3900 characters each \(server cap is 4096; resubmitting the same oversized blob will keep failing\)\.$/,
+    );
+
+    // Non-comment fields (title, notes) keep the original terse error so we
+    // do not advertise a split recipe for fields where splitting is not
+    // meaningful.
+    await expect(store.create({ title: "y".repeat(181), boardId: card.boardId })).rejects.toThrow(
+      /^title must be 180 characters or fewer\.?$/,
+    );
+  });
+
   it("exports card records with metadata", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Export me", templateId: "docs" });
