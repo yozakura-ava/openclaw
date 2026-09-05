@@ -27,6 +27,17 @@ export const RUNNING_HEARTBEAT_STALE_MS = 20 * 60 * 1000;
 export const BLOCKED_TOO_LONG_MS = 24 * 60 * 60 * 1000;
 const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 
+// Pipeline auto-dispatch dedup (card ee4dda8f):
+//   * DISPATCH_COOLDOWN_MS: skip dispatch when the most-recent attempt on the
+//     card ended in a terminal failure inside this window. Prevents the
+//     every-5-minute re-dispatch loop that produced duplicate
+//     [PIPELINE]-/[VERIFY-ESCALATION] cards.
+//   * MAX_PIPELINE_RETRY_STRIKES: after this many failed dispatch attempts
+//     without progress, the card is parked in `blocked` with a notification
+//     and a worker-log entry for orchestrator review.
+export const DISPATCH_COOLDOWN_MS = 10 * 60 * 1000;
+export const MAX_PIPELINE_RETRY_STRIKES = 3;
+
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
   now: number,
