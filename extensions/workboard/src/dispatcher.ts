@@ -21,9 +21,10 @@ import {
   type ResolveAgentWorkspaceRuntime,
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
-import { cardBoardId } from "./store-card-helpers.js";
+import { cardBoardId, hasRecentFailedAttempt } from "./store-card-helpers.js";
 import {
   DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER,
+  DISPATCH_COOLDOWN_MS,
   normalizeMaxConcurrentClaimsPerOwner,
   workboardCardConsumesOwnerSlot,
   workboardCardSlotOwner,
@@ -258,6 +259,25 @@ function selectStartableCards(
   const selectedByOwner = new Map<string, number>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
+    // Pipeline auto-dispatch dedup (card ee4dda8f, iter 3):
+    //   - Routing gate: applies ONLY to the auto-dispatch (scheduled) path.
+    //     store.dispatch() also suppresses metadata bumps on unrouted
+    //     cards, and selectStartableCards() likewise skips them when the
+    //     pipeline is doing the routing. Operator-initiated exact starts
+    //     (mode === "exact", routed through `prepareStart`) intentionally
+    //     bypass this gate — the operator owns the lane assignment and
+    //     the prepareStart path is the one operators use to launch a
+    //     known card by id.
+    //   - Dedup gate: silently skip cards whose most-recent attempt failed
+    //     within DISPATCH_COOLDOWN_MS. Active claims are caught by
+    //     `cardHasActiveClaim` below; this catches the post-TTL window
+    //     between claim expiry and the next legit dispatch.
+    if (mode === "scheduled" && (!card.agentId || card.agentId.trim() === "")) {
+      continue;
+    }
+    if (hasRecentFailedAttempt(card, now, DISPATCH_COOLDOWN_MS)) {
+      continue;
+    }
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
     const ownerRunning = (runningByOwner.get(owner) ?? 0) + (selectedByOwner.get(owner) ?? 0);
     const rejection = cardIsArchived(card)

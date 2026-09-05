@@ -1282,7 +1282,12 @@ export class WorkboardCoreStore {
     return visit(cardId);
   }
 
-  protected async recordDispatch(card: WorkboardCard, now: number): Promise<WorkboardCard> {
+  protected async recordDispatch(
+    card: WorkboardCard,
+    now: number,
+    options?: { pipelineStrikes?: number },
+  ): Promise<WorkboardCard> {
+    const pipelineStrikes = options?.pipelineStrikes;
     const result = await this.updateLatestCard(card.id, (current) => ({
       metadata: {
         ...current.metadata,
@@ -1291,6 +1296,9 @@ export class WorkboardCoreStore {
             ...current.metadata?.automation,
             dispatchCount: (current.metadata?.automation?.dispatchCount ?? 0) + 1,
             lastDispatchAt: now,
+            ...(pipelineStrikes !== undefined
+              ? { pipelineStrikes, pipelineStrikesUpdatedAt: now }
+              : {}),
           },
           current.metadata?.automation,
         ),
