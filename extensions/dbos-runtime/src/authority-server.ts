@@ -56,7 +56,10 @@ export function createDbosAuthorityServer(options: DbosAuthorityServerOptions): 
     1,
     Math.min(100_000, Math.trunc(options.maxReplayNonces ?? 10_000)),
   );
-  const maxBodyBytes = Math.max(1024, options.maxBodyBytes ?? 256 * 1024);
+  // Workboard attachment values are bounded at 256 KiB before base64/JSON
+  // framing. Keep enough headroom for that encoded payload and its authority
+  // envelope while retaining a bounded request body.
+  const maxBodyBytes = Math.max(1024, options.maxBodyBytes ?? 512 * 1024);
   const now = options.now ?? Date.now;
   const nonces = new Map<string, number>();
 
