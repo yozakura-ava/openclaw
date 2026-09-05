@@ -94,6 +94,13 @@ type WorkboardMutationJournalEntry = {
 
 const WORKBOARD_CAS_ATTEMPTS = 3;
 
+// Card 9cfd6ba9 (2026-09-05): recognize the bare length-cap error from
+// `normalizeBoundedString("comment body", 4096)` so the caller can be told to
+// split into multiple workboard_comment calls instead of repeatedly retrying
+// the same oversized blob.
+const COMMENT_BODY_LENGTH_ERROR_PATTERN =
+  /^comment body must be 4096 characters or fewer \(got \d+\)\.$/;
+
 export class WorkboardCoreStore extends WorkboardStoreRuntime {
   private lastNotificationSequence = 0;
   private readonly cardStore?: WorkboardCardStore;
@@ -973,7 +980,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 4096, "comment body");
+    const body = this.normalizeCommentBodyForWrite(input.body);
     if (!body) {
       throw new Error("comment body is required.");
     }
@@ -985,6 +992,27 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
       };
     });
+  }
+
+  /**
+   * Validate an inbound comment body and surface the server cap as an
+   * actionable split-and-retry instruction. The plain
+   * `normalizeBoundedString` error (`comment body must be 4096 characters or
+   * fewer (got N).`) is non-actionable — agents repeatedly retry the same
+   * oversized blob. Card 9cfd6ba9 (2026-09-05) appends the split recipe so
+   * the failure mode becomes self-correcting instead of a retry loop.
+   */
+  private normalizeCommentBodyForWrite(value: unknown): string | undefined {
+    try {
+      return normalizeBoundedString(value, undefined, 4096, "comment body");
+    } catch (error) {
+      if (error instanceof Error && COMMENT_BODY_LENGTH_ERROR_PATTERN.test(error.message)) {
+        throw new Error(
+          `${error.message} Split into multiple workboard_comment calls of <3900 characters each (server cap is 4096; resubmitting the same oversized blob will keep failing).`,
+        );
+      }
+      throw error;
+    }
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
