@@ -21,6 +21,7 @@ import {
   type ScheduledToolPolicyContext,
 } from "../agents/scheduled-tool-policy.js";
 import { buildDeclaredToolAllowlistContext } from "../agents/tool-policy-declared-context.js";
+import { isToolAllowedByPolicies } from "../agents/tool-policy-match.js";
 import {
   applyToolPolicyPipeline,
   buildDefaultToolPolicyPipelineSteps,
@@ -159,7 +160,11 @@ export function resolveGatewayScopedTools(params: {
   const providerProfilePolicy = resolveToolProfilePolicy(providerProfile);
   const surface = params.surface ?? "http";
   const nodeExecSurface = surface === "loopback" && params.includeNodeExecTool === true;
-  const gatewayRequestedTools = params.gatewayRequestedTools ?? [];
+  // A requested optional tool is a materialization hint that may bypass a
+  // built-in profile's missing plugin entry, but it must not bypass an
+  // explicit caller/agent policy. Keep profile policies out of this preflight
+  // because the request is intentionally allowed to late-load optional tools.
+  const requestedGatewayTools = params.gatewayRequestedTools ?? [];
   const messageProvider = params.messageProvider?.trim().toLowerCase();
   const gatewayCaller = resolveScheduledToolCallerContext({
     scheduledToolPolicy: params.scheduledToolPolicy,
@@ -172,16 +177,6 @@ export function resolveGatewayScopedTools(params: {
       ? "message_tool_only"
       : undefined);
   const runtimeAlsoAllow = sourceReplyDeliveryMode === "message_tool_only" ? ["message"] : [];
-  const profilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(profilePolicy, [
-    ...(profileAlsoAllow ?? []),
-    ...gatewayRequestedTools,
-    ...runtimeAlsoAllow,
-  ]);
-  const providerProfilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(providerProfilePolicy, [
-    ...(providerProfileAlsoAllow ?? []),
-    ...gatewayRequestedTools,
-    ...runtimeAlsoAllow,
-  ]);
   const senderId = params.channelContext?.sender?.id;
   // Only immutable Gateway-launched grants can opt into node exec. Match the
   // embedded runner's wildcard sender policy while preserving owner WebChat.
@@ -223,6 +218,29 @@ export function resolveGatewayScopedTools(params: {
     classificationAgentId: policyAgentId,
   });
   const sandboxPolicy = sandboxRuntime.sandboxed ? sandboxRuntime.toolPolicy : undefined;
+  const gatewayRequestedTools = requestedGatewayTools.filter((toolName) =>
+    isToolAllowedByPolicies(toolName, [
+      globalPolicy,
+      globalProviderPolicy,
+      agentPolicy,
+      agentProviderPolicy,
+      groupPolicy,
+      senderPolicy,
+      sandboxPolicy,
+      subagentPolicy,
+      inheritedToolPolicy,
+    ]),
+  );
+  const profilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(profilePolicy, [
+    ...(profileAlsoAllow ?? []),
+    ...gatewayRequestedTools,
+    ...runtimeAlsoAllow,
+  ]);
+  const providerProfilePolicyWithAlsoAllow = mergeAlsoAllowPolicy(providerProfilePolicy, [
+    ...(providerProfileAlsoAllow ?? []),
+    ...gatewayRequestedTools,
+    ...runtimeAlsoAllow,
+  ]);
   const excludedToolNames = params.excludeToolNames ? Array.from(params.excludeToolNames) : [];
   const mediatedToolNames = new Set(
     Array.from(params.mediatedToolNames ?? [], (name) => normalizeToolPolicyName(name)).filter(
