@@ -259,14 +259,20 @@ function selectStartableCards(
   const selectedByOwner = new Map<string, number>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
-    // Pipeline auto-dispatch dedup (card ee4dda8f): silently skip cards
-    // whose most-recent attempt failed within DISPATCH_COOLDOWN_MS. Active
-    // claims are caught by `cardHasActiveClaim` below; this catches the
-    // post-TTL window between claim expiry and the next legit dispatch.
-    // The routing gate (no agentId) lives in store.dispatch() — see
-    // extensions/workboard/src/store.ts — so the pipeline stops bumping
-    // dispatch metadata on unrouted cards without affecting direct card
-    // dispatch paths (e.g. tests, operator-driven start).
+    // Pipeline auto-dispatch dedup (card ee4dda8f):
+    //   - Routing gate: skip unrouted cards here too. store.dispatch() also
+    //     suppresses metadata bumps on them, but the normal auto-dispatch
+    //     path through selectStartableCards() would still select and
+    //     launch them otherwise (Rin verdict, iteration 2). Direct operator
+    //     starts that go through `prepareStart` still surface to the
+    //     operator — the operator owns the lane assignment.
+    //   - Dedup gate: silently skip cards whose most-recent attempt failed
+    //     within DISPATCH_COOLDOWN_MS. Active claims are caught by
+    //     `cardHasActiveClaim` below; this catches the post-TTL window
+    //     between claim expiry and the next legit dispatch.
+    if (!card.agentId || card.agentId.trim() === "") {
+      continue;
+    }
     if (hasRecentFailedAttempt(card, now, DISPATCH_COOLDOWN_MS)) {
       continue;
     }

@@ -85,6 +85,46 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       expect(after?.metadata?.automation?.dispatchCount).toBe(1);
       expect(after?.metadata?.automation?.lastDispatchAt).toBe(10);
     });
+
+    it("selectStartableCards never launches an unrouted card via the auto-dispatch path", async () => {
+      // Rin verdict (ee4dda8f iter 2): the routing gate only suppressed
+      // store.dispatch() metadata bumps. selectStartableCards() can still
+      // pick and launch an unrouted card through the normal auto-dispatch
+      // path. Confirm the selection-layer gate is also in effect.
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({
+        title: "Unrouted auto-dispatch candidate",
+        status: "ready",
+        // Deliberately no agentId — the routing gate must filter this.
+      });
+      expect(card.agentId).toBeUndefined();
+
+      let runInvocations = 0;
+      const subagent = {
+        run: async () => {
+          runInvocations += 1;
+          return { runId: "should-not-run" };
+        },
+      };
+
+      const result = await dispatchAndStartWorkboardCards({
+        store,
+        subagent,
+        options: { now: 1_000_000, maxStarts: 5 },
+      });
+
+      expect(runInvocations).toBe(0);
+      expect(result.started).toEqual([]);
+      expect(result.startFailures).toEqual([]);
+
+      const after = await store.get(card.id);
+      expect(after?.agentId).toBeUndefined();
+      expect(after?.metadata?.claim).toBeUndefined();
+      // Routing gate at store.dispatch() is independent — also confirm it
+      // still suppresses dispatch metadata on unrouted cards (no regression).
+      expect(after?.metadata?.automation?.dispatchCount ?? 0).toBe(0);
+      expect(after?.metadata?.automation?.lastDispatchAt).toBeUndefined();
+    });
   });
 
   describe("dedup gate (recent failed attempt)", () => {
