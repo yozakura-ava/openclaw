@@ -70,6 +70,29 @@ describe("resolveGatewayScopedTools", () => {
     expect(result.tools.some((tool) => tool.name === "message")).toBe(false);
   });
 
+  it("does not let a requested optional tool bypass an agent allowlist", () => {
+    const cfg = {
+      tools: { profile: "full" },
+      agents: {
+        ownership: "explicit",
+        entries: {
+          main: {},
+          tomoe: { tools: { allow: ["workboard_read"] } },
+        },
+      },
+    } satisfies OpenClawConfig;
+
+    const result = resolveGatewayScopedTools({
+      cfg,
+      agentId: "tomoe",
+      sessionKey: "agent:tomoe:main",
+      surface: "http",
+      gatewayRequestedTools: ["workboard_force_close"],
+    });
+
+    expect(result.tools.some((tool) => tool.name === "workboard_force_close")).toBe(false);
+  });
+
   it("keeps default-agent credentials out of unbound gateway calls", () => {
     const cfg = {
       agents: { defaults: { imageModel: { primary: "openai/gpt-5.4-mini" } } },

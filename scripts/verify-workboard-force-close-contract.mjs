@@ -88,13 +88,23 @@ function verifyConfiguredPolicy(configPath) {
   const failures = [];
   for (const [agentId, entry] of Object.entries(entries)) {
     const allow = entry?.tools?.allow;
+    const deny = entry?.tools?.deny;
     const hasForceClose = hasTool(allow);
+    const deniesForceClose = hasTool(deny);
     if (allowedAgentIds.includes(agentId)) {
       if (Array.isArray(allow) && !hasForceClose) {
         failures.push(`${agentId}: explicit allowlist omits ${toolName}`);
       }
-    } else if (hasForceClose) {
-      failures.push(`${agentId}: deny-by-default policy must omit ${toolName}`);
+      if (deniesForceClose) {
+        failures.push(`${agentId}: allowed agent is explicitly denied ${toolName}`);
+      }
+    } else {
+      if (hasForceClose) {
+        failures.push(`${agentId}: deny-by-default policy must omit ${toolName}`);
+      }
+      if (!Array.isArray(allow) && !deniesForceClose) {
+        failures.push(`${agentId}: must have an explicit allowlist or deny for ${toolName}`);
+      }
     }
   }
   return { checked: true, failures };
@@ -112,7 +122,9 @@ async function verifyLivePolicy(baseUrl, authHeader) {
   }
   const failures = [];
   for (const [agentId, expectedAllowed] of [
+    ["main", true],
     ["himari", true],
+    ["reina", true],
     ["tomoe", false],
   ]) {
     const response = await fetch(`${baseUrl.replace(/\/$/u, "")}/tools/invoke`, {
