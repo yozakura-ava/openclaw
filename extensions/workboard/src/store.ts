@@ -2,7 +2,6 @@
 import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
-  WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardDiagnostic,
   WorkboardExecution,
@@ -21,16 +20,21 @@ import {
   cardSessionKey,
   closeRunningAttempts,
   computeCardDiagnostics,
+  hasRecentFailedAttempt,
   isDependencyPromotableStatus,
   latestRunningAttempt,
   mergeDiagnostics,
+  pipelineStrikeCount,
   retryBudgetExhausted,
   shouldSkipPersistedLifecycleStatusUpdate,
   shouldSyncWorkboardLifecycleStatus,
 } from "./store-card-helpers.js";
 import {
+  DISPATCH_COOLDOWN_MS,
   isWorkboardClaimReclaimable,
   MAX_CARD_NOTIFICATIONS,
+  MAX_CARD_WORKER_LOGS,
+  MAX_PIPELINE_RETRY_STRIKES,
   secondsToDurationMs,
 } from "./store-constants.js";
 import type {
@@ -41,7 +45,12 @@ import type {
   WorkboardDispatchResult,
   WorkboardMutationScope,
 } from "./store-inputs.js";
-import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
+import {
+  capText,
+  normalizeAutomation,
+  normalizeBoardId,
+  normalizeTimestamp,
+} from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
@@ -423,20 +432,16 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return await this.enqueueMutation(async () => await this.promoteDependencyReady(id, now));
   }
 
-  private async getAutoOrchestrationBoard(
-    card: WorkboardCard,
-  ): Promise<WorkboardBoardMetadata | undefined> {
+  private async shouldAutoOrchestrate(card: WorkboardCard): Promise<boolean> {
     if (
       card.status !== "triage" ||
       card.metadata?.archivedAt ||
       card.metadata?.workerProtocol?.state === "idle"
     ) {
-      return undefined;
+      return false;
     }
     const board = await this.boardStore.lookup(cardBoardId(card));
-    return board?.version === 1 && board.board.orchestration?.autoDecompose === true
-      ? board.board
-      : undefined;
+    return board?.version === 1 && board.board.orchestration?.autoDecompose === true;
   }
 
   async dispatch(
@@ -524,10 +529,80 @@ export class WorkboardStore extends WorkboardNotificationStore {
           });
           blocked.push(latest);
         }
-        const orchestrationBoard = await this.getAutoOrchestrationBoard(latest);
-        if (orchestrationBoard) {
+        if (latest.status === "ready" && !latest.metadata?.archivedAt) {
+          // Pipeline auto-dispatch dedup (card ee4dda8f):
+          //   - Routing gate: unrouted cards never get a dispatch record
+          //     bumped. The Himari triage lane owns routing; the pipeline
+          //     must wait.
+          //   - Dedup gate + strike counter: a recent failed attempt means
+          //     we just dispatched this card. Bump pipelineStrikes; on
+          //     saturation (>= MAX_PIPELINE_RETRY_STRIKES) park in
+          //     `blocked` with a notification and a worker-log entry for
+          //     orchestrator review. Recovery (no recent failure) resets
+          //     any stale strikes before recording the dispatch.
+          if (!latest.agentId || latest.agentId.trim() === "") {
+            // Routing gate: silent skip, no strike, no recordDispatch.
+          } else if (hasRecentFailedAttempt(latest, now, DISPATCH_COOLDOWN_MS)) {
+            const nextStrikes = pipelineStrikeCount(latest) + 1;
+            if (nextStrikes >= MAX_PIPELINE_RETRY_STRIKES) {
+              const saturationReason = `Card exhausted pipeline auto-dispatch retries (${nextStrikes}/${MAX_PIPELINE_RETRY_STRIKES} strikes within ${DISPATCH_COOLDOWN_MS}ms cooldown). Orchestrator review required.`;
+              const execution =
+                latest.execution?.status === "running"
+                  ? { ...latest.execution, status: "blocked" as const, updatedAt: now }
+                  : latest.execution;
+              latest = await this.updateCard(latest.id, {
+                status: "blocked",
+                ...(execution ? { execution } : {}),
+                metadata: {
+                  ...latest.metadata,
+                  automation: normalizeAutomation(
+                    {
+                      ...latest.metadata?.automation,
+                      // Reset on park so an operator-driven unblock starts
+                      // with a fresh strike budget.
+                      pipelineStrikes: 0,
+                      pipelineStrikesUpdatedAt: now,
+                    },
+                    latest.metadata?.automation,
+                  ),
+                  notifications: [
+                    ...(latest.metadata?.notifications ?? []),
+                    {
+                      id: randomUUID(),
+                      kind: "failed" as const,
+                      createdAt: now,
+                      sequence: this.nextNotificationSequence(now),
+                      message: saturationReason,
+                    },
+                  ].slice(-MAX_CARD_NOTIFICATIONS),
+                  workerLogs: [
+                    ...(latest.metadata?.workerLogs ?? []),
+                    {
+                      id: randomUUID(),
+                      level: "warning" as const,
+                      message: `Pipeline dispatch saturated; orchestrator review recommended. ${saturationReason}`,
+                      createdAt: now,
+                    },
+                  ].slice(-MAX_CARD_WORKER_LOGS),
+                },
+              });
+              blocked.push(latest);
+            } else {
+              latest = await this.recordDispatch(latest, now, {
+                pipelineStrikes: nextStrikes,
+              });
+            }
+          } else if (pipelineStrikeCount(latest) > 0) {
+            // Recovery: clear stale strikes before recording dispatch.
+            latest = await this.recordDispatch(latest, now, { pipelineStrikes: 0 });
+          } else {
+            latest = await this.recordDispatch(latest, now);
+          }
+        }
+        if (await this.shouldAutoOrchestrate(latest)) {
           const latestBoardId = cardBoardId(latest);
-          const cap = orchestrationBoard.orchestration?.autoDecomposePerDispatch ?? 3;
+          const board = await this.boardStore.lookup(latestBoardId);
+          const cap = board?.board.orchestration?.autoDecomposePerDispatch ?? 3;
           const boardCount = orchestratedByBoard.get(latestBoardId) ?? 0;
           if (boardCount < cap) {
             latest = await this.recordOrchestrationCandidate(latest, now);
@@ -546,53 +621,6 @@ export class WorkboardStore extends WorkboardNotificationStore {
         orchestrated,
         count: promoted.length + reclaimed.length + blocked.length + orchestrated.length,
       };
-    });
-  }
-
-  async forceClose(
-    id: string,
-    input: { reasonCode?: unknown; explanation?: unknown; referenceCardId?: unknown },
-    ownerId: string,
-  ): Promise<WorkboardCard> {
-    const normalizedOwner = ownerId.trim().toLowerCase();
-    if (!["ava", "craig", "operator:craig", "agent:craig"].includes(normalizedOwner)) {
-      throw new Error("force-close is orchestrator-only");
-    }
-    const reasonCode = input.reasonCode;
-    if (!["superseded", "duplicate", "cancelled", "invalid"].includes(String(reasonCode))) {
-      throw new Error("force-close reason_code is invalid");
-    }
-    const explanation = typeof input.explanation === "string" ? input.explanation.trim() : "";
-    if (explanation.length < 20 || explanation.length > 4000) {
-      throw new Error("force-close explanation must be between 20 and 4000 characters");
-    }
-    const referenceCardId =
-      typeof input.referenceCardId === "string" ? input.referenceCardId.trim() : "";
-    if ((reasonCode === "superseded" || reasonCode === "duplicate") && !referenceCardId) {
-      throw new Error(`force-close reason ${reasonCode} requires reference_card_id`);
-    }
-    if (referenceCardId && !(await this.get(referenceCardId))) {
-      throw new Error(`reference card not found: ${referenceCardId}`);
-    }
-    const existing = await this.get(id);
-    if (!existing) {
-      throw new Error(`card not found: ${id}`);
-    }
-    if (existing.status === "done") {
-      throw new Error(`card is already done: ${id}`);
-    }
-    const now = Date.now();
-    return await this.update(id, {
-      status: "done",
-      metadata: {
-        ...existing.metadata,
-        claim: undefined,
-        closureType: "force_close",
-        comments: [
-          ...(existing.metadata?.comments ?? []),
-          { id: randomUUID(), body: `[${String(reasonCode)}] ${explanation}`, createdAt: now },
-        ].slice(-50),
-      },
     });
   }
 
@@ -618,20 +646,12 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return { cards };
   }
 
-  async archive(
-    id: string,
-    archived: unknown,
-    options: { expectedUpdatedAt?: number } = {},
-  ): Promise<WorkboardCard> {
+  async archive(id: string, archived: unknown): Promise<WorkboardCard> {
     const shouldArchive = archived !== false;
-    return await this.updateMetadata(
-      id,
-      (existing) => ({
-        ...existing.metadata,
-        archivedAt: shouldArchive ? Date.now() : 0,
-      }),
-      options,
-    );
+    return await this.updateMetadata(id, (existing) => ({
+      ...existing.metadata,
+      archivedAt: shouldArchive ? Date.now() : 0,
+    }));
   }
 
   async exportCards(): Promise<{
@@ -694,8 +714,8 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return buildWorkerContext(card, await this.list());
   }
 
-  static openSqlite(workerModuleUrl: URL) {
-    const stores = createWorkboardSqliteStores({ workerModuleUrl });
+  static openSqlite() {
+    const stores = createWorkboardSqliteStores();
     return new WorkboardStore(stores.cards, stores);
   }
 }
