@@ -5,7 +5,6 @@
 // committed. There is deliberately no gateway fallback path.
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   deriveIdempotencyKey,
   deriveWorkflowId,
@@ -14,8 +13,9 @@ import {
   type AdmissionGate,
 } from "@openclaw/execution-contract";
 import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
+import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
-import type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
+import type { DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
 import { DBOS_QUEUE_CONCURRENCY } from "./dbos-constants.js";
 import { DbosRuntimeError } from "./dbos-errors.js";
 export type { DbosAuthority, DbosReceipt, DbosWorkflowInput } from "./authority-types.js";
@@ -47,6 +47,7 @@ export type ReconciliationFinding = {
 };
 
 type Row = Record<string, unknown>;
+type SqliteDatabase = ReturnType<typeof openNodeSqliteDatabase>;
 const DEFAULT_DB_PATH = ["plugins", "workboard", "dbos.sqlite"] as const;
 export const WORKBOARD_DBOS_STATE_MAP: Readonly<Record<string, DbosWorkflowState | null>> = {
   triage: null,
@@ -80,7 +81,7 @@ function parse<T>(value: unknown, fallback: T): T {
   return typeof value === "string" && value.length > 0 ? (JSON.parse(value) as T) : fallback;
 }
 
-function transaction<T>(db: DatabaseSync, fn: () => T): T {
+function transaction<T>(db: SqliteDatabase, fn: () => T): T {
   return runSqliteImmediateTransactionSync(db, fn, {
     databaseLabel: "dbos compatibility database",
     maxHoldMs: 5_000,
@@ -143,14 +144,14 @@ export function resolveDbosDbPath(env: NodeJS.ProcessEnv = process.env): string 
  * a second live workflow store.
  */
 export class DbosRuntime {
-  readonly db: DatabaseSync;
+  readonly db: ReturnType<typeof openNodeSqliteDatabase>;
   private readonly now: () => number;
   private readonly gate?: AdmissionGate;
 
   constructor(options: { dbPath?: string; now?: () => number; gate?: AdmissionGate } = {}) {
     const dbPath = options.dbPath ?? resolveDbosDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(dbPath);
+    this.db = openNodeSqliteDatabase(dbPath);
     this.now = options.now ?? Date.now;
     this.gate = options.gate;
     this.db.exec(`

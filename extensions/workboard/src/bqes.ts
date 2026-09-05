@@ -5,7 +5,6 @@ import { randomUUID } from "node:crypto";
 // its own admission or terminal evidence.
 import fs from "node:fs";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
   deriveIdempotencyKey,
   deriveWorkflowId,
@@ -18,6 +17,7 @@ import {
   type ExecutionIdentityInput,
 } from "@openclaw/execution-contract";
 import { runSqliteImmediateTransactionSync } from "openclaw/plugin-sdk/sqlite-runtime";
+import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-runtime";
 import { resolveStateDir } from "openclaw/plugin-sdk/state-paths";
 
 export type BqesDbosReceipt = {
@@ -129,6 +129,7 @@ export type ReceiptReconciliation = {
 };
 
 type Row = Record<string, unknown>;
+type SqliteDatabase = ReturnType<typeof openNodeSqliteDatabase>;
 
 const DEFAULT_DB_PATH = ["plugins", "workboard", "bqes.sqlite"] as const;
 const BQES_SCHEMA_VERSION = 3;
@@ -154,7 +155,7 @@ function number(row: Row, key: string): number {
   return result;
 }
 
-function transaction<T>(db: DatabaseSync, fn: () => T): T {
+function transaction<T>(db: SqliteDatabase, fn: () => T): T {
   return runSqliteImmediateTransactionSync(db, fn, {
     databaseLabel: "workboard-bqes",
     operationLabel: "workboard.bqes.write",
@@ -285,13 +286,13 @@ export class BqesAdmissionError extends Error {
 }
 
 export class BqesService implements AdmissionGate {
-  readonly db: DatabaseSync;
+  readonly db: ReturnType<typeof openNodeSqliteDatabase>;
   private readonly now: () => number;
 
   constructor(options: { dbPath?: string; now?: () => number } = {}) {
     const dbPath = options.dbPath ?? resolveBqesDbPath();
     fs.mkdirSync(path.dirname(dbPath), { recursive: true, mode: 0o700 });
-    this.db = new DatabaseSync(dbPath);
+    this.db = openNodeSqliteDatabase(dbPath);
     this.now = options.now ?? Date.now;
     this.db.exec(`
       PRAGMA busy_timeout = 5000;
