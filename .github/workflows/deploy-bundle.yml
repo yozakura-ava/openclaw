@@ -1,0 +1,99 @@
+# On-demand deploy bundle build.
+#
+# Implements Craig's directive: heavy deployable-bundle builds run on GitHub
+# Actions' free public-repo runners instead of the staging server. The server
+# only consumes the resulting artifact (a tarball-equivalent directory) and
+# unpacks it under /root/.openclaw/deployments/.
+#
+# Procedure reference: docs/ci.md (canonical CI/build pipeline contract).
+# Build entrypoint: scripts/build-all.mts (package profile) — see
+# BUILD_ALL_PROFILES and BUILD_ALL_PROFILE_STEP_ENV. The "package" profile
+# runs the full deployment-grade step graph (clean:dist, tsdown-ai,
+# tsdown-packages, tsdown-unified, runtime-postbuild, build-stamp, ui:build,
+# check-build-artifact-identity, write-cli-startup-metadata, ...) while
+# preserving canonical dts — the same profile used by Docker packaging and
+# release builds. This workflow does NOT reimplement the build; it shells
+# out to `pnpm run build:package`, which is the documented repo script
+# (`build:package` → `node --import ./scripts/tsx.mjs scripts/build-all.mts
+# package`).
+#
+# Phase 3 CI-audit context: this is the CI-only build path for the
+# deployable bundle; PR CI still uses the `ciArtifacts` profile (no full
+# dts). Manual dispatch keeps the public-repo runner path so the staging
+# server stays cold during rebuilds.
+name: Deploy Bundle Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to build (branch, tag, or full commit SHA)
+        required: false
+        default: canonical/2026.9.2-base
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-manual-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  build_deploy_bundle:
+    name: Build deploy bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.x
+
+      - name: Activate pnpm via corepack
+        # package.json pins pnpm@12.1.0 in packageManager; corepack pulls the
+        # exact pinned version without a separate pnpm/action-setup step.
+        run: corepack enable pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: Build deploy bundle
+        # Reuses the repo's own scripts/build-all.mts package profile. No
+        # build steps are reimplemented in this workflow.
+        run: pnpm run build:package
+
+      - name: Upload deploy bundle
+        # Path list mirrors the layout of an existing deployment under
+        # /root/.openclaw/deployments/openclaw-<version>-<ts>/. The artifact
+        # is unpacked on the staging server next to the prior deployment.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deploy-bundle
+          path: |
+            dist
+            openclaw.mjs
+            package.json
+            pnpm-workspace.yaml
+            patches
+            node-version.mjs
+            LICENSE
+            CHANGELOG.md
+            README.md
+            THIRD_PARTY_NOTICES.md
+            custodian-skills
+            docs
+            skills
+            scripts
+            node_modules
+          if-no-files-found: error
+          retention-days: 14
