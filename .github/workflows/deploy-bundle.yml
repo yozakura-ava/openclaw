@@ -2,25 +2,94 @@
 #
 # Implements Craig's directive: heavy deployable-bundle builds run on GitHub
 # Actions' free public-repo runners instead of the staging server. The server
-# only consumes the resulting artifact (a tarball-equivalent directory) and
-# unpacks it under /root/.openclaw/deployments/.
+# only consumes the resulting artifact (a single tarball of a complete
+# self-contained deployment directory) and extracts it under
+# /root/.openclaw/deployments/.
 #
-# Procedure reference: docs/ci.md (canonical CI/build pipeline contract).
-# Build entrypoint: scripts/build-all.mts (package profile) — see
-# BUILD_ALL_PROFILES and BUILD_ALL_PROFILE_STEP_ENV. The "package" profile
-# runs the full deployment-grade step graph (clean:dist, tsdown-ai,
-# tsdown-packages, tsdown-unified, runtime-postbuild, build-stamp, ui:build,
-# check-build-artifact-identity, write-cli-startup-metadata, ...) while
-# preserving canonical dts — the same profile used by Docker packaging and
-# release builds. This workflow does NOT reimplement the build; it shells
-# out to `pnpm run build:package`, which is the documented repo script
-# (`build:package` → `node --import ./scripts/tsx.mjs scripts/build-all.mts
-# package`).
+# Iteration 3 — fix for server-side "pnpm install" failure. PR #36 shipped a
+# tarball WITHOUT node_modules; the server-side
+# `corepack pnpm install --prod` step then failed because the workspace
+# packages referenced via `workspace:*` are not present in the npm
+# registry. The fix: ship a self-contained node_modules inside the
+# tarball so the server procedure is just `download + extract`.
 #
-# Phase 3 CI-audit context: this is the CI-only build path for the
-# deployable bundle; PR CI still uses the `ciArtifacts` profile (no full
-# dts). Manual dispatch keeps the public-repo runner path so the staging
-# server stays cold during rebuilds.
+# Procedure (mirrors Dockerfile `runtime-assets` stage, lines 109-205,
+# adapted to produce a flat hoisted node_modules):
+#   1. Checkout + pnpm install (full) — required for `pnpm build:package`
+#      (the `package` profile in scripts/build-all.mts needs devDeps).
+#   2. `pnpm build:package` — full deployment-grade build (see
+#      scripts/build-all.mts BUILD_ALL_PROFILES.package and
+#      BUILD_ALL_PROFILE_STEP_ENV.package).
+#   3. Swap to production-only install. This mirrors the Dockerfile
+#      `runtime-assets` swap (Dockerfile lines 175-178) and uses
+#      `--node-linker=hoisted` so the prod install produces a flat
+#      node_modules without a `.pnpm/` virtual store. The repo's
+#      pnpm-workspace.yaml pins `nodeLinker: isolated`; the CLI flag
+#      overrides for this single install. The resulting shape matches
+#      the reference deployment at
+#      /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
+#      (293 dirs, 20 symlinks all in .bin/, no .pnpm/, no openclaw
+#      package).
+#   4. Materialize workspace package symlinks. With hoisted linker,
+#      pnpm still installs workspace packages as symlinks to the
+#      workspace source tree (e.g. `node_modules/@openclaw/ai` ->
+#      `../../packages/ai`). The deployment cannot ship those source
+#      trees, so resolve each symlink to its real file content via
+#      `readlink -f` + `cp -a`. Same pattern as Dockerfile lines
+#      193-198, generalized to every workspace package (matches
+#      `@openclaw/ai`, `@openclaw/proxyline`, `@openclaw/fs-safe`, and
+#      `@openclaw/fs-safe-linux-x64-gnu` in the reference deployment).
+#   5. Run `scripts/postinstall-bundled-plugins.mjs` (Dockerfile line
+#      191).
+#   6. Prune declaration files and source maps from `dist/`
+#      (Dockerfile line 192). Drop the root `openclaw` package and its
+#      bin stub (Dockerfile lines 198-199): the entry point is
+#      `openclaw.mjs` at the deployment root, not the `openclaw`
+#      npm package.
+#   7. Sanity assertions (fail the job on mismatch):
+#      (a) `node_modules/@openclaw/ai/package.json` + `dist/` exist
+#          and are real files (not dangling symlinks). This is the
+#          workspace package path that previously failed server-side
+#          ("@openclaw/ai workspace:* not present").
+#      (b) `node_modules/.pnpm/` is absent — workspace packages were
+#          materialized as real directories, not stored under a
+#          virtual store. The reference deployment under
+#          /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
+#          has no .pnpm/, confirming this shape is correct.
+#      (c) Total file count is under 100k — guards against the
+#          ~9.3M-file LCA expansion that OOM-killed workflow run
+#          34062348670 (PR #34's `actions/upload-artifact` with a
+#          multi-path list).
+#   8. Stage the runtime-essential surface (dist, openclaw.mjs,
+#      package.json, pnpm-workspace.yaml, patches, scripts, skills,
+#      custodian-skills, node-version.mjs, LICENSE, hoisted
+#      node_modules) into `staging/openclaw-<version>/`. `docs/`,
+#      `.git`, build caches, `packages/`, `extensions/`, `ui/`, and
+#      `examples/` are excluded by task spec (the deployment ships
+#      runtime artifacts only; the workspace source trees are
+#      unnecessary on the server).
+#   9. Tar the stage as a single file with one root folder inside
+#      (`openclaw-<version>/`). Single-file upload side-steps the
+#      workspace-root LCA expansion that OOM-killed PR #34.
+#
+# Reference existing deployment layout:
+#   /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
+#     524M, 34588 files, 2113 dirs, node_modules=329M (293 dirs, 20
+#     symlinks all in .bin/, no .pnpm/, no openclaw package). The
+#     `@openclaw/ai` materialization in that deployment confirms the
+#     procedure above reproduces the same shape.
+#
+# The previous attempts:
+#   PR #34 (commit 2af33e4b428, on canonical/2026.9.2-base): multi-path
+#     `actions/upload-artifact` walked to workspace-root LCA and
+#     enumerated ~9.3M files before OOM-killing the runner (workflow
+#     run 34062348670).
+#   PR #36 (commit 33bb69e4194, branch
+#     canonical/gha-deploy-bundle-tarball): tar without node_modules +
+#     server-side `corepack pnpm install --prod`. Failed because
+#     workspace packages are not on the npm registry.
+#   This iteration: tar WITH self-contained hoisted node_modules, no
+#     server-side install step.
 name: Deploy Bundle Build
 
 on:
@@ -60,71 +129,208 @@ jobs:
           node-version: 24.x
 
       - name: Activate pnpm via corepack
-        # package.json pins pnpm@12.1.0 in packageManager; corepack pulls the
-        # exact pinned version without a separate pnpm/action-setup step.
+        # package.json pins pnpm@12.1.0 in packageManager; corepack
+        # pulls the exact pinned version without a separate
+        # pnpm/action-setup step.
         run: corepack enable pnpm
 
-      - name: Install dependencies
+      - name: Install dependencies (full)
+        # Full install (with devDependencies) is required for
+        # `pnpm run build:package` (scripts/build-all.mts package
+        # profile). The prod-only install happens later to mirror the
+        # Dockerfile `runtime-assets` stage (lines 175-178).
         run: pnpm install --frozen-lockfile --prefer-offline
 
       - name: Build deploy bundle
-        # Reuses the repo's own scripts/build-all.mts package profile. No
-        # build steps are reimplemented in this workflow.
+        # Reuses the repo's own scripts/build-all.mts `package`
+        # profile — the same one used by Docker packaging and release
+        # builds. No build steps are reimplemented in this workflow.
         run: pnpm run build:package
 
-      - name: Tar deploy bundle
-        # Bundle the deployment-grade tree into a single tarball before
-        # upload. The first attempt used `actions/upload-artifact` with a
-        # multi-path list that included `node_modules`, which made
-        # upload-artifact compute the workspace-root LCA and enumerate
-        # ~9.3M files before OOM-killing the runner (workflow run
-        # 34062348670). A single-file upload avoids that LCA entirely.
-        #
-        # The path list is the explicit runtime-essential surface of an
-        # existing deployment under
-        # /root/.openclaw/deployments/openclaw-<version>-<ts>/ minus the
-        # artefacts the server regenerates (`node_modules`, via
-        # `corepack pnpm install --prod`) and the doc-licence surface that
-        # does not need to ship with the runtime bundle. Verified at
-        # canonical/2026.9.2-base: every path below is either a tracked
-        # entry (`git ls-tree` clean) or the build output `dist/`. The
-        # `package` profile (scripts/build-all.mts) excludes
-        # `node_modules` from tsdown inputs (scripts/tsdown-build.mts
-        # TSDOWN_PACKAGES_CACHE_INPUT.excludeDirectories and
-        # TSDOWN_UNIFIED_CACHE_INPUTS), so `dist/` does not contain
-        # vendored node_modules — explicit tar args plus the absence of
-        # any tar-glob (`*`) keep node_modules out of the archive without
-        # an --exclude flag.
+      - name: Resolve deployment version
+        # Use the package.json version for the deployment root folder
+        # name, matching the existing convention
+        # (openclaw-<version>-<ts>/).
+        id: version
         run: |
-          tar czf deploy-bundle.tar.gz \
-            dist \
-            openclaw.mjs \
+          set -e
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Swap to production-only hoisted install
+        # Mirror Dockerfile `runtime-assets` swap (lines 175-178):
+        #   - rm -rf node_modules ui/node_modules
+        #   - pnpm install --frozen-lockfile --prod ...
+        #
+        # `--node-linker=hoisted` switches this single install from the
+        # repo's pinned isolated linker (pnpm-workspace.yaml
+        # nodeLinker: isolated) to a flat layout. Without this flag,
+        # pnpm would create a `.pnpm/` virtual store under
+        # node_modules/. The deployment ships as a single tarball —
+        # there is no way to upload `.pnpm/` out-of-band — so the
+        # hoisted linker is the only way to produce a self-contained
+        # tarball that resolves `workspace:*` references.
+        #
+        # supportedArchitectures pins the install to the runner's
+        # linux/glibc/x64 host so optional native binaries are not
+        # pulled in for every architecture (same flags the Dockerfile
+        # `production-deps` stage uses on lines 93-95).
+        run: |
+          set -e
+          rm -rf node_modules ui/node_modules
+          # pnpm can leave nested node_modules under workspace
+          # packages from the full install; remove those so the prod
+          # install does not have to reconcile them.
+          find packages extensions ui examples -name node_modules -prune -exec rm -rf {} + || true
+          pnpm install --frozen-lockfile --prod \
+            --config.node-linker=hoisted \
+            --config.supportedArchitectures.os=linux \
+            --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
+            --config.supportedArchitectures.libc=glibc
+
+      - name: Materialize workspace package symlinks
+        # With hoisted linker, pnpm typically installs workspace
+        # packages as symlinks pointing back to the workspace source
+        # trees (e.g. `node_modules/@openclaw/ai` ->
+        # `../../packages/ai`). The deployment cannot ship the
+        # workspace source trees, so resolve each such symlink to
+        # its real file content via `readlink -f` + `cp -a`. Same
+        # pattern as Dockerfile lines 193-198, generalized to every
+        # workspace package under node_modules/@*.
+        #
+        # After this step the workspace matches the reference
+        # deployment: workspace packages are real directories,
+        # `.pnpm/` and `.modules.yaml` are absent, only `.bin/`
+        # symlinks remain.
+        run: |
+          set -e
+          materialized=0
+          skipped=0
+          while IFS= read -r link; do
+            target="$(readlink -f "$link")"
+            if [ -z "$target" ] || [ ! -e "$target" ]; then
+              echo "::warning::symlink $link -> $target does not resolve; skipping"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            if [ ! -d "$target" ]; then
+              # Skip non-directory targets (e.g. `.bin/` shims — they
+              # are pnpm bin stubs and should stay symlinks).
+              continue
+            fi
+            rm "$link"
+            cp -a "$target" "$link"
+            materialized=$((materialized + 1))
+          done < <(find node_modules -maxdepth 3 -type l -path 'node_modules/@*')
+          echo "Materialized ${materialized} workspace package(s); skipped ${skipped}"
+
+      - name: Run bundled-plugin postinstall
+        # Mirror Dockerfile line 191.
+        run: node scripts/postinstall-bundled-plugins.mjs
+
+      - name: Prune runtime artefacts
+        # Mirror Dockerfile lines 192 + 198-204: drop declaration
+        # files and source maps from `dist/` (the bundle is runtime
+        # JS only), and remove the root `openclaw` package and its
+        # bin stub (the entry point is `openclaw.mjs` at the
+        # deployment root, not the `openclaw` package).
+        run: |
+          find dist -type f \
+            \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) \
+            -delete
+          rm -rf node_modules/openclaw node_modules/.bin/openclaw
+
+      - name: Verify deployment contents (sanity assertions)
+        # Three assertions, each is a hard job failure on mismatch.
+        #   (a) @openclaw/ai resolves to a real workspace package,
+        #       not a dangling symlink. This is the same workspace
+        #       package path that previously failed server-side
+        #       ("@openclaw/ai workspace:* not present").
+        #   (b) node_modules/.pnpm/ is absent — workspace packages
+        #       were materialized as real directories, not stored
+        #       under a virtual store. The existing deployment under
+        #       /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
+        #       has no .pnpm/, confirming this shape is correct.
+        #   (c) Total file count is under 100k — guards against the
+        #       ~9.3M-file LCA expansion that OOM-killed workflow
+        #       run 34062348670 (PR #34's `actions/upload-artifact`
+        #       with a multi-path list).
+        run: |
+          set -e
+          # (a) workspace package resolves
+          if [ ! -f node_modules/@openclaw/ai/package.json ]; then
+            echo "::error::node_modules/@openclaw/ai/package.json missing"
+            exit 1
+          fi
+          if [ ! -d node_modules/@openclaw/ai/dist ]; then
+            echo "::error::node_modules/@openclaw/ai/dist/ missing"
+            exit 1
+          fi
+          # (b) no virtual store
+          if [ -e node_modules/.pnpm ]; then
+            echo "::error::node_modules/.pnpm/ should be absent (hoisted linker)"
+            exit 1
+          fi
+          file_count="$(find . -type f | wc -l)"
+          echo "file_count=${file_count}"
+          # (c) bounded file count
+          if [ "${file_count}" -gt 100000 ]; then
+            echo "::error::file count ${file_count} exceeds 100k OOM guard"
+            exit 1
+          fi
+          echo "Sanity assertions passed: @openclaw/ai materialized, no .pnpm/, ${file_count} files"
+
+      - name: Stage deployment tree
+        # Populate staging/openclaw-<version>/ with the runtime
+        # essential surface. Excludes docs/, .git, build caches, and
+        # the workspace source trees (packages/, extensions/, ui/,
+        # examples/) per task spec — those are unnecessary on the
+        # server.
+        run: |
+          set -e
+          STAGE="staging/openclaw-${{ steps.version.outputs.version }}"
+          mkdir -p "${STAGE}"
+          cp -a \
+            CHANGELOG.md \
+            LICENSE \
+            README.md \
+            THIRD_PARTY_NOTICES.md \
             package.json \
             pnpm-workspace.yaml \
+            openclaw.mjs \
+            node-version.mjs \
+            dist \
             patches \
             scripts \
             skills \
             custodian-skills \
-            node-version.mjs
+            node_modules \
+            "${STAGE}/"
 
-      - name: Print bundle size
-        # Operational visibility — the failed run OOMed silently with no
-        # artefact, so surface the bundle size and entry count in the
-        # workflow log before upload.
+      - name: Tar deploy bundle
+        # Single-file upload avoids the workspace-root LCA expansion
+        # that OOM-killed PR #34's `actions/upload-artifact` step
+        # (workflow run 34062348670, ~9.3M files enumerated). The
+        # tarball has a single root folder inside
+        # (`openclaw-<version>/`) so the server extracts directly
+        # into /root/.openclaw/deployments/openclaw-<version>-<ts>/.
+        working-directory: staging
+        run: |
+          tar czf ../deploy-bundle.tar.gz openclaw-${{ steps.version.outputs.version }}
+
+      - name: Print bundle size + entry count
+        # Operational visibility: the failed PR #34 run OOMed
+        # silently with no artefact, so surface bundle size + entry
+        # count in the workflow log before upload. Confirms both the
+        # file-count assertion from the previous step and the
+        # on-disk size.
         run: |
           du -sh deploy-bundle.tar.gz
           tar -tzf deploy-bundle.tar.gz | wc -l
+          # Re-confirm workspace package present inside the tarball
+          tar -tzf deploy-bundle.tar.gz | grep -E '(^|/)node_modules/@openclaw/ai/(package\.json|dist/)' | head
 
       - name: Upload deploy bundle
-        # Single-file upload of deploy-bundle.tar.gz. The server-side
-        # procedure (documented in the PR description) downloads and
-        # extracts the tarball under
-        # /root/.openclaw/deployments/openclaw-<version>-<ts>/ and then
-        # runs `corepack pnpm install --prod` in that directory to
-        # recreate node_modules. Reference deployment layout at
-        # /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z:
-        # 524MB / 35k files total with node_modules=329MB recreatable via
-        # the prod install step.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: deploy-bundle
