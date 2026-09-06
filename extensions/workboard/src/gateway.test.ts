@@ -353,14 +353,89 @@ describe("workboard gateway methods", () => {
 
     const oversizedRespond = vi.fn();
     await methods.get("workboard.cards.comment")?.handler({
-      params: { id: cardId, body: "x".repeat(2001) },
+      params: { id: cardId, body: "x".repeat(4097) },
       respond: oversizedRespond,
     } as never);
 
     expect(oversizedRespond.mock.calls[0]?.[0]).toBe(false);
     expect(oversizedRespond.mock.calls[0]?.[2]).toMatchObject({
-      message: "comment body must be 2000 characters or fewer (got 2001).",
+      message: "comment body must be 4096 characters or fewer (got 4097).",
     });
+  });
+
+  // Rin finding (MEDIUM): the 4097 rejection test above proves the cap rejects
+  // oversized bodies, but does not prove the boundary (exactly 4096 chars) is
+  // accepted and preserved through the read path. Without this test, an
+  // off-by-one or read-path truncation bug would slip past verification.
+  it("accepts and preserves a comment of exactly 4096 characters end-to-end", async () => {
+    type RegisteredMethod = {
+      handler: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
+      opts: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[2];
+    };
+    const methods = new Map<string, RegisteredMethod>();
+    const api = {
+      runtime: {
+        state: {
+          openKeyedStore: vi.fn(() => createMemoryStore()),
+        },
+      },
+      registerGatewayMethod: vi.fn(
+        (method: string, handler: RegisteredMethod["handler"], opts: RegisteredMethod["opts"]) => {
+          methods.set(method, { handler, opts });
+        },
+      ),
+    } as unknown as OpenClawPluginApi;
+
+    // Use a distinctive cyclic pattern so truncation silently swapping in
+    // shorter content is detected (length-only assertion would miss it).
+    const cyclic = "abcdefghij";
+    const body = cyclic.repeat(410).slice(0, 4096);
+    expect(body.length).toBe(4096);
+
+    const store = new WorkboardStore(createMemoryStore());
+    registerWorkboardGatewayMethods({ api, store });
+
+    const createRespond = vi.fn();
+    await methods.get("workboard.cards.create")?.handler({
+      params: { title: "Boundary comment card" },
+      respond: createRespond,
+    } as never);
+    expect(createRespond.mock.calls[0]?.[0]).toBe(true);
+    const cardId = createRespond.mock.calls[0]?.[1]?.card.id;
+    expect(cardId).toEqual(expect.any(String));
+
+    const commentRespond = vi.fn();
+    await methods.get("workboard.cards.comment")?.handler({
+      params: { id: cardId, body },
+      respond: commentRespond,
+    } as never);
+
+    // Write-path acceptance: 4096 is exactly at the cap, so the gateway must
+    // succeed (not reject with the 4096-or-fewer error).
+    expect(commentRespond.mock.calls[0]?.[0]).toBe(true);
+    expect(commentRespond.mock.calls[0]?.[2]).toBeUndefined();
+    const acceptedCard = commentRespond.mock.calls[0]?.[1]?.card;
+    expect(acceptedCard).toBeDefined();
+
+    // Write-path echo: the card returned by the comment handler must contain
+    // the full body unchanged.
+    expect(acceptedCard.metadata?.comments).toHaveLength(1);
+    const writeEcho = acceptedCard.metadata.comments[0];
+    expect(writeEcho.body).toBe(body);
+    expect(writeEcho.body.length).toBe(4096);
+
+    // Read-path preservation: re-read via the store (which goes through
+    // store-normalizers). This guards against read-path truncation bugs that
+    // would otherwise pass the write-path assertion above.
+    const reread = await store.get(cardId);
+    expect(reread).toBeDefined();
+    expect(reread?.metadata?.comments).toHaveLength(1);
+    const stored = reread?.metadata.comments[0];
+    expect(stored?.body).toBe(body);
+    expect(stored?.body.length).toBe(4096);
+    // Belt-and-suspenders: confirm the cyclic pattern survived intact rather
+    // than a same-length-but-different-content truncation.
+    expect(stored?.body).toBe(cyclic.repeat(410).slice(0, 4096));
   });
 
   it("validates labels from comma-separated gateway input", async () => {
