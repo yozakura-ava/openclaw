@@ -360,6 +360,7 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses declaration-cache groups only for the full build", () => {
     expect(resolveBuildAllSteps("full").map((step) => step.label)).toEqual([
+      "clean:dist",
       "plugins:assets:build",
       "tsdown-ai",
       "tsdown-packages",
@@ -368,6 +369,7 @@ describe("resolveBuildAllSteps", () => {
       "check-cli-bootstrap-imports",
       "plugins:assets:copy",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
       "write-plugin-sdk-entry-dts",
@@ -382,11 +384,12 @@ describe("resolveBuildAllSteps", () => {
   });
 
   it("cleans dist before the full package build steps", () => {
+    // FULL_BUILD_STEP_LABELS now leads with clean:dist, so package and full
+    // share the same ordered step list (package used to prepend clean:dist).
     const packageSteps = resolveBuildAllSteps("package");
-    expect(packageSteps.map((step) => step.label)).toEqual([
-      "clean:dist",
-      ...resolveBuildAllSteps("full").map((step) => step.label),
-    ]);
+    expect(packageSteps.map((step) => step.label)).toEqual(
+      resolveBuildAllSteps("full").map((step) => step.label),
+    );
   });
 
   it.each(["full", "package", "ciArtifacts"])(
@@ -679,12 +682,14 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses a runtime artifact plus plugin SDK export profile for ci artifacts", () => {
     expect(resolveBuildAllSteps("ciArtifacts").map((step) => step.label)).toEqual([
+      "clean:dist",
       "plugins:assets:build",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "plugins:assets:copy",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
       "write-plugin-sdk-entry-dts",
@@ -779,10 +784,12 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses a minimal built runtime profile for gateway watch regression", () => {
     expect(resolveBuildAllSteps("gatewayWatch").map((step) => step.label)).toEqual([
+      "clean:dist",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
     ]);
@@ -790,12 +797,14 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses a QA runtime profile with generated plugin assets but no startup metadata", () => {
     expect(resolveBuildAllSteps("qaRuntime").map((step) => step.label)).toEqual([
+      "clean:dist",
       "plugins:assets:build",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "plugins:assets:copy",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
     ]);
@@ -808,12 +817,14 @@ describe("resolveBuildAllSteps", () => {
     const labels = steps.map((step) => step.label);
 
     expect(labels).toEqual([
+      "clean:dist",
       "plugins:assets:build",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "plugins:assets:copy",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
       "ui:build",
@@ -824,6 +835,24 @@ describe("resolveBuildAllSteps", () => {
     expect(steps.find((step) => step.label === "tsdown")?.cache).toBeUndefined();
     expect(labels).not.toContain("write-plugin-sdk-entry-dts");
     expect(labels).not.toContain("check-plugin-sdk-exports");
+  });
+
+  it("deduplicates clean:dist for the package profile under the runtime-only path", () => {
+    // Regression: FULL_RUNTIME_ONLY_STEPS already leads with clean:dist, and
+    // the package + OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 path used to prepend a
+    // second clean:dist, which resolved clean:dist twice.
+    const steps = resolveBuildAllSteps("package", {
+      OPENCLAW_RUN_NODE_SKIP_DTS_BUILD: "1",
+    });
+    const labels = steps.map((step) => step.label);
+
+    expect(labels[0]).toBe("clean:dist");
+    expect(labels.filter((label) => label === "clean:dist")).toHaveLength(1);
+    expect(labels).toEqual(
+      resolveBuildAllSteps("full", {
+        OPENCLAW_RUN_NODE_SKIP_DTS_BUILD: "1",
+      }).map((step) => step.label),
+    );
   });
 
   describe.each(["full", "package"])("%s runner build environment", (profile) => {
@@ -874,7 +903,9 @@ describe("resolveBuildAllSteps", () => {
         );
         expect(labels.includes("write-plugin-sdk-entry-dts")).toBe(!runtimeOnly);
         expect(labels.includes("check-plugin-sdk-exports")).toBe(!runtimeOnly);
-        expect(labels.includes("clean:dist")).toBe(profile === "package");
+        // FULL_BUILD_STEP_LABELS and FULL_RUNTIME_ONLY_STEPS both lead with
+        // clean:dist, so every profile ordered list now contains it exactly once.
+        expect(labels.includes("clean:dist")).toBe(true);
         const compilers = invocations.filter((call) =>
           call.args.includes("scripts/tsdown-build.mts"),
         );
@@ -889,12 +920,14 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses a source performance profile with QA assets and immutable build provenance", () => {
     expect(resolveBuildAllSteps("sourcePerformance").map((step) => step.label)).toEqual([
+      "clean:dist",
       "plugins:assets:build",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "plugins:assets:copy",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
       "write-build-info",
@@ -904,10 +937,12 @@ describe("resolveBuildAllSteps", () => {
 
   it("uses a CLI startup profile without generated plugin assets", () => {
     expect(resolveBuildAllSteps("cliStartup").map((step) => step.label)).toEqual([
+      "clean:dist",
       "tsdown",
       "external-plugins:local-dist",
       "check-cli-bootstrap-imports",
       "runtime-postbuild",
+      "check-runtime-snapshot-topology",
       "build-stamp",
       "runtime-postbuild-stamp",
       "write-cli-startup-metadata",

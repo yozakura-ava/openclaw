@@ -393,11 +393,13 @@ export function resolveBuildAllSteps(
   // A cold runtime-only build has no declarations for the canonical SDK gates.
   // Keep the full runtime artifact surface, but use the uncached runtime graph.
   const runtimeOnly = buildEnv[RUN_NODE_SKIP_DTS_BUILD_ENV] === "1";
+  // FULL_RUNTIME_ONLY_STEPS already leads with clean:dist, so the package +
+  // runtime-only path reuses it instead of prepending a second clean:dist.
   const labels =
     profile === "full" && runtimeOnly
       ? FULL_RUNTIME_ONLY_STEPS
       : profile === "package" && runtimeOnly
-        ? ["clean:dist", ...FULL_RUNTIME_ONLY_STEPS]
+        ? FULL_RUNTIME_ONLY_STEPS
         : profileLabels;
   const selected = labels.map((label) => BUILD_ALL_STEPS.find((step) => step.label === label));
   if (selected.some((step) => !step)) {
