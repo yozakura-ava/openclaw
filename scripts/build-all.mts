@@ -166,6 +166,7 @@ export const BUILD_ALL_STEPS: BuildAllStep[] = [
     cache: undefined,
   },
   tsxStep("write-build-info", "scripts/write-build-info.ts"),
+  tsxStep("check-build-artifact-identity", "scripts/check-build-artifact-identity.mts"),
   {
     ...tsxStep("write-cli-startup-metadata", "scripts/write-cli-startup-metadata.ts"),
     cache: {
@@ -195,6 +196,7 @@ const FULL_BUILD_STEP_LABELS = [
   "check-plugin-sdk-exports",
   "ui:build",
   "write-build-info",
+  "check-build-artifact-identity",
   "write-cli-startup-metadata",
 ] as const;
 
@@ -214,6 +216,7 @@ export const BUILD_ALL_PROFILES: Record<string, string[]> = {
     "check-plugin-sdk-exports",
     "ui:build",
     "write-build-info",
+    "check-build-artifact-identity",
     "write-cli-startup-metadata",
   ],
   gatewayWatch: [
@@ -268,6 +271,7 @@ const FULL_RUNTIME_ONLY_STEPS = [
   "runtime-postbuild-stamp",
   "ui:build",
   "write-build-info",
+  "check-build-artifact-identity",
   "write-cli-startup-metadata",
 ];
 
