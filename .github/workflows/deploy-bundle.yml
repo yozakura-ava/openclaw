@@ -72,28 +72,62 @@ jobs:
         # build steps are reimplemented in this workflow.
         run: pnpm run build:package
 
+      - name: Tar deploy bundle
+        # Bundle the deployment-grade tree into a single tarball before
+        # upload. The first attempt used `actions/upload-artifact` with a
+        # multi-path list that included `node_modules`, which made
+        # upload-artifact compute the workspace-root LCA and enumerate
+        # ~9.3M files before OOM-killing the runner (workflow run
+        # 34062348670). A single-file upload avoids that LCA entirely.
+        #
+        # The path list is the explicit runtime-essential surface of an
+        # existing deployment under
+        # /root/.openclaw/deployments/openclaw-<version>-<ts>/ minus the
+        # artefacts the server regenerates (`node_modules`, via
+        # `corepack pnpm install --prod`) and the doc-licence surface that
+        # does not need to ship with the runtime bundle. Verified at
+        # canonical/2026.9.2-base: every path below is either a tracked
+        # entry (`git ls-tree` clean) or the build output `dist/`. The
+        # `package` profile (scripts/build-all.mts) excludes
+        # `node_modules` from tsdown inputs (scripts/tsdown-build.mts
+        # TSDOWN_PACKAGES_CACHE_INPUT.excludeDirectories and
+        # TSDOWN_UNIFIED_CACHE_INPUTS), so `dist/` does not contain
+        # vendored node_modules — explicit tar args plus the absence of
+        # any tar-glob (`*`) keep node_modules out of the archive without
+        # an --exclude flag.
+        run: |
+          tar czf deploy-bundle.tar.gz \
+            dist \
+            openclaw.mjs \
+            package.json \
+            pnpm-workspace.yaml \
+            patches \
+            scripts \
+            skills \
+            custodian-skills \
+            node-version.mjs
+
+      - name: Print bundle size
+        # Operational visibility — the failed run OOMed silently with no
+        # artefact, so surface the bundle size and entry count in the
+        # workflow log before upload.
+        run: |
+          du -sh deploy-bundle.tar.gz
+          tar -tzf deploy-bundle.tar.gz | wc -l
+
       - name: Upload deploy bundle
-        # Path list mirrors the layout of an existing deployment under
-        # /root/.openclaw/deployments/openclaw-<version>-<ts>/. The artifact
-        # is unpacked on the staging server next to the prior deployment.
+        # Single-file upload of deploy-bundle.tar.gz. The server-side
+        # procedure (documented in the PR description) downloads and
+        # extracts the tarball under
+        # /root/.openclaw/deployments/openclaw-<version>-<ts>/ and then
+        # runs `corepack pnpm install --prod` in that directory to
+        # recreate node_modules. Reference deployment layout at
+        # /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z:
+        # 524MB / 35k files total with node_modules=329MB recreatable via
+        # the prod install step.
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: deploy-bundle
-          path: |
-            dist
-            openclaw.mjs
-            package.json
-            pnpm-workspace.yaml
-            patches
-            node-version.mjs
-            LICENSE
-            CHANGELOG.md
-            README.md
-            THIRD_PARTY_NOTICES.md
-            custodian-skills
-            docs
-            skills
-            scripts
-            node_modules
+          path: deploy-bundle.tar.gz
           if-no-files-found: error
           retention-days: 14
