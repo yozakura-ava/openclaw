@@ -374,6 +374,7 @@ describe("resolveBuildAllSteps", () => {
       "check-plugin-sdk-exports",
       "ui:build",
       "write-build-info",
+      "check-build-artifact-identity",
       "write-cli-startup-metadata",
     ]);
     expect(BUILD_ALL_PROFILES.ciArtifacts).toContain("tsdown");
@@ -690,6 +691,7 @@ describe("resolveBuildAllSteps", () => {
       "check-plugin-sdk-exports",
       "ui:build",
       "write-build-info",
+      "check-build-artifact-identity",
       "write-cli-startup-metadata",
     ]);
   });
@@ -816,6 +818,7 @@ describe("resolveBuildAllSteps", () => {
       "runtime-postbuild-stamp",
       "ui:build",
       "write-build-info",
+      "check-build-artifact-identity",
       "write-cli-startup-metadata",
     ]);
     expect(steps.find((step) => step.label === "tsdown")?.cache).toBeUndefined();
