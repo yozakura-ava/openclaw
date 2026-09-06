@@ -1,17 +1,16 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertBuildArtifactIdentity,
   readBuildArtifactIdentity,
 } from "../../scripts/check-build-artifact-identity.mts";
+import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
-const roots: string[] = [];
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function createFixture(uiBuildId: string, runtimeBuildId = uiBuildId): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-build-identity-"));
-  roots.push(root);
+  const root = tempDirs.make("openclaw-build-identity-");
   const controlUi = path.join(root, "dist/control-ui");
   fs.mkdirSync(path.join(controlUi, "assets"), { recursive: true });
   fs.writeFileSync(
@@ -33,12 +32,6 @@ function createFixture(uiBuildId: string, runtimeBuildId = uiBuildId): string {
   );
   return root;
 }
-
-afterEach(() => {
-  for (const root of roots.splice(0)) {
-    fs.rmSync(root, { recursive: true, force: true });
-  }
-});
 
 describe("build artifact identity", () => {
   it("accepts a runtime, service worker, and UI bundle with one identity", () => {
