@@ -4,6 +4,9 @@ import {
   type WorkboardAttemptStatus,
   type WorkboardCard,
   type WorkboardDiagnostic,
+  type WorkboardDiagnosticAction,
+  type WorkboardDiagnosticKind,
+  type WorkboardDiagnosticSeverity,
   type WorkboardEvent,
   type WorkboardExecution,
   type WorkboardMetadata,
@@ -360,6 +363,69 @@ export function retryBudgetExhausted(card: WorkboardCard): boolean {
   return Boolean(maxRetries && (card.metadata?.failureCount ?? 0) > maxRetries);
 }
 
+// PATCH workboard-claim-conflict-history (issue #24, partial: closes the
+// remaining gap from Ken's triage comment 2026-09-07): bounded in-memory
+// ring buffer for takeover / claim-conflict events. Records the prior owner,
+// prior expiry, attempted owner, and timestamp at the moment the claim
+// fence fires. Operators query this surface for "who took over card X?"
+// forensics without exposing runtime configuration paths in the public
+// per-card diagnostic channel.
+//
+// Module-scoped (single source of truth for the process), capped at
+// CLAIM_CONFLICT_HISTORY_CAP entries (FIFO). NOT persisted: restarts clear
+// the buffer. This is intentional and matches the issue scope ("Keep
+// diagnostic history bounded").
+export const CLAIM_CONFLICT_HISTORY_CAP = 64;
+
+export type WorkboardClaimConflictKind =
+  | "takeover" // foreign expired claim replaced (recorded just before rejection, prior owner kept in event)
+  | "claim_on_done" // claim attempt on a card in "done" status (rejected)
+  | "claim_on_archived"; // claim attempt on an archived card (rejected)
+
+export interface WorkboardClaimConflictEvent {
+  kind: WorkboardClaimConflictKind;
+  cardId: string;
+  attemptedOwnerId: string;
+  priorOwnerId?: string;
+  priorExpiresAt?: number;
+  at: number;
+}
+
+const claimConflictHistory: WorkboardClaimConflictEvent[] = [];
+
+export function recordClaimConflict(event: WorkboardClaimConflictEvent): void {
+  claimConflictHistory.push(event);
+  if (claimConflictHistory.length > CLAIM_CONFLICT_HISTORY_CAP) {
+    claimConflictHistory.splice(0, claimConflictHistory.length - CLAIM_CONFLICT_HISTORY_CAP);
+  }
+}
+
+export function snapshotClaimConflictHistory(): readonly WorkboardClaimConflictEvent[] {
+  return claimConflictHistory.slice();
+}
+
+export function clearClaimConflictHistory(): void {
+  claimConflictHistory.length = 0;
+}
+
+function diagnostic(
+  params: {
+    kind: WorkboardDiagnosticKind;
+    severity: WorkboardDiagnosticSeverity;
+    title: string;
+    detail: string;
+    actions: WorkboardDiagnosticAction[];
+  },
+  now: number,
+): WorkboardDiagnostic {
+  return {
+    ...params,
+    firstSeenAt: now,
+    lastSeenAt: now,
+    count: 1,
+  };
+}
+
 export function mergeDiagnostics(
   previous: readonly WorkboardDiagnostic[] | undefined,
   next: WorkboardDiagnostic[],
@@ -378,26 +444,26 @@ export function mergeDiagnostics(
 }
 
 export function computeCardDiagnostics(card: WorkboardCard, now: number): WorkboardDiagnostic[] {
-  const diagnostics: WorkboardDiagnostic[] = [];
-  const addDiagnostic = (
-    params: Omit<WorkboardDiagnostic, "firstSeenAt" | "lastSeenAt" | "count">,
-  ): void => {
-    diagnostics.push({ ...params, firstSeenAt: now, lastSeenAt: now, count: 1 });
-  };
   if (card.metadata?.archivedAt) {
     // Archived cards intentionally skip automation. Keep nonterminal cards
     // visible as a transient diagnostic without rewriting archived metadata.
     if (card.status !== "done") {
-      addDiagnostic({
-        kind: "archived_but_active",
-        severity: "warning",
-        title: "Archived card is still in an active status",
-        detail: `Card status is "${card.status}" but it is archived, so it is excluded from dispatch without any start failure or error. Unarchive it or move it to "done" to stop the silent skip.`,
-        actions: [],
-      });
+      return [
+        diagnostic(
+          {
+            kind: "archived_but_active",
+            severity: "warning",
+            title: "Archived card is still in an active status",
+            detail: `Card status is "${card.status}" but it is archived, so it is excluded from dispatch without any start failure or error. Unarchive it or move it to "done" to stop the silent skip.`,
+            actions: [],
+          },
+          now,
+        ),
+      ];
     }
-    return diagnostics;
+    return [];
   }
+  const diagnostics: WorkboardDiagnostic[] = [];
   const claim = card.metadata?.claim;
   const lastHeartbeatAt = claim?.lastHeartbeatAt ?? card.execution?.updatedAt ?? card.updatedAt;
   if (
@@ -405,43 +471,63 @@ export function computeCardDiagnostics(card: WorkboardCard, now: number): Workbo
     card.agentId &&
     now - card.updatedAt > READY_STRANDED_MS
   ) {
-    addDiagnostic({
-      kind: "stranded_ready",
-      severity: "warning",
-      title: "Assigned card is waiting",
-      detail: "The card has an assigned agent but has not been claimed recently.",
-      actions: [{ kind: "claim", label: "Claim card" }],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "stranded_ready",
+          severity: "warning",
+          title: "Assigned card is waiting",
+          detail: "The card has an assigned agent but has not been claimed recently.",
+          actions: [{ kind: "claim", label: "Claim card" }],
+        },
+        now,
+      ),
+    );
   }
   if (card.status === "running" && now - lastHeartbeatAt > RUNNING_HEARTBEAT_STALE_MS) {
-    addDiagnostic({
-      kind: "running_without_heartbeat",
-      severity: "error",
-      title: "Running card has no recent heartbeat",
-      detail: "The linked run or claim has not reported recent activity.",
-      actions: [
-        { kind: "open_session", label: "Open session" },
-        { kind: "reassign", label: "Reassign card" },
-      ],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "running_without_heartbeat",
+          severity: "error",
+          title: "Running card has no recent heartbeat",
+          detail: "The linked run or claim has not reported recent activity.",
+          actions: [
+            { kind: "open_session", label: "Open session" },
+            { kind: "reassign", label: "Reassign card" },
+          ],
+        },
+        now,
+      ),
+    );
   }
   if (card.status === "blocked" && now - card.updatedAt > BLOCKED_TOO_LONG_MS) {
-    addDiagnostic({
-      kind: "blocked_too_long",
-      severity: "warning",
-      title: "Blocked card needs attention",
-      detail: "The card has been blocked for more than a day.",
-      actions: [{ kind: "unblock", label: "Move to todo" }],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "blocked_too_long",
+          severity: "warning",
+          title: "Blocked card needs attention",
+          detail: "The card has been blocked for more than a day.",
+          actions: [{ kind: "unblock", label: "Move to todo" }],
+        },
+        now,
+      ),
+    );
   }
   if ((card.metadata?.failureCount ?? 0) >= 2) {
-    addDiagnostic({
-      kind: "repeated_failures",
-      severity: "error",
-      title: "Repeated run failures",
-      detail: "Multiple attempts failed or blocked on this card.",
-      actions: [{ kind: "reassign", label: "Reassign card" }],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "repeated_failures",
+          severity: "error",
+          title: "Repeated run failures",
+          detail: "Multiple attempts failed or blocked on this card.",
+          actions: [{ kind: "reassign", label: "Reassign card" }],
+        },
+        now,
+      ),
+    );
   }
   if (
     card.status === "done" &&
@@ -451,22 +537,32 @@ export function computeCardDiagnostics(card: WorkboardCard, now: number): Workbo
       card.metadata?.attachments?.length
     )
   ) {
-    addDiagnostic({
-      kind: "missing_proof",
-      severity: "warning",
-      title: "Done card has no proof",
-      detail: "The card is marked done without proof or an attached artifact.",
-      actions: [{ kind: "add_proof", label: "Add proof" }],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "missing_proof",
+          severity: "warning",
+          title: "Done card has no proof",
+          detail: "The card is marked done without proof or an attached artifact.",
+          actions: [{ kind: "add_proof", label: "Add proof" }],
+        },
+        now,
+      ),
+    );
   }
   if (card.sessionKey && !card.execution && card.status === "running") {
-    addDiagnostic({
-      kind: "orphaned_session",
-      severity: "warning",
-      title: "Running card has only a loose session link",
-      detail: "The card is running but has no execution record for lifecycle handoff.",
-      actions: [{ kind: "open_session", label: "Open session" }],
-    });
+    diagnostics.push(
+      diagnostic(
+        {
+          kind: "orphaned_session",
+          severity: "warning",
+          title: "Running card has only a loose session link",
+          detail: "The card is running but has no execution record for lifecycle handoff.",
+          actions: [{ kind: "open_session", label: "Open session" }],
+        },
+        now,
+      ),
+    );
   }
   return diagnostics;
 }
@@ -704,25 +800,4 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
   }
   return a.id.localeCompare(b.id);
 }
-
-/**
- * Split an oversized comment body into sequential chunks of at most
- * `maxLength` characters, preferring whitespace boundaries so words are not
- * cut mid-token. Pure function; callers own persistence and labeling.
- */
-export function splitCommentBody(body: string, maxLength: number): string[] {
-  const chunks: string[] = [];
-  let remaining = body;
-  while (remaining.length > maxLength) {
-    let cut = remaining.lastIndexOf(" ", maxLength);
-    if (cut <= 0) {
-      cut = maxLength;
-    }
-    chunks.push(remaining.slice(0, cut).trimEnd());
-    remaining = remaining.slice(cut).trimStart();
-  }
-  if (remaining.length > 0 || chunks.length === 0) {
-    chunks.push(remaining);
-  }
-  return chunks;
-}
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
