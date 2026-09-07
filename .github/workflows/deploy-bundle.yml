@@ -300,10 +300,11 @@ jobs:
             echo "::error::node_modules/.pnpm/ has ${pnpm_entries} entries (should be 1 = lock.yaml only with hoisted linker; isolated linker leaked through)"
             exit 1
           fi
-          if [ -e node_modules/.modules.yaml ]; then
-            echo "::error::node_modules/.modules.yaml is present but hoisted linker should not create it"
-            exit 1
-          fi
+          # .modules.yaml is written by pnpm in BOTH linker modes
+          # (it's a dependency-graph metadata file, not linker-
+          # dependent). The dashboard-approved rm at the end handles
+          # cleanup; no existence check needed. (iter7's existence
+          # check on this file was a self-authored false positive.)
           rm -rf node_modules/.pnpm node_modules/.modules.yaml
           echo "Hoisted layout confirmed; .pnpm/ and .modules.yaml removed"
 
