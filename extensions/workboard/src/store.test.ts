@@ -2151,6 +2151,22 @@ describe("WorkboardStore", () => {
     expect(saved?.metadata?.comments?.map((comment) => comment.body)).toContain("Operator note.");
   });
 
+  it("surfaces split-and-retry instruction when comment body exceeds 4096 chars (card 9cfd6ba9)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Comment length regression" });
+
+    await expect(store.addComment(card.id, { body: "x".repeat(4097) })).rejects.toThrow(
+      /^comment body must be 4096 characters or fewer \(got 4097\)\. Split into multiple workboard_comment calls of <3900 characters each \(server cap is 4096; resubmitting the same oversized blob will keep failing\)\.$/,
+    );
+
+    // Non-comment fields (title, notes) keep the original terse error so we
+    // do not advertise a split recipe for fields where splitting is not
+    // meaningful.
+    await expect(store.create({ title: "y".repeat(181), boardId: card.boardId })).rejects.toThrow(
+      /^title must be 180 characters or fewer\.?$/,
+    );
+  });
+
   it("exports card records with metadata", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Export me", templateId: "docs" });
@@ -2310,6 +2326,66 @@ describe("WorkboardStore", () => {
     }
   });
 
+  it("same-owner reclaim succeeds immediately at claim expiry (reclaim-expiry fix)", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Self reclaim", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Inside the 5-min grace but past expiresAt: SAME owner reclaims fine.
+      vi.setSystemTime(expiresAt + 1);
+      const reclaimed = await store.claim(card.id, { ownerId: "original" });
+      expect(reclaimed.card.metadata?.claim?.ownerId).toBe("original");
+      expect(reclaimed.token).not.toBe(claimed.token);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cross-owner reclaim inside the grace window is still refused", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Cross grace", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      vi.setSystemTime(expiresAt + 2_000);
+      await expect(store.claim(card.id, { ownerId: "rival" })).rejects.toThrow(
+        /already claimed by original/,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("own expired claim frees the owner slot for another card", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const first = await store.create({ title: "Slot one", status: "ready" });
+      const second = await store.create({ title: "Slot two", status: "ready" });
+      const claimed = await store.claim(first.id, { ownerId: "worker", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Still inside the grace window: legacy behavior returns owner_busy.
+      vi.setSystemTime(expiresAt + 1_000);
+      await expect(store.claim(second.id, { ownerId: "worker" })).resolves.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {

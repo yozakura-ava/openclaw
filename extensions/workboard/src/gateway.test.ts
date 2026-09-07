@@ -359,7 +359,9 @@ describe("workboard gateway methods", () => {
 
     expect(oversizedRespond.mock.calls[0]?.[0]).toBe(false);
     expect(oversizedRespond.mock.calls[0]?.[2]).toMatchObject({
-      message: "comment body must be 4096 characters or fewer (got 4097).",
+      message: expect.stringMatching(
+        /^comment body must be 4096 characters or fewer \(got 4097\)\. Split into multiple workboard_comment calls of <3900 characters each \(server cap is 4096; resubmitting the same oversized blob will keep failing\)\.$/,
+      ),
     });
   });
 
