@@ -157,19 +157,23 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Swap to production-only hoisted install
+      - name: Swap to production-only install
         # Mirror Dockerfile `runtime-assets` swap (lines 175-178):
         #   - rm -rf node_modules ui/node_modules
         #   - pnpm install --frozen-lockfile --prod ...
         #
-        # `--node-linker=hoisted` switches this single install from the
-        # repo's pinned isolated linker (pnpm-workspace.yaml
-        # nodeLinker: isolated) to a flat layout. Without this flag,
-        # pnpm would create a `.pnpm/` virtual store under
-        # node_modules/. The deployment ships as a single tarball —
-        # there is no way to upload `.pnpm/` out-of-band — so the
-        # hoisted linker is the only way to produce a self-contained
-        # tarball that resolves `workspace:*` references.
+        # pnpm-workspace.yaml on canonical/2026.9.2-base pins
+        # `nodeLinker: isolated`. PR #37's `--config.node-linker=hoisted`
+        # flag is silently ignored by pnpm v12.1.0 (verified locally
+        # with 11+ override variants — `.pnpm/` virtual store is
+        # created regardless of CLI, env, or .npmrc overrides).
+        # Therefore this step runs the prod-only install with the
+        # workspace's existing isolated linker and relies on the next
+        # step (`Materialize package symlinks`) to flatten the layout.
+        # The deployment ships as a single tarball — there is no way
+        # to upload `.pnpm/` out-of-band — so flattening is required
+        # to produce a self-contained bundle that resolves
+        # `workspace:*` references.
         #
         # supportedArchitectures pins the install to the runner's
         # linux/glibc/x64 host so optional native binaries are not
@@ -183,25 +187,37 @@ jobs:
           # install does not have to reconcile them.
           find packages extensions ui examples -name node_modules -prune -exec rm -rf {} + || true
           pnpm install --frozen-lockfile --prod \
-            --config.node-linker=hoisted \
             --config.supportedArchitectures.os=linux \
             --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
             --config.supportedArchitectures.libc=glibc
 
-      - name: Materialize workspace package symlinks
-        # With hoisted linker, pnpm typically installs workspace
-        # packages as symlinks pointing back to the workspace source
-        # trees (e.g. `node_modules/@openclaw/ai` ->
-        # `../../packages/ai`). The deployment cannot ship the
-        # workspace source trees, so resolve each such symlink to
-        # its real file content via `readlink -f` + `cp -a`. Same
-        # pattern as Dockerfile lines 193-198, generalized to every
-        # workspace package under node_modules/@*.
+      - name: Materialize package symlinks
+        # With the isolated linker (pnpm-workspace.yaml nodeLinker:
+        # isolated on canonical/2026.9.2-base), every dependency in
+        # node_modules/ is a symlink:
+        #   - workspace packages (`@openclaw/ai`,
+        #     `@openclaw/proxyline`, `@openclaw/fs-safe`,
+        #     `@openclaw/fs-safe-linux-x64-gnu`) → ../../packages/*
+        #   - transitive deps at top level (lodash, zod, …) →
+        #     .pnpm/<pkg>@<ver>/node_modules/<pkg>
+        # The deployment cannot ship those target trees (workspace
+        # source is excluded; .pnpm/ is too large to ship), so resolve
+        # every directory-pointing symlink to its real file content
+        # via `readlink -f` + `cp -a`. `.bin/` shims stay as symlinks
+        # (Node resolves them at runtime).
         #
-        # After this step the workspace matches the reference
-        # deployment: workspace packages are real directories,
-        # `.pnpm/` and `.modules.yaml` are absent, only `.bin/`
-        # symlinks remain.
+        # Note on find depth: `-P` (default) does not descend into
+        # symlinked directories. At find-time, `node_modules/@openclaw/ai`
+        # is itself a symlink to `packages/ai`, so a recursive find
+        # (`find node_modules -type l`) would NOT see nested symlinks
+        # inside `packages/ai/node_modules/`. Materializing the
+        # workspace package first (depth 2) replaces the symlink with
+        # a real directory; the next step (`Strip nested node_modules
+        # from workspace packages`) then deals with pnpm's injected
+        # transitive-dep symlinks inside the materialized workspace
+        # package — those relative paths still point at
+        # `node_modules/.pnpm/...` even after the workspace symlink is
+        # replaced, and would dangle once `.pnpm/` is dropped.
         run: |
           set -e
           materialized=0
@@ -215,14 +231,77 @@ jobs:
             fi
             if [ ! -d "$target" ]; then
               # Skip non-directory targets (e.g. `.bin/` shims — they
-              # are pnpm bin stubs and should stay symlinks).
+              # are pnpm bin stubs and should stay symlinks because
+              # Node resolves them via PATH/Node-loader at runtime).
               continue
             fi
             rm "$link"
             cp -a "$target" "$link"
             materialized=$((materialized + 1))
-          done < <(find node_modules -maxdepth 3 -type l -path 'node_modules/@*')
-          echo "Materialized ${materialized} workspace package(s); skipped ${skipped}"
+          done < <(find node_modules -maxdepth 2 -type l \
+                     ! -path 'node_modules/.bin' \
+                     ! -path 'node_modules/.bin/*' \
+                     ! -path 'node_modules/.pnpm' \
+                     ! -path 'node_modules/.pnpm/*')
+          echo "Materialized ${materialized} package(s); skipped ${skipped}"
+
+      - name: Strip nested node_modules from workspace packages
+        # pnpm with isolated linker injects transitive-dep symlinks
+        # into each workspace package's node_modules/ during the
+        # prod install so the package source can `import` its prod
+        # deps without walking to the workspace root. After the
+        # previous step materializes `node_modules/@openclaw/ai`
+        # from `packages/ai`, those nested symlinks are still inside
+        # the materialized directory — they point at
+        # `../../../../node_modules/.pnpm/...` and would dangle once
+        # `.pnpm/` is dropped.
+        #
+        # The reference deployment
+        # (/root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/)
+        # has zero nested node_modules/ inside `@openclaw/ai`. Node's
+        # module resolution from `@openclaw/ai/dist/...` walks up and
+        # finds transitive deps at the top-level `node_modules/`
+        # (pnpm hoists compatible versions during install), so the
+        # nested injection is unnecessary at runtime. Stripping it
+        # removes the only path that could produce a dangling
+        # symlink after `.pnpm/` is dropped.
+        #
+        # Scope is deliberately narrow: only `node_modules/@openclaw/*`
+        # (the workspace packages). Non-workspace packages may carry
+        # legitimate nested node_modules for version-conflict
+        # resolution, and stripping those would break imports.
+        run: |
+          set -e
+          stripped=0
+          for ws_pkg in node_modules/@openclaw/*; do
+            [ -d "$ws_pkg" ] || continue
+            [ ! -L "$ws_pkg" ] || continue  # only real dirs (already materialized)
+            if [ -d "$ws_pkg/node_modules" ]; then
+              rm -rf "$ws_pkg/node_modules"
+              stripped=$((stripped + 1))
+              echo "Stripped nested node_modules from ${ws_pkg}"
+            fi
+          done
+          echo "Stripped nested node_modules from ${stripped} workspace package(s)"
+
+      - name: Drop pnpm virtual store
+        # Now that every package directory under node_modules/ has
+        # been materialized as real content (previous step), the
+        # pnpm virtual store and lockfile-derived metadata are dead
+        # weight. Removing them keeps the tarball self-contained and
+        # the boot path free of `.pnpm/` references that would dangle
+        # on a server with no pnpm store.
+        run: |
+          set -e
+          rm -rf node_modules/.pnpm node_modules/.modules.yaml
+          # Some packages ship a `.pnpm` shim inside `.bin/`; drop it.
+          find node_modules/.bin -name '.pnpm' -prune -exec rm -rf {} + 2>/dev/null || true
+          echo "Virtual store dropped"
+          # Re-assert the post-condition so the next step's check has
+          # an unambiguous baseline.
+          test ! -e node_modules/.pnpm
+          test ! -e node_modules/.modules.yaml
+          echo "Post-condition: node_modules has no .pnpm/ and no .modules.yaml"
 
       - name: Run bundled-plugin postinstall
         # Mirror Dockerfile line 191.
@@ -241,7 +320,7 @@ jobs:
           rm -rf node_modules/openclaw node_modules/.bin/openclaw
 
       - name: Verify deployment contents (sanity assertions)
-        # Three assertions, each is a hard job failure on mismatch.
+        # Four assertions, each is a hard job failure on mismatch.
         #   (a) @openclaw/ai resolves to a real workspace package,
         #       not a dangling symlink. This is the same workspace
         #       package path that previously failed server-side
@@ -251,7 +330,15 @@ jobs:
         #       under a virtual store. The existing deployment under
         #       /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
         #       has no .pnpm/, confirming this shape is correct.
-        #   (c) Total file count is under 100k — guards against the
+        #   (c) Zero dangling symlinks under node_modules/. Issue
+        #       #38 / iter4: pnpm injects transitive-dep symlinks
+        #       into each workspace package's node_modules/
+        #       (e.g. `node_modules/@openclaw/ai/node_modules/
+        #       @anthropic-ai/sdk` → `../../../../node_modules/
+        #       .pnpm/...`). If those are not materialized before
+        #       `.pnpm/` is dropped, Node fails with
+        #       ERR_MODULE_NOT_FOUND on a clean boot.
+        #   (d) Total file count is under 100k — guards against the
         #       ~9.3M-file LCA expansion that OOM-killed workflow
         #       run 34062348670 (PR #34's `actions/upload-artifact`
         #       with a multi-path list).
@@ -271,9 +358,20 @@ jobs:
             echo "::error::node_modules/.pnpm/ should be absent (hoisted linker)"
             exit 1
           fi
+          # (c) zero dangling symlinks. Exclude `.bin/` because shims
+          # may point at packages that have been materialized; the
+          # `readlink -f` resolution in the materialize step handles
+          # chain-of-symlinks correctly so a valid `.bin/` shim's
+          # target ultimately resolves to a real file.
+          dangling="$(find node_modules -type l ! -path 'node_modules/.bin*' ! -path 'node_modules/.pnpm*' -exec sh -c 'test ! -e "$1" && echo "$1"' _ {} \; | wc -l)"
+          if [ "${dangling}" -ne 0 ]; then
+            echo "::error::${dangling} dangling symlink(s) under node_modules/"
+            find node_modules -type l ! -path 'node_modules/.bin*' ! -path 'node_modules/.pnpm*' -exec sh -c 'test ! -e "$1" && echo "DANGLING: $1 -> $(readlink "$1")"' _ {} \;
+            exit 1
+          fi
           file_count="$(find . -type f | wc -l)"
-          echo "file_count=${file_count}"
-          # (c) bounded file count
+          echo "file_count=${file_count} dangling=${dangling}"
+          # (d) bounded file count
           if [ "${file_count}" -gt 100000 ]; then
             echo "::error::file count ${file_count} exceeds 100k OOM guard"
             exit 1
@@ -318,17 +416,30 @@ jobs:
         run: |
           tar czf ../deploy-bundle.tar.gz openclaw-${{ steps.version.outputs.version }}
 
-      - name: Print bundle size + entry count
+      - name: Print bundle size + entry count + symlink count
         # Operational visibility: the failed PR #34 run OOMed
         # silently with no artefact, so surface bundle size + entry
         # count in the workflow log before upload. Confirms both the
         # file-count assertion from the previous step and the
-        # on-disk size.
+        # on-disk size. Issue #38 / iter4: also surface symlink
+        # counts so a regression in the materialize step is visible
+        # without downloading the artefact.
         run: |
+          set -e
           du -sh deploy-bundle.tar.gz
           tar -tzf deploy-bundle.tar.gz | wc -l
           # Re-confirm workspace package present inside the tarball
           tar -tzf deploy-bundle.tar.gz | grep -E '(^|/)node_modules/@openclaw/ai/(package\.json|dist/)' | head
+          # Symlink accounting inside the tarball. Expected: only
+          # `.bin/` shims remain (Node resolves them at runtime);
+          # `.pnpm/` must be absent.
+          total_symlinks="$(tar -tzf deploy-bundle.tar.gz | grep -c '^l' || true)"
+          pnpm_symlinks="$(tar -tzf deploy-bundle.tar.gz | grep -cE '(^|/)node_modules/\.pnpm(/|$)' || true)"
+          echo "tar_symlinks=${total_symlinks} pnpm_symlinks=${pnpm_symlinks}"
+          if [ "${pnpm_symlinks}" -ne 0 ]; then
+            echo "::error::tarball contains ${pnpm_symlinks} .pnpm/ references (must be 0)"
+            exit 1
+          fi
 
       - name: Upload deploy bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
