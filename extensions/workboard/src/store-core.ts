@@ -111,6 +111,14 @@ type WorkboardMutationJournalEntry = {
 
 const WORKBOARD_CAS_ATTEMPTS = 3;
 
+// Card 9cfd6ba9 (2026-09-05): recognize the bare length-cap error from
+// `normalizeBoundedString("comment body", 4096)` so the caller can be told to
+// split into multiple workboard_comment calls instead of repeatedly retrying
+// the same oversized blob. Pinned to the exact `(got \d+).` shape so the
+// helper cannot recurse on its own wrapped error.
+const COMMENT_BODY_LENGTH_ERROR_PATTERN =
+  /^comment body must be 4096 characters or fewer \(got \d+\)\.$/;
+
 export type WorkboardCoreStoreOptions = {
   boards?: WorkboardKeyedStore<PersistedWorkboardBoard>;
   subscriptions?: WorkboardKeyedStore<PersistedWorkboardNotificationSubscription>;
@@ -1145,7 +1153,7 @@ export class WorkboardCoreStore {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 4096, "comment body");
+    const body = this.normalizeCommentBodyForWrite(input.body);
     if (!body) {
       throw new Error("comment body is required.");
     }
@@ -1157,6 +1165,32 @@ export class WorkboardCoreStore {
         comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
       };
     });
+  }
+
+  /**
+   * Validate an inbound comment body and surface the server cap as an
+   * actionable split-and-retry instruction. The plain
+   * `normalizeBoundedString` error (`comment body must be 4096 characters or
+   * fewer (got N).`) is non-actionable — agents repeatedly retry the same
+   * oversized blob. Card 9cfd6ba9 (2026-09-05) appends the split recipe so
+   * the failure mode becomes self-correcting instead of a retry loop.
+   *
+   * Iter-2 (2026-09-07): reconciles the helper onto current main, which
+   * already carries the canonical 4096 write-cap change (74b97eac32f). The
+   * helper composes with the cap: it never re-raises the bare error, so the
+   * cap and the actionable message are both preserved end-to-end.
+   */
+  private normalizeCommentBodyForWrite(value: unknown): string | undefined {
+    try {
+      return normalizeBoundedString(value, undefined, 4096, "comment body");
+    } catch (error) {
+      if (error instanceof Error && COMMENT_BODY_LENGTH_ERROR_PATTERN.test(error.message)) {
+        throw new Error(
+          `${error.message} Split into multiple workboard_comment calls of <3900 characters each (server cap is 4096; resubmitting the same oversized blob will keep failing).`,
+        );
+      }
+      throw error;
+    }
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
