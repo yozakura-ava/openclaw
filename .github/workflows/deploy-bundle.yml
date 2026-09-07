@@ -270,70 +270,29 @@ jobs:
             rm "$link"
             cp -a "$target" "$link"
             materialized=$((materialized + 1))
-          done < <(find node_modules -maxdepth 2 -type l \
-                     ! -path 'node_modules/.bin' \
-                     ! -path 'node_modules/.bin/*' \
-                     ! -path 'node_modules/.pnpm' \
-                     ! -path 'node_modules/.pnpm/*')
-          echo "Materialized ${materialized} package(s); skipped ${skipped}"
+          done < <(find node_modules/@openclaw -maxdepth 1 -mindepth 1 -type l)
+          echo "Materialized ${materialized} workspace package(s); skipped ${skipped}"
 
-      - name: Strip nested node_modules from workspace packages
-        # pnpm with isolated linker injects transitive-dep symlinks
-        # into each workspace package's node_modules/ during the
-        # prod install so the package source can `import` its prod
-        # deps without walking to the workspace root. After the
-        # previous step materializes `node_modules/@openclaw/ai`
-        # from `packages/ai`, those nested symlinks are still inside
-        # the materialized directory — they point at
-        # `../../../../node_modules/.pnpm/...` and would dangle once
-        # `.pnpm/` is dropped.
-        #
-        # The reference deployment
-        # (/root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/)
-        # has zero nested node_modules/ inside `@openclaw/ai`. Node's
-        # module resolution from `@openclaw/ai/dist/...` walks up and
-        # finds transitive deps at the top-level `node_modules/`
-        # (pnpm hoists compatible versions during install), so the
-        # nested injection is unnecessary at runtime. Stripping it
-        # removes the only path that could produce a dangling
-        # symlink after `.pnpm/` is dropped.
-        #
-        # Scope is deliberately narrow: only `node_modules/@openclaw/*`
-        # (the workspace packages). Non-workspace packages may carry
-        # legitimate nested node_modules for version-conflict
-        # resolution, and stripping those would break imports.
+      - name: Confirm no pnpm virtual store
+        # With the hoisted linker (forced by the upstream step's
+        # transient pnpm-workspace.yaml mutation), pnpm places every
+        # compatible dep directly at node_modules/<dep>/ and there
+        # is no .pnpm/ virtual store to drop. This step asserts that
+        # shape rather than dropping one. The .modules.yaml file is
+        # also absent under hoisted linker. If either appears, the
+        # mutation in the previous step silently failed and we
+        # should fail loudly here.
         run: |
           set -e
-          stripped=0
-          for ws_pkg in node_modules/@openclaw/*; do
-            [ -d "$ws_pkg" ] || continue
-            [ ! -L "$ws_pkg" ] || continue  # only real dirs (already materialized)
-            if [ -d "$ws_pkg/node_modules" ]; then
-              rm -rf "$ws_pkg/node_modules"
-              stripped=$((stripped + 1))
-              echo "Stripped nested node_modules from ${ws_pkg}"
-            fi
-          done
-          echo "Stripped nested node_modules from ${stripped} workspace package(s)"
-
-      - name: Drop pnpm virtual store
-        # Now that every package directory under node_modules/ has
-        # been materialized as real content (previous step), the
-        # pnpm virtual store and lockfile-derived metadata are dead
-        # weight. Removing them keeps the tarball self-contained and
-        # the boot path free of `.pnpm/` references that would dangle
-        # on a server with no pnpm store.
-        run: |
-          set -e
-          rm -rf node_modules/.pnpm node_modules/.modules.yaml
-          # Some packages ship a `.pnpm` shim inside `.bin/`; drop it.
-          find node_modules/.bin -name '.pnpm' -prune -exec rm -rf {} + 2>/dev/null || true
-          echo "Virtual store dropped"
-          # Re-assert the post-condition so the next step's check has
-          # an unambiguous baseline.
-          test ! -e node_modules/.pnpm
-          test ! -e node_modules/.modules.yaml
-          echo "Post-condition: node_modules has no .pnpm/ and no .modules.yaml"
+          if [ -e node_modules/.pnpm ]; then
+            echo "::error::node_modules/.pnpm/ is present but hoisted linker should not create it"
+            exit 1
+          fi
+          if [ -e node_modules/.modules.yaml ]; then
+            echo "::error::node_modules/.modules.yaml is present but hoisted linker should not create it"
+            exit 1
+          fi
+          echo "Hoisted layout confirmed: no .pnpm/, no .modules.yaml"
 
       - name: Run bundled-plugin postinstall
         # Mirror Dockerfile line 191.
@@ -404,11 +363,54 @@ jobs:
           file_count="$(find . -type f | wc -l)"
           echo "file_count=${file_count} dangling=${dangling}"
           # (d) bounded file count
-          if [ "${file_count}" -gt 100000 ]; then
-            echo "::error::file count ${file_count} exceeds 100k OOM guard"
+          # Hoisted-linker shape (forced by the upstream mutation)
+          # produces ~146k files because every transitive dep is
+          # placed at node_modules/<dep>/ rather than nested under
+          # .pnpm/<consumer>@<ver>/node_modules/<dep>/. PR #34's
+          # 9.3M-file LCA OOM is not a concern at 200k (upload-
+          # artifact handles well over 200k without OOM).
+          if [ "${file_count}" -gt 200000 ]; then
+            echo "::error::file count ${file_count} exceeds 200k OOM guard"
             exit 1
           fi
-          echo "Sanity assertions passed: @openclaw/ai materialized, no .pnpm/, ${file_count} files"
+          echo "Sanity assertions passed (a-d): @openclaw/ai materialized, no .pnpm/, ${file_count} files"
+          # (e) Module-resolution smoke. Layout-only checks (a-d) can
+          # pass while the tarball is still unbootable: iter4
+          # (commit e4d1ca33c5e) had clean (a)-(c) and tripped (d)
+          # only because the file count was off — the real failure
+          # was `ERR_MODULE_NOT_FOUND lru-cache` and
+          # `ERR_MODULE_NOT_FOUND fast-wrap-ansi`, neither of which
+          # a layout check catches. require.resolve() exercises
+          # Node's actual module-resolution algorithm against the
+          # filesystem we just built, on a representative set of
+          # paths: workspace package, two prod deps of @openclaw/ai,
+          # and two transitive deps of those (the exact class that
+          # failed in iter4).
+          echo "Running require.resolve smoke test..."
+          node -e "
+            const mods = [
+              '@openclaw/ai',
+              '@anthropic-ai/sdk',
+              'openai',
+              'lru-cache',
+              'fast-wrap-ansi',
+            ];
+            const errs = [];
+            for (const m of mods) {
+              try {
+                const r = require.resolve(m);
+                console.log('OK', m, '->', r);
+              } catch (e) {
+                errs.push(m + ': ' + e.message.split(String.fromCharCode(10))[0]);
+              }
+            }
+            if (errs.length) {
+              console.error('RESOLVE ERRORS:');
+              errs.forEach(function (e) { console.error(' ', e); });
+              process.exit(1);
+            }
+          "
+          echo "Sanity assertions passed (a-e): layout clean + module resolution OK"
 
       - name: Stage deployment tree
         # Populate staging/openclaw-<version>/ with the runtime
