@@ -3,6 +3,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import { getLogger } from "../../logging/logger.js";
 import { normalizeAgentId, parseAgentSessionKey } from "../../routing/session-key.js";
 import type { createAgentDeletionDatabaseCleanup } from "../../state/agent-deletion-cleanup.js";
@@ -297,6 +298,10 @@ async function previewStoreCleanup(params: {
   });
   // Preview always mutates a clone so dry-run output can report exact counts without touching disk.
   const previewStore = structuredClone(beforeStore);
+  // Yield once after the synchronous sqlite list + clone. For a large store
+  // both calls are heavy CPU/memory work; giving the gateway event loop a
+  // turn here keeps health probes and broadcast traffic responsive (#20).
+  await yieldToEventLoop();
   const staleKeys = new Set<string>();
   const cappedKeys = new Set<string>();
   const missingKeys = new Set<string>();
@@ -363,6 +368,12 @@ async function previewStoreCleanup(params: {
       keys.add(key);
     },
   });
+  // Yield once after the cap pass returns. planSessionEntryMaintenance runs
+  // the maintenance passes (cap, prune, archive) synchronously inside one
+  // call; yielding here gives the gateway event loop a turn before the
+  // addEntryArtifactPathsToSet + diskBudget + pruneUnreferencedSessionArtifacts
+  // post-pass sweeps that follow (#20).
+  await yieldToEventLoop();
   const archived = totalArchived - capArchived;
   const entryCleanupArtifactPaths = new Set<string>();
   addEntryArtifactPathsToSet({
@@ -472,6 +483,12 @@ export async function runSessionsCleanup(params: {
 
   const previewResults: SessionsCleanupRunResult["previewResults"] = [];
   for (const target of targets) {
+    if (previewResults.length > 0) {
+      // Each per-store preview is synchronous work over a potentially large
+      // session corpus; yielding between stores keeps the gateway event loop
+      // responsive while a `sessions.cleanup` invocation is in flight (#20).
+      await yieldToEventLoop();
+    }
     const result = await previewStoreCleanup({
       cfg,
       target,
@@ -491,6 +508,12 @@ export async function runSessionsCleanup(params: {
   try {
     if (!opts.dryRun) {
       for (const target of targets) {
+        if (appliedSummaries.length > 0) {
+          // The apply path runs SQLite transactions, transcript archive
+          // materialization, and disk-budget eviction per store; yielding
+          // between stores bounds the longest single-tick hold (#20).
+          await yieldToEventLoop();
+        }
         failingTarget = target;
         failingTargetLifecycleCommitted = false;
         const applyStore = loadCleanupSessionStore(target, { createIfMissing: true });
