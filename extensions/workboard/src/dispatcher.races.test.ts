@@ -63,7 +63,13 @@ describe("Workboard dispatcher lifecycle races", () => {
     expect(result.startFailures).toEqual([
       expect.objectContaining({
         cardId: card.id,
-        error: expect.stringMatching(/archived|authority/),
+        // PATCH workboard-claim-done-guard (issue #24): "completed" added
+        // to the regex now that claim() rejects status === "done" cards
+        // with the "card is completed." error. The other branches
+        // (archived, blocked, review, boardId-change) still produce
+        // "card is archived." or "card workspace authority changed..."
+        // messages.
+        error: expect.stringMatching(/archived|authority|completed/),
       }),
     ]);
     const current = await store.get(card.id);
