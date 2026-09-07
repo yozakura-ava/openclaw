@@ -157,6 +157,31 @@ jobs:
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Force hoisted linker for entire workflow
+        # Issue #38 iter10: pnpm-workspace.yaml on
+        # canonical/2026.9.2-base pins nodeLinker: isolated. PR #37's
+        # --config.node-linker=hoisted flag is silently ignored by pnpm
+        # v12.1.0. PR #38 iter5-iter9 tried transient mutations scoped
+        # to the prod install, but iter9 showed that subsequent steps
+        # (notably 'Run bundled-plugin postinstall') see the RESTORED
+        # isolated linker and recreate .pnpm/ virtual-store symlinks
+        # (144 of them in iter9's tarball) — real dangling references
+        # that break boot.
+        #
+        # This step mutates pnpm-workspace.yaml to nodeLinker: hoisted
+        # and leaves it mutated for the ENTIRE workflow. A final step
+        # ('Restore pnpm-workspace.yaml') with if: always() restores
+        # it after the tar is created; git status must end clean.
+        # Backup goes to /tmp (not the workspace) so it does not show
+        # up in `git status` mid-run. /tmp persists across GHA step
+        # boundaries on the same runner.
+        run: |
+          set -e
+          cp pnpm-workspace.yaml /tmp/pnpm-workspace.yaml.orig
+          sed -i 's/^nodeLinker: isolated$/nodeLinker: hoisted/' pnpm-workspace.yaml
+          echo 'pnpm-workspace.yaml mutated to nodeLinker: hoisted (backup at /tmp/pnpm-workspace.yaml.orig)'
+          grep '^nodeLinker:' pnpm-workspace.yaml
+
       - name: Swap to production-only install
         # Mirror Dockerfile `runtime-assets` swap (lines 175-178):
         #   - rm -rf node_modules ui/node_modules
@@ -181,33 +206,12 @@ jobs:
         # `production-deps` stage uses on lines 93-95).
         run: |
           set -e
-          # Issue #38 iter5 (commit pending): pnpm-workspace.yaml on
-          # canonical/2026.9.2-base pins `nodeLinker: isolated`. With
-          # isolated linker, transitive deps are placed as siblings
-          # under .pnpm/<consumer>@<ver>/node_modules/<dep>/ rather
-          # than nested inside the consumer. PR #37's
-          # `--config.node-linker=hoisted` flag is silently ignored
-          # by pnpm v12.1.0 (verified locally with 11+ override
-          # variants). PR #38 iter4 (commit e4d1ca33c5e) tried post-
-          # install materialization to flatten the layout, but
-          # materializing the consumer dir alone leaves sibling deps
-          # silently absent (not dangling, just gone) once .pnpm/ is
-          # dropped; the resulting tarball boots to `ERR_MODULE_NOT_FOUND
-          # lru-cache` (and similar transitive deps).
-          #
-          # Fix: transiently mutate pnpm-workspace.yaml to
-          # `nodeLinker: hoisted` for this install only, then restore.
-          # With hoisted linker, every (compatible) dep is placed
-          # directly at node_modules/<dep>/ and there is no .pnpm/
-          # virtual store to drop — the same shape as the reference
-          # deployment openclaw-2026.9.2-20260906T160338Z (Dockerfile
-          # builds from `main`, whose workspace yaml already pins
-          # hoisted). The EXIT trap guarantees the workspace yaml is
-          # restored even if pnpm install fails; `git status` of the
-          # worktree is unchanged.
-          cp pnpm-workspace.yaml pnpm-workspace.yaml.bak
-          sed -i 's/^nodeLinker: isolated$/nodeLinker: hoisted/' pnpm-workspace.yaml
-          trap 'mv pnpm-workspace.yaml.bak pnpm-workspace.yaml' EXIT
+          # Mutation happened in the preceding 'Force hoisted linker
+          # for entire workflow' step and is reverted by the trailing
+          # 'Restore pnpm-workspace.yaml' step (with if: always()).
+          # All intermediate steps — including this prod-only install
+          # AND 'Run bundled-plugin postinstall' which invokes pnpm
+          # internally — see the hoisted linker config.
           rm -rf node_modules ui/node_modules
           # pnpm can leave nested node_modules under workspace
           # packages from the full install; remove those so the prod
@@ -217,11 +221,6 @@ jobs:
             --config.supportedArchitectures.os=linux \
             --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
             --config.supportedArchitectures.libc=glibc
-          # Sanity print before the EXIT trap restores the workspace
-          # yaml. Hoisted linker must NOT create .pnpm/.
-          test ! -e node_modules/.pnpm && echo "PASS: no .pnpm/ created (hoisted linker)"
-          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
-          trap - EXIT
 
       - name: Materialize package symlinks
         # With the isolated linker (pnpm-workspace.yaml nodeLinker:
@@ -527,3 +526,29 @@ jobs:
           path: deploy-bundle.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+      - name: Restore pnpm-workspace.yaml
+        # if: always() ensures this runs even if a previous step
+        # failed, so the worktree ends with pnpm-workspace.yaml at HEAD.
+        # The /tmp backup from the upfront mutation is the primary
+        # restore path; `git checkout --` is a bulletproof fallback in
+        # case /tmp was wiped (it persists across GHA step boundaries
+        # on the same runner, but a runner restart would lose it).
+        if: always()
+        run: |
+          set -e
+          if [ -f /tmp/pnpm-workspace.yaml.orig ]; then
+            cp /tmp/pnpm-workspace.yaml.orig pnpm-workspace.yaml
+            rm -f /tmp/pnpm-workspace.yaml.orig
+            echo 'Restored pnpm-workspace.yaml from /tmp backup'
+          else
+            echo 'WARN: no /tmp backup; using git checkout'
+          fi
+          git checkout -- pnpm-workspace.yaml
+          if git diff --quiet pnpm-workspace.yaml; then
+            echo 'pnpm-workspace.yaml restored to HEAD; git status clean for this file'
+          else
+            echo '::error::pnpm-workspace.yaml still differs from HEAD after restore'
+            git diff pnpm-workspace.yaml | head -30
+            exit 1
+          fi
