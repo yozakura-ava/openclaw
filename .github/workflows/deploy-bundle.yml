@@ -181,6 +181,33 @@ jobs:
         # `production-deps` stage uses on lines 93-95).
         run: |
           set -e
+          # Issue #38 iter5 (commit pending): pnpm-workspace.yaml on
+          # canonical/2026.9.2-base pins `nodeLinker: isolated`. With
+          # isolated linker, transitive deps are placed as siblings
+          # under .pnpm/<consumer>@<ver>/node_modules/<dep>/ rather
+          # than nested inside the consumer. PR #37's
+          # `--config.node-linker=hoisted` flag is silently ignored
+          # by pnpm v12.1.0 (verified locally with 11+ override
+          # variants). PR #38 iter4 (commit e4d1ca33c5e) tried post-
+          # install materialization to flatten the layout, but
+          # materializing the consumer dir alone leaves sibling deps
+          # silently absent (not dangling, just gone) once .pnpm/ is
+          # dropped; the resulting tarball boots to `ERR_MODULE_NOT_FOUND
+          # lru-cache` (and similar transitive deps).
+          #
+          # Fix: transiently mutate pnpm-workspace.yaml to
+          # `nodeLinker: hoisted` for this install only, then restore.
+          # With hoisted linker, every (compatible) dep is placed
+          # directly at node_modules/<dep>/ and there is no .pnpm/
+          # virtual store to drop — the same shape as the reference
+          # deployment openclaw-2026.9.2-20260906T160338Z (Dockerfile
+          # builds from `main`, whose workspace yaml already pins
+          # hoisted). The EXIT trap guarantees the workspace yaml is
+          # restored even if pnpm install fails; `git status` of the
+          # worktree is unchanged.
+          cp pnpm-workspace.yaml pnpm-workspace.yaml.bak
+          sed -i 's/^nodeLinker: isolated$/nodeLinker: hoisted/' pnpm-workspace.yaml
+          trap 'mv pnpm-workspace.yaml.bak pnpm-workspace.yaml' EXIT
           rm -rf node_modules ui/node_modules
           # pnpm can leave nested node_modules under workspace
           # packages from the full install; remove those so the prod
@@ -190,6 +217,11 @@ jobs:
             --config.supportedArchitectures.os=linux \
             --config.supportedArchitectures.cpu="$(node -p 'process.arch')" \
             --config.supportedArchitectures.libc=glibc
+          # Sanity print before the EXIT trap restores the workspace
+          # yaml. Hoisted linker must NOT create .pnpm/.
+          test ! -e node_modules/.pnpm && echo "PASS: no .pnpm/ created (hoisted linker)"
+          mv pnpm-workspace.yaml.bak pnpm-workspace.yaml
+          trap - EXIT
 
       - name: Materialize package symlinks
         # With the isolated linker (pnpm-workspace.yaml nodeLinker:
