@@ -481,11 +481,42 @@ jobs:
           # Symlink accounting inside the tarball. Expected: only
           # `.bin/` shims remain (Node resolves them at runtime);
           # `.pnpm/` must be absent.
-          total_symlinks="$(tar -tzf deploy-bundle.tar.gz | grep -c '^l' || true)"
-          pnpm_symlinks="$(tar -tzf deploy-bundle.tar.gz | grep -cE '(^|/)node_modules/\.pnpm(/|$)' || true)"
-          echo "tar_symlinks=${total_symlinks} pnpm_symlinks=${pnpm_symlinks}"
+          # Use `tar -tvf` (verbose, ls -l-style) to get a real file-type
+          # prefix in column 1 (- = file, d = dir, l = symlink). The
+          # earlier `tar -tzf | grep -c '^l'` was buggy: tar -tzf emits
+          # paths only with no type prefix, so '^l' matched any path
+          # starting with 'l' (e.g. 'lib/...') and gave a meaningless
+          # count.
+          #
+          # Real dangling .pnpm/ references would be symlinks (`l` in
+          # tv mode). Files and directories inside a .pnpm/ path are
+          # not dangling and are not a problem to ship. Specifically:
+          # pre-built packages (e.g. @pierre/diffs) ship type
+          # declarations inside their own dist/node_modules/.pnpm/
+          # (a path layout the package author chose, mimicking pnpm's
+          # virtual-store naming). Those .d.ts / .d.ts.map files are
+          # type-only and harmless at runtime. They are NOT created
+          # by our prod install (verified locally: ./node_modules/@pierre/
+          # diffs/dist/node_modules/.pnpm/@types_unist@3.0.3/... ships
+          # inside the published @pierre/diffs dist/, not added by pnpm).
+          tv_listing="$(tar -tvf deploy-bundle.tar.gz 2>/dev/null || true)"
+          tar_symlinks="$(printf '%s\n' "${tv_listing}" | grep -c '^l' || echo 0)"
+          pnpm_symlinks="$(printf '%s\n' "${tv_listing}" | grep -cE '^l.*node_modules/\.pnpm(/|$)' || echo 0)"
+          # Also assert: zero tar entries that are top-level REAL
+          # (non-symlink) entries under openclaw-X.Y.Z/node_modules/.pnpm/.
+          # The hoisted linker (forced by the upstream transient
+          # mutation) drops .pnpm/ after the materialize step, so
+          # the only thing that COULD end up here is post-postinstall
+          # pnpm bookkeeping. With iter8's step ordering fix, even
+          # that is gone before staging.
+          top_pnpm_real="$(printf '%s\n' "${tv_listing}" | grep -cE '^[-d].*node_modules/\.pnpm(/|$)' || echo 0)"
+          echo "tar_symlinks=${tar_symlinks} pnpm_symlinks=${pnpm_symlinks} top_pnpm_real=${top_pnpm_real}"
           if [ "${pnpm_symlinks}" -ne 0 ]; then
-            echo "::error::tarball contains ${pnpm_symlinks} .pnpm/ references (must be 0)"
+            echo "::error::tarball contains ${pnpm_symlinks} symlink(s) pointing into .pnpm/ (must be 0; would dangle on a server with no pnpm store)"
+            exit 1
+          fi
+          if [ "${top_pnpm_real}" -ne 0 ]; then
+            echo "::error::tarball contains ${top_pnpm_real} top-level .pnpm/ entries (must be 0; post-postinstall cleanup should have dropped them)"
             exit 1
           fi
 
