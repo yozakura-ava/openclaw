@@ -321,6 +321,10 @@ jobs:
           find dist -type f \
             \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) \
             -delete
+          # Drop nested node_modules dirs copied into dist/ by build:package —
+          # they contain pnpm virtual-store symlinks that dangle after the
+          # prod install's .pnpm removal (issue #38 iter10 root cause).
+          find dist -type d -name node_modules -prune -exec rm -rf {} +
           rm -rf node_modules/openclaw node_modules/.bin/openclaw
 
       - name: Verify deployment contents (sanity assertions)
