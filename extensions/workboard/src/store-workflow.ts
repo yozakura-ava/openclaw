@@ -120,7 +120,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         (isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
           // Direct claims must honor the same running-worker heartbeat grace
           // as dispatcher recovery; otherwise they silently steal live tokens.
-          (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now)))
+          // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): the grace
+          // protects only OTHER owners — the claim's original owner may
+          // reclaim immediately once expiresAt has passed (self-recovery).
+          (guarded.status === "running" &&
+            !isWorkboardClaimReclaimable(existingClaim, now) &&
+            existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
       if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
