@@ -273,26 +273,39 @@ jobs:
           done < <(find node_modules/@openclaw -maxdepth 1 -mindepth 1 -type l)
           echo "Materialized ${materialized} workspace package(s); skipped ${skipped}"
 
-      - name: Confirm no pnpm virtual store
+      - name: Confirm hoisted layout + drop pnpm bookkeeping
         # With the hoisted linker (forced by the upstream step's
         # transient pnpm-workspace.yaml mutation), pnpm places every
-        # compatible dep directly at node_modules/<dep>/ and there
-        # is no .pnpm/ virtual store to drop. This step asserts that
-        # shape rather than dropping one. The .modules.yaml file is
-        # also absent under hoisted linker. If either appears, the
-        # mutation in the previous step silently failed and we
-        # should fail loudly here.
+        # compatible dep directly at node_modules/<dep>/. The .pnpm/
+        # directory still exists but contains ONLY lock.yaml (pnpm's
+        # bookkeeping file, ~412K) — not the virtual-store package
+        # directories that isolated linker would create. .modules.yaml
+        # is absent under hoisted linker.
+        #
+        # iter6's directory-existence check (-e node_modules/.pnpm)
+        # fired a false positive because the directory exists for
+        # lock.yaml alone. This step checks the entry count: with
+        # hoisted linker, exactly 1 entry (lock.yaml). Anything more
+        # means the upstream mutation silently failed and isolated
+        # linker leaked through, which would OOM the tarball.
+        # Then rm -rf cleans up the bookkeeping files so the
+        # deployment is fully self-contained (matches reference
+        # deployment openclaw-2026.9.2-20260906T160338Z which has
+        # zero .pnpm/ and zero .modules.yaml).
         run: |
           set -e
-          if [ -e node_modules/.pnpm ]; then
-            echo "::error::node_modules/.pnpm/ is present but hoisted linker should not create it"
+          pnpm_entries=$(ls -A node_modules/.pnpm 2>/dev/null | wc -l)
+          echo "node_modules/.pnpm/ entries: ${pnpm_entries}"
+          if [ "${pnpm_entries}" -gt 1 ]; then
+            echo "::error::node_modules/.pnpm/ has ${pnpm_entries} entries (should be 1 = lock.yaml only with hoisted linker; isolated linker leaked through)"
             exit 1
           fi
           if [ -e node_modules/.modules.yaml ]; then
             echo "::error::node_modules/.modules.yaml is present but hoisted linker should not create it"
             exit 1
           fi
-          echo "Hoisted layout confirmed: no .pnpm/, no .modules.yaml"
+          rm -rf node_modules/.pnpm node_modules/.modules.yaml
+          echo "Hoisted layout confirmed; .pnpm/ and .modules.yaml removed"
 
       - name: Run bundled-plugin postinstall
         # Mirror Dockerfile line 191.
