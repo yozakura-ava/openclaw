@@ -19,7 +19,10 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
+  recordClaimConflict,
   retryBudgetExhausted,
+  snapshotClaimConflictHistory,
+  type WorkboardClaimConflictEvent,
 } from "./store-card-helpers.js";
 import {
   addWorkboardDurationMs,
@@ -72,6 +75,18 @@ function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInp
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
+  /**
+   * Read-only snapshot of the bounded takeover / claim-conflict history
+   * (issue #24). Records every archived/done rejection and every foreign
+   * takeover attempt the store has rejected since process start. Bounded at
+   * `CLAIM_CONFLICT_HISTORY_CAP` entries, FIFO. Not persisted — restarts
+   * clear it. Use this for forensic queries ("who tried to take card X?")
+   * without exposing per-card runtime configuration paths.
+   */
+  get claimConflicts(): readonly WorkboardClaimConflictEvent[] {
+    return snapshotClaimConflictHistory();
+  }
+
   async claim(
     id: string,
     input: WorkboardClaimInput,
@@ -95,7 +110,26 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       );
       const guarded = await this.promoteDependencyReady(id, now);
       if (guarded.metadata?.archivedAt) {
+        recordClaimConflict({
+          kind: "claim_on_archived",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
         throw new Error("card is archived.");
+      }
+      // PATCH workboard-claim-done-guard (issue #24, remaining gap from Ken
+      // triage 2026-09-07): completed cards must reject claim attempts.
+      // Without this guard a stale orchestrator can attach a new claim
+      // token to a terminal card and silently re-open the work surface.
+      if (guarded.status === "done") {
+        recordClaimConflict({
+          kind: "claim_on_done",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
+        throw new Error("card is completed.");
       }
       const expectedAuthority = options.expectedAuthority;
       if (
@@ -138,6 +172,20 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new Error("card exhausted its retry budget.");
       }
       if (activeClaim) {
+        // PATCH workboard-takeover-diagnostic (issue #24): record the takeover
+        // ONLY when we are about to reject a FOREIGN live claim attempt.
+        // Same-owner self-recovery (PR #41) does NOT record a takeover event
+        // — the original owner reclaiming its own slot is not a takeover.
+        if (activeClaim.ownerId !== ownerId) {
+          recordClaimConflict({
+            kind: "takeover",
+            cardId: id,
+            attemptedOwnerId: ownerId,
+            priorOwnerId: activeClaim.ownerId,
+            priorExpiresAt: activeClaim.expiresAt,
+            at: now,
+          });
+        }
         throw new Error(`card already claimed by ${activeClaim.ownerId}.`);
       }
       const metadata = clearDiagnostics(guarded.metadata, ["stranded_ready"]);
