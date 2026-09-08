@@ -1,4 +1,5 @@
 // Skills CLI for workspace status, install/update, ClawHub verification, and workshop proposals.
+import { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { Command } from "commander";
 import {
@@ -124,11 +125,51 @@ type SkillProposalDraftCliOptions = {
   evidence?: string;
 };
 
-const GATEWAY_SKILLS_STATUS_TIMEOUT_MS = 1_500;
-const GATEWAY_SKILLS_EVALUATION_TIMEOUT_MS = 650_000;
-const GATEWAY_SKILLS_OFFLINE_LOCK_TIMEOUT_MS = 250;
+// Skills gateway timeout defaults. Each default has a matching env-var override
+// so operators can raise the timeout when the gateway is busy without patching
+// the CLI. Defaults are preserved verbatim so unset env vars keep the legacy
+// 1.5s status probe behavior.
+const SKILLS_STATUS_TIMEOUT_DEFAULT_MS = 1_500;
+const SKILLS_EVALUATION_TIMEOUT_DEFAULT_MS = 650_000;
+const SKILLS_OFFLINE_LOCK_TIMEOUT_DEFAULT_MS = 250;
 // Apply can await evaluator, proposal-change, and skill-change hook phases.
-const GATEWAY_SKILLS_APPLY_TIMEOUT_MS = 1_850_000;
+const SKILLS_APPLY_TIMEOUT_DEFAULT_MS = 1_850_000;
+
+const SKILLS_STATUS_TIMEOUT_ENV = "OPENCLAW_SKILLS_STATUS_TIMEOUT_MS";
+const SKILLS_EVALUATION_TIMEOUT_ENV = "OPENCLAW_SKILLS_EVALUATION_TIMEOUT_MS";
+const SKILLS_OFFLINE_LOCK_TIMEOUT_ENV = "OPENCLAW_SKILLS_OFFLINE_LOCK_TIMEOUT_MS";
+const SKILLS_APPLY_TIMEOUT_ENV = "OPENCLAW_SKILLS_APPLY_TIMEOUT_MS";
+
+function readPositiveIntegerEnvMs(envName: string, fallbackMs: number): number {
+  const rawValue = process.env[envName];
+  if (!rawValue) {
+    return fallbackMs;
+  }
+  const parsedMs = parseStrictPositiveInteger(rawValue);
+  return parsedMs ?? fallbackMs;
+}
+
+function resolveGatewaySkillsStatusTimeoutMs(): number {
+  return readPositiveIntegerEnvMs(SKILLS_STATUS_TIMEOUT_ENV, SKILLS_STATUS_TIMEOUT_DEFAULT_MS);
+}
+
+function resolveGatewaySkillsEvaluationTimeoutMs(): number {
+  return readPositiveIntegerEnvMs(
+    SKILLS_EVALUATION_TIMEOUT_ENV,
+    SKILLS_EVALUATION_TIMEOUT_DEFAULT_MS,
+  );
+}
+
+function resolveGatewaySkillsOfflineLockTimeoutMs(): number {
+  return readPositiveIntegerEnvMs(
+    SKILLS_OFFLINE_LOCK_TIMEOUT_ENV,
+    SKILLS_OFFLINE_LOCK_TIMEOUT_DEFAULT_MS,
+  );
+}
+
+function resolveGatewaySkillsApplyTimeoutMs(): number {
+  return readPositiveIntegerEnvMs(SKILLS_APPLY_TIMEOUT_ENV, SKILLS_APPLY_TIMEOUT_DEFAULT_MS);
+}
 
 async function callSkillsGateway<T>(params: {
   config: ResolvedSkillsWorkspace["config"];
@@ -139,7 +180,7 @@ async function callSkillsGateway<T>(params: {
 }): Promise<T> {
   const { callGateway } = await import("../gateway/call.js");
   return await callGateway<T>({
-    timeoutMs: GATEWAY_SKILLS_STATUS_TIMEOUT_MS,
+    timeoutMs: resolveGatewaySkillsStatusTimeoutMs(),
     clientName: GATEWAY_CLIENT_NAMES.CLI,
     mode: GATEWAY_CLIENT_MODES.CLI,
     ...params,
@@ -415,7 +456,7 @@ async function withOfflineGatewayLock<T>(
     allowInTests: true,
     port: resolveGatewayPort(config, process.env),
     role: "skill-workshop-apply",
-    timeoutMs: GATEWAY_SKILLS_OFFLINE_LOCK_TIMEOUT_MS,
+    timeoutMs: resolveGatewaySkillsOfflineLockTimeoutMs(),
   }).catch(() => undefined);
   if (!lock) {
     throw gatewayError;
@@ -516,7 +557,7 @@ async function runSkillProposalApply(
       proposalId,
       expectedRevisionHash: proposal.revisionHash,
     },
-    timeoutMs: GATEWAY_SKILLS_APPLY_TIMEOUT_MS,
+    timeoutMs: resolveGatewaySkillsApplyTimeoutMs(),
   });
 }
 
@@ -539,7 +580,7 @@ async function runSkillProposalEvaluate(
       expectedRevisionHash: proposal.revisionHash,
       ...(correlationId ? { correlationId } : {}),
     },
-    timeoutMs: GATEWAY_SKILLS_EVALUATION_TIMEOUT_MS,
+    timeoutMs: resolveGatewaySkillsEvaluationTimeoutMs(),
   });
 }
 
