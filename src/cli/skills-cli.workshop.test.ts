@@ -36,22 +36,7 @@ const mocks = vi.hoisted(() => {
       throw new Error(`__exit__:${code}`);
     }),
   };
-  return {
-    defaultRuntime,
-    resolvedAgentIds,
-    runtimeStdout,
-    runtimeErrors,
-    workspaceDir: "",
-  };
-});
-
-vi.mock("../runtime.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../runtime.js")>()),
-  defaultRuntime: mocks.defaultRuntime,
-}));
-
-vi.mock("../gateway/call.js", () => ({
-  callGateway: vi.fn(async () => {
+  const callGateway = vi.fn(async () => {
     throw new GatewayTransportError({
       kind: "closed",
       code: 1006,
@@ -63,16 +48,35 @@ vi.mock("../gateway/call.js", () => ({
         message: "",
       },
     });
-  }),
+  });
+  const acquireGatewayLock = vi.fn(async () => ({
+    release: vi.fn(async () => undefined),
+  }));
+  return {
+    acquireGatewayLock,
+    callGateway,
+    defaultRuntime,
+    resolvedAgentIds,
+    runtimeErrors,
+    runtimeStdout,
+    workspaceDir: "",
+  };
+});
+
+vi.mock("../runtime.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../runtime.js")>()),
+  defaultRuntime: mocks.defaultRuntime,
+}));
+
+vi.mock("../gateway/call.js", () => ({
+  callGateway: mocks.callGateway,
   isGatewayCredentialsRequiredError: (error: unknown) =>
     error instanceof Error && error.name === "GatewayCredentialsRequiredError",
   isImplicitLocalGatewayTarget: async () => !process.env.OPENCLAW_GATEWAY_URL,
 }));
 
 vi.mock("../infra/gateway-lock.js", () => ({
-  acquireGatewayLock: vi.fn(async () => ({
-    release: vi.fn(async () => undefined),
-  })),
+  acquireGatewayLock: mocks.acquireGatewayLock,
 }));
 
 vi.mock("../terminal/links.js", () => ({
@@ -139,9 +143,12 @@ describe("skills workshop cli", () => {
     mocks.defaultRuntime.writeStdout.mockClear();
     mocks.defaultRuntime.writeJson.mockClear();
     mocks.defaultRuntime.exit.mockClear();
+    mocks.callGateway.mockClear();
+    mocks.acquireGatewayLock.mockClear();
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await testState.cleanup();
     await tempDirs.cleanup();
   });
@@ -326,5 +333,48 @@ describe("skills workshop cli", () => {
 
     expect(mocks.runtimeErrors[0]).toContain("file not found");
     await expect(fs.access(path.join(stateDir, "skill-workshop"))).rejects.toThrow();
+  });
+
+  describe("skills gateway timeout env overrides (#27)", () => {
+    type GatewayCall = {
+      method: string;
+      timeoutMs?: number;
+    };
+
+    const statusCallTimeoutMs = (): number | undefined => {
+      const call = mocks.callGateway.mock.calls
+        .map((args) => args[0] as GatewayCall | undefined)
+        .find((params) => params?.method === "skills.status");
+      return call?.timeoutMs;
+    };
+
+    it("uses the 1500ms default for skills.status when OPENCLAW_SKILLS_STATUS_TIMEOUT_MS is unset", async () => {
+      // The local fallback fails on an empty test workspace, but callGateway
+      // has already recorded its call by then. Swallow the downstream exit(1)
+      // so we can assert on the captured timeoutMs argument.
+      await runCommand(["skills", "list"]).catch(() => undefined);
+      expect(statusCallTimeoutMs()).toBe(1_500);
+    });
+
+    it("honors OPENCLAW_SKILLS_STATUS_TIMEOUT_MS when set to a positive integer", async () => {
+      vi.stubEnv("OPENCLAW_SKILLS_STATUS_TIMEOUT_MS", "5000");
+      await runCommand(["skills", "list"]).catch(() => undefined);
+      expect(statusCallTimeoutMs()).toBe(5_000);
+    });
+
+    it.each([
+      ["non-numeric string", "not-a-number"],
+      ["zero", "0"],
+      ["negative integer", "-1"],
+      ["empty string", ""],
+      ["whitespace only", "   "],
+    ])(
+      "falls back to the 1500ms default when OPENCLAW_SKILLS_STATUS_TIMEOUT_MS is %s",
+      async (_label, invalidValue) => {
+        vi.stubEnv("OPENCLAW_SKILLS_STATUS_TIMEOUT_MS", invalidValue);
+        await runCommand(["skills", "list"]).catch(() => undefined);
+        expect(statusCallTimeoutMs()).toBe(1_500);
+      },
+    );
   });
 });
