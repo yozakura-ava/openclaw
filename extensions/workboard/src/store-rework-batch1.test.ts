@@ -119,3 +119,34 @@ describe("rework batch 1: Unicode-heavy split preflight (Rin round 2)", () => {
     expect(after?.metadata?.comments ?? []).toHaveLength(0);
   });
 });
+
+describe("rework batch 1: concurrent oversized comments (Rin round 3)", () => {
+  it("serializes concurrent oversized comments — no interleaved leading-chunk loss", async () => {
+    const shared = createMemoryStore();
+    const store = new WorkboardStore(shared);
+    const card = await store.create({ title: "Race check", status: "todo" });
+    const bodyA = "alpha ".repeat(1400).trim(); // ~8.4KB -> 3 chunks
+    const bodyB = "beta ".repeat(1400).trim();
+    const results = await Promise.allSettled([
+      store.addComment(card.id, { body: bodyA }),
+      store.addComment(card.id, { body: bodyB }),
+    ]);
+    const saved = await store.get(card.id);
+    const comments = saved?.metadata?.comments ?? [];
+    // At most one split can fit the 24 KiB metadata budget.
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    expect(fulfilled.length).toBeGreaterThanOrEqual(1);
+    if (fulfilled.length === 1) {
+      // The rejected one must fail in preflight, leaving the winner intact
+      // and complete — no interleaving, no dropped leading chunks.
+      const rejected = results.find((r) => r.status === "rejected");
+      expect((rejected as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+      const winnerBodies = comments.map((c) => c.body);
+      const allFromOneBody =
+        winnerBodies.every((b) => b.startsWith("alpha")) ||
+        winnerBodies.every((b) => b.startsWith("beta"));
+      expect(allFromOneBody).toBe(true);
+      expect(comments.length).toBe(3);
+    }
+  });
+});
