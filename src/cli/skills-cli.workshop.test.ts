@@ -343,7 +343,7 @@ describe("skills workshop cli", () => {
 
     const statusCallTimeoutMs = (): number | undefined => {
       const call = mocks.callGateway.mock.calls
-        .map((args) => args[0] as GatewayCall | undefined)
+        .map((args: readonly unknown[]) => args[0] as GatewayCall | undefined)
         .find((params) => params?.method === "skills.status");
       return call?.timeoutMs;
     };

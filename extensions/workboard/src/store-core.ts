@@ -1009,6 +1009,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       if (error instanceof Error && COMMENT_BODY_LENGTH_ERROR_PATTERN.test(error.message)) {
         throw new Error(
           `${error.message} Split into multiple workboard_comment calls of <3900 characters each (server cap is 4096; resubmitting the same oversized blob will keep failing).`,
+          { cause: error },
         );
       }
       throw error;
