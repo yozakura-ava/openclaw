@@ -2162,9 +2162,12 @@ describe("WorkboardStore", () => {
     // Non-comment fields (title, notes) keep the original terse error so we
     // do not advertise a split recipe for fields where splitting is not
     // meaningful.
-    await expect(store.create({ title: "y".repeat(181), boardId: card.boardId })).rejects.toThrow(
-      /^title must be 180 characters or fewer\.?$/,
-    );
+    await expect(
+      store.create({
+        title: "y".repeat(181),
+        boardId: card.metadata?.automation?.boardId ?? "default",
+      }),
+    ).rejects.toThrow(/^title must be 180 characters or fewer\.?$/);
   });
 
   it("exports card records with metadata", async () => {
@@ -3312,12 +3315,21 @@ describe("WorkboardStore", () => {
     await store.claim(card.id, { ownerId: "main", token: "***" });
 
     // Force the claim into the reclaim grace by rewinding its expiresAt.
-    const stored = await store.get(card.id);
+    // `store.get()` returns `WorkboardCard | undefined`; tests in this
+    // package pin it non-null because the prior claim succeeded above.
+    const stored = (await store.get(card.id))!;
     const expiredClaim = {
       ...stored.metadata?.claim,
       expiresAt: (stored.metadata?.claim?.expiresAt ?? Date.now()) - 6 * 60 * 1000,
     };
-    await store.updateCard(
+    // `updateCard` is `protected`; cross-class tests reach it via the same
+    // `this` instance, so a typed cast through `unknown` is safe and keeps
+    // TS2445 green without widening the public surface.
+    await (
+      store as unknown as {
+        updateCard: WorkboardStore["updateCard"];
+      }
+    ).updateCard(
       card.id,
       { metadata: { ...stored.metadata, claim: expiredClaim } },
       { expectedUpdatedAt: stored.updatedAt },

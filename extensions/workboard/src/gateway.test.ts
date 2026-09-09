@@ -432,7 +432,7 @@ describe("workboard gateway methods", () => {
     const reread = await store.get(cardId);
     expect(reread).toBeDefined();
     expect(reread?.metadata?.comments).toHaveLength(1);
-    const stored = reread?.metadata.comments[0];
+    const stored = reread?.metadata?.comments?.[0];
     expect(stored?.body).toBe(body);
     expect(stored?.body.length).toBe(4096);
     // Belt-and-suspenders: confirm the cyclic pattern survived intact rather
