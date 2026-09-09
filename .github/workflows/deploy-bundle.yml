@@ -130,8 +130,8 @@ jobs:
 
       - name: Activate pnpm via corepack
         # package.json pins pnpm@12.1.0 in packageManager; corepack
-        # pulls the exact pinned version without a separate
-        # pnpm/action-setup step.
+        # pulls the exact pinned version directly, with no separate
+        # third-party pnpm setup step.
         run: corepack enable pnpm
 
       - name: Install dependencies (full)
