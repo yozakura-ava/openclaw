@@ -704,3 +704,25 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
   }
   return a.id.localeCompare(b.id);
 }
+
+/**
+ * Split an oversized comment body into sequential chunks of at most
+ * `maxLength` characters, preferring whitespace boundaries so words are not
+ * cut mid-token. Pure function; callers own persistence and labeling.
+ */
+export function splitCommentBody(body: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let remaining = body;
+  while (remaining.length > maxLength) {
+    let cut = remaining.lastIndexOf(" ", maxLength);
+    if (cut <= 0) {
+      cut = maxLength;
+    }
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+  }
+  if (remaining.length > 0 || chunks.length === 0) {
+    chunks.push(remaining);
+  }
+  return chunks;
+}

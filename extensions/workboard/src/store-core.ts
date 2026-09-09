@@ -33,13 +33,20 @@ import {
   syncExecutionAttemptMetadata,
   updateEvent,
   appendEvent,
+  splitCommentBody,
 } from "./store-card-helpers.js";
 import {
   invertWorkboardCardMutation,
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import {
+  MAX_CARD_COMMENTS,
+  MAX_CARD_METADATA_BYTES,
+  MAX_CARD_WORKER_LOGS,
+  MAX_COMMENT_BODY_LENGTH,
+  POSITION_STEP,
+} from "./store-constants.js";
 import type {
   WorkboardBoardInput,
   WorkboardBoardSummary,
@@ -973,17 +980,141 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeOptionalString(input.body);
     if (!body) {
       throw new Error("comment body is required.");
     }
-    const comment = { id: randomUUID(), body, createdAt: now };
+    if (body.length > MAX_COMMENT_BODY_LENGTH) {
+      return await this.addOversizedComment(id, body, scope, now);
+    }
+    const validated = normalizeBoundedString(
+      body,
+      undefined,
+      MAX_COMMENT_BODY_LENGTH,
+      "comment body",
+    );
+    const comment = { id: randomUUID(), body: validated as string, createdAt: now };
     return await this.updateMetadata(id, (existing) => {
       assertCanMutateClaimedCard(existing, scope);
       return {
         ...existing.metadata,
         comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
       };
+    });
+  }
+
+  private async addOversizedComment(
+    id: string,
+    body: string,
+    scope: WorkboardMutationScope | undefined,
+    now: number,
+  ): Promise<WorkboardCard> {
+    // The whole split sequence (preflight + chunk writes) runs inside ONE
+    // mutation-queue section: a preflight read outside the queue would race
+    // concurrent oversized comments (TOCTOU — both pass the budget check,
+    // interleave writes, and drop leading chunks). updateLatestCard is the
+    // non-enqueuing write primitive; nesting updateMetadata here would
+    // deadlock the serial queue.
+    return await this.enqueueMutation(async () => {
+      // Reserve space for "(N/M)" continuation labels so no labeled chunk
+      // exceeds the body cap. 20 chars covers bodies up to ~1 GiB worth of
+      // chunks (worst-case label is " (245894/245894)" = 17 chars).
+      const LABEL_RESERVE = 20;
+      const rawChunks = splitCommentBody(body, MAX_COMMENT_BODY_LENGTH - LABEL_RESERVE);
+      const total = rawChunks.length;
+      if (total < 2) {
+        // Single-chunk edge case (whitespace boundary produced one oversized chunk).
+        const comment = { id: randomUUID(), body: rawChunks[0] ?? body, createdAt: now };
+        const single = await this.updateLatestCard(id, (current) => ({
+          metadata: {
+            ...current.metadata,
+            comments: [...(current.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
+          },
+        }));
+        return single.card;
+      }
+      // Label continuation chunks with " (N/M)". The first chunk stays intact so
+      // the rendered comment begins with the operator's original wording.
+      const labeledChunks = rawChunks.map((chunk, index) =>
+        index === 0 ? chunk : `${chunk} (${index + 1}/${total})`,
+      );
+      // Preflight inside the queued section: reject unrepresentable splits
+      // BEFORE writing anything. The comment sequence is retained by trimming
+      // oldest rows, so a split that cannot fit alongside the existing
+      // comments (row budget or aggregate metadata byte budget) would
+      // silently drop leading chunks while still reporting success.
+      const preflightCard = await this.get(id);
+      if (!preflightCard) {
+        throw new Error(`card ${id} not found.`);
+      }
+      const existingComments = preflightCard.metadata?.comments ?? [];
+      if (existingComments.length + labeledChunks.length > MAX_CARD_COMMENTS) {
+        throw new Error(
+          `oversized comment split would need ${labeledChunks.length} chunks, exceeding the ` +
+            `comment budget (${MAX_CARD_COMMENTS} rows, ${existingComments.length} already present); ` +
+            `nothing was written`,
+        );
+      }
+      const COMMENT_ROW_OVERHEAD_BYTES = 120;
+      // Byte-budget in the same units the trimmer enforces (UTF-8, via
+      // Buffer.byteLength) - JSON.stringify().length counts UTF-16 code
+      // units and undercounts Unicode-heavy bodies, letting the write pass
+      // preflight and then silently drop rows in the per-write trimmer.
+      const estimatedMetadataBytes =
+        Buffer.byteLength(JSON.stringify(preflightCard.metadata ?? {}), "utf8") +
+        labeledChunks.reduce(
+          (sum, chunk) => sum + Buffer.byteLength(chunk, "utf8") + COMMENT_ROW_OVERHEAD_BYTES,
+          0,
+        );
+      if (estimatedMetadataBytes > MAX_CARD_METADATA_BYTES) {
+        throw new Error(
+          `oversized comment split would exceed the card metadata budget ` +
+            `(${estimatedMetadataBytes} > ${MAX_CARD_METADATA_BYTES} bytes); nothing was written`,
+        );
+      }
+      // Write each chunk sequentially as its own comment row. On mid-sequence
+      // failure the chunks already persisted stay on the card; the ORIGINAL
+      // error is rethrown with split-progress attached (identity preserved).
+      const written: number[] = [];
+      let lastCard: WorkboardCard | undefined;
+      try {
+        for (const [index, chunk] of labeledChunks.entries()) {
+          const comment = {
+            id: randomUUID(),
+            body: chunk,
+            createdAt: now + index,
+          };
+          const result = await this.updateLatestCard(id, (current) => {
+            assertCanMutateClaimedCard(current, scope);
+            return {
+              metadata: {
+                ...current.metadata,
+                comments: [...(current.metadata?.comments ?? []), comment].slice(
+                  -MAX_CARD_COMMENTS,
+                ),
+              },
+            };
+          });
+          lastCard = result.card;
+          written.push(index + 1);
+        }
+      } catch (error) {
+        const progress =
+          written.length > 0
+            ? `chunks ${written.join(", ")} of ${total} were persisted before the failure`
+            : "no chunks were persisted before the failure";
+        if (error instanceof Error) {
+          (error as Error & { splitProgress?: string }).splitProgress = progress;
+          throw error;
+        }
+        throw new Error(`oversized comment split failed (${progress}): ${String(error)}`, {
+          cause: error,
+        });
+      }
+      if (!lastCard) {
+        throw new Error("oversized comment split produced no chunks.");
+      }
+      return lastCard;
     });
   }
 

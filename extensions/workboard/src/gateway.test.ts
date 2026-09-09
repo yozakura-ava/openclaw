@@ -353,14 +353,20 @@ describe("workboard gateway methods", () => {
 
     const oversizedRespond = vi.fn();
     await methods.get("workboard.cards.comment")?.handler({
-      params: { id: cardId, body: "x".repeat(2001) },
+      params: { id: cardId, body: "x".repeat(4097) },
       respond: oversizedRespond,
     } as never);
 
-    expect(oversizedRespond.mock.calls[0]?.[0]).toBe(false);
-    expect(oversizedRespond.mock.calls[0]?.[2]).toMatchObject({
-      message: "comment body must be 2000 characters or fewer (got 2001).",
-    });
+    expect(oversizedRespond.mock.calls[0]?.[0]).toBe(true);
+    const oversizedComments = oversizedRespond.mock.calls[0]?.[1]?.card.metadata?.comments ?? [];
+    expect(oversizedComments.length).toBeGreaterThan(1);
+    // The previous test case left a "Waiting on CI" comment, so the split
+    // chunks are the last N entries. For 4097 chars of "x" the split produces
+    // two chunks: a 4076-char head and a 21-char tail with a " (2/2)" label.
+    const splitComments = oversizedComments.slice(-2);
+    expect(splitComments).toHaveLength(2);
+    expect(splitComments[0]?.body).not.toMatch(/\(\d+\/\d+\)$/);
+    expect(splitComments[1]?.body).toMatch(/ \(2\/2\)$/);
   });
 
   it("validates labels from comma-separated gateway input", async () => {
