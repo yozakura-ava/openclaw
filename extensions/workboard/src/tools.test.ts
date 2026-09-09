@@ -661,4 +661,31 @@ describe("workboard tools", () => {
     );
     expect(claimed.card).toMatchObject({ status: "review" });
   });
+
+  it("force-closes a card claimed by another owner without their token", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const tools = new Map(
+      createWorkboardTools({ store, context: { agentId: "operator" } }).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+    const card = await store.create({ title: "Stuck card", status: "running" });
+    await store.claim(card.id, { ownerId: "stuck-agent", token: "stuck-token", ttlSeconds: 60 });
+
+    const closed = readPayload(
+      await tools.get("workboard_force_close")?.execute("force-close-override", {
+        id: card.id,
+        reason: "operator override",
+      }),
+    );
+
+    expect(closed.card).toMatchObject({ status: "done" });
+    const after = await store.get(card.id);
+    expect(after?.metadata?.claim).toBeUndefined();
+    expect(
+      after?.metadata?.comments?.some((c) => c.body === "force_close: operator override"),
+    ).toBe(true);
+    expect(after?.metadata?.notifications?.some((n) => n.kind === "failed")).toBe(true);
+  });
 });
