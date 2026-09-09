@@ -353,14 +353,23 @@ describe("workboard gateway methods", () => {
 
     const oversizedRespond = vi.fn();
     await methods.get("workboard.cards.comment")?.handler({
-      params: { id: cardId, body: "x".repeat(2001) },
+      params: { id: cardId, body: "x".repeat(4097) },
       respond: oversizedRespond,
     } as never);
 
-    expect(oversizedRespond.mock.calls[0]?.[0]).toBe(false);
-    expect(oversizedRespond.mock.calls[0]?.[2]).toMatchObject({
-      message: "comment body must be 2000 characters or fewer (got 2001).",
-    });
+    expect(oversizedRespond.mock.calls[0]?.[0]).toBe(true);
+    const oversizedComments = oversizedRespond.mock.calls[0]?.[1]?.card.metadata?.comments ?? [];
+    // eslint-disable-next-line no-console
+    console.log("DBG comments count:", oversizedComments.length);
+    for (let i = 0; i < oversizedComments.length; i += 1) {
+      // eslint-disable-next-line no-console
+      console.log(`DBG comment ${i}: len=${oversizedComments[i]?.body.length} last10="${oversizedComments[i]?.body.slice(-10)}"`);
+    }
+    expect(oversizedComments.length).toBeGreaterThan(1);
+    expect(oversizedComments.at(0)?.body).not.toMatch(/\(\d+\/\d+\)$/);
+    for (let index = 1; index < oversizedComments.length; index += 1) {
+      expect(oversizedComments[index]?.body).toMatch(/\(\d+\/\d+\)$/);
+    }
   });
 
   it("validates labels from comma-separated gateway input", async () => {
