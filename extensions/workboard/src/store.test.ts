@@ -2204,7 +2204,7 @@ describe("WorkboardStore", () => {
   it("splits at whitespace boundaries when possible so words are not cut", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Whitespace-aware split" });
-    const body = `${"word ".repeat(2000)}`.trim();
+    const body = "word ".repeat(2000).trim();
 
     const updated = await store.addComment(card.id, { body });
     const comments = updated.metadata?.comments ?? [];
@@ -2252,8 +2252,12 @@ describe("WorkboardStore", () => {
     const card = await store.create({ title: "Mid-sequence failure" });
     const body = "y".repeat(9_000); // splits into 3 chunks
 
-    await expect(store.addComment(card.id, { body })).rejects.toThrow(
-      /oversized comment split failed; chunks 1 of 3 were persisted before the failure: simulated persistence failure on second chunk/,
+    // Original error identity is preserved; split progress rides on it.
+    const failure = await store.addComment(card.id, { body }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("simulated persistence failure on second chunk");
+    expect((failure as Error & { splitProgress?: string }).splitProgress).toBe(
+      "chunks 1 of 3 were persisted before the failure",
     );
 
     const saved = await store.get(card.id);

@@ -42,6 +42,7 @@ import {
 } from "./store-compensation.js";
 import {
   MAX_CARD_COMMENTS,
+  MAX_CARD_METADATA_BYTES,
   MAX_CARD_WORKER_LOGS,
   MAX_COMMENT_BODY_LENGTH,
   POSITION_STEP,
@@ -1030,9 +1031,36 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     const labeledChunks = rawChunks.map((chunk, index) =>
       index === 0 ? chunk : `${chunk} (${index + 1}/${total})`,
     );
+    // Preflight: reject unrepresentable splits BEFORE writing anything. The
+    // comment sequence is retained by trimming oldest rows, so a split that
+    // cannot fit alongside the existing comments (row budget or aggregate
+    // metadata byte budget) would silently drop leading chunks while still
+    // reporting success. Rejecting up front keeps the card untouched instead.
+    const preflightCard = await this.get(id);
+    if (!preflightCard) {
+      throw new Error(`card ${id} not found.`);
+    }
+    const existingComments = preflightCard.metadata?.comments ?? [];
+    if (existingComments.length + labeledChunks.length > MAX_CARD_COMMENTS) {
+      throw new Error(
+        `oversized comment split would need ${labeledChunks.length} chunks, exceeding the ` +
+          `comment budget (${MAX_CARD_COMMENTS} rows, ${existingComments.length} already present); ` +
+          `nothing was written`,
+      );
+    }
+    const COMMENT_ROW_OVERHEAD_BYTES = 120;
+    const estimatedMetadataBytes =
+      JSON.stringify(preflightCard.metadata ?? {}).length +
+      labeledChunks.reduce((sum, chunk) => sum + chunk.length + COMMENT_ROW_OVERHEAD_BYTES, 0);
+    if (estimatedMetadataBytes > MAX_CARD_METADATA_BYTES) {
+      throw new Error(
+        `oversized comment split would exceed the card metadata budget ` +
+          `(${estimatedMetadataBytes} > ${MAX_CARD_METADATA_BYTES} bytes); nothing was written`,
+      );
+    }
     // Write each chunk sequentially as its own comment row. On mid-sequence
-    // failure the chunks already persisted stay on the card; the thrown error
-    // reports partial progress so callers can reconcile.
+    // failure the chunks already persisted stay on the card; the ORIGINAL
+    // error is rethrown with split-progress attached (identity preserved).
     const written: number[] = [];
     let lastCard: WorkboardCard | undefined;
     try {
@@ -1052,14 +1080,15 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         written.push(index + 1);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
       const progress =
         written.length > 0
-          ? `; chunks ${written.join(", ")} of ${total} were persisted before the failure`
-          : "; no chunks were persisted before the failure";
-      throw new Error(`oversized comment split failed${progress}: ${message}`, {
-        cause: error,
-      });
+          ? `chunks ${written.join(", ")} of ${total} were persisted before the failure`
+          : "no chunks were persisted before the failure";
+      if (error instanceof Error) {
+        (error as Error & { splitProgress?: string }).splitProgress = progress;
+        throw error;
+      }
+      throw new Error(`oversized comment split failed (${progress}): ${String(error)}`);
     }
     if (!lastCard) {
       throw new Error("oversized comment split produced no chunks.");

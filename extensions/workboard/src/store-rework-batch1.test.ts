@@ -3,7 +3,7 @@
 // - oversized comments split into sequential labeled chunks
 // - claim-expiry semantics (upstream 9.3 behavior) locked by tests
 import type { WorkboardCard } from "@openclaw/workboard-contract";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { splitCommentBody } from "./store-card-helpers.js";
 import { WorkboardStore } from "./store.js";
@@ -18,7 +18,7 @@ function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T>
       return entries.get(key);
     },
     async delete(key) {
-      entries.delete(key);
+      return entries.delete(key);
     },
     async entries() {
       return [...entries].flatMap(([key, value]) => (value ? [{ key, value }] : []));
@@ -78,17 +78,21 @@ describe("rework batch 1: oversized comment split-and-retry (#60)", () => {
 describe("rework batch 1: claim-expiry semantics (#61, upstream 9.3)", () => {
   it("an expired claim frees the owner slot for same-owner re-claim immediately", async () => {
     vi.useFakeTimers();
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({ title: "Expiry re-claim", status: "todo" });
-    const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
-    const expiresAt = claimed.card.metadata?.claim?.expiresAt;
-    expect(expiresAt).toBeGreaterThan(0);
+    try {
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Expiry re-claim", status: "todo" });
+      const claimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      assert(expiresAt !== undefined, "claim must set expiresAt");
+      expect(expiresAt).toBeGreaterThan(0);
 
-    vi.setSystemTime(expiresAt + 1);
-    const reclaimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
-    expect(reclaimed.token).toBeTruthy();
-    expect(reclaimed.card.metadata?.claim?.ownerId).toBe("main");
-    vi.useRealTimers();
+      vi.setSystemTime(expiresAt + 1);
+      const reclaimed = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+      expect(reclaimed.token).toBeTruthy();
+      expect(reclaimed.card.metadata?.claim?.ownerId).toBe("main");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("an unexpired claim blocks another owner's claim", async () => {
