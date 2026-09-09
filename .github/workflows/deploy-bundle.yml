@@ -178,6 +178,11 @@ jobs:
         run: |
           set -e
           rm -rf node_modules ui/node_modules
+          # pnpm 12: a nodeLinker pin in pnpm-workspace.yaml takes precedence
+          # over --config.node-linker on the CLI (upstream 9.3 pins isolated).
+          # Swap it in-file so the prod install actually hoists.
+          sed -i 's/^nodeLinker:.*/nodeLinker: hoisted/' pnpm-workspace.yaml
+          grep -q '^nodeLinker: hoisted' pnpm-workspace.yaml
           # pnpm can leave nested node_modules under workspace
           # packages from the full install; remove those so the prod
           # install does not have to reconcile them.
