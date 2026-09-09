@@ -308,6 +308,7 @@ jobs:
             openclaw.mjs \
             node-version.mjs \
             dist \
+            docs \
             patches \
             scripts \
             skills \
@@ -337,6 +338,18 @@ jobs:
           tar -tzf deploy-bundle.tar.gz | wc -l
           # Re-confirm workspace package present inside the tarball
           tar -tzf deploy-bundle.tar.gz | grep -E '(^|/)node_modules/@openclaw/ai/(package\.json|dist/)' | head
+
+      - name: Verify workspace templates in bundle
+        # Fail closed: the 2026-09-09 SEV-2 incident shipped a bundle without
+        # docs/reference/templates — session bootstrap broke post-promotion.
+        run: |
+          set -e
+          for t in AGENTS.md SOUL.md IDENTITY.md USER.md BOOTSTRAP.md; do
+            tar -tzf deploy-bundle.tar.gz | awk -v t="docs/reference/templates/${t}" \
+              'index($0, t) == length($0) - length(t) + 1 { found = 1 } END { exit !found }' \
+              || { echo "::error::workspace template missing from bundle: ${t}"; exit 1; }
+          done
+          echo "All five workspace templates present in bundle"
 
       - name: Upload deploy bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
