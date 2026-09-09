@@ -7,4 +7,6 @@
 # to unblock CI after our patch lineage (skills timeout knobs + cut lineage) pushed
 # the distinct-name count past budget. Breathing room, not a license: still prefer
 # reusing existing OPENCLAW_* names; re-derive after the 2026.9.3 rebase.
-550
+# 2026-09-08 (later): tightened 550 -> 502 = actual distinct count. The ratchet
+# requires budget to match the floor, so the +52 headroom failed CI by design.
+502
