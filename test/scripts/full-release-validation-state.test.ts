@@ -48,6 +48,24 @@ const TARGET_SHA = "b".repeat(40);
 const TRUSTED_MAIN = { fullRef: "refs/heads/main", ref: "main", sha: SHA };
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
+// Provenance validation reads process.env.GITHUB_REPOSITORY, so CI runners
+// (where it is always set to the fork repository) and local checkouts evaluate
+// these tests against different repository expectations. Pin it to the
+// repository the run fixtures use so the suite is hermetic everywhere.
+const GITHUB_REPOSITORY_FIXTURE = "openclaw/openclaw";
+const previousGithubRepository = process.env.GITHUB_REPOSITORY;
+process.env.GITHUB_REPOSITORY = GITHUB_REPOSITORY_FIXTURE;
+afterEach(() => {
+  process.env.GITHUB_REPOSITORY = GITHUB_REPOSITORY_FIXTURE;
+});
+process.on("exit", () => {
+  if (previousGithubRepository === undefined) {
+    delete process.env.GITHUB_REPOSITORY;
+  } else {
+    process.env.GITHUB_REPOSITORY = previousGithubRepository;
+  }
+});
+
 function candidateRequestInput(overrides: Record<string, unknown> = {}) {
   return {
     repository: "openclaw/openclaw",
