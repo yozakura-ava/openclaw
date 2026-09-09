@@ -104,3 +104,18 @@ describe("rework batch 1: claim-expiry semantics (#61, upstream 9.3)", () => {
     vi.useRealTimers();
   });
 });
+
+describe("rework batch 1: Unicode-heavy split preflight (Rin round 2)", () => {
+  it("rejects a Unicode-heavy oversized body before any write (UTF-8 byte budget)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "CJK budget", status: "todo" });
+    // 12,000 CJK chars: ~12,000 UTF-16 units (passes a naive length check)
+    // but ~36,000 UTF-8 bytes — over the 24 KiB metadata budget.
+    const body = "語".repeat(12_000);
+    await expect(store.addComment(card.id, { body })).rejects.toThrow(
+      /metadata budget.*nothing was written/,
+    );
+    const after = await store.get(card.id);
+    expect(after?.metadata?.comments ?? []).toHaveLength(0);
+  });
+});

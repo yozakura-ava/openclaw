@@ -1049,9 +1049,16 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       );
     }
     const COMMENT_ROW_OVERHEAD_BYTES = 120;
+    // Byte-budget in the same units the trimmer enforces (UTF-8, via
+    // Buffer.byteLength) - JSON.stringify().length counts UTF-16 code units
+    // and undercounts Unicode-heavy bodies, letting the write pass preflight
+    // and then silently drop rows in the per-write trimmer.
     const estimatedMetadataBytes =
-      JSON.stringify(preflightCard.metadata ?? {}).length +
-      labeledChunks.reduce((sum, chunk) => sum + chunk.length + COMMENT_ROW_OVERHEAD_BYTES, 0);
+      Buffer.byteLength(JSON.stringify(preflightCard.metadata ?? {}), "utf8") +
+      labeledChunks.reduce(
+        (sum, chunk) => sum + Buffer.byteLength(chunk, "utf8") + COMMENT_ROW_OVERHEAD_BYTES,
+        0,
+      );
     if (estimatedMetadataBytes > MAX_CARD_METADATA_BYTES) {
       throw new Error(
         `oversized comment split would exceed the card metadata budget ` +
@@ -1088,7 +1095,9 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         (error as Error & { splitProgress?: string }).splitProgress = progress;
         throw error;
       }
-      throw new Error(`oversized comment split failed (${progress}): ${String(error)}`);
+      throw new Error(`oversized comment split failed (${progress}): ${String(error)}`, {
+        cause: error,
+      });
     }
     if (!lastCard) {
       throw new Error("oversized comment split produced no chunks.");
