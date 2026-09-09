@@ -2,9 +2,8 @@
 // - comment cap raised to 4096 on the write path
 // - oversized comments split into sequential labeled chunks
 // - claim-expiry semantics (upstream 9.3 behavior) locked by tests
-import { type WorkboardCard } from "@openclaw/workboard-contract";
-import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { WorkboardCard } from "@openclaw/workboard-contract";
+import { describe, expect, it, vi } from "vitest";
 import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { splitCommentBody } from "./store-card-helpers.js";
 import { WorkboardStore } from "./store.js";
@@ -26,8 +25,6 @@ function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T>
     },
   };
 }
-
-const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("rework batch 1: comment cap 4096 (#59)", () => {
   it("accepts a comment body up to 4096 characters", async () => {

@@ -359,17 +359,14 @@ describe("workboard gateway methods", () => {
 
     expect(oversizedRespond.mock.calls[0]?.[0]).toBe(true);
     const oversizedComments = oversizedRespond.mock.calls[0]?.[1]?.card.metadata?.comments ?? [];
-    // eslint-disable-next-line no-console
-    console.log("DBG comments count:", oversizedComments.length);
-    for (let i = 0; i < oversizedComments.length; i += 1) {
-      // eslint-disable-next-line no-console
-      console.log(`DBG comment ${i}: len=${oversizedComments[i]?.body.length} last10="${oversizedComments[i]?.body.slice(-10)}"`);
-    }
     expect(oversizedComments.length).toBeGreaterThan(1);
-    expect(oversizedComments.at(0)?.body).not.toMatch(/\(\d+\/\d+\)$/);
-    for (let index = 1; index < oversizedComments.length; index += 1) {
-      expect(oversizedComments[index]?.body).toMatch(/\(\d+\/\d+\)$/);
-    }
+    // The previous test case left a "Waiting on CI" comment, so the split
+    // chunks are the last N entries. For 4097 chars of "x" the split produces
+    // two chunks: a 4076-char head and a 21-char tail with a " (2/2)" label.
+    const splitComments = oversizedComments.slice(-2);
+    expect(splitComments).toHaveLength(2);
+    expect(splitComments[0]?.body).not.toMatch(/\(\d+\/\d+\)$/);
+    expect(splitComments[1]?.body).toMatch(/ \(2\/2\)$/);
   });
 
   it("validates labels from comma-separated gateway input", async () => {

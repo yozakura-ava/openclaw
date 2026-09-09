@@ -2161,6 +2161,111 @@ describe("WorkboardStore", () => {
     });
   });
 
+  it("accepts a comment body at the 4096-character cap without splitting", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Edge of cap" });
+    const body = "a".repeat(4096);
+
+    const updated = await store.addComment(card.id, { body });
+
+    expect(updated.metadata?.comments).toHaveLength(1);
+    expect(updated.metadata?.comments?.at(0)?.body).toBe(body);
+    expect(updated.metadata?.comments?.at(0)?.body.length).toBe(4096);
+  });
+
+  it("splits an oversized comment body into sequential chunks with (N/M) labels", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Long operator note" });
+    const body = "x".repeat(9000);
+
+    const updated = await store.addComment(card.id, { body });
+
+    const comments = updated.metadata?.comments ?? [];
+    expect(comments.length).toBeGreaterThanOrEqual(2);
+    // First chunk is unsuffixed so the rendered comment begins intact.
+    expect(comments.at(0)?.body).not.toMatch(/\(\d+\/\d+\)$/);
+    // Continuation chunks carry "(N/M)" labels.
+    for (let index = 1; index < comments.length; index += 1) {
+      const labelRegex = new RegExp(` \\(${index + 1}/${comments.length}\\)$`);
+      expect(comments[index]?.body).toMatch(labelRegex);
+    }
+    // No chunk may exceed the 4096-char body cap, label included.
+    for (const comment of comments) {
+      expect(comment.body.length).toBeLessThanOrEqual(4096);
+    }
+    // No-whitespace bodies round-trip exactly: concatenating chunk content
+    // (labels stripped) must reproduce the original input.
+    const reassembled = comments
+      .map((comment) => comment.body.replace(/ \(\d+\/\d+\)$/, ""))
+      .join("");
+    expect(reassembled).toBe(body);
+  });
+
+  it("splits at whitespace boundaries when possible so words are not cut", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Whitespace-aware split" });
+    const body = `${"word ".repeat(2000)}`.trim();
+
+    const updated = await store.addComment(card.id, { body });
+    const comments = updated.metadata?.comments ?? [];
+
+    expect(comments.length).toBeGreaterThan(1);
+    for (const comment of comments.slice(0, -1)) {
+      // Chunks should end at a token boundary (no half-words).
+      const content = comment.body.replace(/ \(\d+\/\d+\)$/, "");
+      expect(content.endsWith("word")).toBe(true);
+    }
+  });
+
+  it("persists mid-sequence splits as separate comment rows via the comment insert path", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Persistence path" });
+    const body = "x".repeat(10_000);
+
+    const updated = await store.addComment(card.id, { body });
+    const comments = updated.metadata?.comments ?? [];
+
+    expect(comments.length).toBeGreaterThanOrEqual(2);
+    // Each chunk gets its own UUID so it lands as a distinct comment row.
+    const ids = new Set(comments.map((comment) => comment.id));
+    expect(ids.size).toBe(comments.length);
+    // Every persisted chunk must satisfy the existing body cap.
+    for (const comment of comments) {
+      expect(comment.body.length).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it("reports partial progress when a mid-sequence chunk write fails", async () => {
+    let registerCount = 0;
+    const memStore = createMemoryStore({
+      beforeRegister: () => {
+        registerCount += 1;
+        // Allow: create() = 1st register, 1st chunk = 2nd register.
+        // Fail on the 3rd register (2nd chunk of the split) so the error
+        // handler in addOversizedComment must catch and report progress.
+        if (registerCount === 3) {
+          throw new Error("simulated persistence failure on second chunk");
+        }
+      },
+    });
+    const store = new WorkboardStore(memStore);
+    const card = await store.create({ title: "Mid-sequence failure" });
+    const body = "y".repeat(9_000); // splits into 3 chunks
+
+    await expect(store.addComment(card.id, { body })).rejects.toThrow(
+      /oversized comment split failed; chunks 1 of 3 were persisted before the failure: simulated persistence failure on second chunk/,
+    );
+
+    const saved = await store.get(card.id);
+    const persistedBodies = (saved?.metadata?.comments ?? []).map((comment) => comment.body);
+    // The first chunk was persisted before the failure; later chunks were not.
+    const firstChunk = persistedBodies.find((entry) => /^y+$/.test(entry));
+    expect(firstChunk).toBeDefined();
+    expect(firstChunk?.length).toBeLessThanOrEqual(4096);
+    const failedLabeledChunks = persistedBodies.filter((entry) => /\(\d+\/\d+\)$/.test(entry));
+    expect(failedLabeledChunks.length).toBe(0);
+  });
+
   it("claims cards, heartbeats, and releases the claim", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Coordinate worker", status: "todo" });
@@ -2303,6 +2408,81 @@ describe("WorkboardStore", () => {
       );
 
       vi.setSystemTime(renewedExpiresAt + 5 * 60_000 + 1);
+      const replacement = await store.claim(card.id, { ownerId: "replacement" });
+      expect(replacement.card.metadata?.claim?.ownerId).toBe("replacement");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // Regression tests for fb3854a7 (issue #61): the claim() guard now consults
+  // isFutureDateTimestampMs(existingClaim.expiresAt) so an expired claim frees
+  // the owner slot immediately. These tests pin the three sub-cases so future
+  // refactors cannot silently regress the semantics.
+  it("expired claim frees the owner slot so the same owner can reclaim immediately", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      // Use a non-running status so the heartbeat-grace branch does not apply;
+      // the card status "review" survives claim() unchanged, letting the claim
+      // expire without a running-state grace window.
+      const card = await store.create({ title: "Stale operator claim", status: "review" });
+      const first = await store.claim(card.id, { ownerId: "main", ttlSeconds: 1 });
+      const expiresAt = first.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("expected a timed claim");
+      }
+
+      // Advance past expiry. The claim is now expired but still present on the
+      // card; status is "review" so the running-grace path is not engaged.
+      vi.setSystemTime(expiresAt + 1);
+
+      // Same owner can re-claim because the existing claim is no longer in the
+      // future and the card is not running.
+      const second = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+      expect(second.card.metadata?.claim?.ownerId).toBe("main");
+      expect(second.token).not.toBe(first.token);
+      expect(second.card.metadata?.claim?.expiresAt).toBeGreaterThan(expiresAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("unexpired claim blocks other-agent claim with the active owner in the error", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Foreign claimer blocked", status: "ready" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    await expect(store.claim(card.id, { ownerId: "intruder" })).rejects.toThrow(
+      "card already claimed by main.",
+    );
+    const saved = await store.get(card.id);
+    // Original owner keeps the slot; no second claim was admitted.
+    expect(saved?.metadata?.claim?.ownerId).toBe("main");
+  });
+
+  it("running-state heartbeat grace still blocks replacement during the reclaim window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Live worker heartbeat grace", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("expected a timed claim");
+      }
+
+      // After expiry but well inside the heartbeat grace window the running
+      // worker keeps the slot via isWorkboardClaimReclaimable().
+      vi.setSystemTime(expiresAt + 60_000);
+      await expect(store.claim(card.id, { ownerId: "replacement" })).rejects.toThrow(
+        "card already claimed by original.",
+      );
+
+      // Past the grace window (expiresAt + CLAIM_RECLAIM_MS) the slot opens up.
+      vi.setSystemTime(expiresAt + 5 * 60_000 + 1);
       const replacement = await store.claim(card.id, { ownerId: "replacement" });
       expect(replacement.card.metadata?.claim?.ownerId).toBe("replacement");
     } finally {

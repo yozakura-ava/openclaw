@@ -1057,7 +1057,9 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         written.length > 0
           ? `; chunks ${written.join(", ")} of ${total} were persisted before the failure`
           : "; no chunks were persisted before the failure";
-      throw new Error(`oversized comment split failed${progress}: ${message}`);
+      throw new Error(`oversized comment split failed${progress}: ${message}`, {
+        cause: error,
+      });
     }
     if (!lastCard) {
       throw new Error("oversized comment split produced no chunks.");
