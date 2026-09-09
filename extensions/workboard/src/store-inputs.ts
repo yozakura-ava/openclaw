@@ -121,6 +121,11 @@ export type WorkboardBlockInput = {
   token?: unknown;
   reason?: unknown;
 };
+export type WorkboardForceCloseInput = {
+  ownerId?: unknown;
+  token?: unknown;
+  reason?: unknown;
+};
 export type WorkboardDispatchResult = {
   promoted: WorkboardCard[];
   reclaimed: WorkboardCard[];

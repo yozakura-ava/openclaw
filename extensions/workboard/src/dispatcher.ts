@@ -210,6 +210,10 @@ function buildWorkerPrompt(params: {
   ].join("\n");
 }
 
+function isBlankAgentId(agentId: string | undefined): boolean {
+  return !agentId || agentId.trim() === "";
+}
+
 function sortReadyCards(a: WorkboardCard, b: WorkboardCard): number {
   const priorityRank: Record<WorkboardCard["priority"], number> = {
     urgent: 0,
@@ -248,6 +252,12 @@ function selectStartableCards(
   const selectedOwners = new Set<string>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
+    // Scheduled (cron) auto-dispatch must not pick up cards with a blank or
+    // unknown agentId — those need an explicit operator handoff. Human-
+    // initiated (exact) dispatches bypass this gate and remain allowed.
+    if (mode === "scheduled" && isBlankAgentId(card.agentId)) {
+      continue;
+    }
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
     const rejection = cardIsArchived(card)
       ? "Card is archived; restore it before starting."

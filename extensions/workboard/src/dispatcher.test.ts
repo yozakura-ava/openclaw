@@ -27,6 +27,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Claude worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: true },
     });
@@ -59,6 +60,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Unknown runtime worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: true },
     });
@@ -82,6 +84,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Isolated worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "worktree", path: "/repo", branch: "main" },
       workspaceAccess: { unrestricted: true },
@@ -141,6 +144,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Legacy worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "worktree", path: "/repo" },
     });
@@ -173,7 +177,11 @@ describe("dispatchAndStartWorkboardCards", () => {
 
   it("adopts current authority for a legacy card without a host workspace path", async () => {
     const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({ title: "Legacy scratch worker", status: "ready" });
+    const card = await store.create({
+      title: "Legacy scratch worker",
+      status: "ready",
+      agentId: "test-agent",
+    });
     const run = vi.fn().mockResolvedValue({ runId: "run-legacy-scratch" });
 
     const result = await dispatchAndStartWorkboardCards({
@@ -193,6 +201,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Racing authority update",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/workspace" },
       workspaceAccess: { unrestricted: true },
@@ -230,6 +239,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Protected checkout",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "worktree", path: "/repo" },
     });
@@ -265,6 +275,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Protected directory",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/outside" },
     });
@@ -297,6 +308,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Mutable nested directory",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/workspace/repo" },
     });
@@ -434,6 +446,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Read-only worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
@@ -471,6 +484,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Persisted read-only worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: false },
     });
@@ -496,6 +510,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Broader target worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/workspace/project" },
       workspaceAccess: {
@@ -537,6 +552,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Escaping worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
@@ -575,6 +591,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Nested checkout worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/repo/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/repo/workspace"], writable: true },
@@ -617,6 +634,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Persisted restricted worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "worktree", path: "/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
@@ -662,6 +680,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Workspace-bound worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "worktree", path: "/repo" },
     });
@@ -701,6 +720,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Linked worktree worker",
+      agentId: "test-agent",
       status: "ready",
       workspace: { kind: "dir", path: "/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
@@ -740,6 +760,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Branchless retry",
+      agentId: "test-agent",
       status: "ready",
       workspace: {
         kind: "worktree",
@@ -979,6 +1000,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const ops = await store.create({
       title: "Ops worker",
+      agentId: "test-agent",
       status: "ready",
       priority: "urgent",
       boardId: "ops",
@@ -986,6 +1008,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     });
     const product = await store.create({
       title: "Product worker",
+      agentId: "test-agent",
       status: "ready",
       priority: "urgent",
       boardId: "product",
@@ -1042,6 +1065,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
       title: "Fail worker",
+      agentId: "test-agent",
       status: "ready",
       workspaceAccess: { unrestricted: true },
     });
@@ -1074,5 +1098,67 @@ describe("dispatchAndStartWorkboardCards", () => {
     });
     expect((await store.get(card.id))?.agentId).toBeUndefined();
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
+  });
+
+  it("skips scheduled auto-dispatch when a ready card has a blank agentId", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Unassigned ready card",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-blank" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    expect(result.started).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
+    await expect(store.get(card.id)).resolves.toMatchObject({ status: "ready" });
+    expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
+  });
+
+  it("allows exact (human-initiated) dispatch for a ready card with a blank agentId", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Blank-agentId human dispatch",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-human-blank" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1, cardId: card.id },
+    });
+
+    expect(result.started).toHaveLength(1);
+    expect(result.started[0]?.cardId).toBe(card.id);
+    expect(run).toHaveBeenCalledOnce();
+  });
+
+  it("allows scheduled auto-dispatch for a ready card with a populated agentId", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Assigned ready card",
+      status: "ready",
+      agentId: "codex-main",
+      workspaceAccess: { unrestricted: true },
+    });
+    const run = vi.fn().mockResolvedValue({ runId: "run-assigned" });
+
+    const result = await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { now: 10, maxStarts: 1 },
+    });
+
+    expect(result.started).toHaveLength(1);
+    expect(result.started[0]?.cardId).toBe(card.id);
+    expect(run).toHaveBeenCalledOnce();
   });
 });

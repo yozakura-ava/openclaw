@@ -5005,5 +5005,42 @@ describe("WorkboardStore", () => {
       /status must be one of/,
     );
   });
+
+  it("force-closes a stuck card regardless of claim and marks it done", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Stuck card", status: "running" });
+    await store.claim(card.id, { ownerId: "other-agent", token: "live-token", ttlSeconds: 60 });
+
+    const closed = await store.forceClose(card.id, {
+      reason: "operator override",
+    });
+
+    expect(closed.status).toBe("done");
+    expect(closed.completedAt).toBeDefined();
+    expect(closed.sessionKey ?? null).toBeNull();
+    expect(closed.runId ?? null).toBeNull();
+    expect(closed.metadata?.forceClosedAt).toBeDefined();
+    expect(closed.metadata?.forceCloseReason).toBe("operator override");
+    expect(closed.metadata?.claim).toBeUndefined();
+    expect(closed.execution?.status).toBe("failed");
+  });
+
+  it("force-close appends a comment and a failed notification", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Notifiable card", status: "ready" });
+
+    const closed = await store.forceClose(card.id, { reason: "stuck in queue" });
+
+    expect(closed.metadata?.comments?.some((c) => c.body.includes("force_close"))).toBe(true);
+    expect(closed.metadata?.notifications?.some((n) => n.kind === "failed")).toBe(true);
+  });
+
+  it("rejects force-close on archived cards", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Archived card", status: "ready" });
+    await store.archive(card.id, true);
+
+    await expect(store.forceClose(card.id, { reason: "nope" })).rejects.toThrow(/archived/);
+  });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

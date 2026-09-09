@@ -552,6 +552,23 @@ export function createWorkboardTools(params: {
         return redactedCardResult(await store.unblock(id, scope));
       },
     },
+    {
+      name: "workboard_force_close",
+      label: "Workboard Force Close",
+      description:
+        "Operator-level escape hatch: forcefully close a Workboard card regardless of its current state, clearing any claim and marking it done. Use only for stuck or misrouted cards.",
+      parameters: strictObject({
+        id: cardIdField(),
+        reason: Type.Optional(Type.String({ description: "Reason for force-closing the card." })),
+        token: Type.Optional(claimTokenField()),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        return redactedCardResult(
+          await store.forceClose(id, { reason: record.reason, token: record.token }, scope),
+        );
+      },
+    },
     createWorkboardMoveTool({ store, readScopedCardToolParams, redactedCardResult }),
     ...createWorkboardOrchestrationTools({
       store,

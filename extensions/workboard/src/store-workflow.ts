@@ -38,6 +38,7 @@ import type {
   WorkboardCompleteInput,
   WorkboardDecomposeChildInput,
   WorkboardDecomposeInput,
+  WorkboardForceCloseInput,
   WorkboardHeartbeatInput,
   WorkboardMutationScope,
   WorkboardProofInput,
@@ -406,6 +407,64 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       assertCanMutateClaimedCard(existing, scope);
       const metadata = clearDiagnostics(existing.metadata, ["blocked_too_long"]);
       return await this.updateCard(id, { status: "todo", metadata: { ...metadata, stale: null } });
+    });
+  }
+
+  async forceClose(
+    id: string,
+    input: WorkboardForceCloseInput = {},
+    scope?: WorkboardMutationScope | null,
+  ): Promise<WorkboardCard> {
+    return await this.enqueueMutation(async () => {
+      const existing = await this.get(id);
+      if (!existing) {
+        throw new Error(`card not found: ${id}`);
+      }
+      if (existing.metadata?.archivedAt) {
+        throw new Error("card is archived.");
+      }
+      // force_close bypasses the normal claim/state-machine guard: it is the
+      // operator-level escape hatch for stuck or misrouted cards. We still
+      // demand a matching token when one is presented, but missing scope is
+      // accepted because the caller is explicitly overriding the claim.
+      assertCanMutateClaimedCard(existing, scope === null ? { ownerId: undefined } : scope);
+      const now = Date.now();
+      const reason =
+        normalizeBoundedString(input.reason, undefined, 2000, "force close reason") ??
+        "Workboard card force-closed by operator.";
+      const metadata = existing.metadata ?? {};
+      const notification: WorkboardNotification = {
+        id: randomUUID(),
+        kind: "failed",
+        createdAt: now,
+        sequence: this.nextNotificationSequence(now),
+        message: capText(reason, 240) ?? "Workboard card force-closed.",
+        ...(cardSessionKey(existing) ? { sessionKey: cardSessionKey(existing) } : {}),
+        ...(cardRunId(existing) ? { runId: cardRunId(existing) } : {}),
+      };
+      const execution =
+        existing.execution?.status === "running"
+          ? { ...existing.execution, status: "failed" as const, updatedAt: now }
+          : existing.execution;
+      return await this.updateCard(id, {
+        status: "done",
+        completedAt: now,
+        sessionKey: null,
+        runId: null,
+        execution,
+        metadata: {
+          ...metadata,
+          forceClosedAt: now,
+          ...(reason ? { forceCloseReason: reason } : {}),
+          comments: [
+            ...(metadata.comments ?? []),
+            { id: randomUUID(), body: `force_close: ${reason}`, createdAt: now },
+          ].slice(-MAX_CARD_COMMENTS),
+          notifications: [...(metadata.notifications ?? []), notification].slice(
+            -MAX_CARD_NOTIFICATIONS,
+          ),
+        },
+      });
     });
   }
 
