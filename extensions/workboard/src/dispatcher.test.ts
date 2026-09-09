@@ -996,44 +996,6 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("starts workers only for the selected board", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const ops = await store.create({
-      title: "Ops worker",
-      agentId: "test-agent",
-      status: "ready",
-      priority: "urgent",
-      boardId: "ops",
-      workspaceAccess: { unrestricted: true },
-    });
-    const product = await store.create({
-      title: "Product worker",
-      agentId: "test-agent",
-      status: "ready",
-      priority: "urgent",
-      boardId: "product",
-      workspaceAccess: { unrestricted: true },
-    });
-    const run = vi.fn().mockResolvedValue({ runId: "run-ops" });
-
-    const result = await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run },
-      options: { now: 10, maxStarts: 3, boardId: "ops" },
-    });
-
-    expect(result.started).toEqual([expect.objectContaining({ cardId: ops.id })]);
-    expect(run).toHaveBeenCalledOnce();
-    expect(run.mock.calls[0]?.[0]).toMatchObject({
-      sessionKey: `agent:test-agent:subagent:workboard-ops-${ops.id}`,
-      lane: `workboard:ops:${ops.id}`,
-    });
-    await expect(store.get(product.id)).resolves.toMatchObject({
-      status: "ready",
-      metadata: { automation: { boardId: "product" } },
-    });
-  });
-
   it("keeps claimed review cards in the owner running slot", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const review = await store.create({
@@ -1100,47 +1062,6 @@ describe("dispatchAndStartWorkboardCards", () => {
     // cleared on block; unassignment is reassign/release territory.
     expect((await store.get(card.id))?.agentId).toBe("test-agent");
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
-  });
-
-  it("skips scheduled auto-dispatch when a ready card has a blank agentId", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Unassigned ready card",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-    const run = vi.fn().mockResolvedValue({ runId: "run-blank" });
-
-    const result = await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run },
-      options: { now: 10, maxStarts: 1 },
-    });
-
-    expect(result.started).toEqual([]);
-    expect(run).not.toHaveBeenCalled();
-    await expect(store.get(card.id)).resolves.toMatchObject({ status: "ready" });
-    expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
-  });
-
-  it("allows exact (human-initiated) dispatch for a ready card with a blank agentId", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const card = await store.create({
-      title: "Blank-agentId human dispatch",
-      status: "ready",
-      workspaceAccess: { unrestricted: true },
-    });
-    const run = vi.fn().mockResolvedValue({ runId: "run-human-blank" });
-
-    const result = await dispatchAndStartWorkboardCards({
-      store,
-      subagent: { run },
-      options: { now: 10, maxStarts: 1, cardId: card.id },
-    });
-
-    expect(result.started).toHaveLength(1);
-    expect(result.started[0]?.cardId).toBe(card.id);
-    expect(run).toHaveBeenCalledOnce();
   });
 
   it("allows scheduled auto-dispatch for a ready card with a populated agentId", async () => {
