@@ -1025,7 +1025,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect(result.started).toEqual([expect.objectContaining({ cardId: ops.id })]);
     expect(run).toHaveBeenCalledOnce();
     expect(run.mock.calls[0]?.[0]).toMatchObject({
-      sessionKey: `subagent:workboard-ops-${ops.id}`,
+      sessionKey: `agent:test-agent:subagent:workboard-ops-${ops.id}`,
       lane: `workboard:ops:${ops.id}`,
     });
     await expect(store.get(product.id)).resolves.toMatchObject({
@@ -1083,7 +1083,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     ]);
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionKey: `subagent:workboard-default-${card.id}`,
+        sessionKey: `agent:test-agent:subagent:workboard-default-${card.id}`,
       }),
     );
     await expect(store.get(card.id)).resolves.toMatchObject({
@@ -1096,7 +1096,9 @@ describe("dispatchAndStartWorkboardCards", () => {
         ],
       },
     });
-    expect((await store.get(card.id))?.agentId).toBeUndefined();
+    // A configured agentId survives a failed worker start — only claims are
+    // cleared on block; unassignment is reassign/release territory.
+    expect((await store.get(card.id))?.agentId).toBe("test-agent");
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
   });
 

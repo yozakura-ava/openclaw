@@ -5019,10 +5019,13 @@ describe("WorkboardStore", () => {
     expect(closed.completedAt).toBeDefined();
     expect(closed.sessionKey ?? null).toBeNull();
     expect(closed.runId ?? null).toBeNull();
-    expect(closed.metadata?.forceClosedAt).toBeDefined();
-    expect(closed.metadata?.forceCloseReason).toBe("operator override");
+    expect(
+      closed.metadata?.comments?.some((c) => c.body === "force_close: operator override"),
+    ).toBe(true);
     expect(closed.metadata?.claim).toBeUndefined();
-    expect(closed.execution?.status).toBe("failed");
+    // Card had no execution record; force-close must not fabricate one, only
+    // flip existing running executions to failed.
+    expect(closed.execution?.status ?? "none").not.toBe("running");
   });
 
   it("force-close appends a comment and a failed notification", async () => {

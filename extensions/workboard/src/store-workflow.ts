@@ -433,6 +433,10 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         normalizeBoundedString(input.reason, undefined, 2000, "force close reason") ??
         "Workboard card force-closed by operator.";
       const metadata = existing.metadata ?? {};
+      // The force-close audit trail uses only whitelisted metadata fields
+      // (comments + notifications + explicit claim clear); normalizeMetadata
+      // drops unknown keys, so custom forceClosedAt-style fields would be
+      // silently lost.
       const notification: WorkboardNotification = {
         id: randomUUID(),
         kind: "failed",
@@ -454,8 +458,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         execution,
         metadata: {
           ...metadata,
-          forceClosedAt: now,
-          ...(reason ? { forceCloseReason: reason } : {}),
+          claim: undefined,
           comments: [
             ...(metadata.comments ?? []),
             { id: randomUUID(), body: `force_close: ${reason}`, createdAt: now },
