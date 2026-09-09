@@ -251,11 +251,14 @@ jobs:
         #       not a dangling symlink. This is the same workspace
         #       package path that previously failed server-side
         #       ("@openclaw/ai workspace:* not present").
-        #   (b) node_modules/.pnpm/ is absent — workspace packages
-        #       were materialized as real directories, not stored
-        #       under a virtual store. The existing deployment under
-        #       /root/.openclaw/deployments/openclaw-2026.9.2-20260906T160338Z/
-        #       has no .pnpm/, confirming this shape is correct.
+        #   (b) node_modules/.pnpm/ — informational only. pnpm 12's
+        #       hoisted linker legitimately emits a .pnpm virtual store
+        #       for version-conflict duplicates. The live reference
+        #       deployment (openclaw-current, v2026.9.3) has a .pnpm/
+        #       with 1440 entries incl. @openclaw+ duplicates and runs
+        #       fine. The real guards are (a) workspace packages
+        #       materialized as real directories and (c) the 100k
+        #       file-count OOM cap.
         #   (c) Total file count is under 100k — guards against the
         #       ~9.3M-file LCA expansion that OOM-killed workflow
         #       run 34062348670 (PR #34's `actions/upload-artifact`
@@ -271,10 +274,10 @@ jobs:
             echo "::error::node_modules/@openclaw/ai/dist/ missing"
             exit 1
           fi
-          # (b) no virtual store
+          # (b) virtual store: informational — bounded by (c) below
           if [ -e node_modules/.pnpm ]; then
-            echo "::error::node_modules/.pnpm/ should be absent (hoisted linker)"
-            exit 1
+            pnpm_count="$(ls node_modules/.pnpm | wc -l)"
+            echo "note: node_modules/.pnpm present (${pnpm_count} entries) — allowed for hoisted-linker version conflicts"
           fi
           file_count="$(find . -type f | wc -l)"
           echo "file_count=${file_count}"
@@ -283,7 +286,7 @@ jobs:
             echo "::error::file count ${file_count} exceeds 100k OOM guard"
             exit 1
           fi
-          echo "Sanity assertions passed: @openclaw/ai materialized, no .pnpm/, ${file_count} files"
+          echo "Sanity assertions passed: @openclaw/ai materialized, file count bounded, ${file_count} files"
 
       - name: Stage deployment tree
         # Populate staging/openclaw-<version>/ with the runtime
