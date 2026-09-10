@@ -110,109 +110,109 @@
   ],
   "toolMetadata": {
     "workboard_list": {
-      "optional": true
+      "optional": false
     },
     "workboard_create": {
-      "optional": true
+      "optional": false
     },
     "workboard_link": {
-      "optional": true
+      "optional": false
     },
     "workboard_read": {
-      "optional": true
+      "optional": false
     },
     "workboard_claim": {
-      "optional": true
+      "optional": false
     },
     "workboard_heartbeat": {
-      "optional": true
+      "optional": false
     },
     "workboard_complete": {
-      "optional": true
+      "optional": false
     },
     "workboard_attachment_add": {
-      "optional": true
+      "optional": false
     },
     "workboard_attachment_read": {
-      "optional": true
+      "optional": false
     },
     "workboard_attachment_delete": {
-      "optional": true
+      "optional": false
     },
     "workboard_block": {
-      "optional": true
+      "optional": false
     },
     "workboard_boards": {
-      "optional": true
+      "optional": false
     },
     "workboard_board_create": {
-      "optional": true
+      "optional": false
     },
     "workboard_board_archive": {
-      "optional": true
+      "optional": false
     },
     "workboard_board_delete": {
-      "optional": true
+      "optional": false
     },
     "workboard_stats": {
-      "optional": true
+      "optional": false
     },
     "workboard_runs": {
-      "optional": true
+      "optional": false
     },
     "workboard_specify": {
-      "optional": true
+      "optional": false
     },
     "workboard_decompose": {
-      "optional": true
+      "optional": false
     },
     "workboard_notify_subscribe": {
-      "optional": true
+      "optional": false
     },
     "workboard_notify_list": {
-      "optional": true
+      "optional": false
     },
     "workboard_notify_events": {
-      "optional": true
+      "optional": false
     },
     "workboard_notify_advance": {
-      "optional": true
+      "optional": false
     },
     "workboard_notify_unsubscribe": {
-      "optional": true
+      "optional": false
     },
     "workboard_promote": {
-      "optional": true
+      "optional": false
     },
     "workboard_reassign": {
-      "optional": true
+      "optional": false
     },
     "workboard_reclaim": {
-      "optional": true
+      "optional": false
     },
     "workboard_dispatch": {
-      "optional": true
+      "optional": false
     },
     "workboard_release": {
-      "optional": true
+      "optional": false
     },
     "workboard_comment": {
-      "optional": true
+      "optional": false
     },
     "workboard_proof": {
-      "optional": true
+      "optional": false
     },
     "workboard_worker_log": {
-      "optional": true
+      "optional": false
     },
     "workboard_protocol_violation": {
-      "optional": true
+      "optional": false
     },
     "workboard_unblock": {
-      "optional": true
+      "optional": false
     },
     "workboard_move": {
-      "optional": true
+      "optional": false
     }
   },
   "configSchema": {
