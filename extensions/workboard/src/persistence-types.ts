@@ -44,12 +44,23 @@ export type WorkboardBoardCardAggregate = {
 
 export type WorkboardOwnerClaimResult = "updated" | "conflict" | "owner_busy";
 
+export type WorkboardCardStoreCasOptions = {
+  /**
+   * Lineage-split token (HR39.1 / card d66e24c2). When provided, CAS matches
+   * on `lineage_token` instead of `updated_at` — so background housekeeping
+   * bumps that preserve lineage do not throw false conflicts. When omitted,
+   * the legacy `updated_at`-based CAS is used (backward compatible).
+   */
+  expectedLineageToken?: string;
+};
+
 export type WorkboardCardStore = WorkboardKeyedStore & {
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
   registerIfUpdatedAt(
     key: string,
     value: PersistedWorkboardCard,
     expectedUpdatedAt: number,
+    options?: WorkboardCardStoreCasOptions,
   ): Promise<boolean>;
   deleteIfUpdatedAt(key: string, expectedUpdatedAt: number): Promise<boolean>;
   claimIfOwnerAvailable(
@@ -58,6 +69,7 @@ export type WorkboardCardStore = WorkboardKeyedStore & {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    options?: WorkboardCardStoreCasOptions,
   ): Promise<WorkboardOwnerClaimResult>;
   listBoardAggregates(): Promise<WorkboardBoardCardAggregate[]>;
 };
