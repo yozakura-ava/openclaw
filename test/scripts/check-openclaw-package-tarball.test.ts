@@ -298,6 +298,7 @@ type TarballCheck = {
   version?: Parameters<typeof withTarball>[3];
   options?: Parameters<typeof withTarball>[4];
   strict?: boolean;
+  workboardContract?: boolean;
   status: 0 | "nonzero";
   stderr?: string[];
   notStderr?: string[];
@@ -312,6 +313,7 @@ function checkTarball({
   version,
   options,
   strict = false,
+  workboardContract = false,
   status,
   stderr = [],
   notStderr = [],
@@ -321,9 +323,12 @@ function checkTarball({
     inventory,
     files,
     (tarball) => {
-      const args = strict
-        ? [CHECK_SCRIPT, "--require-bundled-workspace-deps", tarball]
-        : [CHECK_SCRIPT, tarball];
+      const args = [
+        CHECK_SCRIPT,
+        ...(strict ? ["--require-bundled-workspace-deps"] : []),
+        ...(workboardContract ? ["--require-workboard-contract"] : []),
+        tarball,
+      ];
       const result = spawnSync("node", args, { encoding: "utf8" });
 
       if (status === 0) {
@@ -352,7 +357,7 @@ describe("check-openclaw-package-tarball", () => {
 
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain(
-      "Usage: node scripts/check-openclaw-package-tarball.mjs [--require-bundled-workspace-deps] <openclaw.tgz>",
+      "Usage: node scripts/check-openclaw-package-tarball.mjs [--require-bundled-workspace-deps] [--require-workboard-contract] <openclaw.tgz>",
     );
     expect(result.stderr).toBe("");
   });
@@ -371,6 +376,16 @@ describe("check-openclaw-package-tarball", () => {
     expect(extra.status).not.toBe(0);
     expect(extra.stderr).toContain("Unexpected OpenClaw package tarball check argument: extra");
     expect(extra.stderr).not.toContain("OpenClaw package tarball does not exist");
+  });
+
+  it("fails closed when a deployment package omits the Workboard contract", () => {
+    checkTarball({
+      workboardContract: true,
+      status: "nonzero",
+      stderr: [
+        "Workboard deployment archive is missing required path: dist/extensions/workboard/openclaw.plugin.json",
+      ],
+    });
   });
 
   it("rejects owner-only tar entry modes", () => {

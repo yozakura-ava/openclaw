@@ -14,6 +14,7 @@ type PluginManifestFile = {
   contracts?: {
     tools?: unknown;
   };
+  toolMetadata?: unknown;
 };
 
 function walkFiles(dir: string): string[] {
@@ -219,13 +220,34 @@ function extractStringLiterals(source: string): string[] {
   return names;
 }
 
-function extractStaticRegisteredToolNamesFromObject(source: string): string[] {
+function extractStringArrayConstants(source: string): Map<string, string[]> {
+  const constants = new Map<string, string[]>();
+  const pattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*\[([\s\S]*?)\]\s*(?:as\s+const\b)?/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(source))) {
+    const name = match[1];
+    if (name) {
+      constants.set(name, extractStringLiterals(match[2] ?? ""));
+    }
+  }
+  return constants;
+}
+
+function extractStaticRegisteredToolNamesFromObject(
+  source: string,
+  constants: ReadonlyMap<string, readonly string[]>,
+): string[] {
   const names = new Set<string>();
   const namesPattern = /\bnames\s*:\s*\[([\s\S]*?)\]/g;
   let namesMatch: RegExpExecArray | null;
   while ((namesMatch = namesPattern.exec(source))) {
     for (const name of extractStringLiterals(namesMatch[1] ?? "")) {
       names.add(name);
+    }
+    for (const reference of namesMatch[1]?.matchAll(/\.\.\.([A-Za-z_$][\w$]*)/gu) ?? []) {
+      for (const name of constants.get(reference[1] ?? "") ?? []) {
+        names.add(name);
+      }
     }
   }
 
@@ -239,18 +261,21 @@ function extractStaticRegisteredToolNamesFromObject(source: string): string[] {
   return [...names];
 }
 
-function extractStaticRegisteredToolNames(callArgs: string): string[] {
+function extractStaticRegisteredToolNames(
+  callArgs: string,
+  constants: ReadonlyMap<string, readonly string[]>,
+): string[] {
   const args = splitTopLevelArgs(callArgs);
   const names = new Set<string>();
   const firstArg = args[0]?.trim() ?? "";
   const optionsArg = args[1]?.trim() ?? "";
   if (firstArg.startsWith("{")) {
-    for (const name of extractStaticRegisteredToolNamesFromObject(firstArg)) {
+    for (const name of extractStaticRegisteredToolNamesFromObject(firstArg, constants)) {
       names.add(name);
     }
   }
   if (optionsArg.startsWith("{")) {
-    for (const name of extractStaticRegisteredToolNamesFromObject(optionsArg)) {
+    for (const name of extractStaticRegisteredToolNamesFromObject(optionsArg, constants)) {
       names.add(name);
     }
   }
@@ -303,14 +328,30 @@ function collectToolContractFailures(extensionsDir: string): string[] {
     const pluginId = typeof manifest.id === "string" ? manifest.id : path.basename(pluginDir);
     const declaredTools = new Set(normalizeManifestTools(manifest.contracts?.tools));
     const registeredNames = new Set<string>();
+    const registeredOptionalByName = new Map<string, boolean>();
     let registerCallCount = 0;
 
-    for (const filePath of walkFiles(pluginDir).filter(isProductionSource)) {
-      const source = fs.readFileSync(filePath, "utf-8");
+    const sourceFiles = walkFiles(pluginDir)
+      .filter(isProductionSource)
+      .map((filePath) => ({ filePath, source: fs.readFileSync(filePath, "utf-8") }));
+    const constants = new Map<string, string[]>();
+    for (const { source } of sourceFiles) {
+      for (const [name, values] of extractStringArrayConstants(source)) {
+        constants.set(name, values);
+      }
+    }
+    for (const { source } of sourceFiles) {
       for (const call of listRegisterToolCalls(source)) {
         registerCallCount += 1;
-        for (const name of extractStaticRegisteredToolNames(call)) {
+        const names = extractStaticRegisteredToolNames(call, constants);
+        for (const name of names) {
           registeredNames.add(name);
+        }
+        const optional = /\boptional\s*:\s*(true|false)/u.exec(call)?.[1];
+        if (optional) {
+          for (const name of names) {
+            registeredOptionalByName.set(name, optional === "true");
+          }
         }
       }
     }
@@ -326,6 +367,23 @@ function collectToolContractFailures(extensionsDir: string): string[] {
     const missing = [...registeredNames].filter((name) => !declaredTools.has(name)).toSorted();
     if (missing.length > 0) {
       failures.push(`${pluginId}: missing contracts.tools for ${missing.join(", ")}`);
+    }
+
+    const toolMetadata =
+      manifest.toolMetadata && typeof manifest.toolMetadata === "object"
+        ? (manifest.toolMetadata as Record<string, unknown>)
+        : {};
+    for (const [name, optional] of registeredOptionalByName) {
+      const metadata = toolMetadata[name];
+      if (
+        metadata &&
+        typeof metadata === "object" &&
+        !Array.isArray(metadata) &&
+        "optional" in metadata &&
+        (metadata as { optional?: unknown }).optional !== optional
+      ) {
+        failures.push(`${pluginId}: toolMetadata.${name}.optional disagrees with registerTool`);
+      }
     }
   }
 
