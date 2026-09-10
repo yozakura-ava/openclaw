@@ -83,6 +83,14 @@ type WorkboardUpdateCardOptions = {
   event?: Omit<WorkboardEvent, "id" | "at">;
   eventAt?: number;
   expectedUpdatedAt?: number;
+  /**
+   * Lineage-split token (HR39.1 / card d66e24c2). When set, CAS matches on
+   * lineage instead of updatedAt — so background housekeeping bumps no longer
+   * trip the optimistic-concurrency check. Conflicts only fire when another
+   * writer set a different lineage (i.e., a real content change). Mutually
+   * inclusive with expectedUpdatedAt; when both are provided, lineage wins.
+   */
+  expectedLineageToken?: string;
   ownerSlot?: { ownerId: string; now: number };
   preserveProofId?: string;
 };
@@ -216,7 +224,14 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         ...merged,
         updatedAt: Math.max(Date.now(), current.updatedAt + 1),
       };
-      if (await this.registerCardIfUpdatedAt(compensation, current.updatedAt)) {
+      // Pass the current writer's lineage as expectedLineageToken. That lets
+      // the storage CAS succeed when our reverted write is "based on" the
+      // latest content (concurrent edits to other fields are preserved via the
+      // `invert` merge). If a foreign writer touched the card between read
+      // and write, the CAS fails and the retry loop absorbs the bump.
+      if (
+        await this.registerCardIfUpdatedAt(compensation, current.updatedAt, current.lineageToken)
+      ) {
         return;
       }
     }
@@ -229,6 +244,17 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       if (!current || !sameWorkboardCardState(current, created)) {
         return;
       }
+      // Lineage-aware surrender: if the freshly-created card's lineage has
+      // been replaced by a foreign write, surrender rather than delete (which
+      // would orphan that writer's content). Resolves the create+link orphan
+      // race at store-core.ts:227-238.
+      if (
+        created.lineageToken !== undefined &&
+        current.lineageToken !== undefined &&
+        current.lineageToken !== created.lineageToken
+      ) {
+        return;
+      }
       if (await this.deleteCardIfUpdatedAt(created.id, current.updatedAt)) {
         return;
       }
@@ -239,12 +265,14 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   private async registerCardIfUpdatedAt(
     card: WorkboardCard,
     expectedUpdatedAt: number,
+    expectedLineageToken?: string,
   ): Promise<boolean> {
     if (this.cardStore) {
       return await this.cardStore.registerIfUpdatedAt(
         card.id,
         { version: 1, card },
         expectedUpdatedAt,
+        expectedLineageToken !== undefined ? { expectedLineageToken } : undefined,
       );
     }
     if ((await this.get(card.id))?.updatedAt !== expectedUpdatedAt) {
@@ -279,9 +307,16 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
         return { card: current, updated: false };
       }
       try {
+        // Lineage-split (HR39.1 / card d66e24c2): expectedLineageToken is set
+        // from the freshly-read card each iteration so housekeeping-only
+        // updatedAt bumps (same lineage) are absorbed. When another writer
+        // commits between our read and write, the lineage changes, the
+        // pre-check fires, and the next iteration recomputes the patch against
+        // the latest state.
         const card = await this.updateCard(id, patch, {
           ...options,
           expectedUpdatedAt: current.updatedAt,
+          expectedLineageToken: current.lineageToken,
         });
         return { card, updated: card.updatedAt !== current.updatedAt };
       } catch (error) {
@@ -621,6 +656,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
       ...(!metadataIsEmpty(syncedMetadata) ? { metadata: syncedMetadata } : {}),
+      // Lineage-split (HR39.1 / card d66e24c2): stamp a fresh lineage token at
+      // creation. Subsequent content writes (updateCard) replace this token
+      // with a new randomUUID; rollback uses the token captured at create
+      // time to detect foreign writes.
+      lineageToken: randomUUID(),
     };
     if (options.insertIfAbsent && this.cardStore) {
       const inserted = await this.cardStore.registerIfAbsent(card.id, { version: 1, card });
@@ -717,7 +757,16 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     if (!existing) {
       throw new Error(`card not found: ${id}`);
     }
-    if (
+    // Lineage-split CAS (HR39.1 / card d66e24c2): when the caller provides an
+    // expectedLineageToken, match on lineage (content identity) instead of
+    // updatedAt (time stamp). A housekeeping-only updatedAt bump keeps the
+    // lineage and is not a conflict; a foreign writer that set a new lineage
+    // is the real conflict.
+    if (options.expectedLineageToken !== undefined) {
+      if (existing.lineageToken !== options.expectedLineageToken) {
+        throw new WorkboardCardConflictError(existing);
+      }
+    } else if (
       options.expectedUpdatedAt !== undefined &&
       existing.updatedAt !== options.expectedUpdatedAt
     ) {
@@ -851,6 +900,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           ? existing.position
           : normalizePosition(effectivePatch.position, existing.position),
       updatedAt: now,
+      // Lineage-split (HR39.1 / card d66e24c2): every successful content
+      // write stamps a fresh lineage token so concurrent writers can be told
+      // apart from housekeeping bumps. The new token becomes the next caller's
+      // expectedLineageToken when they read this card and retry.
+      lineageToken: randomUUID(),
       ...(startedAt ? { startedAt } : {}),
       ...(completedAt ? { completedAt } : {}),
     });
@@ -880,6 +934,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     }
     if (this.cardStore) {
       const expectedUpdatedAt = options.expectedUpdatedAt ?? existing.updatedAt;
+      const casOptions =
+        options.expectedLineageToken !== undefined
+          ? { expectedLineageToken: options.expectedLineageToken }
+          : undefined;
       if (options.ownerSlot) {
         const result = await this.cardStore.claimIfOwnerAvailable(
           next.id,
@@ -887,6 +945,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           expectedUpdatedAt,
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
+          casOptions,
         );
         if (result === "owner_busy") {
           throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
@@ -901,6 +960,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           next.id,
           { version: 1, card: next },
           expectedUpdatedAt,
+          casOptions,
         )
       ) {
         this.recordCardMutation(existing, next);
