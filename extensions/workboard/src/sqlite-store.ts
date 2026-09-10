@@ -41,7 +41,7 @@ import type {
 } from "./persistence-types.js";
 import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
 const WORKBOARD_DB_RELATIVE_PATH = ["plugins", "workboard", "workboard.sqlite"] as const;
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
 const WORKBOARD_SQLITE_DIR_MODE = 0o700;
 const WORKBOARD_SQLITE_FILE_MODE = 0o600;
@@ -376,6 +376,10 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     "lifecycle_status_source_updated_at",
     "lifecycle_status_source_updated_at INTEGER",
   );
+  // Schema v4 (card d66e24c2): add lineage_token column for lineage-split
+  // optimistic concurrency. Distinguishes content changes (new lineage) from
+  // housekeeping updatedAt bumps (same lineage).
+  ensureColumn(db, "workboard_cards", "lineage_token", "lineage_token TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
@@ -848,6 +852,7 @@ function readCard(db: DatabaseSync, row: Row, preloaded?: CardChildRows): Workbo
   };
   const metadata = readMetadata(db, row, preloaded);
   const events = readEvents(db, card.id, preloaded);
+  const lineageToken = stringValue(row, "lineage_token");
   return {
     ...card,
     ...(stringValue(row, "notes") ? { notes: stringValue(row, "notes") } : {}),
@@ -865,6 +870,7 @@ function readCard(db: DatabaseSync, row: Row, preloaded?: CardChildRows): Workbo
       : {}),
     ...(events ? { events } : {}),
     ...(metadata ? { metadata } : {}),
+    ...(lineageToken ? { lineageToken } : {}),
   };
 }
 
@@ -908,14 +914,14 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
         execution_id, execution_kind, execution_engine, execution_mode, execution_status,
         execution_model, execution_session_key, execution_run_id, execution_started_at,
         execution_updated_at, automation_json, claim_json, template_id, archived_at, stale_json,
-        lifecycle_status_source_updated_at, failure_count
+        lifecycle_status_source_updated_at, failure_count, lineage_token
       ) VALUES (
         @id, @board_id, @title, @notes, @status, @priority, @agent_id, @session_key, @run_id,
         @task_id, @source_url, @position, @created_at, @updated_at, @started_at, @completed_at,
         @execution_id, @execution_kind, @execution_engine, @execution_mode, @execution_status,
         @execution_model, @execution_session_key, @execution_run_id, @execution_started_at,
         @execution_updated_at, @automation_json, @claim_json, @template_id, @archived_at,
-        @stale_json, @lifecycle_status_source_updated_at, @failure_count
+        @stale_json, @lifecycle_status_source_updated_at, @failure_count, @lineage_token
       )
       ON CONFLICT(id) DO UPDATE SET
         board_id = excluded.board_id,
@@ -949,7 +955,8 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
         archived_at = excluded.archived_at,
         stale_json = excluded.stale_json,
         lifecycle_status_source_updated_at = excluded.lifecycle_status_source_updated_at,
-        failure_count = excluded.failure_count
+        failure_count = excluded.failure_count,
+        lineage_token = excluded.lineage_token
     `,
   ).run({
     id: card.id,
@@ -985,6 +992,7 @@ function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     stale_json: jsonValue(metadata?.stale),
     lifecycle_status_source_updated_at: bindNull(metadata?.lifecycleStatusSourceUpdatedAt),
     failure_count: bindNull(metadata?.failureCount),
+    lineage_token: bindNull(card.lineageToken),
   });
 
   insertChildren(db, "workboard_card_labels", card.id, card.labels, (label, ordinal) => {
@@ -1236,13 +1244,38 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     key: string,
     value: PersistedWorkboardCard,
     expectedUpdatedAt: number,
+    options?: { expectedLineageToken?: string },
   ): Promise<boolean> {
     this.validatePayload(key, value);
     return runSqliteImmediateTransactionSync(this.db, () => {
       const current = this.db
-        .prepare("SELECT updated_at FROM workboard_cards WHERE id = ?")
+        .prepare("SELECT updated_at, lineage_token FROM workboard_cards WHERE id = ?")
         .get(key);
-      if (!isRecord(current) || numberValue(current, "updated_at") !== expectedUpdatedAt) {
+      if (!isRecord(current)) {
+        return false;
+      }
+      if (options?.expectedLineageToken !== undefined) {
+        // HR39.1 / card d66e24c2 lineage-split: match on lineage_token
+        // (content identity) instead of updated_at (time stamp). Housekeeping
+        // bumps that preserve lineage are absorbed; only a real content write
+        // (new lineage) trips CAS.
+        const storedLineage = stringValue(current, "lineage_token");
+        if (storedLineage !== options.expectedLineageToken) {
+          return false;
+        }
+        // Monotonic invariant: never write an updatedAt older than storage's.
+        // Storage's updated_at may have advanced from housekeeping; the
+        // caller's next.updatedAt is computed from their local read, so we
+        // floor it at storage's updated_at + 1 here to keep inserts forward-only.
+        const storedUpdatedAt = numberValue(current, "updated_at") ?? 0;
+        const proposed = value.card.updatedAt;
+        if (!Number.isFinite(proposed) || proposed <= storedUpdatedAt) {
+          value = {
+            ...value,
+            card: { ...value.card, updatedAt: storedUpdatedAt + 1 },
+          };
+        }
+      } else if (numberValue(current, "updated_at") !== expectedUpdatedAt) {
         return false;
       }
       insertCard(this.db, value.card);
@@ -1256,13 +1289,30 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    options?: { expectedLineageToken?: string },
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
     return runSqliteImmediateTransactionSync(this.db, () => {
       const current = this.db
-        .prepare("SELECT updated_at FROM workboard_cards WHERE id = ?")
+        .prepare("SELECT updated_at, lineage_token FROM workboard_cards WHERE id = ?")
         .get(key);
-      if (!isRecord(current) || numberValue(current, "updated_at") !== expectedUpdatedAt) {
+      if (!isRecord(current)) {
+        return "conflict";
+      }
+      if (options?.expectedLineageToken !== undefined) {
+        const storedLineage = stringValue(current, "lineage_token");
+        if (storedLineage !== options.expectedLineageToken) {
+          return "conflict";
+        }
+        const storedUpdatedAt = numberValue(current, "updated_at") ?? 0;
+        const proposed = value.card.updatedAt;
+        if (!Number.isFinite(proposed) || proposed <= storedUpdatedAt) {
+          value = {
+            ...value,
+            card: { ...value.card, updatedAt: storedUpdatedAt + 1 },
+          };
+        }
+      } else if (numberValue(current, "updated_at") !== expectedUpdatedAt) {
         return "conflict";
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);

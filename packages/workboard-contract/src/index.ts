@@ -382,6 +382,16 @@ export type WorkboardCard = {
   completedAt?: number;
   events?: WorkboardEvent[];
   metadata?: WorkboardMetadata;
+  /**
+   * Lineage-split token (HR39.1 / card d66e24c2). Set on every successful
+   * CAS write to mark "this lineage wrote content here". Distinguishes
+   * background housekeeping bumps (which keep the token) from concurrent
+   * writers (which set a new token). When `expectedLineageToken` is passed
+   * to updateLatestCard, a CAS conflict fires only on token mismatch —
+   * housekeeping bumps are absorbed by the retry loop instead of throwing.
+   * Persisted in sqlite `workboard_cards.lineage_token` (schema v4).
+   */
+  lineageToken?: string;
 };
 
 export type WorkboardListResult = {
