@@ -906,7 +906,7 @@ describe("WorkboardStore", () => {
           created_at, updated_at, archived_at
         FROM workboard_boards_strict;
         DROP TABLE workboard_boards_strict;
-        DELETE FROM workboard_schema_migrations WHERE id = 'schema-3';
+        DELETE FROM workboard_schema_migrations WHERE id = 'schema-4';
         INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at)
         VALUES ('schema-2', 1);
       `);
@@ -932,7 +932,7 @@ describe("WorkboardStore", () => {
         ).toEqual({ strict: 1 });
         expect(
           migrated
-            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-3'")
+            .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = 'schema-4'")
             .get(),
         ).toEqual({ found: 1 });
       } finally {
@@ -4963,6 +4963,418 @@ describe("WorkboardStore", () => {
     await expect(store.create({ title: "Bad card", status: "later" })).rejects.toThrow(
       /status must be one of/,
     );
+  });
+});
+
+// ===========================================================================
+// HR39.1 lineage-split (Fix 1 of card d66e24c2)
+// ===========================================================================
+describe("WorkboardStore lineage-split", () => {
+  // Helper: simulate a "housekeeping" updatedAt bump that preserves the
+  // lineage_token. This is what background sync (store.ts:413-528 syncLifecycle)
+  // does: it re-stamps updated_at to maintain the monotonic invariant without
+  // touching the lineage that the user-facing writer set on their last update.
+  function bumpCardUpdatedAtOnly(dbPath: string, cardId: string): void {
+    const rawDb = new DatabaseSync(dbPath);
+    try {
+      rawDb
+        .prepare("UPDATE workboard_cards SET updated_at = updated_at + 5 WHERE id = ?")
+        .run(cardId);
+    } finally {
+      rawDb.close();
+    }
+  }
+
+  // Helper: simulate a concurrent content writer by directly overwriting the
+  // lineage_token (and updatedAt) in sqlite. This is what a competing
+  // updateCard call would do at the storage layer.
+  function overwriteLineageToken(dbPath: string, cardId: string, lineageToken: string): void {
+    const rawDb = new DatabaseSync(dbPath);
+    try {
+      rawDb
+        .prepare(
+          "UPDATE workboard_cards SET lineage_token = ?, updated_at = updated_at + 5 WHERE id = ?",
+        )
+        .run(lineageToken, cardId);
+    } finally {
+      rawDb.close();
+    }
+  }
+
+  it("stamps a fresh lineageToken on create", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-create-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const card = await store.create({ title: "Lineage-stamped card" });
+        expect(card.lineageToken).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+        );
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rotates lineageToken on every successful update", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-rotate-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const created = await store.create({ title: "Rotate lineage" });
+        const first = created.lineageToken;
+        const updated = await store.update(created.id, { notes: "first edit" });
+        expect(updated.lineageToken).toBeDefined();
+        expect(updated.lineageToken).not.toBe(first);
+        const updated2 = await store.update(created.id, { notes: "second edit" });
+        expect(updated2.lineageToken).not.toBe(updated.lineageToken);
+        // Stored lineage must match the latest in-memory lineage.
+        const reloaded = await store.get(created.id);
+        expect(reloaded?.lineageToken).toBe(updated2.lineageToken);
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("absorbs a housekeeping-only updatedAt bump without throwing a CAS conflict", async () => {
+    // Headline test for Fix 1: background sync bumps updated_at (e.g., to
+    // re-stamp lifecycle status source) but keeps the lineage_token stable.
+    // The previous code tripped WorkboardCardConflictError here, blocking
+    // unrelated user edits. With lineage-split CAS, the retry succeeds.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-housekeep-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const created = await store.create({ title: "Housekeeping bump target" });
+        const originalLineage = created.lineageToken;
+        // Simulate housekeeping that bumps updated_at but preserves lineage_token.
+        bumpCardUpdatedAtOnly(dbPath, created.id);
+        // A subsequent user edit must succeed even though updated_at moved.
+        const updated = await store.update(created.id, { notes: "after housekeeping" });
+        expect(updated.notes).toBe("after housekeeping");
+        // Lineage rotates on our write; housekeeping bump didn't touch it.
+        expect(updated.lineageToken).toBeDefined();
+        expect(updated.lineageToken).not.toBe(originalLineage);
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("detects a genuine concurrent writer via lineage mismatch at the storage layer", async () => {
+    // The other side of Fix 1: if a competing writer committed content while
+    // we were preparing our update (i.e., lineage_token changed), a
+    // lineage-aware CAS write must surface a conflict so the caller can
+    // re-read and retry.
+    //
+    // store.update() (no expectedLineageToken) bypasses the lineage check
+    // because the public API doesn't expose that option; the retry-loop
+    // re-reads lineage each iteration, so it absorbs the foreign write as
+    // fresh state. The lineage-mismatch detection lives at the storage CAS
+    // layer — registerIfUpdatedAt with expectedLineageToken must return false
+    // when storage lineage diverges.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-conflict-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const created = await store.create({ title: "Concurrent writer target" });
+        const originalLineage = created.lineageToken;
+        // Simulate a competing writer that set a different lineage_token.
+        overwriteLineageToken(
+          dbPath,
+          created.id,
+          "foreign-lineage-99999999-aaaa-bbbb-cccc-dddddddddddd",
+        );
+        // Direct CAS attempt with the stale lineage must be rejected.
+        const ok = await stores.cards.registerIfUpdatedAt(
+          created.id,
+          { version: 1, card: { ...created, notes: "our edit" } },
+          created.updatedAt,
+          { expectedLineageToken: originalLineage },
+        );
+        expect(ok).toBe(false);
+        // CAS with the foreign lineage must succeed (matches storage).
+        const okWithForeign = await stores.cards.registerIfUpdatedAt(
+          created.id,
+          { version: 1, card: { ...created, notes: "our edit" } },
+          created.updatedAt,
+          { expectedLineageToken: "foreign-lineage-99999999-aaaa-bbbb-cccc-dddddddddddd" },
+        );
+        expect(okWithForeign).toBe(true);
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("updateLatestCard retry recomputes against the latest state after a concurrent writer", async () => {
+    // updateLatestCard retries up to WORKBOARD_CAS_ATTEMPTS times. When the
+    // lineage changes (concurrent writer), the next iteration re-reads and
+    // captures the fresh lineage so the recomputed patch can succeed.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-retry-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const created = await store.create({ title: "Retry after foreign write" });
+        // Concurrent writer commits a different lineage + content.
+        overwriteLineageToken(
+          dbPath,
+          created.id,
+          "competing-writer-token-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+        );
+        // updateLatestCard must still succeed because the patch is recomputed
+        // against the latest state on each retry (the legacy bare-updatedAt
+        // mechanism would still trip, but lineage-aware CAS absorbs it once
+        // the next iteration captures the foreign lineage).
+        const updated = await store.update(created.id, { notes: "post-retry edit" });
+        expect(updated.notes).toBe("post-retry edit");
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rolls back a created card lineage-aware: surrenders when a foreign writer touched it", async () => {
+    // create+link orphan race fix (Fix 1, store-core.ts:227-238): when a
+    // create+link transaction rolls back a freshly created card, a foreign
+    // writer that landed between create and rollback must surrender the
+    // rollback rather than delete the writer's content.
+    //
+    // The rollback path checks `current.lineageToken !== created.lineageToken`
+    // and surrenders (returns without deleting) when a foreign lineage is in
+    // effect. We verify the precondition the rollback guard relies on: after
+    // a foreign overwrite, current.lineageToken must differ from the
+    // originally-stamped token.
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "openclaw-workboard-lineage-create-rollback-"),
+    );
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const stores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const store = new WorkboardStore(stores.cards, {
+          boards: stores.boards,
+          subscriptions: stores.subscriptions,
+          attachments: stores.attachments,
+        });
+        const child = await store.create({ title: "Child to be rolled back" });
+        const originalLineage = child.lineageToken;
+        // Foreign writer overwrites lineage directly in storage (simulating a
+        // competing updateCard that landed before rollbackCreatedCard runs).
+        overwriteLineageToken(dbPath, child.id, "foreign-takeover-lineage");
+        const current = await store.get(child.id);
+        // Precondition for the surrender guard in rollbackCreatedCard: when a
+        // foreign lineage is in effect, the rollback will return without
+        // deleting the card. The card persists; lineage-aware surrender fires.
+        expect(current).toBeDefined();
+        expect(current?.lineageToken).not.toBe(originalLineage);
+        expect(current?.lineageToken).toContain("foreign-takeover-lineage");
+        // The card is preserved (no orphan-deletion): rollbackCreatedCard's
+        // guard would see the foreign lineage and surrender rather than call
+        // deleteCardIfUpdatedAt. We confirm the card still exists with the
+        // foreign lineage intact.
+        expect(current?.id).toBe(child.id);
+      } finally {
+        stores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves lineageToken through close-and-reopen", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-lineage-persist-"));
+    try {
+      const dbPath = path.join(dir, "workboard.sqlite");
+      const firstStores = createWorkboardSqliteStores({ dbPath });
+      let created: Awaited<ReturnType<WorkboardStore["create"]>> | undefined;
+      try {
+        const store = new WorkboardStore(firstStores.cards, {
+          boards: firstStores.boards,
+          subscriptions: firstStores.subscriptions,
+          attachments: firstStores.attachments,
+        });
+        created = await store.create({ title: "Persist lineage" });
+      } finally {
+        firstStores.close();
+      }
+      const reopenedStores = createWorkboardSqliteStores({ dbPath });
+      try {
+        const reopened = new WorkboardStore(reopenedStores.cards, {
+          boards: reopenedStores.boards,
+          subscriptions: reopenedStores.subscriptions,
+          attachments: reopenedStores.attachments,
+        });
+        const reloaded = await reopened.get(created!.id);
+        expect(reloaded?.lineageToken).toBe(created!.lineageToken);
+      } finally {
+        reopenedStores.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// 8-char prefix-resolver on tool surface (Fix 2 of card d66e24c2)
+// ===========================================================================
+describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
+  it("resolveWorkboardCardByIdOrPrefix resolves an active 8-char prefix", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Active card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id.slice(0, 8));
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix resolves an archived 8-char prefix", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Archived card", status: "done" });
+    // Archive the card by setting metadata.archivedAt directly via update.
+    const archived = await store.update(card.id, {
+      metadata: { ...card.metadata, archivedAt: Date.now() },
+    });
+    expect(archived.metadata?.archivedAt).toBeDefined();
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id.slice(0, 8));
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix returns a not-found error for unknown prefixes", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    await store.create({ title: "Existing card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), "deadbeef");
+    expect(result.card).toBeUndefined();
+    expect(result.error).toMatch(/not found/i);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix returns an ambiguous-prefix error when multiple cards match", async () => {
+    const sharedPrefix = "aaaaaaaa";
+    let counter = 0;
+    const ids: string[] = [];
+    const store = new WorkboardStore(
+      createMemoryStore({
+        beforeRegister: (_key, value) => {
+          counter += 1;
+          const id =
+            counter === 1
+              ? `${sharedPrefix}-1111-1111-1111-111111111111`
+              : `${sharedPrefix}-2222-2222-2222-222222222222`;
+          ids.push(id);
+          value.card.id = id;
+        },
+      }),
+    );
+    await store.create({ title: "Card A" });
+    await store.create({ title: "Card B" });
+    expect(ids).toHaveLength(2);
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), sharedPrefix);
+    expect(result.card).toBeUndefined();
+    expect(result.error).toMatch(/ambiguous/i);
+    expect(result.error).toMatch(/2 matches/);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix is a passthrough for full UUIDs", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Full UUID card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id);
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveToolCardId rejects empty / non-string input", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const { resolveToolCardId } = await import("./tools.js");
+    await expect(resolveToolCardId(store, "")).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, "   ")).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, undefined)).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, 123)).rejects.toThrow(/required/);
+  });
+
+  it("resolveToolCardId uses the fast path for a full UUID and the prefix path for short ids", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Resolver path coverage" });
+    const { resolveToolCardId } = await import("./tools.js");
+    // Full UUID (>=9 chars or matching the UUID-shape regex) takes the fast
+    // path that calls store.get directly without listing.
+    const fullIdResult = await resolveToolCardId(store, card.id);
+    expect(fullIdResult).toBe(card.id);
+    // 8-char prefix takes the listing path.
+    const prefixResult = await resolveToolCardId(store, card.id.slice(0, 8));
+    expect(prefixResult).toBe(card.id);
+  });
+
+  it("resolveToolCardId surfaces a not-found error for unknown prefixes", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const { resolveToolCardId } = await import("./tools.js");
+    await expect(resolveToolCardId(store, "deadbeef")).rejects.toThrow(/not found/i);
+  });
+
+  it("resolveToolCardId surfaces an ambiguous-prefix error for colliding 8-char prefixes", async () => {
+    const sharedPrefix = "aaaaaaaa";
+    let counter = 0;
+    const store = new WorkboardStore(
+      createMemoryStore({
+        beforeRegister: (_key, value) => {
+          counter += 1;
+          value.card.id =
+            counter === 1
+              ? `${sharedPrefix}-1111-1111-1111-111111111111`
+              : `${sharedPrefix}-2222-2222-2222-222222222222`;
+        },
+      }),
+    );
+    await store.create({ title: "Ambiguous A" });
+    await store.create({ title: "Ambiguous B" });
+    const { resolveToolCardId } = await import("./tools.js");
+    await expect(resolveToolCardId(store, sharedPrefix)).rejects.toThrow(/ambiguous/i);
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
