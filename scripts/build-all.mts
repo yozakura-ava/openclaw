@@ -152,6 +152,7 @@ export const BUILD_ALL_STEPS: BuildAllStep[] = [
     cache: undefined,
   },
   tsxStep("write-build-info", "scripts/write-build-info.ts"),
+  tsxStep("verify-workboard-deployment", "scripts/verify-workboard-deployment.mts"),
   {
     ...tsxStep("write-cli-startup-metadata", "scripts/write-cli-startup-metadata.ts"),
     cache: {
@@ -184,7 +185,11 @@ const ASSET_RUNTIME_STEP_LABELS = [
   "plugins:assets:copy",
   ...RUNTIME_FINALIZE_STEP_LABELS,
 ];
-const BUILD_METADATA_STEP_LABELS = ["write-build-info", "write-cli-startup-metadata"] as const;
+const BUILD_METADATA_STEP_LABELS = [
+  "write-build-info",
+  "verify-workboard-deployment",
+  "write-cli-startup-metadata",
+] as const;
 const SDK_DECLARATION_STEP_LABELS = [
   "write-plugin-sdk-entry-dts",
   "check-plugin-sdk-exports",

@@ -1127,6 +1127,7 @@ async function main() {
     [
       path.join(ROOT_DIR, "scripts/check-openclaw-package-tarball.mjs"),
       "--require-bundled-workspace-deps",
+      "--require-workboard-contract",
       tarball,
     ],
     sourceDir,
