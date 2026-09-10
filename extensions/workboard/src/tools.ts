@@ -4,6 +4,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { Type } from "typebox";
+import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
 import { redactClaimToken } from "./card-redaction.js";
 import type { WorkboardStore } from "./store.js";
 import {
@@ -22,6 +23,40 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
     (typeof record.sessionId === "string" && record.sessionId) ||
     "agent"
   );
+}
+
+/**
+ * Resolve a tool-supplied card id (full UUID or 8-char prefix) to a full UUID.
+ *
+ * AC#1 of e525f3f2-6998-4b94-807d-8d53f63dbda8 (recurrence-4..9 on live 2026.9.3
+ * deploy, dist md5 f51c4b50f209f6f30687a4e02d4a3df5) requires every workboard_*
+ * TOOL handler to accept 8-char prefixes. `store.get()` is exact-match only
+ * (store-core.ts:475-479), so we resolve via `resolveWorkboardCardByIdOrPrefix`
+ * against a full listing before any `store.get(id)` / `store.claim(id)` /
+ * `store.X(id)` call. Fix 2 of card d66e24c2.
+ */
+export async function resolveToolCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
+  if (typeof rawId !== "string" || rawId.trim() === "") {
+    throw new Error("card id is required.");
+  }
+  const trimmed = rawId.trim();
+  // Fast path: a full UUID-shaped id (36 chars + 4 hyphens, or anything already
+  // longer than 8 chars) skips the listing. The resolver still works on full
+  // UUIDs but the listing is unnecessary work for the common case.
+  if (trimmed.length >= 9 || /^[0-9a-f]{8}-/.test(trimmed)) {
+    const direct = await store.get(trimmed);
+    if (direct) {
+      return direct.id;
+    }
+    // Fall through to prefix resolution so a typo'd prefix still errors as
+    // "not found" rather than the silent lookup miss from store.get.
+  }
+  const cards = await store.list();
+  const result = resolveWorkboardCardByIdOrPrefix(cards, trimmed);
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  return result.card.id;
 }
 
 function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): boolean {
@@ -143,6 +178,35 @@ function readCardToolParams(rawParams: unknown, ownerId: string): WorkboardToolC
   };
 }
 
+/**
+ * Read + resolve a card-id tool param via the prefix resolver, then run a
+ * scope check. Used by every card-id handler in tools.ts (read, claim,
+ * heartbeat, release, comment, proof, complete, block, unblock, move, link
+ * both ids, decompose, promote, reassign, force_close, specify, reclaim,
+ * dispatch, worker_log, protocol_violation; skip create per spec).
+ */
+async function readResolvedScopedCardToolParams(
+  store: WorkboardStore,
+  rawParams: unknown,
+  ownerId: string,
+): Promise<WorkboardToolCardParams> {
+  const input = readCardToolParams(rawParams, ownerId);
+  const resolvedId = await resolveToolCardId(store, input.id);
+  await requireScopedCard(store, resolvedId, ownerId, input.token);
+  return { ...input, id: resolvedId };
+}
+
+async function readResolvedClaimedCardToolParams(
+  store: WorkboardStore,
+  rawParams: unknown,
+  ownerId: string,
+): Promise<WorkboardToolCardParams> {
+  const input = readCardToolParams(rawParams, ownerId);
+  const resolvedId = await resolveToolCardId(store, input.id);
+  await requireClaimedCard(store, resolvedId, ownerId, input.token);
+  return { ...input, id: resolvedId };
+}
+
 // Card payloads stay nested under `card`: the host grades a tool call from
 // reserved keys on `details` (`status`, `ok`, `error`, ...), so a flat card
 // would report every mutation of a blocked card as a failed tool call.
@@ -173,16 +237,12 @@ export function createWorkboardTools(params: {
   const { store } = params;
   const ownerId = contextOwner(params.context);
   const readScopedCardToolParams = async (rawParams: unknown): Promise<WorkboardToolCardParams> => {
-    const input = readCardToolParams(rawParams, ownerId);
-    await requireScopedCard(store, input.id, ownerId, input.token);
-    return input;
+    return await readResolvedScopedCardToolParams(store, rawParams, ownerId);
   };
   const readClaimedCardToolParams = async (
     rawParams: unknown,
   ): Promise<WorkboardToolCardParams> => {
-    const input = readCardToolParams(rawParams, ownerId);
-    await requireClaimedCard(store, input.id, ownerId, input.token);
-    return input;
+    return await readResolvedClaimedCardToolParams(store, rawParams, ownerId);
   };
   const runCardMutation = async (
     rawParams: unknown,
@@ -294,8 +354,14 @@ export function createWorkboardTools(params: {
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
-        const parentId = readStringParam(record, "parentId", { required: true });
-        const childId = readStringParam(record, "childId", { required: true });
+        const parentId = await resolveToolCardId(
+          store,
+          readStringParam(record, "parentId", { required: true }),
+        );
+        const childId = await resolveToolCardId(
+          store,
+          readStringParam(record, "childId", { required: true }),
+        );
         const token = record.token as string | undefined;
         return jsonResult({
           card: redactClaimToken(await store.linkCards(parentId, childId, { ownerId, token })),
@@ -310,7 +376,10 @@ export function createWorkboardTools(params: {
       parameters: CardIdSchema,
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
-        const id = readStringParam(record, "id", { required: true });
+        const id = await resolveToolCardId(
+          store,
+          readStringParam(record, "id", { required: true }),
+        );
         const card = await store.get(id);
         if (!card) {
           throw new Error(`card not found: ${id}`);
@@ -332,7 +401,10 @@ export function createWorkboardTools(params: {
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
-        const id = readStringParam(record, "id", { required: true });
+        const id = await resolveToolCardId(
+          store,
+          readStringParam(record, "id", { required: true }),
+        );
         const claimed = await store.claim(id, {
           ownerId,
           ttlSeconds: record.ttlSeconds,

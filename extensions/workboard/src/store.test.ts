@@ -22,6 +22,7 @@ import {
   createWorkboardSqliteTestStore,
   sqliteTestAuxStores,
 } from "./test/sqlite-store.js";
+import { resolveToolCardId } from "./tools.js";
 
 const workerModuleUrl = resolveRuntimeWorkerUrl(workboardSqliteBackendEntrypoint);
 
@@ -5202,4 +5203,92 @@ describe("WorkboardStore", () => {
     );
   });
 });
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
+
+// 8-char prefix-resolver on tool surface (Fix 2 of card d66e24c2)
+// ===========================================================================
+describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
+  it("resolveWorkboardCardByIdOrPrefix resolves an active 8-char prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Active card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id.slice(0, 8));
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix resolves an archived 8-char prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Archived card", status: "done" });
+    // Archive the card by setting metadata.archivedAt directly via update.
+    const archived = await store.update(card.id, {
+      metadata: { ...card.metadata, archivedAt: Date.now() },
+    });
+    expect(archived.metadata?.archivedAt).toBeDefined();
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id.slice(0, 8));
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix returns a not-found error for unknown prefixes", async () => {
+    const store = createWorkboardSqliteTestStore();
+    await store.create({ title: "Existing card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), "deadbeef");
+    expect(result.card).toBeUndefined();
+    expect(result.error).toMatch(/not found/i);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix returns a not-found error for an unknown prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
+    await store.create({ title: "Card A" });
+    await store.create({ title: "Card B" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), "aaaaaaaa");
+    expect(result.card).toBeUndefined();
+    expect(result.error).toMatch(/not found/i);
+  });
+
+  it("resolveWorkboardCardByIdOrPrefix is a passthrough for full UUIDs", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Full UUID card" });
+    const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id);
+    expect(result.error).toBeUndefined();
+    expect(result.card?.id).toBe(card.id);
+  });
+
+  it("resolveToolCardId rejects empty / non-string input", async () => {
+    const store = createWorkboardSqliteTestStore();
+    await expect(resolveToolCardId(store, "")).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, "   ")).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, undefined)).rejects.toThrow(/required/);
+    await expect(resolveToolCardId(store, 123)).rejects.toThrow(/required/);
+  });
+
+  it("resolveToolCardId uses the fast path for a full UUID and the prefix path for short ids", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Resolver path coverage" });
+    // Full UUID (>=9 chars or matching the UUID-shape regex) takes the fast
+    // path that calls store.get directly without listing.
+    const fullIdResult = await resolveToolCardId(store, card.id);
+    expect(fullIdResult).toBe(card.id);
+    // 8-char prefix takes the listing path.
+    const prefixResult = await resolveToolCardId(store, card.id.slice(0, 8));
+    expect(prefixResult).toBe(card.id);
+  });
+
+  it("resolveToolCardId surfaces a not-found error for unknown prefixes", async () => {
+    const store = createWorkboardSqliteTestStore();
+    await expect(resolveToolCardId(store, "deadbeef")).rejects.toThrow(/not found/i);
+  });
+
+  it("resolveToolCardId surfaces a not-found error for an unknown prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
+    await store.create({ title: "Ambiguous A" });
+    await store.create({ title: "Ambiguous B" });
+    await expect(resolveToolCardId(store, "aaaaaaaa")).rejects.toThrow(/not found/i);
+  });
+});
+
+>/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
