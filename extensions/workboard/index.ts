@@ -123,7 +123,7 @@ export default definePluginEntry({
         ),
       {
         names: [...WORKBOARD_TOOL_NAMES],
-        optional: true,
+        optional: false,
       },
     );
   },
