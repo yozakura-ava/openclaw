@@ -208,6 +208,9 @@
     "workboard_protocol_violation": {
       "optional": true
     },
+    "workboard_force_close": {
+      "optional": true
+    },
     "workboard_unblock": {
       "optional": true
     },

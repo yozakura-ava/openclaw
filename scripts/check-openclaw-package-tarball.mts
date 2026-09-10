@@ -26,6 +26,10 @@ import {
 import { collectForbiddenPackedPathErrors } from "./lib/packed-cargo-policy.mts";
 import { isRecord } from "./lib/record-shared.mjs";
 import { listPackagedStaticExtensionAssetOutputs } from "./lib/static-extension-assets.mts";
+import {
+  collectWorkboardArchiveErrors,
+  collectWorkboardArtifactContractErrors,
+} from "./lib/workboard-deployment-contract.mts";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./lib/workspace-bootstrap-smoke.mts";
 
 type PackageManifest = Record<string, unknown> & {
@@ -50,7 +54,7 @@ type ShrinkwrapManifest = {
 };
 
 function usage(): string {
-  return "Usage: node scripts/check-openclaw-package-tarball.mjs [--require-bundled-workspace-deps] <openclaw.tgz>";
+  return "Usage: node scripts/check-openclaw-package-tarball.mjs [--require-bundled-workspace-deps] [--require-workboard-contract] <openclaw.tgz>";
 }
 
 function fail(message: string): never {
@@ -61,14 +65,24 @@ function fail(message: string): never {
 function parseArgs(argv: string[]) {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
   let requireBundledWorkspaceDeps = false;
+  let requireWorkboardContract = false;
   let tarball = "";
   for (const rawArg of args) {
     const arg = rawArg?.trim() ?? "";
     if (arg === "--help" || arg === "-h") {
-      return { help: true, requireBundledWorkspaceDeps: false, tarball: "" };
+      return {
+        help: true,
+        requireBundledWorkspaceDeps: false,
+        requireWorkboardContract: false,
+        tarball: "",
+      };
     }
     if (arg === "--require-bundled-workspace-deps") {
       requireBundledWorkspaceDeps = true;
+      continue;
+    }
+    if (arg === "--require-workboard-contract") {
+      requireWorkboardContract = true;
       continue;
     }
     if (arg.startsWith("-")) {
@@ -82,7 +96,7 @@ function parseArgs(argv: string[]) {
   if (!tarball) {
     throw new Error(usage());
   }
-  return { help: false, requireBundledWorkspaceDeps, tarball };
+  return { help: false, requireBundledWorkspaceDeps, requireWorkboardContract, tarball };
 }
 
 let cliArgs: ReturnType<typeof parseArgs>;
@@ -727,6 +741,10 @@ for (const requiredPrefix of REQUIRED_TARBALL_ENTRY_PREFIXES) {
   if (!normalized.some((entry) => entry.startsWith(requiredPrefix))) {
     errors.push(`missing required tar entries under ${requiredPrefix}`);
   }
+}
+if (cliArgs.requireWorkboardContract) {
+  errors.push(...collectWorkboardArchiveErrors(normalized));
+  errors.push(...collectWorkboardArtifactContractErrors(extractedPackageRoot));
 }
 let packageVersion = "";
 let packageJson: PackageManifest | null = null;

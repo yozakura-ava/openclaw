@@ -19,6 +19,7 @@ import {
   collectReleaseVersionFloorErrors as collectReleaseVersionFloorErrorsBase,
   parseReleaseVersion as parseReleaseVersionBase,
 } from "./lib/release-version.mjs";
+import { collectWorkboardArchiveErrors } from "./lib/workboard-deployment-contract.mts";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./lib/workspace-bootstrap-smoke.mts";
 import { buildCmdExeCommandLine, resolveWindowsCmdExePath } from "./windows-cmd-helpers.mjs";
 
@@ -594,6 +595,7 @@ function collectPackedTarballErrors(): string[] {
 
   return [
     ...collectControlUiPackErrors(packedPaths),
+    ...collectWorkboardArchiveErrors(packedPaths),
     ...collectForbiddenPackedPathErrors(packedPaths),
     ...collectForbiddenPackedContentErrors(packedPaths),
     ...collectPackedTestCargoErrors(packedPaths),
