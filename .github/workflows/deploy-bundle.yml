@@ -98,7 +98,7 @@ on:
       ref:
         description: Git ref to build (branch, tag, or full commit SHA)
         required: false
-        default: canonical/2026.9.2-base
+        default: main
         type: string
 
 permissions:
