@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./workspace-bootstrap-smoke.mts";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 
 const FULL_GIT_COMMIT_RE = /^[0-9a-f]{40}$/iu;
 
@@ -19,10 +20,6 @@ export const WORKBOARD_REQUIRED_ARCHIVE_PATHS = [
 ] as const;
 
 type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function readJson(filePath: string): JsonRecord | undefined {
   try {
@@ -222,7 +219,6 @@ export function readGitCommit(rootDir: string): string | undefined {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     })
-      .toString()
       .trim()
       .toLowerCase();
     return FULL_GIT_COMMIT_RE.test(commit) ? commit : undefined;
