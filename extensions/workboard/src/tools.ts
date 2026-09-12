@@ -566,7 +566,7 @@ export function createWorkboardTools(params: {
         // Force-close deliberately skips requireScopedCard: the whole point is
         // overriding a claim held by another owner. Presenting a matching
         // token is still honored inside store.forceClose().
-        const { record, id } = await readCardToolParams(rawParams, ownerId);
+        const { record, id } = readCardToolParams(rawParams, ownerId);
         return redactedCardResult(
           await store.forceClose(id, { reason: record.reason, token: record.token }),
         );
