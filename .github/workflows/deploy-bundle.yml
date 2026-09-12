@@ -1,6 +1,6 @@
 # On-demand deploy bundle build.
 #
-# Implements Craig's directive: heavy deployable-bundle builds run on GitHub
+# Implements the owner's directive: heavy deployable-bundle builds run on GitHub
 # Actions' free public-repo runners instead of the staging server. The server
 # only consumes the resulting artifact (a single tarball of a complete
 # self-contained deployment directory) and extracts it under
