@@ -1,15 +1,20 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+// record-shared.mjs: plain-Node helper for script callers spawned without
+// workspace package resolution (check-openclaw-package-tarball tests run this
+// file via bare `node`; @openclaw/normalization-core does not resolve there,
+// and local coercion-helper declarations are banned by check-coercion guards).
+import { isRecord } from "./record-shared.mjs";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./workspace-bootstrap-smoke.mts";
 
 const FULL_GIT_COMMIT_RE = /^[0-9a-f]{40}$/iu;
 
-export const WORKBOARD_SOURCE_MANIFEST_PATH = "extensions/workboard/openclaw.plugin.json";
-export const WORKBOARD_SOURCE_RUNTIME_PATH = "extensions/workboard/src/workspace-access.ts";
-export const WORKBOARD_SOURCE_ENTRY_PATH = "extensions/workboard/index.ts";
-export const WORKBOARD_ARTIFACT_MANIFEST_PATH = "dist/extensions/workboard/openclaw.plugin.json";
-export const WORKBOARD_ARTIFACT_RUNTIME_PATH = "dist/extensions/workboard/index.js";
+const WORKBOARD_SOURCE_MANIFEST_PATH = "extensions/workboard/openclaw.plugin.json";
+const WORKBOARD_SOURCE_RUNTIME_PATH = "extensions/workboard/src/workspace-access.ts";
+const WORKBOARD_SOURCE_ENTRY_PATH = "extensions/workboard/index.ts";
+const WORKBOARD_ARTIFACT_MANIFEST_PATH = "dist/extensions/workboard/openclaw.plugin.json";
+const WORKBOARD_ARTIFACT_RUNTIME_PATH = "dist/extensions/workboard/index.js";
 
 export const WORKBOARD_REQUIRED_ARCHIVE_PATHS = [
   WORKBOARD_ARTIFACT_MANIFEST_PATH,
@@ -19,10 +24,6 @@ export const WORKBOARD_REQUIRED_ARCHIVE_PATHS = [
 ] as const;
 
 type JsonRecord = Record<string, unknown>;
-
-function isRecord(value: unknown): value is JsonRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function readJson(filePath: string): JsonRecord | undefined {
   try {
@@ -222,7 +223,6 @@ export function readGitCommit(rootDir: string): string | undefined {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
     })
-      .toString()
       .trim()
       .toLowerCase();
     return FULL_GIT_COMMIT_RE.test(commit) ? commit : undefined;

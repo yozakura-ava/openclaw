@@ -216,6 +216,8 @@ const rootEntries = [
   "src/config/sessions/disk-budget.worker.ts!",
   "scripts/print-cli-backend-live-metadata.ts!",
   // Workflow/package-script entrypoints are not imported from production modules.
+  "scripts/verify-workboard-deployment.mts!",
+  "scripts/lib/workboard-deployment-contract.mts!",
   "scripts/openclaw-cross-os-release-checks.ts!",
   "scripts/release-plan-producer-core.mts!",
   "scripts/release-plan-producer.mts!",
