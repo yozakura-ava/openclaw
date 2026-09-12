@@ -1,13 +1,11 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-// Local copy of isRecord (packages/normalization-core/src/record-coerce.ts):
-// scripts/ is not a workspace package member, so `node scripts/...` cannot
-// resolve @openclaw/normalization-core at runtime (tarball check test spawns
-// this file with plain node). Keep this in sync with the source helper.
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+// record-shared.mjs: plain-Node helper for script callers spawned without
+// workspace package resolution (check-openclaw-package-tarball tests run this
+// file via bare `node`; @openclaw/normalization-core does not resolve there,
+// and local coercion-helper declarations are banned by check-coercion guards).
+import { isRecord } from "./record-shared.mjs";
 import { WORKSPACE_TEMPLATE_PACK_PATHS } from "./workspace-bootstrap-smoke.mts";
 
 const FULL_GIT_COMMIT_RE = /^[0-9a-f]{40}$/iu;
