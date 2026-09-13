@@ -297,6 +297,14 @@ describe("registerWorkboardCli", () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Claimed card", status: "todo" });
     await store.claim(card.id, { ownerId: "worker", token: "secret-token" });
+    // PATCH workboard-review-proof-guard (issue #82): review transition now
+    // requires proof. Attach proof first, then the move to review succeeds.
+    await store.addProof(card.id, {
+      status: "passed",
+      label: "cli-test proof",
+      command:
+        "scripts/run_test_scope.sh extensions/workboard/src/cli.test.ts",
+    });
     const program = createProgram(store);
 
     const output = await captureStdout(async () => {
@@ -310,6 +318,24 @@ describe("registerWorkboardCli", () => {
     expect(parsed).toMatchObject({ card: { id: card.id, status: "review" } });
     expect(parsed.card.metadata.claim.token).toBe("[redacted]");
     expect(output).not.toContain("secret-token");
+  });
+
+  // PATCH workboard-review-proof-guard (issue #82): without proof, a move to
+  // review must be rejected — decline / re-route must use blocked with a reason.
+  it("rejects move to review without proof, artifact, or attachment (issue #82 reviewer-parking guard)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Decline / re-route card", status: "running" });
+    const program = createProgram(store);
+
+    await expect(
+      program.parseAsync(
+        ["workboard", "move", card.id, "--status", "review", "--json"],
+        { from: "user" },
+      ),
+    ).rejects.toThrow(/cannot move card to review without proof/i);
+
+    // Side-effect contract: the card must NOT have moved.
+    await expect(store.get(card.id)).resolves.toMatchObject({ status: "running" });
   });
 
   it("rejects an invalid move status", async () => {
