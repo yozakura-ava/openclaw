@@ -108,8 +108,12 @@ function validateWorkboardManifest(
     );
     for (const name of declaredNames) {
       const entry = metadata[name];
-      if (!isRecord(entry) || entry.optional !== true) {
-        errors.push(`Workboard manifest toolMetadata.${name}.optional must be true`);
+      // PR #90 (Tomoe's fix) flipped every workboard_* tool to optional:false so fresh
+      // sessions receive them unconditionally. The contract validator must reflect the
+      // design intent — a regression to optional:true here re-introduces the 2026.9.x
+      // fresh-session tool-strip bug (see PR #90 commit 5f71fe35859, Refs #77).
+      if (!isRecord(entry) || entry.optional !== false) {
+        errors.push(`Workboard manifest toolMetadata.${name}.optional must be false`);
       }
     }
   }
@@ -138,8 +142,8 @@ export function collectWorkboardSourceContractErrors(rootDir: string): string[] 
     if (!/names\s*:\s*\[\.\.\.WORKBOARD_TOOL_NAMES\s*\]/u.test(runtime)) {
       errors.push("Workboard runtime registration must use WORKBOARD_TOOL_NAMES");
     }
-    if (!/optional\s*:\s*true/u.test(runtime)) {
-      errors.push("Workboard runtime registration must declare optional: true");
+    if (!/optional\s*:\s*false/u.test(runtime)) {
+      errors.push("Workboard runtime registration must declare optional: false");
     }
   }
   return errors;
