@@ -33,6 +33,27 @@ export class WorkboardPromoteStore extends WorkboardEnrichmentStore {
           // Recheck after every cross-host CAS conflict so a worker cannot move
           // a card claimed between the read and write.
           assertCanMutateClaimedCard(current, scope);
+          // PATCH workboard-review-proof-guard (issue #82): review means
+          // "awaiting independent review" — it must carry proof. Decline /
+          // re-route (no proof) must use `blocked` with a reason instead,
+          // otherwise the review queue inflates with cards that never
+          // passed worker submission. The guard fires on every transition
+          // INTO review regardless of caller (tool surface, slash command,
+          // or programmatic move) so the contract is enforced in one
+          // place. Operators who genuinely need to re-review a card after
+          // a decline can attach a proof (workboard_add_proof) first.
+          if (status === "review") {
+            const hasProof =
+              (current.metadata?.proof?.length ?? 0) > 0 ||
+              (current.metadata?.artifacts?.length ?? 0) > 0 ||
+              (current.metadata?.attachments?.length ?? 0) > 0;
+            if (!hasProof) {
+              throw new Error(
+                "cannot move card to review without proof, artifact, or attachment. " +
+                  "Use `blocked` with a reason for decline or re-route; attach proof via workboard_add_proof before moving to review.",
+              );
+            }
+          }
           return { status, position };
         },
         {
