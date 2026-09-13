@@ -212,6 +212,18 @@ function readSettledToolCalls(
   });
 }
 
+/** True when an assistant turn carries an `openclawStreamFallback` marker, indicating the
+ * provider stream ended mid-generation and the runtime substituted a partial fallback
+ * text. Recovery must treat the message as unfinished rather than as the final answer
+ * (issue #79: minimax/MiniMax-M3 via anthropic-messages compat drops mid-toolUse). */
+export function hasAssistantStreamFallback(message: unknown): boolean {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+  const fallback = (message as { openclawStreamFallback?: unknown }).openclawStreamFallback;
+  return Boolean(fallback) && typeof fallback === "object" && !Array.isArray(fallback);
+}
+
 /** Proves settlement and intentional termination for the exact current-turn tool-call batch. */
 export function resolveSettledToolBatchEvidence(attempt: IncompleteTurnAttempt) {
   const snapshot = attempt.messagesSnapshot ?? [];
@@ -338,14 +350,40 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
     !hasAcceptedSessionSpawn(attempt.acceptedSessionSpawns) &&
     classifyAssistantTurn(params).emptyResponse,
   );
+  // Stream-drop fallback (#79): the provider stream ended mid-generation and the
+  // runtime substituted an openclawStreamFallback text in place of a real reply.
+  // Tool-batch settlement mirrors emptyStopAfterSettledTools, but this path does
+  // not require allowEmptyStopContinuation OR emptyResponse classification: any
+  // text in the message is provider-shaped fallback, never authored output, and
+  // any visible partial fallback text must not block retry. The alternative is
+  // the run terminating on provider-shaped fallback text masquerading as a final
+  // answer. Reproducible on minimax/MiniMax-M3 via anthropic-messages compat.
+  const streamDroppedAfterSettledTools =
+    Boolean(attempt.currentAttemptAssistant) &&
+    hasAssistantStreamFallback(attempt.currentAttemptAssistant) &&
+    attempt.toolMetas.length > 0 &&
+    attempt.toolMetas.every((tool) => tool.isError !== true && tool.asyncStarted !== true) &&
+    attempt.itemLifecycle.startedCount > 0 &&
+    attempt.itemLifecycle.completedCount === attempt.itemLifecycle.startedCount &&
+    attempt.itemLifecycle.activeCount === 0 &&
+    !hasAcceptedSessionSpawn(attempt.acceptedSessionSpawns) &&
+    !attempt.clientToolCalls &&
+    !attempt.yieldDetected &&
+    !attempt.didSendDeterministicApprovalPrompt &&
+    !attempt.hasToolMediaBlockReply &&
+    !hasCompletedMessagingToolDeliveryEvidence(attempt);
   if (
     params.payloadCount !== 0 ||
-    (!params.allowEmptyStopContinuation && hasOnlySilentAssistantReply(attempt.assistantTexts)) ||
+    (!params.allowEmptyStopContinuation &&
+      !streamDroppedAfterSettledTools &&
+      hasOnlySilentAssistantReply(attempt.assistantTexts)) ||
     params.hasTerminalToolPresentation ||
     params.aborted ||
     ((params.timedOut || terminal.kind === "timeout") && !idlePromptTimeout) ||
     (terminal.kind === "failed" && !attempt.settledTurnFinalizationContext) ||
-    (assistant?.stopReason === "toolUse" ? !allToolsProvenSettled : !emptyStopAfterSettledTools) ||
+    (assistant?.stopReason === "toolUse"
+      ? !allToolsProvenSettled
+      : !emptyStopAfterSettledTools && !streamDroppedAfterSettledTools) ||
     intentionalTermination ||
     hasUnsettledToolError ||
     hasAsyncActivity(attempt.toolMetas) ||
