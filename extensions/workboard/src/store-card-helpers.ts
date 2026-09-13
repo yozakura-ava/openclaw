@@ -202,6 +202,22 @@ export function shouldSyncWorkboardLifecycleStatus(
   if (!target || card.status === target) {
     return false;
   }
+  // PATCH workboard-sweeper-done-guard (issue #81, regression for the
+  // 2026-09-03 durability reconciler misfire that bulk-moved ~150 done
+  // cards back to review): completed cards are terminal. The lifecycle
+  // reconciler must NEVER reopen a "done" card via sync — only an
+  // operator-explicit move (or a tool surface that records explicit
+  // opt-in) can do that, and it must bypass this function rather than
+  // piggy-back on it. The implicit "done is not in the allowlist" rule
+  // below already excluded done, but that guard was silently removable
+  // if anyone widened the allowlist. This explicit early-return makes
+  // the invariant a hard line that future refactors cannot silently
+  // regress. Mirrors the done-card claim guard at store-workflow.ts:103
+  // (issue #24, AC4) — the same terminal-state contract, surfaced in
+  // the lifecycle path.
+  if (card.status === "done") {
+    return false;
+  }
   if (target === "running") {
     return card.status === "backlog" || card.status === "todo" || card.status === "ready";
   }
