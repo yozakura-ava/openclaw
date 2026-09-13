@@ -309,6 +309,13 @@ describe("handleWorkboardCommand", () => {
     const api = createApi();
     const card = await store.create({ title: "Claimed slash card", status: "todo" });
     await store.claim(card.id, { ownerId: "worker", token: "secret-token" });
+    // PATCH workboard-review-proof-guard (issue #82): review transition now
+    // requires proof. Attach proof first, then the slash move to review succeeds.
+    await store.addProof(card.id, {
+      status: "passed",
+      label: "command-test proof",
+      command: "scripts/run_test_scope.sh extensions/workboard/src/command.test.ts",
+    });
 
     await expect(
       runWorkboardCommand({
@@ -322,6 +329,27 @@ describe("handleWorkboardCommand", () => {
       status: "review",
       metadata: { claim: { ownerId: "worker", token: "secret-token" } },
     });
+  });
+
+  // PATCH workboard-review-proof-guard (issue #82): slash-command path must
+  // also enforce the proof guard. Without proof, the move is rejected by
+  // the canonical store.move() guard; the slash handler propagates the
+  // store error as a rejection (consistent with how any other store-level
+  // guard failure surfaces — see the foreign-claim rejection pattern).
+  it("rejects slash-command move to review without proof (issue #82 reviewer-parking guard)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const api = createApi();
+    const card = await store.create({ title: "Slash decline card", status: "running" });
+
+    await expect(
+      runWorkboardCommand({
+        api,
+        store,
+        args: `move ${card.id} --status review`,
+        context: { gatewayClientScopes: ["operator.write"] },
+      }),
+    ).rejects.toThrow(/cannot move card to review without proof/i);
+    await expect(store.get(card.id)).resolves.toMatchObject({ status: "running" });
   });
 
   it("rejects invalid slash-command move statuses", async () => {

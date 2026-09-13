@@ -1,0 +1,45 @@
+{
+  "card_id": "3e970abf-7300-4a25-b98f-b38b1e6a0712",
+  "issue": "#82",
+  "title": "Review parking misuse inflates Workboard review queue",
+  "type": "code",
+  "description": "Add a proof requirement on the move-to-review path so cards cannot enter review without worker submission or proof. The current WorkboardPromoteStore.move() accepts any status target with no proof check; decline-rerouted and parked cards were silently entering review, inflating the queue with false SLA signals. Architecture: review means awaiting independent review — it must carry proof, artifact, or attachment. Decline / re-route (no proof) must use blocked with a reason instead. The guard fires on every transition INTO review regardless of caller (tool surface, slash command, programmatic) so the contract is enforced in one place. The two existing tests (cli.test.ts, command.test.ts) that codified the broken no-proof review transition are updated to attach proof first; new tests pin both the rejection (no proof) and acceptance (with proof/artifact/attachment) sides. Non-review transitions (running→blocked, etc.) are explicitly NOT gated by the guard so we do not over-block.",
+  "confidence": {
+    "level": "high",
+    "justification": "Root cause located in WorkboardPromoteStore.move() at extensions/workboard/src/store-promote.ts. The guard is enforced at the canonical mutation point, before any consumer-specific handling, so the contract is single-source. The two existing tests that codified the broken behavior are updated; five new tests cover the rejection, the three acceptance paths (proof, artifact, attachment), and the regression that non-review transitions are not over-blocked. The change is additive: it does not alter the move() signature, only adds a guard. Tool-surface and slash-command callers benefit transparently — no caller updates required."
+  },
+  "allowed_files": [
+    "extensions/workboard/src/store-promote.ts",
+    "extensions/workboard/src/cli.test.ts",
+    "extensions/workboard/src/command.test.ts",
+    "extensions/workboard/src/store-workflow.test.ts"
+  ],
+  "acceptance_criteria": [
+    "store.move(cardId, 'review') throws an actionable error when the card has no proof, artifact, or attachment (test: rejects move to review when the card has no proof, artifact, or attachment)",
+    "store.move(cardId, 'review') succeeds when the card carries proof (test: accepts move to review when the card carries proof)",
+    "store.move(cardId, 'review') succeeds when the card carries an artifact (test: accepts move to review when the card carries an artifact)",
+    "store.move(cardId, 'review') succeeds when the card carries an attachment (test: accepts move to review when the card carries an attachment)",
+    "store.move(cardId, 'blocked' | 'todo' | ...) succeeds without proof — the guard is review-specific (test: does not require proof for non-review transitions)",
+    "CLI tool surface (workboard move --status review) rejects the no-proof transition (test: rejects move to review without proof, artifact, or attachment (issue #82 reviewer-parking guard))",
+    "Slash command (/workboard move --status review) rejects the no-proof transition (test: rejects slash-command move to review without proof (issue #82 reviewer-parking guard))",
+    "Existing tests that moved to review without proof are updated to attach proof first (cli.test.ts, command.test.ts)"
+  ],
+  "verification_command": "cd /root/.openclaw/openclaw-canonical/.worktrees/reina-81-82-sweeper-parking && /root/.openclaw/openclaw-canonical/node_modules/.bin/vitest run extensions/workboard/src/store-workflow.test.ts extensions/workboard/src/cli.test.ts extensions/workboard/src/command.test.ts --no-coverage",
+  "expected_outcome": "51 passed (51) including 5 new tests in WorkboardPromoteStore.move proof guard (issue #82) describe block plus the updated existing tests",
+  "tools_used": [
+    "vitest",
+    "git",
+    "gh"
+  ],
+  "skills_used": [
+    "workboard-management",
+    "pre-commit-verification"
+  ],
+  "build": {
+    "build_id": "3e970abf-reina-2026-09-13",
+    "builder": "reina-subagent",
+    "build_date": "2026-09-13",
+    "branch": "reina/81-82-sweeper-parking",
+    "base_branch": "canonical/2026.9.2-base"
+  }
+}
