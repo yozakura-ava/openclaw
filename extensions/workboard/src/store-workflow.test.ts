@@ -9,6 +9,16 @@
 //   AC4 — done-card rejection (NEW: closes remaining gap from Ken triage)
 //   AC5 — bounded takeover diagnostic ring buffer (NEW: FIFO cap = 64)
 //
+// PATCH workboard-sweeper-done-guard-tests (issue #81): regression for the
+//   2026-09-03 durability reconciler misfire that bulk-moved ~150 done
+//   cards back to review. The `shouldSyncWorkboardLifecycleStatus` helper
+//   must return false for any transition out of "done" — the implicit
+//   "done is not in the allowlist" rule must be a hard line.
+//
+// PATCH workboard-review-proof-guard-tests (issue #82): the move path must
+//   reject "move to review" without proof/artifact/attachment attached.
+//   Decline / re-route (no proof) must use blocked with a reason.
+//
 // Notes on time manipulation:
 //   - The WorkboardWorkflowStore.claim path reads Date.now() inside an
 //     enqueueMutation closure, so vi.useFakeTimers() is the only reliable
@@ -21,6 +31,7 @@ import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-
 import {
   CLAIM_CONFLICT_HISTORY_CAP,
   clearClaimConflictHistory,
+  shouldSyncWorkboardLifecycleStatus,
   snapshotClaimConflictHistory,
 } from "./store-card-helpers.js";
 import { WorkboardStore } from "./store.js";
@@ -211,5 +222,190 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
     const second = store.claimConflicts;
     expect(second.length).toBe(2);
     expect(first.length).toBe(1); // defensive copy — original is unchanged
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH workboard-sweeper-done-guard-tests (issue #81)
+//
+// Regression for the 2026-09-03 durability reconciler misfire that
+// bulk-moved ~150 done cards back to review. The lifecycle helper
+// `shouldSyncWorkboardLifecycleStatus` must return false for every
+// transition out of "done", regardless of target. The implicit
+// "done is not in the allowlist" rule alone was silently removable
+// if anyone widened the allowlist; the explicit early-return guard
+// makes the invariant a hard line that future refactors cannot
+// silently regress. These tests pin the contract on every plausible
+// target so the regression class is locked down.
+// ---------------------------------------------------------------------------
+describe("shouldSyncWorkboardLifecycleStatus done-card guard (issue #81)", () => {
+  // Minimal card factory — status and id only.
+  function doneCard(): {
+    id: string;
+    status: "done";
+    title: string;
+    priority: string;
+    position: number;
+    createdAt: number;
+    updatedAt: number;
+    events: never[];
+    labels: never[];
+  } {
+    return {
+      id: "card-done-1",
+      status: "done",
+      title: "t",
+      priority: "normal",
+      position: 0,
+      createdAt: 0,
+      updatedAt: 0,
+      events: [],
+      labels: [],
+    };
+  }
+
+  it("refuses done → review (the 2026-09-03 incident vector)", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "review")).toBe(false);
+  });
+
+  it("refuses done → blocked", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "blocked")).toBe(false);
+  });
+
+  it("refuses done → running", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "running")).toBe(false);
+  });
+
+  it("refuses done → ready", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "ready")).toBe(false);
+  });
+
+  it("refuses done → todo", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "todo")).toBe(false);
+  });
+
+  it("returns false when target is undefined", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, undefined)).toBe(false);
+  });
+
+  it("returns false when target equals current status (done → done)", () => {
+    expect(shouldSyncWorkboardLifecycleStatus(doneCard() as never, "done")).toBe(false);
+  });
+
+  // The original allowlist behavior must still hold for non-done cards so
+  // the explicit guard does not regress the working transitions.
+  it("still allows running → review (non-done happy path preserved)", () => {
+    expect(
+      shouldSyncWorkboardLifecycleStatus({ ...doneCard(), status: "running" } as never, "review"),
+    ).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH workboard-review-proof-guard-tests (issue #82)
+//
+// Regression for "review parking misuse": cards that were declined or
+// re-routed entered review without worker submission or proof, inflating
+// the review queue with false SLA signals. The move-to-review path now
+// requires proof, artifact, or attachment on the card. The guard fires
+// for every caller (tool surface, slash command, programmatic) so the
+// contract is enforced in one place — `WorkboardPromoteStore.move`.
+// ---------------------------------------------------------------------------
+describe("WorkboardPromoteStore.move proof guard (issue #82)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-13T17:00:00Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects move to review when the card has no proof, artifact, or attachment", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Decline / re-route card",
+      status: "running",
+      workspaceAccess: { unrestricted: true },
+    });
+
+    await expect(store.move(card.id, "review")).rejects.toThrow(
+      /cannot move card to review without proof/i,
+    );
+    // Side-effect contract: the card must NOT have moved.
+    const after = await store.get(card.id);
+    expect(after?.status).toBe("running");
+  });
+
+  it("accepts move to review when the card carries proof", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Proof-attached card",
+      status: "running",
+      workspaceAccess: { unrestricted: true },
+    });
+    await store.addProof(card.id, {
+      status: "passed",
+      label: "issue-82 proof",
+      command: "scripts/run_test_scope.sh extensions/workboard/src/store-workflow.test.ts",
+    });
+
+    const moved = await store.move(card.id, "review");
+    expect(moved.status).toBe("review");
+    expect(moved.metadata?.proof?.length).toBeGreaterThan(0);
+  });
+
+  it("accepts move to review when the card carries an artifact", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Artifact-attached card",
+      status: "running",
+      workspaceAccess: { unrestricted: true },
+    });
+    await store.addArtifact(card.id, {
+      label: "issue-82 artifact",
+      path: "/tmp/issue-82.txt",
+    });
+
+    const moved = await store.move(card.id, "review");
+    expect(moved.status).toBe("review");
+    expect(moved.metadata?.artifacts?.length).toBeGreaterThan(0);
+  });
+
+  it("accepts move to review when the card carries an attachment", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Attachment-attached card",
+      status: "running",
+      workspaceAccess: { unrestricted: true },
+    });
+    // Attach a 1-byte attachment — the guard only checks the count, not the
+    // content, so we just need a real attachment row.
+    await store.addAttachment(card.id, {
+      fileName: "issue-82.txt",
+      contentBase64: "YQ==", // 'a'
+      mimeType: "text/plain",
+    });
+
+    const moved = await store.move(card.id, "review");
+    expect(moved.status).toBe("review");
+    expect(moved.metadata?.attachments?.length).toBeGreaterThan(0);
+  });
+
+  it("does not require proof for non-review transitions (regression guard does not over-block)", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({
+      title: "Non-review move card",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+
+    // No proof attached; moves to blocked, todo, and back to running all
+    // pass without proof. The guard is review-specific by design.
+    const blocked = await store.move(card.id, "blocked");
+    expect(blocked.status).toBe("blocked");
+
+    const todo = await store.move(card.id, "todo");
+    expect(todo.status).toBe("todo");
   });
 });

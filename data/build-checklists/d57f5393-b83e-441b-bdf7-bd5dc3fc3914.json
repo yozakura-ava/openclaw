@@ -1,0 +1,39 @@
+{
+  "card_id": "d57f5393-b83e-441b-bdf7-bd5dc3fc3914",
+  "issue": "#81",
+  "title": "Sweeper re-opens completed Workboard cards into review",
+  "type": "code",
+  "description": "Add explicit regression guard so completed (status=done) Workboard cards cannot be re-opened to review by the lifecycle reconciler absent operator opt-in. The 2026-09-03 durability reconciler misfire bulk-moved ~150 done cards back to review (135 done→review plus 1 running→review in the observed window). The root cause was the implicit allowlist in shouldSyncWorkboardLifecycleStatus: the function silently excluded done cards because done was not in the allowlist, but the allowlist was silently removable if anyone widened it. We surface the invariant as an explicit early-return that future refactors cannot silently regress. Mirrors the done-card claim guard (issue #24 AC4).",
+  "confidence": {
+    "level": "high",
+    "justification": "Root cause located in shouldSyncWorkboardLifecycleStatus at extensions/workboard/src/store-card-helpers.ts. The guard is now an explicit early-return tested against every plausible target status (review, blocked, running, ready, todo, undefined, done→done). Targeted regression tests pin the contract. The 2026-09-03 paper trail (workboard card d57f5393-b83e-441b-bdf7-bd5dc3fc3914) describes the same vector. The fix is bounded to a single helper and one targeted describe block; no API surface change. Reconcile step (restore the ~150 wrongly-moved cards) is a separate HR37 dry-run / migration, reported as next-step not part of this PR per the task brief."
+  },
+  "allowed_files": [
+    "extensions/workboard/src/store-card-helpers.ts",
+    "extensions/workboard/src/store-workflow.test.ts"
+  ],
+  "acceptance_criteria": [
+    "shouldSyncWorkboardLifecycleStatus returns false for every transition out of 'done' (test covers review, blocked, running, ready, todo, undefined, done→done)",
+    "shouldSyncWorkboardLifecycleStatus still returns true for the non-done happy paths (running → review regression test)",
+    "No API surface change: the helper keeps the same signature and return type",
+    "Targeted tests pass: bash scripts/run_test_scope.sh equivalents (vitest run extensions/workboard/src/store-workflow.test.ts extensions/workboard/src/cli.test.ts extensions/workboard/src/command.test.ts)"
+  ],
+  "verification_command": "cd /root/.openclaw/openclaw-canonical/.worktrees/reina-81-82-sweeper-parking && /root/.openclaw/openclaw-canonical/node_modules/.bin/vitest run extensions/workboard/src/store-workflow.test.ts extensions/workboard/src/cli.test.ts extensions/workboard/src/command.test.ts --no-coverage",
+  "expected_outcome": "51 passed (51) including 7 new tests in shouldSyncWorkboardLifecycleStatus done-card guard (issue #81) describe block",
+  "tools_used": [
+    "vitest",
+    "git",
+    "gh"
+  ],
+  "skills_used": [
+    "workboard-management",
+    "pre-commit-verification"
+  ],
+  "build": {
+    "build_id": "d57f5393-reina-2026-09-13",
+    "builder": "reina-subagent",
+    "build_date": "2026-09-13",
+    "branch": "reina/81-82-sweeper-parking",
+    "base_branch": "canonical/2026.9.2-base"
+  }
+}
