@@ -31,6 +31,36 @@ describe("mapFilesToProjects — directory mapping (tsconfig include rules)", ()
     expect(sorted(mapFilesToProjects(["src/foo/bar.ts"]))).toEqual(["core"]);
   });
 
+  // R1 finding (MEDIUM): .tsx, .mts, .cts under src/ and packages/ must also
+  // route to core. tsconfig.core.json globs include all of them, not just .ts.
+  it("routes src/**/*.tsx to core (R1 regression)", () => {
+    expect(sorted(mapFilesToProjects(["src/components/Foo.tsx"]))).toEqual(["core"]);
+  });
+
+  it("routes src/**/*.mts to core (R1 regression)", () => {
+    expect(sorted(mapFilesToProjects(["src/scripts/build.mts"]))).toEqual(["core"]);
+  });
+
+  it("routes src/**/*.cts to core (R1 regression)", () => {
+    expect(sorted(mapFilesToProjects(["src/legacy/foo.cts"]))).toEqual(["core"]);
+  });
+
+  it("routes packages/**/*.tsx to core (R1 regression)", () => {
+    expect(
+      sorted(mapFilesToProjects(["packages/plugin-sdk/src/Button.tsx"])),
+    ).toEqual(["core"]);
+  });
+
+  it("routes packages/**/*.mts to core (R1 regression)", () => {
+    expect(
+      sorted(mapFilesToProjects(["packages/gateway-protocol/src/index.mts"])),
+    ).toEqual(["core"]);
+  });
+
+  it("routes packages/**/*.cts to core (R1 regression)", () => {
+    expect(sorted(mapFilesToProjects(["packages/legacy/foo.cts"]))).toEqual(["core"]);
+  });
+
   it("routes packages/**/*.ts (non-mermaid) to core only", () => {
     expect(
       sorted(mapFilesToProjects(["packages/gateway-protocol/src/foo.ts"])),
@@ -41,9 +71,25 @@ describe("mapFilesToProjects — directory mapping (tsconfig include rules)", ()
     expect(sorted(mapFilesToProjects(["ui/src/pages/chat/foo.tsx"]))).toEqual(["ui"]);
   });
 
+  it("routes ui/**/* with .mts to ui", () => {
+    expect(sorted(mapFilesToProjects(["ui/src/build.mts"]))).toEqual(["ui"]);
+  });
+
+  it("routes ui/**/* with .cts to ui", () => {
+    expect(sorted(mapFilesToProjects(["ui/src/legacy.cts"]))).toEqual(["ui"]);
+  });
+
   it("routes packages/mermaid-renderer/** to ui (not core, even though core excludes it)", () => {
     expect(
       sorted(mapFilesToProjects(["packages/mermaid-renderer/src/foo.ts"])),
+    ).toEqual(["ui"]);
+  });
+
+  it("routes packages/mermaid-renderer/**/*.tsx to ui (R1 non-regression)", () => {
+    // Confirms that the .tsx fix on PATH_SRC_OR_PACKAGES_TS does not also
+    // break the PATH_MERMAID ordering for .tsx files.
+    expect(
+      sorted(mapFilesToProjects(["packages/mermaid-renderer/src/Diagram.tsx"])),
     ).toEqual(["ui"]);
   });
 
@@ -81,8 +127,19 @@ describe("mapFilesToProjects — directory mapping (tsconfig include rules)", ()
     ).toEqual(["extensions"]);
   });
 
+  it("routes extensions/**/* with .tsx/.mts/.cts to extensions (already-globs-all-edges regression)", () => {
+    expect(sorted(mapFilesToProjects(["extensions/feishu/src/Panel.tsx"]))).toEqual(["extensions"]);
+    expect(sorted(mapFilesToProjects(["extensions/irc/src/bot.mts"]))).toEqual(["extensions"]);
+    expect(sorted(mapFilesToProjects(["extensions/matrix/src/legacy.cts"]))).toEqual(["extensions"]);
+  });
+
   it("routes scripts/**/* to scripts only", () => {
     expect(sorted(mapFilesToProjects(["scripts/build.mts"]))).toEqual(["scripts"]);
+  });
+
+  it("routes scripts/**/* with .cts/.tsx to scripts (already-globs-all-edges regression)", () => {
+    expect(sorted(mapFilesToProjects(["scripts/lib/legacy.cts"]))).toEqual(["scripts"]);
+    expect(sorted(mapFilesToProjects(["scripts/web/StatusPage.tsx"]))).toEqual(["scripts"]);
   });
 });
 
