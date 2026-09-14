@@ -40,6 +40,39 @@ test("src/**/*.ts routes to core only", () => {
   assert.deepEqual(sorted(mapFilesToProjects(["src/foo/bar.ts"])), ["core"]);
 });
 
+// R1 finding (MEDIUM): .tsx, .mts, .cts under src/ and packages/ must also
+// route to core (every TS-compilable extension — tsconfig.core.json globs
+// include all of them, not just .ts).
+test("src/**/*.tsx routes to core (R1 regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["src/components/Foo.tsx"])), ["core"]);
+});
+
+test("src/**/*.mts routes to core (R1 regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["src/scripts/build.mts"])), ["core"]);
+});
+
+test("src/**/*.cts routes to core (R1 regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["src/legacy/foo.cts"])), ["core"]);
+});
+
+test("packages/**/*.tsx routes to core (R1 regression)", () => {
+  assert.deepEqual(
+    sorted(mapFilesToProjects(["packages/plugin-sdk/src/Button.tsx"])),
+    ["core"],
+  );
+});
+
+test("packages/**/*.mts routes to core (R1 regression)", () => {
+  assert.deepEqual(
+    sorted(mapFilesToProjects(["packages/gateway-protocol/src/index.mts"])),
+    ["core"],
+  );
+});
+
+test("packages/**/*.cts routes to core (R1 regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["packages/legacy/foo.cts"])), ["core"]);
+});
+
 test("packages/**/*.ts (non-mermaid) routes to core only", () => {
   assert.deepEqual(
     sorted(mapFilesToProjects(["packages/gateway-protocol/src/foo.ts"])),
@@ -51,9 +84,24 @@ test("ui/**/* (non-d.ts) routes to ui only", () => {
   assert.deepEqual(sorted(mapFilesToProjects(["ui/src/pages/chat/foo.tsx"])), ["ui"]);
 });
 
+test("ui/**/* with .mts routes to ui", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["ui/src/build.mts"])), ["ui"]);
+});
+
+test("ui/**/* with .cts routes to ui", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["ui/src/legacy.cts"])), ["ui"]);
+});
+
 test("packages/mermaid-renderer/** routes to ui", () => {
   assert.deepEqual(
     sorted(mapFilesToProjects(["packages/mermaid-renderer/src/foo.ts"])),
+    ["ui"],
+  );
+});
+
+test("packages/mermaid-renderer/** with .tsx still routes to ui (not core)", () => {
+  assert.deepEqual(
+    sorted(mapFilesToProjects(["packages/mermaid-renderer/src/Diagram.tsx"])),
     ["ui"],
   );
 });
@@ -83,8 +131,19 @@ test("extensions/**/* routes to extensions only", () => {
   );
 });
 
+test("extensions/**/* with .tsx/.mts/.cts routes to extensions (already-globs-all-edges regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["extensions/feishu/src/Panel.tsx"])), ["extensions"]);
+  assert.deepEqual(sorted(mapFilesToProjects(["extensions/irc/src/bot.mts"])), ["extensions"]);
+  assert.deepEqual(sorted(mapFilesToProjects(["extensions/matrix/src/legacy.cts"])), ["extensions"]);
+});
+
 test("scripts/**/* routes to scripts only", () => {
   assert.deepEqual(sorted(mapFilesToProjects(["scripts/build.mts"])), ["scripts"]);
+});
+
+test("scripts/**/* with .cts/.tsx routes to scripts (already-globs-all-edges regression)", () => {
+  assert.deepEqual(sorted(mapFilesToProjects(["scripts/lib/legacy.cts"])), ["scripts"]);
+  assert.deepEqual(sorted(mapFilesToProjects(["scripts/web/StatusPage.tsx"])), ["scripts"]);
 });
 
 // --- .d.ts propagation (Tomoe fix a, CRITICAL) ------------------------------
