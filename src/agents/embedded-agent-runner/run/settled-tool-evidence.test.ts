@@ -5,7 +5,10 @@ import {
   makeEmbeddedRunnerAttempt,
 } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
 import { isIncompleteTerminalAssistantTurn } from "./incomplete-turn-classification.js";
-import { resolveSettledToolTerminalContinuationInstruction } from "./incomplete-turn-recovery.js";
+import {
+  hasAssistantStreamFallback,
+  resolveSettledToolTerminalContinuationInstruction,
+} from "./incomplete-turn-recovery.js";
 import { resolveReplayInvalidFlag, resolveRunLivenessState } from "./incomplete-turn-resolution.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
@@ -604,5 +607,159 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     );
 
     expect(instruction).toBeNull();
+  });
+
+  // Issue #79: subagent runs end prematurely mid-tool-loop when the provider
+  // stream drops (reproducible on minimax/MiniMax-M3 via anthropic-messages
+  // compat). The dying assistant message carries an `openclawStreamFallback`
+  // marker whose replacement text is provider-shaped, not authored output.
+  it.each([
+    {
+      label: "an unkeyed source=current fallback (#79)",
+      fallback: { replacementText: "Possibly final output.", source: "current" },
+    },
+    {
+      label: "a keyed source=segment fallback",
+      fallback: {
+        replacementText: "Segment in progress.",
+        source: "segment",
+        itemId: "progress-segment-1",
+      },
+    },
+  ])(
+    "continues a settled post-toolUse batch after $label",
+    ({ fallback }) => {
+      const toolUseAssistant = makeLastAssistant({
+        stopReason: "toolUse",
+        content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+      });
+      const droppedAssistant = {
+        ...makeLastAssistant({
+          stopReason: "aborted",
+          content: [{ type: "text", text: "" }],
+        }),
+        openclawStreamFallback: fallback,
+      };
+      const instruction = resolveSettledToolTerminalContinuationInstruction(
+        makeSettledContinuationParams(
+          {
+            assistantTexts: [],
+            toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+            itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+            messagesSnapshot: [
+              { role: "user", content: [{ type: "text", text: "current turn" }] },
+              toolUseAssistant,
+              { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+              droppedAssistant,
+            ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+            lastAssistant: droppedAssistant as unknown as LastAssistant,
+            currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
+            currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+          },
+          // Stream-drop retry does not depend on operator-configured
+          // allowEmptyStopContinuation: the alternative is a dead run.
+          { allowEmptyStopContinuation: false },
+        ),
+      );
+
+      expect(instruction).toBe(SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION);
+    },
+  );
+
+  it("does not continue a settled batch when the assistant lacks a stream fallback", () => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const normalAssistant = makeLastAssistant({
+      stopReason: "stop",
+      content: [{ type: "text", text: "Authored final answer." }],
+    });
+    const instruction = resolveSettledToolTerminalContinuationInstruction(
+      makeSettledContinuationParams(
+        {
+          assistantTexts: ["Authored final answer."],
+          toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+          itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+          messagesSnapshot: [
+            { role: "user", content: [{ type: "text", text: "current turn" }] },
+            toolUseAssistant,
+            { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+            normalAssistant,
+          ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+          lastAssistant: normalAssistant,
+          currentAttemptAssistant: normalAssistant,
+        },
+        { allowEmptyStopContinuation: true },
+      ),
+    );
+
+    expect(instruction).toBeNull();
+  });
+
+  it("does not continue a stream-drop attempt when an accepted child owns the response", () => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const droppedAssistant = {
+      ...makeLastAssistant({
+        stopReason: "aborted",
+        content: [{ type: "text", text: "" }],
+      }),
+      openclawStreamFallback: { replacementText: "Partial.", source: "current" },
+    };
+    const instruction = resolveSettledToolTerminalContinuationInstruction(
+      makeSettledContinuationParams({
+        assistantTexts: [],
+        toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+        itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+        messagesSnapshot: [
+          { role: "user", content: [{ type: "text", text: "current turn" }] },
+          toolUseAssistant,
+          { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+          droppedAssistant,
+        ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+        lastAssistant: droppedAssistant as unknown as LastAssistant,
+        currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
+        acceptedSessionSpawns: [
+          { runId: "run-child", childSessionKey: "agent:main:subagent:child" },
+        ],
+      }),
+    );
+
+    expect(instruction).toBeNull();
+  });
+});
+
+describe("hasAssistantStreamFallback (#79)", () => {
+  it.each([
+    {
+      label: "an unkeyed current fallback",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "aborted",
+        openclawStreamFallback: { replacementText: "x", source: "current" },
+      },
+      expected: true,
+    },
+    {
+      label: "a keyed segment fallback",
+      message: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        openclawStreamFallback: { replacementText: "x", source: "segment", itemId: "p1" },
+      },
+      expected: true,
+    },
+    { label: "no fallback marker", message: { role: "assistant", content: [] }, expected: false },
+    { label: "non-object fallback", message: { role: "assistant", openclawStreamFallback: "x" }, expected: false },
+    { label: "array fallback", message: { role: "assistant", openclawStreamFallback: [] }, expected: false },
+    { label: "null message", message: null, expected: false },
+    { label: "non-message input", message: "string", expected: false },
+  ])("returns $expected for $label", ({ message, expected }) => {
+    expect(hasAssistantStreamFallback(message)).toBe(expected);
   });
 });

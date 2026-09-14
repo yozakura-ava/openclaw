@@ -31,6 +31,12 @@ const incompleteTurnFiles = [
   `${embeddedRoot}/run.incomplete-turn.delivery-resolution.test.ts`,
   `${embeddedRoot}/run.incomplete-turn.error-recovery.test.ts`,
   `${embeddedRoot}/run.incomplete-turn.payload-resolution.test.ts`,
+  // Issue #79: stream-drop auto-continue regression coverage lives under run/.
+  // CI does not run the embeddedRun project, so these are pinned here so the
+  // embeddedIncompleteTurn shard (which is part of the agentic-agents-embedded
+  // CI matrix) picks them up alongside the dot-named top-level files above.
+  `${embeddedRoot}/run/settled-tool-evidence.test.ts`,
+  `${embeddedRoot}/run/incomplete-turn-recovery.test.ts`,
 ];
 const overflowCompactionFiles = [
   `${embeddedRoot}/run.overflow-compaction.test.ts`,
