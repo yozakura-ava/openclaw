@@ -43,7 +43,18 @@ const D_TS_SRC = /^src\/.+\.d\.ts$/u;
 const D_TS_PACKAGES = /^packages\/.+\.d\.ts$/u;
 const D_TS_UI_SRC = /^ui\/src\/.+\.d\.ts$/u;
 
-const PATH_SRC_OR_PACKAGES_TS = /^(?:src|packages)\/.+\.ts$/u;
+// .ts, .tsx, .mts, .cts — every TS-compilable source extension. The
+// tsconfig.{core,ui,extensions,scripts}.json "include" globs match any file
+// under their directory, so the mapping MUST recognize every extension
+// (.tsx, .mts, .cts) that tsgo will pick up. R1 finding (MEDIUM): the prior
+// `.ts$` anchor silently dropped .tsx/.mts/.cts under src/ and packages/,
+// letting required core checks be skipped.
+const TS_SOURCE_EXTENSION_REGEX = /\.(?:ts|tsx|mts|cts)$/u;
+
+const PATH_SRC_OR_PACKAGES_TS = new RegExp(
+  `^(?:src|packages)\\/[^/]+(?:\\/[^/]+)*${TS_SOURCE_EXTENSION_REGEX.source}`,
+  "u",
+);
 const PATH_UI = /^ui\/.+/u;
 const PATH_MERMAID = /^packages\/mermaid-renderer\/.+/u;
 const PATH_CONTROL_UI_TS = /^src\/plugin-sdk\/control-ui[^/]*\.ts$/u;
