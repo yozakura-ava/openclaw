@@ -148,6 +148,9 @@ const config = {
   ignoreIssues: {
     // The memory-state compatibility facade must retain its pre-registry-bundle type export.
     "src/plugins/memory-state.ts": ["types"],
+    // resolveToolCardId is used via dynamic import in store.test.ts; knip's
+    // --exports flag does not trace dynamic imports.
+    "extensions/workboard/src/tools.ts": ["exports"],
     "test/fixtures/ts-topology/basic/**": [
       "exports",
       "nsExports",
