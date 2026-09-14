@@ -55,6 +55,9 @@ async function resolveOrchestrationCardId(store: WorkboardStore, rawId: unknown)
   if (result.error) {
     throw new Error(result.error);
   }
+  if (!result.card) {
+    throw new Error(`Card lookup returned no card: ${trimmed}`);
+  }
   return result.card.id;
 }
 
