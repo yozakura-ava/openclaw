@@ -484,6 +484,9 @@ const config = {
     "src/context-engine/registry.ts": ["exports", "types"],
     "src/plugins/interactive-registry.ts": ["exports"],
     "src/plugins/memory-state.ts": ["exports", "types"],
+    // resolveToolCardId is used via dynamic import in store.test.ts; knip's
+    // --exports flag does not trace dynamic imports.
+    "extensions/workboard/src/tools.ts": ["exports"],
     "src/plugins/session-discussion-registry.ts": ["exports"],
     // Focused Control UI tests consume these explicit state-machine seams;
     // production uses them through their owning module/controller.
