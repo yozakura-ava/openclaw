@@ -255,7 +255,15 @@ function selectStartableCards(
     // Scheduled (cron) auto-dispatch must not pick up cards with a blank or
     // unknown agentId — those need an explicit operator handoff. Human-
     // initiated (exact) dispatches bypass this gate and remain allowed.
+    // Pipeline auto-dispatch dedup (card ee4dda8f, iter 3): the dedup gate
+    // silently skips cards whose most-recent attempt failed within
+    // DISPATCH_COOLDOWN_MS; active claims are caught by `cardHasActiveClaim`
+    // below — this catches the post-TTL window between claim expiry and the
+    // next legit dispatch.
     if (mode === "scheduled" && isBlankAgentId(card.agentId)) {
+      continue;
+    }
+    if (hasRecentFailedAttempt(card, now, DISPATCH_COOLDOWN_MS)) {
       continue;
     }
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
