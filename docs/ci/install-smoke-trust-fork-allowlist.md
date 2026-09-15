@@ -9,24 +9,49 @@ their own repo and minting trusted artifacts.
 
 ## Problem on forks
 
-The historical implementation of that check hard-coded the literal
-`openclaw/openclaw` as the only acceptable repository. On a fork,
-`github.repository` is `yozakura-ava/openclaw`, so the check rejected
-every image-build job before any install/update validation could run.
+Two coupled hard-codings prevented fork installs from running:
+
+1. The "Checkout trusted release harness" step checked out the harness
+   from the literal `openclaw/openclaw`, so on a fork the harness's
+   `origin` URL was `https://github.com/openclaw/openclaw`.
+2. The JS identity check required
+   `remote === https://github.com/${EXPECTED_WORKFLOW_REPOSITORY}`,
+   where `EXPECTED_WORKFLOW_REPOSITORY = github.repository`. On a fork
+   those two values differ and the check threw unconditionally,
+   regardless of any allowlist opt-in.
+
 The downstream effect was that `installer_smoke_update` — the upstream
 mechanism for catching missing artifacts during update — was silently
 skipped.
 
-## Mechanism
+## Fix
 
-The check now reads `OPENCLAW_TRUSTED_WORKFLOW_REPOS`, a comma-separated
-allowlist of `owner/repo` slugs sourced from the repository variable
-`vars.OPENCLAW_TRUSTED_WORKFLOW_REPOS`. When unset, behavior is
-unchanged: the default list is `["openclaw/openclaw"]` and the upstream
-canonical repository continues to pass the check exactly as before.
+The two coupled hard-codings are resolved together so they stay
+consistent:
+
+1. **Harness checkout now sources from `github.repository`** instead of
+   the literal `openclaw/openclaw`. The harness's `origin` URL therefore
+   equals `https://github.com/${github.repository}` — exactly what the
+   identity check requires — for both upstream and fork runs.
+2. **Identity check still gates trust** via `OPENCLAW_TRUSTED_WORKFLOW_REPOS`,
+   a comma-separated allowlist of `owner/repo` slugs sourced from the
+   repository variable `vars.OPENCLAW_TRUSTED_WORKFLOW_REPOS`. When unset,
+   the default list is `["openclaw/openclaw"]` so upstream behavior is
+   preserved exactly.
 
 ```yaml
+# Checkout step:
+- uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  with:
+    repository: ${{ github.repository }}
+    ref: ${{ github.event.repository.default_branch }}
+    path: .release-harness
+    fetch-depth: 1
+    persist-credentials: false
+
+# Identity-check env block:
 env:
+  EXPECTED_WORKFLOW_REPOSITORY: ${{ github.repository }}
   OPENCLAW_TRUSTED_WORKFLOW_REPOS: ${{ vars.OPENCLAW_TRUSTED_WORKFLOW_REPOS || 'openclaw/openclaw' }}
 ```
 
@@ -44,15 +69,28 @@ if (!ALLOWED_TRUSTED_REPOS.includes(repository) || job.workflow_repository !== r
 
 ## Security rationale
 
-1. **Default-deny.** Unset variable ⇒ upstream behavior preserved.
-2. **Explicit opt-in.** A fork must add its own slug to the variable to
-   enable install-smoke. Repository variable changes require admin
-   access and are recorded in the GitHub audit log.
-3. **No upstream widening.** `openclaw/openclaw` never sets the
-   variable; `openclaw/openclaw` is in the default list.
-4. **Origin URL re-check unchanged.** The second guard still verifies
+1. **Default-deny.** Unset variable ⇒ only `openclaw/openclaw` is trusted.
+   Upstream behavior is byte-identical to the pre-allowlist state.
+2. **Explicit per-repo opt-in.** A fork must set its own
+   `OPENCLAW_TRUSTED_WORKFLOW_REPOS` repository variable to add itself.
+   Repository variable changes require admin access and are recorded in
+   the GitHub audit log.
+3. **Allowlist is the trust boundary, not the harness source.** Sourcing
+   the harness from `github.repository` is safe *because* the allowlist
+   gates which `github.repository` values are accepted. A repo that is
+   not on the allowlist fails the identity check before any harness
+   state is consumed.
+4. **Origin URL re-check preserved.** The second guard still verifies
    `git -C .release-harness remote get-url origin` equals
-   `https://github.com/${repository}`.
+   `https://github.com/${repository}`. The harness checkout step now
+   guarantees that equality holds by construction.
+5. **Exact-SHA fetch/checkout preserved.** The third guard
+   (`workflow_sha` regex) and the final `git fetch origin <sha> &&
+   git checkout --detach <sha>` are unchanged. The harness is always
+   resolved to the exact commit that triggered the run.
+6. **No upstream widening.** `openclaw/openclaw` does not set the
+   variable; it relies on the default. A fork can only enable itself,
+   not weaken upstream.
 
 ## Fork setup
 

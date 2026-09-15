@@ -294,14 +294,19 @@ jobs:
             -C "$candidate_dir"
           test -f "$candidate_dir/Dockerfile"
 
-      # Start from a statically trusted checkout. The following step validates job context
-      # locally before restoring the exact called-workflow revision.
+      # Source the harness from the same repository the workflow is currently running
+      # on so that the JS identity check below (origin-URL re-check) sees a consistent
+      # repository. Trust is still gated upstream by the OPENCLAW_TRUSTED_WORKFLOW_REPOS
+      # allowlist in the next step — only repos on that list are accepted; here we just
+      # need the harness's origin URL to match `github.repository` so the re-check
+      # passes for fork opt-ins. The subsequent step validates job context and restores
+      # the exact called-workflow SHA, so the initial ref is replaced anyway.
       - &trusted_workflow_subdir_checkout_step
         name: Checkout trusted release harness
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: openclaw/openclaw
-          ref: main
+          repository: ${{ github.repository }}
+          ref: ${{ github.event.repository.default_branch }}
           path: .release-harness
           fetch-depth: 1
           persist-credentials: false
