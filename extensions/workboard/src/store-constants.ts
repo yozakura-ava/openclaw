@@ -43,6 +43,29 @@ const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 export const DISPATCH_COOLDOWN_MS = 10 * 60 * 1000;
 export const MAX_PIPELINE_RETRY_STRIKES = 3;
 
+// Multi-claim concurrency cap (card ee4dda8f follow-up to claim-fence):
+//   * DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER: under the RESTORE multi-claim
+//     policy (Craig, 2026-09-15 — see Ken v2 §4.4), there is no server-
+//     enforced cap. Operators may set a positive integer override via
+//     runtime config; the constant is the unset default.
+//   * normalizeMaxConcurrentClaimsPerOwner: passthrough validator for the
+//     operator override; falls back to the default when input is missing,
+//     non-numeric, non-finite, or non-positive.
+//
+// NOTE: This pair is referenced (imported) by dispatcher.ts:26-28 but was
+// defined in a working-tree-only state when the ee4dda8f iter commits were
+// authored. The definitions are added here to restore the import contract
+// after the forward-port to canonical/2026.9.4-base. Track F / Sprint
+// 2026-09-15 (HR42: ava-trackf-forwardports-20260915).
+export const DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER = Number.POSITIVE_INFINITY;
+
+export function normalizeMaxConcurrentClaimsPerOwner(input: unknown): number {
+  if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
+    return Math.floor(input);
+  }
+  return DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER;
+}
+
 
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
