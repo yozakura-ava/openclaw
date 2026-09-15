@@ -312,6 +312,11 @@ jobs:
         env:
           EXPECTED_WORKFLOW_REPOSITORY: ${{ github.repository }}
           HARNESS_PATH: .release-harness
+          # OPENCLAW_TRUSTED_WORKFLOW_REPOS: comma-separated allowlist of owner/repo slugs
+          # whose workflow execution is accepted by the trusted-workflow identity check.
+          # Default is "openclaw/openclaw" (upstream canonical). Forks opt in by setting
+          # this repo variable on their own repository (see docs/ci/install-smoke-trust-fork-allowlist.md).
+          OPENCLAW_TRUSTED_WORKFLOW_REPOS: ${{ vars.OPENCLAW_TRUSTED_WORKFLOW_REPOS || 'openclaw/openclaw' }}
           JOB_CONTEXT: ${{ toJSON(job) }}
         shell: bash
         run: |
@@ -323,8 +328,14 @@ jobs:
           const job = JSON.parse(process.env.JOB_CONTEXT ?? "{}");
           const repository = process.env.EXPECTED_WORKFLOW_REPOSITORY ?? "";
           const harnessPath = process.env.HARNESS_PATH ?? "";
-          if (repository !== "openclaw/openclaw" || job.workflow_repository !== repository) {
-            throw new Error("job.workflow_repository must exactly match github.repository");
+          const ALLOWED_TRUSTED_REPOS = (process.env.OPENCLAW_TRUSTED_WORKFLOW_REPOS ?? "openclaw/openclaw")
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (!ALLOWED_TRUSTED_REPOS.includes(repository) || job.workflow_repository !== repository) {
+            throw new Error(
+              `job.workflow_repository must match a trusted repo (allowed: ${ALLOWED_TRUSTED_REPOS.join(", ")}); got ${repository}`,
+            );
           }
           if (typeof job.workflow_sha !== "string" || !/^[0-9a-f]{40}$/u.test(job.workflow_sha)) {
             throw new Error("job.workflow_sha must be a full lowercase commit SHA");
