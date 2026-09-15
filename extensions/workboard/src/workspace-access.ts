@@ -33,6 +33,13 @@ export const WORKBOARD_TOOL_NAMES = [
   "workboard_claim",
   "workboard_heartbeat",
   "workboard_complete",
+  // PATCH (card 32d1c50d) workboard_force_close registered here so the
+  // gateway enumerates it in the callable tool index. The tool itself is
+  // defined in tools.ts and the registration block in index.ts reads
+  // WORKBOARD_TOOL_NAMES to declare which names belong to the plugin —
+  // missing this entry caused the gateway to filter out force_close as
+  // "not registered" even though the tool implementation shipped.
+  "workboard_force_close",
   "workboard_attachment_add",
   "workboard_attachment_read",
   "workboard_attachment_delete",
