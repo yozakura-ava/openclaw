@@ -20,7 +20,6 @@ permissions:
 
 jobs:
   build:
-        if: ${{ false }}
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Build Linux companion
     # Match the release build base for native tests and manually built bundles.

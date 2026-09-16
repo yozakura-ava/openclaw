@@ -28,7 +28,6 @@ env:
 
 jobs:
   plan:
-        if: ${{ false }}
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Plan npm placeholder publication
     runs-on: ubuntu-latest

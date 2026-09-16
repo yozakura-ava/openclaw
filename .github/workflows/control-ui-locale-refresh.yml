@@ -53,9 +53,8 @@ concurrency:
 
 jobs:
   resolve-base:
-    if: >-
-      github.repository == 'openclaw/openclaw' &&
-      (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/main')
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
     outputs:
       locales: ${{ steps.base.outputs.locales }}

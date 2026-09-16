@@ -21,14 +21,8 @@ env:
 
 jobs:
   update-docs:
-    if: >
-      github.repository == 'openclaw/openclaw' &&
-      github.actor != 'github-actions[bot]' &&
-      (github.event_name != 'workflow_run' ||
-        (github.event.workflow_run.conclusion == 'success' &&
-          github.event.workflow_run.event == 'push' &&
-          github.event.workflow_run.head_branch == 'main' &&
-          github.event.workflow_run.actor.login != 'github-actions[bot]'))
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
