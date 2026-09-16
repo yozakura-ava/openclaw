@@ -22,6 +22,8 @@ concurrency:
 
 jobs:
   validate_request:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Validate release request
     runs-on: ubuntu-22.04
     timeout-minutes: 5

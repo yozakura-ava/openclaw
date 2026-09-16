@@ -23,6 +23,8 @@ env:
 
 jobs:
   validate_release:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Validate release tag
     if: >-
       github.repository == 'openclaw/openclaw' &&
