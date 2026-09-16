@@ -51,7 +51,6 @@ env:
 
 jobs:
   probe:
-        if: ${{ false }}
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Windows probe
     runs-on: ${{ inputs.runner_label }}

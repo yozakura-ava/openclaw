@@ -12,7 +12,8 @@ concurrency:
 
 jobs:
   react:
-    if: ${{ !endsWith(github.actor, '[bot]') }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     permissions:
       issues: write

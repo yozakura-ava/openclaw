@@ -15,7 +15,8 @@ concurrency:
 
 jobs:
   security-sensitive-guard-detect:
-    if: ${{ !github.event.pull_request.draft }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

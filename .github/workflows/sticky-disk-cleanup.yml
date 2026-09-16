@@ -33,7 +33,8 @@ concurrency:
 
 jobs:
   delete:
-    if: github.repository == 'openclaw/openclaw' && github.ref == 'refs/heads/main' && inputs.confirm
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ${{ inputs.architecture == 'arm64' && 'blacksmith-16vcpu-ubuntu-2404-arm' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     steps:
