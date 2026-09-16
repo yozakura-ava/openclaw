@@ -200,6 +200,7 @@ jobs:
         run: gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName
 
   build_linux:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Build Linux companion bundles
     needs: validate_release
     # Oldest supported build base: bundles link against this glibc, so newer
@@ -389,6 +390,7 @@ jobs:
   # Signing secrets enter only this fresh artifact-only runner; selected-tag
   # source and trusted packaging helpers never cross the job boundary.
   sign_linux:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Sign finalized Linux AppImage
     needs:
       - validate_release

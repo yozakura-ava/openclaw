@@ -34,6 +34,7 @@ env:
 
 jobs:
   static:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     steps:
@@ -65,6 +66,7 @@ jobs:
           }
 
   linux-docker:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -86,6 +88,7 @@ jobs:
             bash -lc 'apt-get update -y && apt-get install -y curl && bash /tmp/install-cli.sh --prefix /tmp/openclaw --no-onboard --version latest && /tmp/openclaw/bin/openclaw --version'
 
   debian-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -111,6 +114,7 @@ jobs:
           CONTAINER
 
   linux-build-tools-failure:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -173,6 +177,7 @@ jobs:
           CONTAINER
 
   linux-non-root:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -208,6 +213,7 @@ jobs:
           CONTAINER
 
   fedora-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Fedora installer (${{ matrix.user }})
     strategy:
       fail-fast: false
@@ -255,6 +261,7 @@ jobs:
           fi
 
   macos-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -276,6 +283,7 @@ jobs:
           openclaw --version
 
   windows-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: windows-latest
     steps:
       - name: Checkout

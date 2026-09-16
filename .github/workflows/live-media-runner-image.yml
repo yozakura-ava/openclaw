@@ -21,6 +21,7 @@ env:
 
 jobs:
   build:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Build live media runner image
     runs-on: blacksmith-8vcpu-ubuntu-2404
