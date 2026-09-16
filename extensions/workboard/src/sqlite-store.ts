@@ -16,6 +16,7 @@ import type {
   WorkboardRunAttempt,
   WorkboardWorkerLog,
 } from "@openclaw/workboard-contract";
+import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import {
   configureSqliteConnectionPragmas,
   migrateSqliteSchemaToStrict,
