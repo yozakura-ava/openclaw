@@ -310,6 +310,9 @@ jobs:
             pnpm-workspace.yaml \
             openclaw.mjs \
             node-version.mjs \
+            node-runtime-recovery.mjs \
+            node-runtime-update.mjs \
+            node-sqlite.mjs \
             dist \
             docs \
             patches \
