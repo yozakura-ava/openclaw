@@ -273,6 +273,7 @@ jobs:
         run: node scripts/mantis/request-workflow-admission.mjs
 
   run_request_proof:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Run request-bound web chat proof
     needs: [admit_bound_request, validate_candidate]
     runs-on: blacksmith-8vcpu-ubuntu-2404
