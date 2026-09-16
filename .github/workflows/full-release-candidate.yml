@@ -112,7 +112,7 @@ jobs:
   prepare:
     name: Prepare shared release candidate
     needs: discover
-    if: ${{ needs.discover.result == 'success' && needs.discover.outputs.state == 'miss' }}
+    if: false  # original if: ${{ needs.discover.result == 'success' && needs.discover.outputs.state == 'miss' }}
     permissions:
       actions: read
       contents: read
@@ -141,7 +141,7 @@ jobs:
   resolve_candidate:
     name: Resolve release candidate
     needs: [discover, prepare]
-    if: always()
+    if: false  # original if: always()
     runs-on: ${{ github.repository == 'openclaw/openclaw' && vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     outputs:

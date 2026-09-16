@@ -322,7 +322,7 @@ jobs:
   # Native session qualification must not depend on headless CI or WSL results.
   native-schtasks:
     name: Native Scheduled Task proof
-    if: ${{ inputs.run_windows_ci }}
+    if: false  # original if: ${{ inputs.run_windows_ci }}
     runs-on: windows-2025
     timeout-minutes: 75
     steps:

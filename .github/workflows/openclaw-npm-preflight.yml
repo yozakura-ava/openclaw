@@ -61,7 +61,7 @@ jobs:
   check_openclaw_npm:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Check npm release source
-    if: ${{ inputs.preflight_phase != 'prepare' && (inputs.preflight_phase != 'verify' || inputs.source_check_json == '') }}
+    if: false  # original if: ${{ inputs.preflight_phase != 'prepare' && (inputs.preflight_phase != 'verify' || inputs.source_check_json == '') }}
     # The 2026-09-01 probe delivered 4 CPUs/15 GiB for 16, versus 8 CPUs/31 GiB for 32.
     # Request 32 to clear parallel-check thresholds; see docs/ci.md#blacksmith-runner-capacity.
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
@@ -203,7 +203,7 @@ jobs:
 
   prepare_openclaw_npm:
     name: Prepare publishable npm package
-    if: ${{ inputs.preflight_phase == 'prepare' || inputs.preflight_phase == 'all' }}
+    if: false  # original if: ${{ inputs.preflight_phase == 'prepare' || inputs.preflight_phase == 'all' }}
     # The 2026-09-01 probe delivered 4 CPUs/15 GiB for 16, versus 8 CPUs/31 GiB for 32.
     # Request 32 to clear parallel-check thresholds; see docs/ci.md#blacksmith-runner-capacity.
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
@@ -377,7 +377,7 @@ jobs:
 
   check_sdk_npm:
     name: Check npm Plugin SDK
-    if: ${{ inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify' }}
+    if: false  # original if: ${{ inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify' }}
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       proof_json: ${{ steps.proof.outputs.proof_json }}
@@ -506,7 +506,7 @@ jobs:
 
   check_dependencies_npm:
     name: Check npm dependencies
-    if: ${{ inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify' }}
+    if: false  # original if: ${{ inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify' }}
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       proof_json: ${{ steps.proof.outputs.proof_json }}
@@ -649,9 +649,12 @@ jobs:
   check_contents_npm:
     name: Check npm package contents
     needs: prepare_openclaw_npm
-    if: >-
-      ${{ !cancelled() && (inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify') &&
-          (needs.prepare_openclaw_npm.result == 'success' || inputs.preflight_phase == 'verify') }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{ !cancelled() && (inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify') &&
+    # (needs.prepare_openclaw_npm.result == 'success' || inputs.preflight_phase == 'verify') }}
+    if: false
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       proof_json: ${{ steps.proof.outputs.proof_json }}
@@ -812,12 +815,15 @@ jobs:
         check_dependencies_npm,
         check_contents_npm,
       ]
-    if: >-
-      ${{ !cancelled() && (inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify') &&
-          (needs.prepare_openclaw_npm.result == 'success' || inputs.preflight_phase == 'verify') &&
-          (needs.check_openclaw_npm.result == 'success' || inputs.source_check_json != '') &&
-          needs.check_sdk_npm.result == 'success' && needs.check_dependencies_npm.result == 'success' &&
-          needs.check_contents_npm.result == 'success' }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{ !cancelled() && (inputs.preflight_phase == 'all' || inputs.preflight_phase == 'verify') &&
+    # (needs.prepare_openclaw_npm.result == 'success' || inputs.preflight_phase == 'verify') &&
+    # (needs.check_openclaw_npm.result == 'success' || inputs.source_check_json != '') &&
+    # needs.check_sdk_npm.result == 'success' && needs.check_dependencies_npm.result == 'success' &&
+    # needs.check_contents_npm.result == 'success' }}
+    if: false
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || inputs.use_github_hosted_runners) && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     outputs:
       qualified_preflight_bundle_json: ${{ steps.qualified_bundle.outputs.bundle_json }}

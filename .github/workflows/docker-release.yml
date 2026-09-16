@@ -152,7 +152,7 @@ jobs:
   prepare:
     name: Prepare immutable Docker images
     needs: validate_release_identity
-    if: ${{ inputs.prepared_run_id == '' }}
+    if: false  # original if: ${{ inputs.prepared_run_id == '' }}
     uses: ./.github/workflows/docker-release-prepare.yml
     with:
       tag: ${{ inputs.tag }}
@@ -165,7 +165,7 @@ jobs:
   publish:
     name: Publish prepared Docker images
     needs: [validate_release_identity, prepare]
-    if: ${{ always() && needs.validate_release_identity.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
+    if: false  # original if: ${{ always() && needs.validate_release_identity.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     environment: docker-release

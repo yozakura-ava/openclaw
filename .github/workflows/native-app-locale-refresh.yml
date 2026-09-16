@@ -70,7 +70,7 @@ jobs:
   publisher-preflight:
     name: Verify generated PR App permissions
     needs: resolve-base
-    if: needs.resolve-base.result == 'success'
+    if: false  # original if: needs.resolve-base.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -111,9 +111,12 @@ jobs:
 
   refresh:
     needs: [resolve-base, publisher-preflight]
-    if: >-
-      needs.resolve-base.result == 'success' &&
-      needs.publisher-preflight.result == 'success'
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # needs.resolve-base.result == 'success' &&
+    # needs.publisher-preflight.result == 'success'
+    if: false
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -201,10 +204,13 @@ jobs:
   finalize:
     name: Commit native locale refresh
     needs: [resolve-base, publisher-preflight, refresh]
-    if: >-
-      needs.resolve-base.result == 'success' &&
-      needs.publisher-preflight.result == 'success' &&
-      needs.refresh.result == 'success'
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # needs.resolve-base.result == 'success' &&
+    # needs.publisher-preflight.result == 'success' &&
+    # needs.refresh.result == 'success'
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

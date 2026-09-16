@@ -897,7 +897,7 @@ jobs:
 
   record_docker_only_scope:
     needs: resolve_release_target
-    if: inputs.publish_docker_only
+    if: false  # original if: inputs.publish_docker_only
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -932,7 +932,7 @@ jobs:
   qualify_android_native:
     name: Qualify native Android release source
     needs: [resolve_release_target]
-    if: ${{ !inputs.publish_docker_only && inputs.publish_openclaw_npm && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') && needs.resolve_release_target.outputs.android_pin_matches == 'true' && needs.resolve_release_target.outputs.coverage_policy == 'npm-stable-v1' }}
+    if: false  # original if: ${{ !inputs.publish_docker_only && inputs.publish_openclaw_npm && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') && needs.resolve_release_target.outputs.android_pin_matches == 'true' && needs.resolve_release_target.outputs.coverage_policy == 'npm-stable-v1' }}
     # Native failure blocks its approval receipt, while core publication proceeds.
     continue-on-error: true
     permissions:
@@ -1022,7 +1022,7 @@ jobs:
   publish_android:
     name: Approve and dispatch qualified Android
     needs: [resolve_release_target, publish, qualify_android_native]
-    if: ${{ always() && !cancelled() && !inputs.publish_docker_only && inputs.publish_openclaw_npm && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') && needs.resolve_release_target.outputs.android_pin_matches == 'true' && needs.resolve_release_target.result == 'success' && needs.publish.result == 'success' && (needs.resolve_release_target.outputs.coverage_policy != 'npm-stable-v1' || needs.qualify_android_native.outputs.qualified == 'true') }}
+    if: false  # original if: ${{ always() && !cancelled() && !inputs.publish_docker_only && inputs.publish_openclaw_npm && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') && needs.resolve_release_target.outputs.android_pin_matches == 'true' && needs.resolve_release_target.result == 'success' && needs.publish.result == 'success' && (needs.resolve_release_target.outputs.coverage_policy != 'npm-stable-v1' || needs.qualify_android_native.outputs.qualified == 'true') }}
     continue-on-error: true
     permissions:
       actions: write
@@ -1124,7 +1124,7 @@ jobs:
   publish:
     name: Publish plugins, then OpenClaw
     needs: [resolve_release_target]
-    if: ${{ !inputs.publish_docker_only }}
+    if: false  # original if: ${{ !inputs.publish_docker_only }}
     env:
       # Artifact bytes may belong to an FRV child; the input run still authorizes npm dispatch.
       PREFLIGHT_ARTIFACT_RUN_ID: ${{ needs.resolve_release_target.outputs.preflight_artifact_run_id }}
@@ -1859,7 +1859,7 @@ jobs:
   verify_core_npm_registry:
     name: Verify already-published core npm package
     needs: [resolve_release_target]
-    if: ${{ inputs.publish_docker_only }}
+    if: false  # original if: ${{ inputs.publish_docker_only }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1891,7 +1891,7 @@ jobs:
   publish_docker:
     name: Publish Docker images
     needs: [resolve_release_target, publish, verify_core_npm_registry]
-    if: ${{ always() && !contains(inputs.tag, '-alpha.') && ((inputs.publish_openclaw_npm && needs.publish.result == 'success') || (inputs.publish_docker_only && needs.verify_core_npm_registry.result == 'success')) }}
+    if: false  # original if: ${{ always() && !contains(inputs.tag, '-alpha.') && ((inputs.publish_openclaw_npm && needs.publish.result == 'success') || (inputs.publish_docker_only && needs.verify_core_npm_registry.result == 'success')) }}
     uses: ./.github/workflows/docker-release.yml
     with:
       tag: ${{ inputs.tag }}
@@ -1916,7 +1916,7 @@ jobs:
   publish_vcr:
     name: Mirror Docker images to Vercel Container Registry
     needs: [publish_docker]
-    if: ${{ always() && needs.publish_docker.result == 'success' }}
+    if: false  # original if: ${{ always() && needs.publish_docker.result == 'success' }}
     uses: ./.github/workflows/vercel-container-registry-publish.yml
     with:
       advisory: true
@@ -1932,7 +1932,7 @@ jobs:
     name: Finalize GitHub release
     # Apps attach independently after npm and Gateway Docker evidence is complete.
     needs: [publish, publish_docker]
-    if: ${{ always() && inputs.publish_openclaw_npm && needs.publish.result == 'success' && (needs.publish_docker.result == 'success' || (contains(inputs.tag, '-alpha.') && needs.publish_docker.result == 'skipped')) }}
+    if: false  # original if: ${{ always() && inputs.publish_openclaw_npm && needs.publish.result == 'success' && (needs.publish_docker.result == 'success' || (contains(inputs.tag, '-alpha.') && needs.publish_docker.result == 'skipped')) }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -1959,7 +1959,7 @@ jobs:
   publish_windows:
     name: Dispatch Windows assets after publication
     needs: [resolve_release_target, finalize_github_release]
-    if: ${{ !cancelled() && needs.finalize_github_release.result == 'success' && (inputs.windows_node_tag != '' || inputs.windows_node_installer_digests != '') && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') }}
+    if: false  # original if: ${{ !cancelled() && needs.finalize_github_release.result == 'success' && (inputs.windows_node_tag != '' || inputs.windows_node_installer_digests != '') && !contains(inputs.tag, '-alpha.') && !contains(inputs.tag, '-beta.') }}
     # App failures are reported by their own workflow; neither npm nor the
     # published GitHub release depends on native asset availability.
     continue-on-error: true

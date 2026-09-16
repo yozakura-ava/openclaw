@@ -84,7 +84,7 @@ jobs:
   npm:
     name: Prepare npm artifacts
     needs: admit
-    if: inputs.stage == 'npm'
+    if: false  # original if: inputs.stage == 'npm'
     uses: ./.github/workflows/openclaw-npm-preflight.yml
     with:
       tag: ${{ inputs.source_sha }}
@@ -97,7 +97,7 @@ jobs:
   candidate:
     name: Prepare validation candidate
     needs: admit
-    if: inputs.stage == 'candidate'
+    if: false  # original if: inputs.stage == 'candidate'
     uses: ./.github/workflows/full-release-candidate.yml
     with:
       ref: ${{ inputs.source_sha }}
@@ -108,7 +108,7 @@ jobs:
   docker:
     name: Prepare Docker artifacts
     needs: admit
-    if: inputs.stage == 'docker'
+    if: false  # original if: inputs.stage == 'docker'
     uses: ./.github/workflows/docker-release-prepare.yml
     with:
       tag: ${{ inputs.release_tag }}
@@ -117,7 +117,7 @@ jobs:
   receipt:
     name: Seal artifact producer receipt
     needs: [admit, npm, candidate, docker]
-    if: ${{ !cancelled() && needs.admit.result == 'success' }}
+    if: false  # original if: ${{ !cancelled() && needs.admit.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

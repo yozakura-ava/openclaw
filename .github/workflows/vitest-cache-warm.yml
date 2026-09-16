@@ -21,7 +21,7 @@ jobs:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     # Shared CI cache publication is isolated from pull-request execution.
     # Trusted release/proof workflows may save only through the same authority contract.
-    if: github.repository == 'openclaw/openclaw'
+    if: false  # original if: github.repository == 'openclaw/openclaw'
     runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404') }}
     timeout-minutes: 60
     strategy:

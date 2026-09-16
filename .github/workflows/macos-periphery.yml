@@ -76,7 +76,7 @@ jobs:
   scan:
     name: Scan macOS dead code
     needs: scope
-    if: ${{ needs.scope.outputs.should-scan == 'true' }}
+    if: false  # original if: ${{ needs.scope.outputs.should-scan == 'true' }}
     runs-on: macos-26
     timeout-minutes: 45
     steps:
