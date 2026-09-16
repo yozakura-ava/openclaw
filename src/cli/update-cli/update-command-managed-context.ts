@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { sanitizeEnvVars } from "../../agents/sandbox.js";
 import type { LegacyConfigUpdatePlan } from "../../commands/doctor/legacy-config-repair.js";
 import { readConfigFileSnapshot } from "../../config/config.js";
 import type { ConfigFileSnapshot } from "../../config/types.openclaw.js";
@@ -83,11 +84,14 @@ export async function withOwnedManagedUpdateEnv<T>(
   }
   // A caller may pass process.env itself; clearing it must not erase the supplied scope.
   const phaseEnv = env === process.env ? previousEnv : env;
-  for (const [key, value] of Object.entries(phaseEnv)) {
-    // Node stringifies undefined on assignment; unset selectors must remain absent.
-    if (value !== undefined) {
-      process.env[key] = value;
-    }
+  // GHSA-82G8-464F-2MV7: host-env safety sanitization before the update phase adopts the scope.
+  const sanitizedPhaseEnv = sanitizeEnvVars(
+    Object.fromEntries(
+      Object.entries(phaseEnv).filter(([, value]) => value !== undefined),
+    ) as Record<string, string>,
+  );
+  for (const [key, value] of Object.entries(sanitizedPhaseEnv.allowed)) {
+    process.env[key] = value;
   }
   try {
     return await run();
