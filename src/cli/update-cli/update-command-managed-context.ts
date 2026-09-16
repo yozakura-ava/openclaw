@@ -85,11 +85,12 @@ export async function withOwnedManagedUpdateEnv<T>(
   // A caller may pass process.env itself; clearing it must not erase the supplied scope.
   const phaseEnv = env === process.env ? previousEnv : env;
   // GHSA-82G8-464F-2MV7: host-env safety sanitization before the update phase adopts the scope.
-  const sanitizedPhaseEnv = sanitizeEnvVars(
-    Object.fromEntries(
-      Object.entries(phaseEnv).filter(([, value]) => value !== undefined),
-    ) as Record<string, string>,
+  const definedPhaseEnv = Object.fromEntries(
+    Object.entries(phaseEnv).filter(([, value]) => value !== undefined),
   );
+  // SAFETY: undefined entries were filtered above; all remaining values are defined strings.
+  const phaseEnvRecord = definedPhaseEnv as Record<string, string>;
+  const sanitizedPhaseEnv = sanitizeEnvVars(phaseEnvRecord);
   for (const [key, value] of Object.entries(sanitizedPhaseEnv.allowed)) {
     process.env[key] = value;
   }
