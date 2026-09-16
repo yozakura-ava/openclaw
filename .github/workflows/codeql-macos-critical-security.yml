@@ -18,16 +18,12 @@ permissions:
   security-events: write
 
 jobs:
-  prepare-mermaid:
-    if: ${{ false }}
-    # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
-    name: Prepare Mermaid assets
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    outputs:
-      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+  macos:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
+    name: Critical Security (macOS)
+    runs-on: blacksmith-12vcpu-macos-26
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

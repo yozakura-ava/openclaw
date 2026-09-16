@@ -441,6 +441,7 @@ env:
 
 jobs:
   resolve_package:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Resolve package candidate
     runs-on: ubuntu-24.04
@@ -1181,6 +1182,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   package_integrity:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Package integrity
     needs: resolve_package
     runs-on: ubuntu-24.04

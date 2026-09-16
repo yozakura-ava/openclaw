@@ -44,6 +44,7 @@ concurrency:
 
 jobs:
   admit_request:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Admit exact requested Telegram behavior proof
     runs-on: ubuntu-24.04
@@ -112,6 +113,7 @@ jobs:
           candidate-ref: ${{ inputs.candidate_ref }}
 
   run_telegram_proof:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Run request-bound Telegram bot proof
     needs: admit_request
     runs-on: blacksmith-8vcpu-ubuntu-2404

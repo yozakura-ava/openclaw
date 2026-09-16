@@ -108,6 +108,7 @@ env:
 
 jobs:
   authorize_actor:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Authorize workflow actor
     runs-on: blacksmith-8vcpu-ubuntu-2404
@@ -290,6 +291,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   plan_qa_profile:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Plan QA profile shards
     needs: validate_selected_ref
     runs-on: blacksmith-8vcpu-ubuntu-2404
@@ -457,6 +459,7 @@ jobs:
           NODE
 
   run_qa_profile_shard:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Generate QA profile evidence (${{ matrix.id }})
     needs: [validate_selected_ref, plan_qa_profile]
     runs-on: blacksmith-8vcpu-ubuntu-2404
