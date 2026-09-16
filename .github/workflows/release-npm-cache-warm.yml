@@ -15,7 +15,6 @@ concurrency:
 
 jobs:
   warm-release-npm:
-        if: ${{ false }}
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     # New release-ci refs cannot read a sibling ref's cache. Scheduled main runs
     # publish portable npm downloads without executing package lifecycle hooks.

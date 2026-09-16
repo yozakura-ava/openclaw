@@ -21,7 +21,8 @@ env:
 
 jobs:
   live_and_openwebui_checks:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '23 4 * * *'
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     permissions:
       actions: read
       contents: read

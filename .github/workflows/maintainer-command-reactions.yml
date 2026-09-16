@@ -13,11 +13,8 @@ concurrency:
 jobs:
   react:
     # Custom commands may be any text; only defaults require a slash.
-    if: >-
-      ${{
-        !endsWith(github.actor, '[bot]') &&
-        (vars.MAINTAINER_COMMAND_REACTIONS != '' || contains(github.event.comment.body, '/'))
-      }}
+    # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
+    if: ${{ false }}
     runs-on: ubuntu-24.04
     permissions:
       issues: write

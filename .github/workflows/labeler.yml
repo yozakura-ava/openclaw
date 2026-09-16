@@ -36,15 +36,8 @@ permissions: {}
 
 jobs:
   label:
-    if: >-
-      ${{
-        github.event_name == 'pull_request_target' &&
-        (
-          github.event.action != 'edited' ||
-          github.event.changes.title ||
-          github.event.changes.base
-        )
-      }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     permissions:
       contents: read
       pull-requests: write
