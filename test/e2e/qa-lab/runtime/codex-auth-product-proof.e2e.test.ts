@@ -457,6 +457,13 @@ describe("Codex auth product proof", () => {
           ]),
         });
         await expect(
+          client.request("models.list", { agentId: "main", refresh: true }),
+        ).resolves.toMatchObject({
+          models: expect.arrayContaining([
+            expect.objectContaining({ id: "gpt-5.6-luna", provider: "openai" }),
+          ]),
+        });
+        await expect(
           client.request("sessions.patch", {
             key: sessionKey,
             model: `${MODEL}@${MISSING_PROFILE_ID}`,
