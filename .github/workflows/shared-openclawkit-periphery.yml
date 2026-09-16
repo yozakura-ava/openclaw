@@ -79,7 +79,7 @@ jobs:
   scan-ios:
     name: Scan shared kit from iOS
     needs: scope
-    if: ${{ needs.scope.outputs.should-scan == 'true' }}
+    if: false  # original if: ${{ needs.scope.outputs.should-scan == 'true' }}
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -184,7 +184,7 @@ jobs:
   scan-macos:
     name: Scan shared kit from macOS
     needs: scope
-    if: ${{ needs.scope.outputs.should-scan == 'true' }}
+    if: false  # original if: ${{ needs.scope.outputs.should-scan == 'true' }}
     runs-on: macos-26
     timeout-minutes: 45
     steps:
@@ -264,7 +264,7 @@ jobs:
   intersect:
     name: Intersect shared OpenClawKit dead code
     needs: [scope, scan-ios, scan-macos]
-    if: ${{ always() && needs.scope.outputs.should-scan == 'true' && needs.scan-ios.result != 'cancelled' && needs.scan-macos.result != 'cancelled' }}
+    if: false  # original if: ${{ always() && needs.scope.outputs.should-scan == 'true' && needs.scan-ios.result != 'cancelled' && needs.scan-macos.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

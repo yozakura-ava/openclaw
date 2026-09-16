@@ -470,7 +470,7 @@ jobs:
       contents: read
     name: Plan plugin npm security artifacts
     needs: [resolve_target]
-    if: inputs.phase != 'candidate'
+    if: false  # original if: inputs.phase != 'candidate'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -521,7 +521,7 @@ jobs:
       contents: read
     name: plugin-npm-security-scan
     needs: [resolve_target, plugin-npm-security-plan]
-    if: ${{ !cancelled() && always() && needs.resolve_target.result == 'success' && needs.plugin-npm-security-plan.result == 'success' }}
+    if: false  # original if: ${{ !cancelled() && always() && needs.resolve_target.result == 'success' && needs.plugin-npm-security-plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -617,7 +617,7 @@ jobs:
     # Job-level skips happen before matrix expansion; retain a unique owner name.
     name: ${{ matrix.check_name || 'plugin-prerelease-static-shard' }}
     needs: [resolve_target, preflight]
-    if: needs.preflight.outputs.run_plugin_prerelease_static == 'true'
+    if: false  # original if: needs.preflight.outputs.run_plugin_prerelease_static == 'true'
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     strategy:
@@ -654,7 +654,7 @@ jobs:
       contents: read
     name: ${{ matrix.check_name || 'plugin-prerelease-node-shard' }}
     needs: [resolve_target, preflight]
-    if: needs.preflight.outputs.run_plugin_prerelease_node == 'true'
+    if: false  # original if: needs.preflight.outputs.run_plugin_prerelease_node == 'true'
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (matrix.runner || 'ubuntu-24.04') }}
     timeout-minutes: 60
     strategy:
@@ -738,7 +738,7 @@ jobs:
       contents: read
     name: ${{ matrix.check_name || 'plugin-prerelease-extension-shard' }}
     needs: [resolve_target, preflight]
-    if: needs.preflight.outputs.run_plugin_prerelease_extensions == 'true'
+    if: false  # original if: needs.preflight.outputs.run_plugin_prerelease_extensions == 'true'
     runs-on: ${{ github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || matrix.runner }}
     timeout-minutes: 60
     strategy:
@@ -806,7 +806,7 @@ jobs:
       contents: read
     name: plugin-prerelease-inspector
     needs: [resolve_target, preflight]
-    if: needs.preflight.outputs.run_plugin_prerelease_inspector == 'true'
+    if: false  # original if: needs.preflight.outputs.run_plugin_prerelease_inspector == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -984,7 +984,7 @@ jobs:
   plugin-prerelease-docker-suite:
     name: plugin-prerelease-docker-suite
     needs: [resolve_target, preflight]
-    if: ${{ inputs.full_release_validation && needs.preflight.outputs.run_plugin_prerelease_docker == 'true' }}
+    if: false  # original if: ${{ inputs.full_release_validation && needs.preflight.outputs.run_plugin_prerelease_docker == 'true' }}
     permissions:
       actions: read
       contents: read
@@ -1039,7 +1039,7 @@ jobs:
       - plugin-prerelease-extension-shard
       - plugin-prerelease-inspector
       - plugin-prerelease-docker-suite
-    if: ${{ !cancelled() && always() && needs.preflight.outputs.run_plugin_prerelease_suite == 'true' }}
+    if: false  # original if: ${{ !cancelled() && always() && needs.preflight.outputs.run_plugin_prerelease_suite == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

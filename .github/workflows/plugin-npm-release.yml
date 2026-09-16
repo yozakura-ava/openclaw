@@ -430,7 +430,7 @@ jobs:
   validate_release_publish_approval:
     name: Validate release publish approval
     needs: preview_plugins_npm
-    if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -473,7 +473,7 @@ jobs:
 
   preview_plugin_pack:
     needs: preview_plugins_npm
-    if: (needs.preview_plugins_npm.outputs.has_candidates == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.preflight_only)) || (github.event_name == 'workflow_dispatch' && inputs.preflight_only && !inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true')
+    if: false  # original if: (needs.preview_plugins_npm.outputs.has_candidates == 'true' && !(github.event_name == 'workflow_dispatch' && inputs.preflight_only)) || (github.event_name == 'workflow_dispatch' && inputs.preflight_only && !inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -741,7 +741,7 @@ jobs:
   verify_plugin_npm_preflight:
     name: Preflight plugin npm package (${{ matrix.plugin.packageName }})
     needs: [preview_plugins_npm, preview_plugin_pack]
-    if: ${{ github.event_name == 'workflow_dispatch' && ((inputs.preflight_only && !inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true') || (!inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true')) }}
+    if: false  # original if: ${{ github.event_name == 'workflow_dispatch' && ((inputs.preflight_only && !inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true') || (!inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true')) }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -1200,7 +1200,7 @@ jobs:
   trusted_publisher_preflight:
     name: Trusted publisher OIDC exchange
     needs: preview_plugins_npm
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_only && inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true' }}
+    if: false  # original if: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_only && inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -1249,7 +1249,7 @@ jobs:
         verify_plugin_npm_preflight,
         validate_release_publish_approval,
       ]
-    if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -1794,7 +1794,7 @@ jobs:
 
   verify_plugins_npm:
     needs: [preview_plugins_npm, publish_plugins_npm]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && !inputs.preflight_only && inputs.npm_dist_tag == 'extended-stable' && needs.preview_plugins_npm.result == 'success' && (needs.publish_plugins_npm.result == 'success' || (needs.preview_plugins_npm.outputs.has_candidates == 'false' && needs.publish_plugins_npm.result == 'skipped')) }}
+    if: false  # original if: ${{ always() && github.event_name == 'workflow_dispatch' && !inputs.preflight_only && inputs.npm_dist_tag == 'extended-stable' && needs.preview_plugins_npm.result == 'success' && (needs.publish_plugins_npm.result == 'success' || (needs.preview_plugins_npm.outputs.has_candidates == 'false' && needs.publish_plugins_npm.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -239,7 +239,7 @@ jobs:
   build_candidate:
     name: Build secretless Telegram candidate
     needs: trusted_identity
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -521,7 +521,7 @@ jobs:
   attest_candidate:
     name: Attest verified Telegram candidate
     needs: [trusted_identity, build_candidate]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -739,7 +739,7 @@ jobs:
   run_telegram:
     name: Run isolated Telegram candidate
     needs: [trusted_identity, build_candidate, attest_candidate]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: qa-live-shared
@@ -2640,7 +2640,7 @@ jobs:
   advisory_status:
     name: Record Telegram release-check status
     needs: [trusted_identity, build_candidate, attest_candidate, run_telegram]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

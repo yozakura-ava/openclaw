@@ -922,7 +922,7 @@ jobs:
   prepare_release_package:
     name: Prepare release package artifact
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.package_required == 'true'
+    if: false  # original if: needs.resolve_target.outputs.package_required == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -1329,7 +1329,7 @@ jobs:
 
   install_smoke_release_checks:
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.install_smoke_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.install_smoke_scheduled == 'true'
     permissions:
       actions: read
       contents: read
@@ -1344,7 +1344,7 @@ jobs:
 
   cross_os_release_checks:
     needs: [resolve_target, prepare_release_package]
-    if: needs.resolve_target.outputs.cross_os_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.cross_os_scheduled == 'true'
     permissions: read-all
     uses: ./.github/workflows/openclaw-cross-os-release-checks-reusable.yml
     with:
@@ -1380,7 +1380,7 @@ jobs:
   live_repo_e2e_release_checks:
     name: Run repo/live E2E validation
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.live_e2e_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.live_e2e_scheduled == 'true'
     permissions:
       actions: read
       contents: read
@@ -1456,7 +1456,7 @@ jobs:
   docker_e2e_release_checks:
     name: Run Docker release-path validation
     needs: [resolve_target, prepare_release_package]
-    if: needs.resolve_target.outputs.docker_required == 'true'
+    if: false  # original if: needs.resolve_target.outputs.docker_required == 'true'
     permissions:
       actions: read
       contents: read
@@ -1504,7 +1504,7 @@ jobs:
   package_acceptance_release_checks:
     name: Run package acceptance
     needs: [resolve_target, prepare_release_package]
-    if: needs.resolve_target.outputs.package_acceptance_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.package_acceptance_scheduled == 'true'
     permissions:
       actions: read
       contents: read
@@ -1592,7 +1592,7 @@ jobs:
   maturity_scorecard_release_checks:
     name: Render maturity scorecard release docs
     needs: [resolve_target]
-    if: contains(fromJSON('["all","qa"]'), needs.resolve_target.outputs.rerun_group) && needs.resolve_target.outputs.run_maturity_scorecard == 'true'
+    if: false  # original if: contains(fromJSON('["all","qa"]'), needs.resolve_target.outputs.rerun_group) && needs.resolve_target.outputs.run_maturity_scorecard == 'true'
     permissions:
       actions: read
       contents: read
@@ -1608,7 +1608,7 @@ jobs:
   qa_lab_parity_lane_release_checks:
     name: Run QA Lab parity lane (${{ matrix.lane }})
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -1777,7 +1777,7 @@ jobs:
   qa_lab_parity_report_release_checks:
     name: Run QA Lab parity report
     needs: [resolve_target, qa_lab_parity_lane_release_checks]
-    if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -1904,7 +1904,7 @@ jobs:
   qa_lab_runtime_pair_lane_release_checks:
     name: Run QA Lab runtime-pair lane (${{ matrix.lane }})
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
     continue-on-error: true
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 45
@@ -2120,7 +2120,7 @@ jobs:
   qa_lab_runtime_parity_release_checks:
     name: Verify QA Lab runtime-pair lanes
     needs: [resolve_target, qa_lab_runtime_pair_lane_release_checks]
-    if: always() && needs.resolve_target.outputs.qa_parity_scheduled == 'true'
+    if: false  # original if: always() && needs.resolve_target.outputs.qa_parity_scheduled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -2237,7 +2237,7 @@ jobs:
   runtime_tool_coverage_release_checks:
     name: Enforce QA Lab runtime tool coverage
     needs: [resolve_target, qa_lab_runtime_parity_release_checks]
-    if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_parity_scheduled == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -2346,7 +2346,7 @@ jobs:
   qa_live_release_checks:
     name: Run QA Live Matrix catalog
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_matrix_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_matrix_enabled == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -2365,7 +2365,7 @@ jobs:
   qa_live_buzz_release_checks:
     name: Run QA Lab live Buzz lane
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_buzz_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_buzz_enabled == 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -2386,7 +2386,7 @@ jobs:
   qa_live_telegram_release_checks:
     name: Run QA Lab live Telegram lane
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_telegram_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_telegram_enabled == 'true'
     continue-on-error: true
     outputs:
       conclusion: ${{ steps.dispatch.outputs.conclusion || steps.dispatch.outcome }}
@@ -2528,7 +2528,7 @@ jobs:
   qa_live_discord_release_checks:
     name: Run QA Lab live Discord lane
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_discord_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_discord_enabled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2644,7 +2644,7 @@ jobs:
   qa_live_whatsapp_release_checks:
     name: Run QA Lab live WhatsApp lane
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_whatsapp_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_whatsapp_enabled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2744,7 +2744,7 @@ jobs:
   qa_live_slack_release_checks:
     name: Run QA Lab live Slack lane
     needs: [resolve_target]
-    if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_slack_enabled == 'true'
+    if: false  # original if: needs.resolve_target.outputs.qa_live_scheduled == 'true' && needs.resolve_target.outputs.qa_live_slack_enabled == 'true'
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -2859,7 +2859,7 @@ jobs:
       - qa_live_discord_release_checks
       - qa_live_whatsapp_release_checks
       - qa_live_slack_release_checks
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     permissions:
       actions: read

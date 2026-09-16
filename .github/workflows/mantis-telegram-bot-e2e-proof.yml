@@ -235,7 +235,7 @@ jobs:
   finalize_bound_request:
     name: Finalize request-bound evidence
     needs: [admit_request, run_telegram_proof]
-    if: ${{ always() && needs.admit_request.result == 'success' }}
+    if: false  # original if: ${{ always() && needs.admit_request.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

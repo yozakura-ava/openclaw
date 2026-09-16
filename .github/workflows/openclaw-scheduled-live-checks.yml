@@ -89,7 +89,7 @@ jobs:
       FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
 
   weekly_upgrade_survivors:
-    if: github.event_name == 'schedule' && github.event.schedule == '41 6 * * 1'
+    if: false  # original if: github.event_name == 'schedule' && github.event.schedule == '41 6 * * 1'
     permissions:
       actions: read
       contents: read

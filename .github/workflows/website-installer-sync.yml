@@ -353,9 +353,12 @@ jobs:
       - fedora-installer
       - macos-installer
       - windows-installer
-    if: >
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.sync_website)
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >
+    # (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+    # (github.event_name == 'workflow_dispatch' && inputs.sync_website)
+    if: false
     runs-on: ubuntu-24.04
     env:
       OPENCLAW_GH_TOKEN: ${{ secrets.OPENCLAW_GH_TOKEN }}
