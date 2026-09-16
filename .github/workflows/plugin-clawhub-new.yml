@@ -59,6 +59,8 @@ env:
 
 jobs:
   resolve_bootstrap_plan:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

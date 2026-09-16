@@ -29,6 +29,8 @@ permissions:
 
 jobs:
   scan:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Scan changed paths (precise)
     if: ${{ !github.event.pull_request.draft }}
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || github.event.pull_request.head.repo.full_name == 'openclaw/openclaw' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}

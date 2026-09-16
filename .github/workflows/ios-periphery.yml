@@ -27,6 +27,8 @@ permissions:
 
 jobs:
   scope:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Detect iOS scan scope
     if: github.repository == 'openclaw/openclaw'
     runs-on: ubuntu-24.04

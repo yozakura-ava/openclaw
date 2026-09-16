@@ -49,6 +49,8 @@ env:
 
 jobs:
   build:
+        if: ${{ false }}
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Build repo E2E (${{ inputs.build_profile }})
     continue-on-error: ${{ inputs.advisory }}
     runs-on: ${{ inputs.use_github_hosted_runners && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
