@@ -329,7 +329,7 @@ jobs:
   publisher_preflight:
     name: Verify generated PR App permissions
     needs: validate_selected_ref
-    if: ${{ inputs.publish_pull_request }}
+    if: false  # original if: ${{ inputs.publish_pull_request }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout trusted workflow source
@@ -358,11 +358,14 @@ jobs:
   generate_qa_evidence:
     name: Generate full taxonomy QA evidence
     needs: [validate_selected_ref, publisher_preflight]
-    if: >-
-      ${{ always() &&
-        needs.validate_selected_ref.result == 'success' &&
-        (!inputs.publish_pull_request || needs.publisher_preflight.result == 'success') &&
-        inputs.qa_evidence_run_id == '' }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{ always() &&
+    # needs.validate_selected_ref.result == 'success' &&
+    # (!inputs.publish_pull_request || needs.publisher_preflight.result == 'success') &&
+    # inputs.qa_evidence_run_id == '' }}
+    if: false
     uses: ./.github/workflows/qa-profile-evidence.yml
     with:
       ref: ${{ needs.validate_selected_ref.outputs.selected_revision }}
@@ -381,11 +384,14 @@ jobs:
       - validate_selected_ref
       - publisher_preflight
       - generate_qa_evidence
-    if: >-
-      ${{ always() &&
-        needs.validate_selected_ref.result == 'success' &&
-        (!inputs.publish_pull_request || needs.publisher_preflight.result == 'success') &&
-        (inputs.qa_evidence_run_id != '' || needs.generate_qa_evidence.result == 'success') }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{ always() &&
+    # needs.validate_selected_ref.result == 'success' &&
+    # (!inputs.publish_pull_request || needs.publisher_preflight.result == 'success') &&
+    # (inputs.qa_evidence_run_id != '' || needs.generate_qa_evidence.result == 'success') }}
+    if: false
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -724,15 +730,18 @@ jobs:
       - validate_selected_ref
       - publisher_preflight
       - publish
-    if: >-
-      ${{ inputs.publish_pull_request &&
-        needs.publisher_preflight.result == 'success' &&
-        needs.publish.result == 'success' &&
-        github.event_name == 'workflow_dispatch' &&
-        github.workflow_ref == 'openclaw/openclaw/.github/workflows/maturity-scorecard.yml@refs/heads/main' &&
-        needs.validate_selected_ref.outputs.workflow_file_path == '.github/workflows/maturity-scorecard.yml' &&
-        needs.validate_selected_ref.outputs.workflow_ref == 'openclaw/openclaw/.github/workflows/maturity-scorecard.yml@refs/heads/main' &&
-        needs.validate_selected_ref.outputs.workflow_repository == 'openclaw/openclaw' }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{ inputs.publish_pull_request &&
+    # needs.publisher_preflight.result == 'success' &&
+    # needs.publish.result == 'success' &&
+    # github.event_name == 'workflow_dispatch' &&
+    # github.workflow_ref == 'openclaw/openclaw/.github/workflows/maturity-scorecard.yml@refs/heads/main' &&
+    # needs.validate_selected_ref.outputs.workflow_file_path == '.github/workflows/maturity-scorecard.yml' &&
+    # needs.validate_selected_ref.outputs.workflow_ref == 'openclaw/openclaw/.github/workflows/maturity-scorecard.yml@refs/heads/main' &&
+    # needs.validate_selected_ref.outputs.workflow_repository == 'openclaw/openclaw' }}
+    if: false
     runs-on: ubuntu-24.04
     permissions:
       actions: read

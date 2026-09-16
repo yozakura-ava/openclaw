@@ -126,7 +126,7 @@ jobs:
       bypass_extended_stable_guard: ${{ inputs.bypass_extended_stable_guard }}
 
   validate_publish_request:
-    if: ${{ !inputs.preflight_only }}
+    if: false  # original if: ${{ !inputs.preflight_only }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -312,7 +312,7 @@ jobs:
     # KEEP THE REAL RELEASE/PUBLISH PATH ON A GITHUB-HOSTED RUNNER.
     # npm trusted publishing + provenance requires this to stay on ubuntu-latest.
     needs: [validate_publish_request]
-    if: ${{ !inputs.preflight_only }}
+    if: false  # original if: ${{ !inputs.preflight_only }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:

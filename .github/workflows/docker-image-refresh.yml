@@ -121,7 +121,7 @@ jobs:
   publish:
     name: Refresh ${{ matrix.channel }} Docker images
     needs: plan
-    if: needs.plan.outputs.dry_run != 'true'
+    if: false  # original if: needs.plan.outputs.dry_run != 'true'
     strategy:
       fail-fast: false
       matrix:

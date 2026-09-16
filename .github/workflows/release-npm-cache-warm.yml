@@ -18,7 +18,7 @@ jobs:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     # New release-ci refs cannot read a sibling ref's cache. Scheduled main runs
     # publish portable npm downloads without executing package lifecycle hooks.
-    if: ${{ github.repository == 'openclaw/openclaw' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    if: false  # original if: ${{ github.repository == 'openclaw/openclaw' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

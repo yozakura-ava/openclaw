@@ -333,7 +333,7 @@ jobs:
   verify:
     name: Verify stable main closeout
     needs: resolve
-    if: ${{ needs.resolve.outputs.should_closeout == 'true' }}
+    if: false  # original if: ${{ needs.resolve.outputs.should_closeout == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:

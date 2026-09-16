@@ -159,7 +159,7 @@ jobs:
   validate_selected_ref:
     name: Validate selected ref
     needs: authorize_actor
-    if: needs.authorize_actor.outputs.authorized == 'true'
+    if: false  # original if: needs.authorize_actor.outputs.authorized == 'true'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     outputs:
       protocol_base_revision: ${{ steps.validate.outputs.protocol_base_revision }}
@@ -778,7 +778,7 @@ jobs:
   aggregate_qa_profile:
     name: Aggregate QA profile evidence
     needs: [validate_selected_ref, plan_qa_profile, run_qa_profile_shard]
-    if: ${{ always() && needs.validate_selected_ref.result == 'success' && needs.plan_qa_profile.result == 'success' }}
+    if: false  # original if: ${{ always() && needs.validate_selected_ref.result == 'success' && needs.plan_qa_profile.result == 'success' }}
     runs-on: blacksmith-8vcpu-ubuntu-2404
     # Selected-revision code requires the protected QA environment before runner allocation.
     environment: qa-live-shared

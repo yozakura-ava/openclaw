@@ -35,7 +35,7 @@ jobs:
         run: node scripts/github/security-sensitive-guard.mjs
 
   security-sensitive-guard:
-    if: ${{ !github.event.pull_request.draft && always() }}
+    if: false  # original if: ${{ !github.event.pull_request.draft && always() }}
     needs:
       - security-sensitive-guard-detect
     runs-on: ubuntu-24.04

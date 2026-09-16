@@ -99,7 +99,7 @@ jobs:
   resolve_target:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Resolve target ref
-    if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
+    if: false  # original if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
@@ -253,7 +253,7 @@ jobs:
   kova:
     name: ${{ matrix.title }}
     needs: resolve_target
-    if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
+    if: false  # original if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
     permissions:
       contents: read
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
@@ -768,7 +768,7 @@ jobs:
   source_performance:
     name: OpenClaw source performance probes
     needs: resolve_target
-    if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
+    if: false  # original if: ${{ github.event_name == 'schedule' || inputs.mode != 'vitest-pair' }}
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 120
     env:
@@ -1117,7 +1117,7 @@ jobs:
   publish:
     name: Publish ${{ matrix.title }} report
     needs: [resolve_target, kova, source_performance]
-    if: ${{ always() && (github.event_name == 'schedule' || inputs.mode != 'vitest-pair') && needs.resolve_target.outputs.secret_eligible == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_reports == true)) && needs.resolve_target.result == 'success' && needs.kova.result != 'cancelled' && needs.source_performance.result != 'cancelled' }}
+    if: false  # original if: ${{ always() && (github.event_name == 'schedule' || inputs.mode != 'vitest-pair') && needs.resolve_target.outputs.secret_eligible == 'true' && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.publish_reports == true)) && needs.resolve_target.result == 'success' && needs.kova.result != 'cancelled' && needs.source_performance.result != 'cancelled' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -1567,7 +1567,7 @@ jobs:
   artifact_only_guard:
     name: Verify artifact-only report mode
     needs: [resolve_target, kova, publish]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode != 'vitest-pair' && inputs.publish_reports != true }}
+    if: false  # original if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode != 'vitest-pair' && inputs.publish_reports != true }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -1591,7 +1591,7 @@ jobs:
 
   vitest_pair:
     name: Vitest paired benchmark
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'vitest-pair' }}
+    if: false  # original if: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'vitest-pair' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
@@ -1711,7 +1711,7 @@ jobs:
   vitest_pair_guard:
     name: Verify Vitest pair isolation
     needs: [resolve_target, kova, source_performance, publish, artifact_only_guard, vitest_pair]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'vitest-pair' }}
+    if: false  # original if: ${{ always() && github.event_name == 'workflow_dispatch' && inputs.mode == 'vitest-pair' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

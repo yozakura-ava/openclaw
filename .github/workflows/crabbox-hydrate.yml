@@ -39,7 +39,7 @@ jobs:
   hydrate:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: hydrate
-    if: ${{ inputs.crabbox_job != 'hydrate-github' && inputs.crabbox_job != 'hydrate-windows-daemon' }}
+    if: false  # original if: ${{ inputs.crabbox_job != 'hydrate-github' && inputs.crabbox_job != 'hydrate-windows-daemon' }}
     runs-on: [self-hosted, "${{ inputs.crabbox_runner_label }}"]
     timeout-minutes: 120
     steps:
@@ -432,7 +432,7 @@ jobs:
 
   hydrate-windows-daemon:
     name: hydrate-windows-daemon
-    if: ${{ inputs.crabbox_job == 'hydrate-windows-daemon' }}
+    if: false  # original if: ${{ inputs.crabbox_job == 'hydrate-windows-daemon' }}
     runs-on: [self-hosted, "${{ inputs.crabbox_runner_label }}"]
     timeout-minutes: 120
     steps:
@@ -665,7 +665,7 @@ jobs:
 
   hydrate-github:
     name: hydrate-github
-    if: ${{ inputs.crabbox_job == 'hydrate-github' }}
+    if: false  # original if: ${{ inputs.crabbox_job == 'hydrate-github' }}
     runs-on: [self-hosted, "${{ inputs.crabbox_runner_label }}"]
     timeout-minutes: 120
     steps:

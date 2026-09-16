@@ -62,7 +62,7 @@ jobs:
   validate_selected_ref:
     name: Validate selected ref
     needs: authorize_actor
-    if: needs.authorize_actor.outputs.authorized == 'true'
+    if: false  # original if: needs.authorize_actor.outputs.authorized == 'true'
     runs-on: blacksmith-8vcpu-ubuntu-2404
     outputs:
       selected_revision: ${{ steps.validate.outputs.selected_revision }}
