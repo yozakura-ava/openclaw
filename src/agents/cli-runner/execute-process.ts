@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { shouldLogVerbose } from "../../globals.js";
+import { emitAgentEvent } from "../../infra/agent-events.js";
 import {
   resolveEventSessionKeyForPolicy,
   resolveEventSessionRoutingPolicy,
@@ -25,7 +26,7 @@ import {
   createCliFailoverError,
   resolveCliResumeAtError,
 } from "./exit-error.js";
-import { buildCliSupervisorScopeKey } from "./helpers.js";
+import { buildCliSupervisorScopeKey, resolveCliWatchdogBehavior } from "./helpers.js";
 import { cliBackendLog, formatCliBackendOutputDigest } from "./log.js";
 import type { createClaudeCliModelCallDiagnostics } from "./model-call-diagnostics.js";
 import {
@@ -467,6 +468,38 @@ export async function executeCliProcess(params: {
         Boolean(context.openClawHistoryPrompt) &&
         Boolean(runParams.sessionKey) &&
         runParams.timeoutMs - (Date.now() - context.started) > 0;
+      // #126 mitigation: explicit abort lifecycle event + disable-silent-redispatch
+      // honor per-backend watchdog behavior flags. Resolved here so the
+      // emission happens at the same boundary as the existing stall notice.
+      const watchdogBehavior = resolveCliWatchdogBehavior(backend);
+      if (watchdogBehavior.emitAbortLifecycleEvent) {
+        emitAgentEvent({
+          runId: runParams.runId,
+          ...(runParams.sessionKey ? { sessionKey: runParams.sessionKey } : {}),
+          ...(runParams.sessionId ? { sessionId: runParams.sessionId } : {}),
+          stream: "lifecycle",
+          data: {
+            phase: "abort",
+            reason: "cli:watchdog:stall",
+            timeoutSeconds,
+            thresholdMs: params.noOutputTimeoutMs,
+            observedActivity,
+            retryable,
+            kind: "subagent",
+            provider: runParams.provider,
+            model: context.modelId,
+          },
+        });
+      }
+      if (watchdogBehavior.disableSilentRedispatch && retryable) {
+        // Clear retryable code so the failover scheduler cannot silently
+        // re-dispatch this run. Operators who want redispatch must unset the
+        // flag explicitly.
+        const err = timeoutDecision.error as FailoverError & { code?: string };
+        if (err && typeof err === "object" && "code" in err) {
+          err.code = undefined;
+        }
+      }
       if (runParams.sessionKey && params.events.emitLiveEvents && !deferNotice) {
         const stallNotice = [
           `CLI agent (${runParams.provider}) produced no output for ${timeoutSeconds}s and was terminated.`,

@@ -49,6 +49,7 @@ export {
   buildCliSupervisorScopeKey,
   resolveCliNoOutputTimeoutMs,
   resolveCliRunTimeoutOverrideMs,
+  resolveCliWatchdogBehavior,
 } from "./reliability.js";
 
 const CLI_RUN_QUEUE = new KeyedAsyncQueue();

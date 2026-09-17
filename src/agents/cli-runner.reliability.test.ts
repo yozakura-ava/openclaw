@@ -71,6 +71,7 @@ import { wrapPreparedCliRunWithTestAdmission } from "./cli-runner/execute.test-s
 import {
   resolveCliNoOutputTimeoutMs,
   resolveCliRunTimeoutOverrideMs,
+  resolveCliWatchdogBehavior,
 } from "./cli-runner/helpers.js";
 import { prepareCliRunContext } from "./cli-runner/prepare.js";
 import { hashCliReseedPrompt } from "./cli-runner/reseed-envelope.js";
@@ -4767,6 +4768,131 @@ describe("resolveCliNoOutputTimeoutMs", () => {
       trigger: "cron",
     });
     expect(timeoutMs).toBe(120_000);
+  });
+
+  // #126 mitigation: modelCallInFlight flag extends the resolved watchdog
+  // threshold so a slow-starting provider is not aborted as a dead CLI.
+  it("extends the watchdog threshold when a model call is in flight", () => {
+    const base = resolveCliNoOutputTimeoutMs({
+      backend: { command: "agent-cli" },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+    });
+    const extended = resolveCliNoOutputTimeoutMs({
+      backend: { command: "agent-cli" },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+      modelCallInFlight: true,
+    });
+    // Default fresh profile extendOnModelCallMs is 120s.
+    expect(extended - base).toBe(120_000);
+  });
+
+  it("respects per-backend extendOnModelCallMs override", () => {
+    const extended = resolveCliNoOutputTimeoutMs({
+      backend: {
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            fresh: { extendOnModelCallMs: 30_000 },
+          },
+        },
+      },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+      modelCallInFlight: true,
+    });
+    const base = resolveCliNoOutputTimeoutMs({
+      backend: {
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            fresh: { extendOnModelCallMs: 30_000 },
+          },
+        },
+      },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+    });
+    expect(extended - base).toBe(30_000);
+  });
+
+  it("does not extend when extendOnModelCallMs is zero", () => {
+    const base = resolveCliNoOutputTimeoutMs({
+      backend: {
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            fresh: { extendOnModelCallMs: 0 },
+          },
+        },
+      },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+    });
+    const extended = resolveCliNoOutputTimeoutMs({
+      backend: {
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            fresh: { extendOnModelCallMs: 0 },
+          },
+        },
+      },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+      modelCallInFlight: true,
+    });
+    expect(extended).toBe(base);
+  });
+
+  it("honors explicit noOutputTimeoutMs over ratio-derived value", () => {
+    const timeoutMs = resolveCliNoOutputTimeoutMs({
+      backend: {
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            fresh: { noOutputTimeoutMs: 240_000 },
+          },
+        },
+      },
+      timeoutMs: 600_000,
+      useResume: false,
+      trigger: "user",
+    });
+    expect(timeoutMs).toBe(240_000);
+  });
+});
+
+describe("resolveCliWatchdogBehavior", () => {
+  it("returns explicit defaults when no backend watchdog config is set", () => {
+    expect(resolveCliWatchdogBehavior({ command: "agent-cli" })).toEqual({
+      emitAbortLifecycleEvent: true,
+      disableSilentRedispatch: false,
+    });
+  });
+
+  it("honors explicit backend overrides", () => {
+    expect(
+      resolveCliWatchdogBehavior({
+        command: "agent-cli",
+        reliability: {
+          watchdog: {
+            emitAbortLifecycleEvent: false,
+            disableSilentRedispatch: true,
+          },
+        },
+      }),
+    ).toEqual({
+      emitAbortLifecycleEvent: false,
+      disableSilentRedispatch: true,
+    });
   });
 });
 
