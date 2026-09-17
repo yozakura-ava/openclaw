@@ -109,8 +109,8 @@ function validateWorkboardManifest(
     );
     for (const name of declaredNames) {
       const entry = metadata[name];
-      if (!isRecord(entry) || entry.optional !== true) {
-        errors.push(`Workboard manifest toolMetadata.${name}.optional must be true`);
+      if (!isRecord(entry) || entry.optional !== false) {
+        errors.push(`Workboard manifest toolMetadata.${name}.optional must be false`);
       }
     }
   }
@@ -139,8 +139,8 @@ export function collectWorkboardSourceContractErrors(rootDir: string): string[] 
     if (!/names\s*:\s*\[\.\.\.WORKBOARD_TOOL_NAMES\s*\]/u.test(runtime)) {
       errors.push("Workboard runtime registration must use WORKBOARD_TOOL_NAMES");
     }
-    if (!/optional\s*:\s*true/u.test(runtime)) {
-      errors.push("Workboard runtime registration must declare optional: true");
+    if (!/optional\s*:\s*false/u.test(runtime)) {
+      errors.push("Workboard runtime registration must declare optional: false");
     }
   }
   return errors;
