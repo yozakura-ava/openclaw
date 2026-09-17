@@ -57,8 +57,22 @@ async function moveTo(
   // public move helper to keep this test focused on the auto-release path.
   const existing = await store.get(id);
   if (!existing) throw new Error(`test fixture missing: ${id}`);
-  await store.updateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
+  await updateCardExposed(store).updateCard(
+    id,
+    { status },
+    { expectedUpdatedAt: existing.updatedAt },
+  );
 }
+
+type UpdateCardExposed = {
+  updateCard: (
+    id: string,
+    patch: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ) => Promise<unknown>;
+};
+const updateCardExposed = (store: unknown): UpdateCardExposed =>
+  store as WorkboardCoreStore & UpdateCardExposed;
 
 describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   beforeEach(() => {
