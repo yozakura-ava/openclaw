@@ -895,7 +895,6 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           kind: "claim_auto_released",
           fromStatus: existing.status,
           toStatus: status,
-          actor: "store",
           at: releasedAt,
         },
         releasedAt,
@@ -920,8 +919,8 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
           {
-            maxClaimsPerOwner: options.maxClaimsPerOwner,
-            laneAware: options.laneAware,
+            maxClaimsPerOwner: options.maxClaimsPerOwner ?? undefined,
+            laneAware: options.laneAware ?? undefined,
           },
         );
         if (typeof result === "object" && result.kind === "owner_busy") {
