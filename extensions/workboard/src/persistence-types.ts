@@ -42,7 +42,23 @@ export type WorkboardBoardCardAggregate = {
   updatedAt: number;
 };
 
-export type WorkboardOwnerClaimResult = "updated" | "conflict" | "owner_busy";
+// PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+// owner_busy is now an object so the rejection message can name the
+// conflicting cards (acceptance criterion #3). "updated" / "conflict"
+// remain string literals for backwards compat with existing callers that
+// compare with ===.
+export type WorkboardOwnerClaimBusy = {
+  kind: "owner_busy";
+  lane: string;
+  conflicting: ReadonlyArray<{
+    id: string;
+    title: string;
+    ownerId: string;
+    lane: string;
+  }>;
+};
+
+export type WorkboardOwnerClaimResult = "updated" | "conflict" | WorkboardOwnerClaimBusy;
 
 export type WorkboardCardStore = WorkboardKeyedStore & {
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
