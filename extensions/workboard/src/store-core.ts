@@ -878,8 +878,12 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     // terminal/review/blocked status. The acceptance criterion requires
     // "moving a card to terminal/review state auto-releases its claim
     // (read-back verified)". Skip when no claim is attached to avoid
-    // emitting a redundant event.
+    // emitting a redundant event. Gate on a real status transition so
+    // re-claiming a card that is already in a terminal/review/blocked
+    // status does not immediately strip the freshly written claim
+    // (rework r3, AC: reclaim() must surface claim metadata).
     if (
+      status !== existing.status &&
       (status === "done" || status === "review" || status === "blocked") &&
       next.metadata?.claim
     ) {
