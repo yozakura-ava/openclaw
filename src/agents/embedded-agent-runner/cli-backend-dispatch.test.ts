@@ -8,13 +8,16 @@ import {
   loadTranscriptEventsSync,
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
-import { emitAgentEvent } from "../../infra/agent-events.js";
+import { emitAgentEvent, onAgentEventForRun } from "../../infra/agent-events.js";
 import { createTestAdmittedRunContext } from "../admitted-run-context.test-support.js";
 import { loadCliSessionHistoryMessages } from "../cli-runner/session-history.js";
 import type { RunCliAgentParams } from "../cli-runner/types.js";
 import { SessionManager } from "../sessions/index.js";
 import { resolveEmbeddedCliBackendDispatchEligibility } from "./cli-backend-dispatch-eligibility.js";
-import { runEmbeddedAgentViaCliBackendIfEligible } from "./cli-backend-dispatch.js";
+import {
+  EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+  runEmbeddedAgentViaCliBackendIfEligible,
+} from "./cli-backend-dispatch.js";
 import type { EmbeddedAgentRunResult } from "./types.js";
 
 const ensureAuthProfileStore = vi.hoisted(() => vi.fn());
@@ -502,6 +505,73 @@ describe("runEmbeddedAgentViaCliBackendIfEligible execution", () => {
     );
     expect(onExecutionStarted).toHaveBeenCalledTimes(1);
     expect(onExecutionStarted).toHaveBeenCalledWith({ lifecycleGeneration: "gen-1" });
+  });
+
+  // #127 warmup marker: orchestrators must be able to distinguish slow-start
+  // (dispatch has fired, no first token yet) from death (no event at all).
+  // The marker must fire before runCliAgent is awaited so the watchdog's
+  // slow-start window can be armed off it. Upstream-track for #58776.
+  it("emits a warmup lifecycle marker at embedded CLI-backend dispatch start", async () => {
+    runCliAgent.mockImplementation(async () => {
+      const warmupEvents = captured.filter(
+        (evt) =>
+          evt.stream === "lifecycle" && evt.data?.phase === EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+      );
+      expect(warmupEvents).toHaveLength(1);
+      return cliRunResult();
+    });
+    const captured: Array<{ stream: string; data: Record<string, unknown> }> = [];
+    runCliAgent.mockImplementationOnce(async () => {
+      // No assertions here; the second mock above is the one that runs.
+      return cliRunResult();
+    });
+    const runId = "run-cli-dispatch-warmup";
+    const params = baseRunParams({
+      runId,
+      agentId: "main",
+      lifecycleGeneration: "gen-warmup",
+    });
+    const unsubscribe = onAgentEventForRun(runId, (evt) => {
+      captured.push({ stream: evt.stream, data: evt.data as Record<string, unknown> });
+    });
+    try {
+      await runEmbeddedAgentViaCliBackendIfEligible(params);
+    } finally {
+      unsubscribe();
+    }
+    const warmup = captured.filter(
+      (evt) => evt.stream === "lifecycle" && evt.data?.phase === EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+    );
+    expect(warmup).toHaveLength(1);
+    expect(warmup[0]?.data).toMatchObject({
+      phase: EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+      kind: "subagent",
+      provider: "claude-cli",
+      model: "claude-opus-4-8",
+    });
+    expect(typeof warmup[0]?.data.dispatchedAt).toBe("number");
+    expect(warmup[0]?.data.dispatchedAt).toBeGreaterThan(0);
+  });
+
+  it("does not emit the warmup marker when the CLI backend is not eligible", async () => {
+    const captured: Array<{ stream: string; data: Record<string, unknown> }> = [];
+    const runId = "run-cli-dispatch-warmup-skipped";
+    const unsubscribe = onAgentEventForRun(runId, (evt) => {
+      captured.push({ stream: evt.stream, data: evt.data as Record<string, unknown> });
+    });
+    try {
+      // No toolsAllow → fail-closed gate → dispatch is skipped entirely.
+      const result = await runEmbeddedAgentViaCliBackendIfEligible(
+        baseRunParams({ runId, toolsAllow: [] }),
+      );
+      expect(result).toBeUndefined();
+    } finally {
+      unsubscribe();
+    }
+    const warmup = captured.filter(
+      (evt) => evt.stream === "lifecycle" && evt.data?.phase === EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+    );
+    expect(warmup).toHaveLength(0);
   });
 
   it("retains the prepared vision capability with ordered prompt images and media", async () => {
