@@ -58,6 +58,16 @@ function fixtureReadyCard(index: number): WorkboardCard {
   };
 }
 
+type UpdateCardExposed = {
+  updateCard: (
+    id: string,
+    patch: Record<string, unknown>,
+    options?: Record<string, unknown>,
+  ) => Promise<unknown>;
+};
+const updateCardExposed = (store: unknown): UpdateCardExposed =>
+  store as WorkboardCoreStore & UpdateCardExposed;
+
 describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -159,7 +169,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
       expect(claimed?.metadata?.claim?.ownerId).toBe("reina:sprint-foo");
 
       // Move to "done" — must auto-release the claim and emit the event.
-      await store.updateCard(
+      await updateCardExposed(store).updateCard(
         card.id,
         { status: "done" },
         { expectedUpdatedAt: claimed!.updatedAt },
