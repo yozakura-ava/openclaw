@@ -13,7 +13,7 @@
  */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { SessionTranscriptRuntimeTarget } from "../../config/sessions/session-accessor.js";
-import { onAgentEventForRun } from "../../infra/agent-events.js";
+import { emitAgentEvent, onAgentEventForRun } from "../../infra/agent-events.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { resolvePreparedRunAdmission } from "../admitted-run-context.js";
 import { stripOpenClawMcpToolPrefix } from "../cli-runner/tool-policy.js";
@@ -25,6 +25,16 @@ import type { RunEmbeddedAgentParams } from "./run/params.js";
 import type { EmbeddedAgentRunResult } from "./types.js";
 
 const log = createSubsystemLogger("agents/embedded-cli-dispatch");
+
+/**
+ * Phase name for the warmup/first-token activity marker emitted at embedded
+ * CLI-backend dispatch start. Upstream-track for openclaw/openclaw#58776:
+ * the marker lets orchestrators/watchdogs distinguish a slow-starting model
+ * call (no first token yet, but we are waiting on the provider) from a dead
+ * CLI child (no first token and the process is gone). The marker fires
+ * synchronously at dispatch start, before `runCliAgent` is awaited.
+ */
+export const EMBEDDED_CLI_BACKEND_WARMUP_PHASE = "warmup";
 
 type CliBackendDispatchParams = RunEmbeddedAgentParams & {
   sessionTarget: SessionTranscriptRuntimeTarget;
@@ -206,6 +216,25 @@ async function runEmbeddedAgentViaCliBackend(
   log.info(
     `dispatching embedded run through CLI backend: runId=${params.runId} provider=${dispatch.provider} model=${params.model ?? ""}`,
   );
+  // #127 warmup marker: declared-dispatch event so orchestrators can latch
+  // onto "we have fired, awaiting first token" before any assistant/tool
+  // traffic appears. Pairs with the watchdog's slow-start vs death test.
+  // Upstream-track for openclaw/openclaw#58776.
+  emitAgentEvent({
+    runId: params.runId,
+    ...(params.agentId ? { agentId: params.agentId } : {}),
+    ...(params.sessionKey ? { sessionKey: params.sessionKey } : {}),
+    ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+    ...(params.lifecycleGeneration ? { lifecycleGeneration: params.lifecycleGeneration } : {}),
+    stream: "lifecycle",
+    data: {
+      phase: EMBEDDED_CLI_BACKEND_WARMUP_PHASE,
+      dispatchedAt: Date.now(),
+      kind: "subagent",
+      provider: dispatch.provider,
+      model: params.model ?? null,
+    },
+  });
   let finalAssistantText: string | undefined;
   try {
     const result = await runCliAgent({
