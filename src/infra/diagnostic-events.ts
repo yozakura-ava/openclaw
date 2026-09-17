@@ -343,6 +343,29 @@ export type DiagnosticSessionStuckEvent = DiagnosticSessionAttentionBaseEvent & 
   classification: "stale_session_state";
 };
 
+/**
+ * Audit event emitted when a `blocked_tool_call` stall advances through the
+ * staged recovery policy (issue #84-H2). The three type literals match the
+ * names returned by `blockedToolCallStageAuditEvent()` so the audit log and
+ * the diagnostic event stream line up without translation.
+ */
+export type DiagnosticBlockedToolCallRecoveryAuditEvent = DiagnosticBaseEvent & {
+  type:
+    | "blocked_tool_call.recovery.nudge"
+    | "blocked_tool_call.recovery.auto_kill"
+    | "blocked_tool_call.recovery.escalate";
+  sessionKey?: string;
+  sessionId?: string;
+  classification: "blocked_tool_call";
+  activeWorkKind: "tool_call";
+  activeToolName?: string;
+  activeToolCallId?: string;
+  activeToolAgeMs?: number;
+  lastProgressAgeMs?: number;
+  thresholdMs: number;
+  reason?: string;
+};
+
 export type DiagnosticSessionRecoveryStatus =
   | "aborted"
   | "released"
@@ -855,6 +878,7 @@ export type DiagnosticEventPayload =
   | DiagnosticSessionLongRunningEvent
   | DiagnosticSessionStalledEvent
   | DiagnosticSessionStuckEvent
+  | DiagnosticBlockedToolCallRecoveryAuditEvent
   | DiagnosticSessionRecoveryRequestedEvent
   | DiagnosticSessionRecoveryCompletedEvent
   | DiagnosticSessionTurnCreatedEvent

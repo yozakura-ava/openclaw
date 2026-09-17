@@ -10,6 +10,13 @@ export type SessionState = {
   generation?: number;
   lastStuckWarnAgeMs?: number;
   lastLongRunningWarnAgeMs?: number;
+  /**
+   * Last recovery stage emitted for the `blocked_tool_call` audit stream
+   * (issue #84-H2). Persisted across ticks so a transition between
+   * `none → nudge → autoKill → escalate` fires each audit event exactly
+   * once, not on every heartbeat boundary.
+   */
+  lastBlockedToolCallRecoveryStage?: "none" | "nudge" | "autoKill" | "escalate";
   state: SessionStateValue;
   queueDepth: number;
   activeQueuedTurn?: boolean;
@@ -226,6 +233,7 @@ export function retireDiagnosticSessionObservations(): void {
     state.lastActivity = Date.now();
     state.lastStuckWarnAgeMs = undefined;
     state.lastLongRunningWarnAgeMs = undefined;
+    state.lastBlockedToolCallRecoveryStage = undefined;
   }
 }
 

@@ -13,7 +13,11 @@ import {
 } from "../infra/diagnostic-events.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
 import type { BlockedToolCallRecoveryPolicy } from "./blocked-tool-call-recovery-policy.js";
-import { resolveBlockedToolCallRecoveryPolicy } from "./blocked-tool-call-recovery-policy.js";
+import {
+  blockedToolCallStageAuditEvent,
+  resolveBlockedToolCallRecoveryPolicy,
+  resolveBlockedToolCallRecoveryStage,
+} from "./blocked-tool-call-recovery-policy.js";
 import { reconcileDiagnosticGcObserver, stopDiagnosticGcObserver } from "./diagnostic-gc.js";
 import { emitDiagnosticMemorySample, resetDiagnosticMemoryForTest } from "./diagnostic-memory.js";
 import {
@@ -511,11 +515,15 @@ function isActiveAbortRecoveryEligible(params: {
     classification.activeWorkKind === "tool_call"
   ) {
     // Prefer the staged policy's autoKill threshold (issue #84-H2) when the
-    // caller wires one in. The audit-event stream uses the same resolver
-    // so nudge → autoKill → escalate transition timestamps line up.
-    const policyAbortMs = blockedToolCallRecovery
-      ? blockedToolCallRecovery.autoKillAfterMs
-      : undefined;
+    // caller wires one in AND has not disabled it. The audit-event stream
+    // uses the same resolver so nudge → autoKill → escalate transition
+    // timestamps line up. A disabled policy falls through to the historical
+    // `stuckSessionAbortMs`-driven behavior so the operator's safety switch
+    // is honored even when an autoKillAfterMs threshold is configured.
+    const policyAbortMs =
+      blockedToolCallRecovery?.enabled === true
+        ? blockedToolCallRecovery.autoKillAfterMs
+        : undefined;
     const abortMs =
       policyAbortMs !== undefined
         ? policyAbortMs
@@ -1093,6 +1101,45 @@ function logSessionAttention(
       ...baseEvent,
       classification: "stale_session_state",
     });
+  }
+  // #84-H2 (Rin finding 1): emit a stage-aware audit event for
+  // `blocked_tool_call` stalls when the caller wired in a recovery policy.
+  // Each transition fires exactly one audit event; subsequent ticks at the
+  // same stage are suppressed so the audit log is monotonic. The tracker is
+  // always updated (even when stage is "none") so a fresh stall after a
+  // brief tool resume still emits a nudge event.
+  if (
+    classification.classification === "blocked_tool_call" &&
+    params.blockedToolCallRecovery &&
+    activity.activeToolAgeMs !== undefined
+  ) {
+    const stage = resolveBlockedToolCallRecoveryStage({
+      activeToolAgeMs: activity.activeToolAgeMs,
+      policy: params.blockedToolCallRecovery,
+    });
+    const auditEvent = blockedToolCallStageAuditEvent(stage);
+    const previousStage = state.lastBlockedToolCallRecoveryStage;
+    if (auditEvent && stage !== previousStage) {
+      emitDiagnosticEvent({
+        type: auditEvent,
+        sessionId: params.sessionId,
+        sessionKey: params.sessionKey,
+        classification: "blocked_tool_call",
+        activeWorkKind: "tool_call",
+        activeToolName: activity.activeToolName,
+        activeToolCallId: activity.activeToolCallId,
+        activeToolAgeMs: activity.activeToolAgeMs,
+        lastProgressAgeMs,
+        thresholdMs:
+          stage === "nudge"
+            ? params.blockedToolCallRecovery.nudgeAfterMs
+            : stage === "autoKill"
+              ? params.blockedToolCallRecovery.autoKillAfterMs
+              : params.blockedToolCallRecovery.escalateAfterMs,
+        reason: classification.reason,
+      });
+    }
+    state.lastBlockedToolCallRecoveryStage = stage;
   }
   markActivity();
   return recovery;
