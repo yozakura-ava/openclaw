@@ -388,6 +388,7 @@ export default {
     eventSpecified: "Specified",
     eventDecomposed: "Decomposed",
     eventClaimed: "Claimed",
+    eventClaimAutoReleased: "Claim auto-released",
     eventHeartbeat: "Heartbeat",
     eventExecutionUpdated: "Agent updated",
     eventAttemptStarted: "Attempt started",
