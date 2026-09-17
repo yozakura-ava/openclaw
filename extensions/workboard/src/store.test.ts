@@ -110,14 +110,18 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         }
         return updated;
       },
-      async claimIfOwnerAvailable(key, value, expectedUpdatedAt, ownerId, now) {
+      async claimIfOwnerAvailable(key, value, expectedUpdatedAt, ownerId, now, options) {
         await beforeWrite();
+        // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+        // Forward per-call options verbatim. Dropping them here would mask
+        // a regression in the runtime adapter chain.
         const result = await delegate.claimIfOwnerAvailable(
           key,
           value,
           expectedUpdatedAt,
           ownerId,
           now,
+          options,
         );
         if (result === "updated") {
           await afterWrite(key, value);
