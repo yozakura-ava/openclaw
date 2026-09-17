@@ -102,14 +102,20 @@ export class WorkboardStoreRuntime {
           }
           return deleted;
         }),
-      claimIfOwnerAvailable: (key, value, expectedUpdatedAt, ownerId, now) =>
+      claimIfOwnerAvailable: (key, value, expectedUpdatedAt, ownerId, now, options) =>
         this.runOperation(async () => {
+          // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+          // Forward the per-call claim options object verbatim so production
+          // SQLite honors WorkboardCoreStore.updateCard()'s maxClaimsPerOwner
+          // and laneAware overrides. Dropping `options` here would silently
+          // fall back to store defaults — see AC1/AC3 regression risk.
           const result = await store.claimIfOwnerAvailable(
             key,
             value,
             expectedUpdatedAt,
             ownerId,
             now,
+            options,
           );
           if (result === "updated") {
             this.mutationRevision += 1;
