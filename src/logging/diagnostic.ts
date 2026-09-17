@@ -12,6 +12,8 @@ import {
   type DiagnosticLivenessWarningReason,
 } from "../infra/diagnostic-events.js";
 import { createLazyRuntimeModule } from "../shared/lazy-runtime.js";
+import type { BlockedToolCallRecoveryPolicy } from "./blocked-tool-call-recovery-policy.js";
+import { resolveBlockedToolCallRecoveryPolicy } from "./blocked-tool-call-recovery-policy.js";
 import { reconcileDiagnosticGcObserver, stopDiagnosticGcObserver } from "./diagnostic-gc.js";
 import { emitDiagnosticMemorySample, resetDiagnosticMemoryForTest } from "./diagnostic-memory.js";
 import {
@@ -487,8 +489,15 @@ function isActiveAbortRecoveryEligible(params: {
   classification: SessionAttentionClassification | undefined;
   activity?: DiagnosticSessionActivitySnapshot;
   stuckSessionAbortMs: number;
+  /**
+   * #84-H2 mitigation: when provided, the staged blocked_tool_call recovery
+   * policy controls the abort threshold and audit-event emission. Falls
+   * back to the historical `stuckSessionAbortMs`-driven behavior when
+   * unset so existing call sites keep working unchanged.
+   */
+  blockedToolCallRecovery?: BlockedToolCallRecoveryPolicy;
 }): boolean {
-  const { activity, classification, stuckSessionAbortMs } = params;
+  const { activity, classification, stuckSessionAbortMs, blockedToolCallRecovery } = params;
   const lastProgressAgeMs = activity?.lastProgressAgeMs;
   if (
     !activity ||
@@ -501,7 +510,16 @@ function isActiveAbortRecoveryEligible(params: {
     classification.classification === "blocked_tool_call" &&
     classification.activeWorkKind === "tool_call"
   ) {
-    const abortMs = resolveRunStaleThresholdMs(activity, lastProgressAgeMs, stuckSessionAbortMs);
+    // Prefer the staged policy's autoKill threshold (issue #84-H2) when the
+    // caller wires one in. The audit-event stream uses the same resolver
+    // so nudge → autoKill → escalate transition timestamps line up.
+    const policyAbortMs = blockedToolCallRecovery
+      ? blockedToolCallRecovery.autoKillAfterMs
+      : undefined;
+    const abortMs =
+      policyAbortMs !== undefined
+        ? policyAbortMs
+        : resolveRunStaleThresholdMs(activity, lastProgressAgeMs, stuckSessionAbortMs);
     return (
       activity.activeToolAgeMs !== undefined &&
       lastProgressAgeMs >= abortMs &&
@@ -947,6 +965,14 @@ function logSessionAttention(
     thresholdMs: number;
     abortThresholdMs: number;
     runtimeOwnsLiveness: boolean;
+    /**
+     * #84-H2 mitigation: optional staged recovery policy for
+     * blocked_tool_call stalls. Callers wire this from operator config
+     * (or omit to keep the historical abort threshold). When provided,
+     * nudge/autoKill/escalate thresholds drive both the abort eligibility
+     * check and the audit-event stream.
+     */
+    blockedToolCallRecovery?: BlockedToolCallRecoveryPolicy;
   },
 ): { classification: SessionAttentionClassification; allowActiveAbort: boolean } | undefined {
   if (!areDiagnosticsEnabledForProcess()) {
@@ -965,6 +991,13 @@ function logSessionAttention(
     classification,
     activity,
     stuckSessionAbortMs: params.abortThresholdMs,
+    // #84-H2: pass through the staged blocked_tool_call recovery policy
+    // when the caller has wired one. logSessionAttention does not own the
+    // config snapshot, so callers without a configured policy keep the
+    // historical `stuckSessionAbortMs`-driven behavior.
+    ...(params.blockedToolCallRecovery
+      ? { blockedToolCallRecovery: params.blockedToolCallRecovery }
+      : {}),
   });
   const recovery =
     classification.recoveryEligible || allowActiveAbort
@@ -1268,6 +1301,10 @@ export function startDiagnosticHeartbeat(
           ageMs: attentionAgeMs,
           thresholdMs: stuckSessionWarnMs,
           abortThresholdMs: stuckSessionAbortMs,
+          // #84-H2: resolve the staged blocked_tool_call policy per tick so
+          // operator overrides take effect on the next heartbeat boundary
+          // without bouncing the diagnostics process.
+          blockedToolCallRecovery: resolveBlockedToolCallRecoveryPolicy(heartbeatConfig),
         });
         if (!recovery || shouldDeferRecovery) {
           continue;

@@ -326,6 +326,23 @@ export type AgentDefaultsConfig = {
      */
     isolatedSession?: boolean;
   };
+  /**
+   * Staged recovery policy for sessions classified as `blocked_tool_call`
+   * (issue #84-H2). When a tool call is blocked with no progress past the
+   * configured thresholds, the session-attention classifier advances
+   * through nudge → autoKill → escalate so the owner sees the stall before
+   * the policy terminates the run. Defaults to 60s/180s/300s.
+   */
+  blockedToolCallRecovery?: {
+    /** Active-tool age at which a low-severity nudge audit event fires. */
+    nudgeAfterMs?: number;
+    /** Active-tool age at which the recovery gate auto-kills the active run. */
+    autoKillAfterMs?: number;
+    /** Active-tool age at which the recovery gate escalates beyond auto-kill. */
+    escalateAfterMs?: number;
+    /** When false, the policy resolves stages but emits no audit events. */
+    enabled?: boolean;
+  };
   /** Owner for ambient system-agent/Custodian inference and unscoped operator-read fallbacks. */
   systemAgent?: {
     agentId?: string;
