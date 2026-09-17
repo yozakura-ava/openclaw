@@ -188,15 +188,39 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
         ids.push(card.id);
       }
 
+      // Rework r3: thread the actually-claimed card payload forward between
+      // direct claimIfOwnerAvailable calls. Without this, each call passes a
+      // fresh fixture with no claim metadata, so the SqliteStore budget
+      // counter never observes prior claims and the 3rd call returns
+      // "updated" instead of "owner_busy".
+      const latestByIndex = new Map<number, WorkboardCard>();
       const makeClaim = async (index: number, ownerId: string) => {
-        const card = fixtureReadyCard(index);
-        return stores.cards.claimIfOwnerAvailable(
+        const baseline = latestByIndex.get(index) ?? fixtureReadyCard(index);
+        const card: WorkboardCard = {
+          ...baseline,
+          updatedAt: baseline.updatedAt + 1,
+          metadata: {
+            ...baseline.metadata,
+            claim: {
+              ownerId,
+              token: `token-${index}`,
+              claimedAt: 3000,
+              lastHeartbeatAt: 3000,
+              expiresAt: 6000,
+            },
+          },
+        };
+        const result = await stores.cards.claimIfOwnerAvailable(
           card.id,
-          { version: 1, card: { ...card, updatedAt: card.updatedAt + 1 } },
-          card.updatedAt,
+          { version: 1, card },
+          baseline.updatedAt,
           ownerId,
           3000,
         );
+        if (result === "updated") {
+          latestByIndex.set(index, card);
+        }
+        return result;
       };
 
       const r1 = await makeClaim(0, "reina:sprint-foo");
