@@ -30,6 +30,7 @@ export const WORKBOARD_EVENT_KINDS = [
   "specified",
   "decomposed",
   "claimed",
+  "claim_auto_released",
   "heartbeat",
   "execution_updated",
   "attempt_started",
