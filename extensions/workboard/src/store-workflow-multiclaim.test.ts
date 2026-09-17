@@ -63,7 +63,9 @@ async function moveTo(
   // Direct metadata/status update via updateCard; we don't go through a
   // public move helper to keep this test focused on the auto-release path.
   const existing = await store.get(id);
-  if (!existing) throw new Error(`test fixture missing: ${id}`);
+  if (!existing) {
+    throw new Error(`test fixture missing: ${id}`);
+  }
   await store.exposedUpdateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
 }
 
