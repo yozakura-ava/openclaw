@@ -161,6 +161,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         {
           expectedUpdatedAt: guarded.updatedAt,
           ownerSlot: { ownerId, now },
+          maxClaimsPerOwner: options.maxClaimsPerOwner ?? undefined,
+          laneAware: options.laneAware ?? undefined,
         },
       );
       return { card, token };
