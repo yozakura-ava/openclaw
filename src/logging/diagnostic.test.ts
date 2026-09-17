@@ -946,6 +946,159 @@ describe("stuck session diagnostics threshold", () => {
     expect(recovery.ageMs).toBeGreaterThanOrEqual(15 * 60_000);
   });
 
+  it("emits blocked_tool_call.recovery.{nudge,auto_kill,escalate} audit events on stage transitions (#84-H2)", () => {
+    const events: DiagnosticEventPayload[] = [];
+    const recoverStuckSession = vi.fn();
+    const unsubscribe = onDiagnosticEvent((event) => events.push(event));
+    try {
+      // Configure a staged recovery policy with sub-heartbeat thresholds so
+      // each tick advances the stage without relying on the default 60s/180s/300s.
+      startDiagnosticHeartbeat(
+        {
+          diagnostics: { enabled: true },
+          agents: {
+            defaults: {
+              blockedToolCallRecovery: {
+                nudgeAfterMs: 5_000,
+                autoKillAfterMs: 10_000,
+                escalateAfterMs: 15_000,
+                enabled: true,
+              },
+            },
+          },
+        },
+        {
+          // stuckSessionWarnMs=1s so the heartbeat surfaces the stalled
+          // classification on every tick (vs. the 30s default).
+          testTimings: { stuckSessionWarnMs: 1_000, stuckSessionAbortMs: 30_000 },
+          recoverStuckSession,
+        },
+      );
+      logSessionStateChange({ sessionId: "s1", sessionKey: "main", state: "processing" });
+      markDiagnosticEmbeddedRunStarted({ sessionId: "s1", sessionKey: "main" });
+      markDiagnosticToolStartedForTest({
+        sessionId: "s1",
+        sessionKey: "main",
+        runId: "run-1",
+        toolName: "bash",
+        toolCallId: "cmd-1",
+      });
+
+      // Drive the staged progression: nudge (5s) → autoKill (10s) → escalate (15s).
+      vi.advanceTimersByTime(6_000); // past nudge
+      vi.advanceTimersByTime(5_000); // past autoKill (tool is now ~11s old)
+      vi.advanceTimersByTime(6_000); // past escalate (tool is now ~17s old)
+    } finally {
+      unsubscribe();
+    }
+
+    const nudgeEvents = events.filter((event) => event.type === "blocked_tool_call.recovery.nudge");
+    const autoKillEvents = events.filter(
+      (event) => event.type === "blocked_tool_call.recovery.auto_kill",
+    );
+    const escalateEvents = events.filter(
+      (event) => event.type === "blocked_tool_call.recovery.escalate",
+    );
+    // Each transition fires exactly one audit event — subsequent ticks at the
+    // same stage are suppressed so the audit log is monotonic.
+    expect(nudgeEvents).toHaveLength(1);
+    expect(autoKillEvents).toHaveLength(1);
+    expect(escalateEvents).toHaveLength(1);
+    // The escalation event must appear after autoKill which must appear after nudge.
+    const nudgeIndex = events.findIndex(
+      (event) => event.type === "blocked_tool_call.recovery.nudge",
+    );
+    const autoKillIndex = events.findIndex(
+      (event) => event.type === "blocked_tool_call.recovery.auto_kill",
+    );
+    const escalateIndex = events.findIndex(
+      (event) => event.type === "blocked_tool_call.recovery.escalate",
+    );
+    expect(nudgeIndex).toBeLessThan(autoKillIndex);
+    expect(autoKillIndex).toBeLessThan(escalateIndex);
+    // The recovery audit event carries the same active-tool identity as the
+    // underlying classification so journal searches remain correlated.
+    const nudge = nudgeEvents[0] as Extract<
+      DiagnosticEventPayload,
+      { type: "blocked_tool_call.recovery.nudge" }
+    >;
+    expect(nudge.activeToolName).toBe("bash");
+    expect(nudge.activeToolCallId).toBe("cmd-1");
+    expect(nudge.classification).toBe("blocked_tool_call");
+    expect(nudge.activeWorkKind).toBe("tool_call");
+    expect(nudge.thresholdMs).toBe(5_000);
+    const autoKill = autoKillEvents[0] as Extract<
+      DiagnosticEventPayload,
+      { type: "blocked_tool_call.recovery.auto_kill" }
+    >;
+    expect(autoKill.thresholdMs).toBe(10_000);
+    const escalate = escalateEvents[0] as Extract<
+      DiagnosticEventPayload,
+      { type: "blocked_tool_call.recovery.escalate" }
+    >;
+    expect(escalate.thresholdMs).toBe(15_000);
+  });
+
+  it("does not honor blockedToolCallRecovery.autoKillAfterMs when enabled is false (#84-H2)", () => {
+    const events: DiagnosticEventPayload[] = [];
+    const recoverStuckSession = vi.fn();
+    const unsubscribe = onDiagnosticEvent((event) => events.push(event));
+    try {
+      // Disable the staged recovery policy while leaving a low autoKillAfterMs.
+      // stuckSessionAbortMs is set high enough that the historical fallback
+      // path never trips — proving the staged threshold was the only way the
+      // policy could have aborted the run.
+      startDiagnosticHeartbeat(
+        {
+          diagnostics: { enabled: true },
+          agents: {
+            defaults: {
+              blockedToolCallRecovery: {
+                nudgeAfterMs: 5_000,
+                autoKillAfterMs: 10_000,
+                escalateAfterMs: 15_000,
+                enabled: false,
+              },
+            },
+          },
+        },
+        {
+          testTimings: { stuckSessionWarnMs: 1_000, stuckSessionAbortMs: 30_000 },
+          recoverStuckSession,
+        },
+      );
+      logSessionStateChange({ sessionId: "s1", sessionKey: "main", state: "processing" });
+      markDiagnosticEmbeddedRunStarted({ sessionId: "s1", sessionKey: "main" });
+      markDiagnosticToolStartedForTest({
+        sessionId: "s1",
+        sessionKey: "main",
+        runId: "run-1",
+        toolName: "bash",
+        toolCallId: "cmd-1",
+      });
+
+      // Drive well past the staged autoKill threshold (10s) but well below
+      // the historical fallback threshold (30s).
+      vi.advanceTimersByTime(15_000);
+    } finally {
+      unsubscribe();
+    }
+
+    // No recovery should be requested — the staged threshold is ignored
+    // because the policy was explicitly disabled.
+    expect(recoverStuckSession).not.toHaveBeenCalled();
+    // No audit events should fire either — the stage resolver returns "none"
+    // when enabled is false, so blockedToolCallStageAuditEvent() returns
+    // undefined and no event is emitted.
+    expect(events.some((event) => event.type === "blocked_tool_call.recovery.nudge")).toBe(false);
+    expect(events.some((event) => event.type === "blocked_tool_call.recovery.auto_kill")).toBe(
+      false,
+    );
+    expect(events.some((event) => event.type === "blocked_tool_call.recovery.escalate")).toBe(
+      false,
+    );
+  });
+
   it("keeps a lane with fresh owned progress quiet while inbound keeps arriving", () => {
     const events: DiagnosticEventPayload[] = [];
     const recoverStuckSession = vi.fn();
