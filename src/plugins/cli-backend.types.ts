@@ -81,6 +81,19 @@ export type CliBackendConfig = {
         minMs?: number;
         /** Upper bound for computed watchdog timeout. */
         maxMs?: number;
+        /**
+         * Explicit fixed threshold in ms. Overrides the ratio/min/max
+         * computation when set. Cap (timeoutMs - 1s) still applies.
+         * Upstream-track for #144922: lets operators raise the threshold
+         * ahead of slow providers without rewriting the ratio math.
+         */
+        noOutputTimeoutMs?: number;
+        /**
+         * Extension applied to the resolved timeout when the watchdog is
+         * told a model call is in flight (provider-side slow-start window).
+         * Capped at the same overall timeout as the base value.
+         */
+        extendOnModelCallMs?: number;
       };
       /** Resume sessions. */
       resume?: {
@@ -90,7 +103,25 @@ export type CliBackendConfig = {
         minMs?: number;
         /** Upper bound for computed watchdog timeout. */
         maxMs?: number;
+        /** Explicit fixed threshold in ms; overrides ratio/min/max. */
+        noOutputTimeoutMs?: number;
+        /** Extension applied when a model call is in flight. */
+        extendOnModelCallMs?: number;
       };
+      /**
+       * When true (default), the watchdog emits an explicit
+       * `lifecycle:phase="abort"` agent event the moment it fires, before
+       * throwing. Operators disable this only if downstream consumers
+       * double-count stall notices. Upstream-track for #144922.
+       */
+      emitAbortLifecycleEvent?: boolean;
+      /**
+       * When true, watchdog aborts are non-retryable: FailoverError is
+       * thrown with code cleared so silent re-dispatch cannot happen.
+       * Defaults to false for back-compat with the existing failover
+       * scheduler. Upstream-track for #144922.
+       */
+      disableSilentRedispatch?: boolean;
     };
   };
 };

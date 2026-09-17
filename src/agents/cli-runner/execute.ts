@@ -579,6 +579,12 @@ export async function executePreparedCliRun(
         runTimeoutOverrideMs,
         useResume,
         trigger: params.trigger,
+        // #126 mitigation: normal CLI runs are calling a model; the
+        // resolved watchdog threshold should reflect the slow-start window.
+        // Operators can disable the extension by setting
+        // `extendOnModelCallMs: 0` per backend. Expected-quiet (compact)
+        // runs already bypass the resolver, so no flag is passed there.
+        modelCallInFlight: params.controlOperation !== "compact",
       });
       if (!useManagedClaudeLiveSession) {
         toolTracking.beginGatewayCapture(initialGatewayCaptureKey);

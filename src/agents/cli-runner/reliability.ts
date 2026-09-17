@@ -8,6 +8,7 @@ import type { CliBackendConfig } from "../../plugins/cli-backend.types.js";
 import {
   CLI_FRESH_WATCHDOG_DEFAULTS,
   CLI_RESUME_WATCHDOG_DEFAULTS,
+  CLI_WATCHDOG_BEHAVIOR_DEFAULTS,
   CLI_WATCHDOG_MIN_TIMEOUT_MS,
 } from "../cli-watchdog-defaults.js";
 import type { EmbeddedRunTrigger } from "../embedded-agent-runner/run/params.js";
@@ -23,6 +24,7 @@ function pickWatchdogProfile(
   noOutputTimeoutRatio: number;
   minMs: number;
   maxMs: number;
+  extendOnModelCallMs: number;
 } {
   const configured = useResume
     ? backend.reliability?.watchdog?.resume
@@ -55,12 +57,27 @@ function pickWatchdogProfile(
     }
     return Math.max(CLI_WATCHDOG_MIN_TIMEOUT_MS, Math.floor(value));
   })();
+  const fixedNoOutputTimeoutMs = (() => {
+    const value = configured?.noOutputTimeoutMs;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return undefined;
+    }
+    return Math.max(CLI_WATCHDOG_MIN_TIMEOUT_MS, Math.floor(value));
+  })();
+  const extendOnModelCallMs = (() => {
+    const value = configured?.extendOnModelCallMs;
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return defaults.extendOnModelCallMs;
+    }
+    return Math.max(0, Math.floor(value));
+  })();
 
   return {
-    noOutputTimeoutMs: undefined,
+    noOutputTimeoutMs: fixedNoOutputTimeoutMs,
     noOutputTimeoutRatio: ratio,
     minMs: Math.min(minMs, maxMs),
     maxMs: Math.max(minMs, maxMs),
+    extendOnModelCallMs,
   };
 }
 
@@ -72,6 +89,13 @@ export function resolveCliNoOutputTimeoutMs(params: {
   expectedQuiet?: boolean;
   trigger?: EmbeddedRunTrigger;
   runTimeoutOverrideMs?: number;
+  /**
+   * #126 mitigation: when true, the caller is waiting on a slow-starting
+   * provider (model call dispatched, no first response yet). Watchdog
+   * extends its threshold so a legitimate slow-start is not aborted as a
+   * dead CLI. Defaults to false.
+   */
+  modelCallInFlight?: boolean;
 }): number {
   if (params.expectedQuiet) {
     // Expected-quiet controls have no earlier liveness signal; the caller's
@@ -90,12 +114,37 @@ export function resolveCliNoOutputTimeoutMs(params: {
   );
   // Keep watchdog below global timeout in normal cases.
   const cap = Math.max(CLI_WATCHDOG_MIN_TIMEOUT_MS, params.timeoutMs - 1_000);
-  if (profile.noOutputTimeoutMs !== undefined) {
-    return Math.min(profile.noOutputTimeoutMs, cap);
-  }
-  const computed = Math.floor(params.timeoutMs * profile.noOutputTimeoutRatio);
-  const bounded = Math.min(profile.maxMs, Math.max(profile.minMs, computed));
-  return Math.min(bounded, cap);
+  const base = (() => {
+    if (profile.noOutputTimeoutMs !== undefined) {
+      return profile.noOutputTimeoutMs;
+    }
+    const computed = Math.floor(params.timeoutMs * profile.noOutputTimeoutRatio);
+    return Math.min(profile.maxMs, Math.max(profile.minMs, computed));
+  })();
+  const extended =
+    params.modelCallInFlight === true && profile.extendOnModelCallMs > 0
+      ? base + profile.extendOnModelCallMs
+      : base;
+  return Math.min(extended, cap);
+}
+
+/**
+ * Resolves the watchdog behavior flags introduced for #126 mitigation.
+ * Both flags have explicit defaults so existing configs pick them up
+ * without operator changes; per-backend overrides win when set.
+ */
+export function resolveCliWatchdogBehavior(backend: CliBackendConfig): {
+  emitAbortLifecycleEvent: boolean;
+  disableSilentRedispatch: boolean;
+} {
+  return {
+    emitAbortLifecycleEvent:
+      backend.reliability?.watchdog?.emitAbortLifecycleEvent ??
+      CLI_WATCHDOG_BEHAVIOR_DEFAULTS.emitAbortLifecycleEvent,
+    disableSilentRedispatch:
+      backend.reliability?.watchdog?.disableSilentRedispatch ??
+      CLI_WATCHDOG_BEHAVIOR_DEFAULTS.disableSilentRedispatch,
+  };
 }
 
 export function resolveCliRunTimeoutOverrideMs(params: {
