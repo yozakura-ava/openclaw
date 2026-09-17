@@ -92,6 +92,10 @@ type WorkboardUpdateCardOptions = {
   expectedUpdatedAt?: number;
   ownerSlot?: { ownerId: string; now: number };
   preserveProofId?: string;
+  // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+  // plumbed through to claimIfOwnerAvailable; null = use store default.
+  maxClaimsPerOwner?: number | null;
+  laneAware?: boolean | null;
 };
 
 type WorkboardMutationJournalEntry = {
@@ -869,6 +873,34 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     if (status !== "done") {
       delete next.completedAt;
     }
+    // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+    // Auto-release any active claim when the card transitions to a
+    // terminal/review/blocked status. The acceptance criterion requires
+    // "moving a card to terminal/review state auto-releases its claim
+    // (read-back verified)". Skip when no claim is attached to avoid
+    // emitting a redundant event. Gate on a real status transition so
+    // re-claiming a card that is already in a terminal/review/blocked
+    // status does not immediately strip the freshly written claim
+    // (rework r3, AC: reclaim() must surface claim metadata).
+    if (
+      status !== existing.status &&
+      (status === "done" || status === "review" || status === "blocked") &&
+      next.metadata?.claim
+    ) {
+      const releasedAt = options.eventAt ?? now;
+      next.metadata = { ...next.metadata, claim: undefined };
+      next.events = appendEvent(
+        next,
+        {
+          kind: "claim_auto_released",
+          fromStatus: existing.status,
+          toStatus: status,
+          actor: "store",
+          at: releasedAt,
+        },
+        releasedAt,
+      );
+    }
     if (effectivePatch.startedAt !== undefined && !startedAt) {
       delete next.startedAt;
     }
@@ -887,9 +919,25 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           expectedUpdatedAt,
           options.ownerSlot.ownerId,
           options.ownerSlot.now,
+          {
+            maxClaimsPerOwner: options.maxClaimsPerOwner,
+            laneAware: options.laneAware,
+          },
         );
-        if (result === "owner_busy") {
-          throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
+        if (typeof result === "object" && result.kind === "owner_busy") {
+          // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+          // the rejection message must name the conflicting cards so the
+          // calling agent can release one before retrying. List id + title
+          // (truncated) for at most 5 entries to keep the message bounded.
+          const sample = result.conflicting.slice(0, 5).map((entry) => {
+            const t = entry.title ? `: ${entry.title.slice(0, 60)}` : "";
+            return `${entry.id}${t}`;
+          });
+          const suffix =
+            result.conflicting.length > 5 ? ` (+${result.conflicting.length - 5} more)` : "";
+          throw new Error(
+            `Owner ${options.ownerSlot.ownerId} (lane ${result.lane}) already has ${result.conflicting.length} active Workboard claim(s) (max ${options.maxClaimsPerOwner ?? "configured"}). Conflicting: ${sample.join(", ")}${suffix}. Release one of the conflicting cards before retrying.`,
+          );
         }
         if (result === "updated") {
           this.recordCardMutation(existing, next);

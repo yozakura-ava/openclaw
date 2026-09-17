@@ -40,7 +40,13 @@ import type {
   WorkboardKeyedStore,
   WorkboardOwnerClaimResult,
 } from "./persistence-types.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
+import {
+  DEFAULT_LANE_AWARE_CLAIMS,
+  DEFAULT_MAX_CLAIMS_PER_OWNER,
+  deriveOwnerLane,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
+} from "./store-constants.js";
 const WORKBOARD_DB_RELATIVE_PATH = ["plugins", "workboard", "workboard.sqlite"] as const;
 const SCHEMA_VERSION = 3;
 const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
@@ -1269,31 +1275,67 @@ class WorkboardSqliteCardStore implements WorkboardCardStore {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    options: {
+      maxClaimsPerOwner?: number;
+      laneAware?: boolean;
+    } = {},
   ): Promise<WorkboardOwnerClaimResult> {
     this.validatePayload(key, value);
+    const maxClaimsPerOwner = Math.max(
+      1,
+      Math.floor(options.maxClaimsPerOwner ?? DEFAULT_MAX_CLAIMS_PER_OWNER),
+    );
+    const laneAware = options.laneAware ?? DEFAULT_LANE_AWARE_CLAIMS;
+    const claimerLane = laneAware ? deriveOwnerLane(ownerId) : ownerId;
     return runSqliteImmediateTransactionSync(this.db, () => {
       if (!this.matchesUpdatedAt(key, expectedUpdatedAt)) {
         return "conflict";
       }
       const rows: Row[] = this.db.prepare("SELECT * FROM workboard_cards WHERE id <> ?").all(key);
       const preloaded = loadCardChildRows(this.db);
+      // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+      // accumulate every active claim that competes for the same owner slot.
+      // With laneAware=true, only same-lane owners count against the budget
+      // (different lanes have independent budgets). With laneAware=false
+      // the legacy "same full ownerId" rule applies — preserve semantics for
+      // operators who disable the new behavior via setClaimConfig().
+      const conflicting: Array<{
+        id: string;
+        title: string;
+        ownerId: string;
+        lane: string;
+      }> = [];
       for (const row of rows) {
         const card = readCard(this.db, row, preloaded);
-        // PATCH workboard-reclaim-expiry-fix (card eb0ce23a): a claim that
-        // belongs to the claiming owner AND is past expiresAt frees the
-        // owner slot (self-slot recovery) instead of locking the board until
-        // the sweeper fires. Cross-owner slots keep the full grace.
         const slotClaim = card.metadata?.claim;
         const ownExpiredClaim =
           slotClaim?.ownerId === ownerId &&
           !isFutureDateTimestampMs(slotClaim.expiresAt, { nowMs: now });
-        if (
-          !ownExpiredClaim &&
-          workboardCardConsumesOwnerSlot(card, now) &&
-          workboardCardSlotOwner(card) === ownerId
-        ) {
-          return "owner_busy";
+        if (ownExpiredClaim) {
+          continue;
         }
+        if (!workboardCardConsumesOwnerSlot(card, now)) {
+          continue;
+        }
+        const slotOwner = workboardCardSlotOwner(card);
+        const slotLane = laneAware ? deriveOwnerLane(slotOwner) : slotOwner;
+        const sameLane = slotLane === claimerLane;
+        const sameOwner = slotOwner === ownerId;
+        if (laneAware && !sameLane) {
+          continue;
+        }
+        if (!laneAware && !sameOwner) {
+          continue;
+        }
+        conflicting.push({
+          id: card.id,
+          title: card.title ?? "",
+          ownerId: slotOwner,
+          lane: slotLane,
+        });
+      }
+      if (conflicting.length >= maxClaimsPerOwner) {
+        return { kind: "owner_busy", lane: claimerLane, conflicting };
       }
       insertCard(this.db, value.card);
       return "updated";
