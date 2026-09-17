@@ -21,6 +21,13 @@ import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-
 import { deriveOwnerLane } from "./store-constants.js";
 import { WorkboardStore } from "./store.js";
 
+// Test-only typed subclass that exposes the protected updateCard method
+// inherited from WorkboardCoreStore (parent of WorkboardStore). Subclassing
+// keeps the call site fully typed without `as unknown` / `as any` casts.
+class TestStore extends WorkboardStore {
+  exposedUpdateCard: WorkboardStore["updateCard"] = (...args) => this.updateCard(...args);
+}
+
 function createMemoryStore(): WorkboardKeyedStore {
   const entries = new Map<string, PersistedWorkboardCard>();
   return {
@@ -57,22 +64,8 @@ async function moveTo(
   // public move helper to keep this test focused on the auto-release path.
   const existing = await store.get(id);
   if (!existing) throw new Error(`test fixture missing: ${id}`);
-  await updateCardExposed(store).updateCard(
-    id,
-    { status },
-    { expectedUpdatedAt: existing.updatedAt },
-  );
+  await store.exposedUpdateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
 }
-
-type UpdateCardExposed = {
-  updateCard: (
-    id: string,
-    patch: Record<string, unknown>,
-    options?: Record<string, unknown>,
-  ) => Promise<unknown>;
-};
-const updateCardExposed = (store: unknown): UpdateCardExposed =>
-  store as WorkboardCoreStore & UpdateCardExposed;
 
 describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   beforeEach(() => {
@@ -93,7 +86,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC1 — same agent can claim two cards in the same lane (default budget=2)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     const b = await makeReadyCard(store, "card B");
     const claimed1 = await store.claim(a, { ownerId: "reina:sprint-foo" });
@@ -103,7 +96,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC2 — third claim in same lane rejects with a message naming the conflicts", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     const b = await makeReadyCard(store, "card B");
     const c = await makeReadyCard(store, "card C");
@@ -115,7 +108,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC3 — lane-aware: claims in different lanes do NOT collide", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     const b = await makeReadyCard(store, "card B");
     // Two different agents in two different lanes — must both succeed.
@@ -128,7 +121,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC4 — moving a card to done auto-releases its claim", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     await store.claim(a, { ownerId: "reina:sprint-foo" });
     await moveTo(store, a, "done");
@@ -140,7 +133,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC5 — moving a card to review auto-releases its claim", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     await store.claim(a, { ownerId: "reina:sprint-foo" });
     await moveTo(store, a, "review");
@@ -150,7 +143,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC6 — moving a card to blocked auto-releases its claim", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     await store.claim(a, { ownerId: "reina:sprint-foo" });
     await moveTo(store, a, "blocked");
@@ -160,7 +153,7 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
   });
 
   it("AC7 — no two claims can coexist on the SAME card (foreign-claim regression)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = new TestStore(createMemoryStore());
     const a = await makeReadyCard(store, "card A");
     await store.claim(a, { ownerId: "reina:sprint-foo" });
     await expect(store.claim(a, { ownerId: "rin:review-other" })).rejects.toThrow(

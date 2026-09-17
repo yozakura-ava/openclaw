@@ -30,6 +30,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import { WorkboardStore } from "./store.js";
 
+// Test-only typed subclass that exposes the protected updateCard method
+// inherited from WorkboardCoreStore (parent of WorkboardStore). Subclassing
+// keeps the call site fully typed without `as unknown` / `as any` casts.
+class TestStore extends WorkboardStore {
+  exposedUpdateCard: WorkboardStore["updateCard"] = (...args) => this.updateCard(...args);
+}
+
 function withStores<T>(
   run: (dbPath: string, stores: ReturnType<typeof createWorkboardSqliteStores>) => Promise<T>,
 ): Promise<T> {
@@ -58,16 +65,6 @@ function fixtureReadyCard(index: number): WorkboardCard {
   };
 }
 
-type UpdateCardExposed = {
-  updateCard: (
-    id: string,
-    patch: Record<string, unknown>,
-    options?: Record<string, unknown>,
-  ) => Promise<unknown>;
-};
-const updateCardExposed = (store: unknown): UpdateCardExposed =>
-  store as WorkboardCoreStore & UpdateCardExposed;
-
 describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -80,7 +77,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
 
   it("S1 — 3rd claim in same lane rejects with owner_busy via the SQLite-backed WorkboardStore", async () => {
     await withStores(async (_dbPath, stores) => {
-      const store = new WorkboardStore(stores.cards, stores);
+      const store = new TestStore(stores.cards, stores);
       const ids: string[] = [];
       for (let i = 0; i < 3; i++) {
         const card = await store.create({
@@ -105,7 +102,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
 
   it("S2 — lane-aware: claims in different lanes do NOT collide through the SQLite-backed store", async () => {
     await withStores(async (_dbPath, stores) => {
-      const store = new WorkboardStore(stores.cards, stores);
+      const store = new TestStore(stores.cards, stores);
       const a = await store.create({
         title: "Card A",
         status: "ready",
@@ -125,7 +122,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
 
   it("S3 — claim options object IS forwarded through the runtime adapter chain (maxClaimsPerOwner override)", async () => {
     await withStores(async (_dbPath, stores) => {
-      const store = new WorkboardStore(stores.cards, stores);
+      const store = new TestStore(stores.cards, stores);
       const ids: string[] = [];
       for (let i = 0; i < 4; i++) {
         const card = await store.create({
@@ -158,7 +155,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
 
   it("S4 — moving a claimed card to done auto-releases the claim (SQLite-backed WorkboardStore)", async () => {
     await withStores(async (_dbPath, stores) => {
-      const store = new WorkboardStore(stores.cards, stores);
+      const store = new TestStore(stores.cards, stores);
       const card = await store.create({
         title: "Card A",
         status: "ready",
@@ -169,7 +166,7 @@ describe("workboard sqlite bounded multi-claim (issue #52/#96)", () => {
       expect(claimed?.metadata?.claim?.ownerId).toBe("reina:sprint-foo");
 
       // Move to "done" — must auto-release the claim and emit the event.
-      await updateCardExposed(store).updateCard(
+      await store.exposedUpdateCard(
         card.id,
         { status: "done" },
         { expectedUpdatedAt: claimed!.updatedAt },
