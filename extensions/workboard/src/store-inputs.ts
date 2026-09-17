@@ -95,6 +95,13 @@ export type WorkboardClaimOptions = {
     workspaceAccess?: WorkboardWorkspaceAccess;
   };
   /** Trusted legacy-card adoption; applied only while expectedAuthority still matches. */
+  // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+  // Per-call override of the store-wide claim config. null = "use store
+  // default". Both fields are forwarded to WorkboardStore.claimIfOwnerAvailable
+  // by the workflow layer.
+  maxClaimsPerOwner?: number | null;
+  laneAware?: boolean | null;
+  /** Trusted legacy-card adoption; applied only while expectedAuthority still matches. */
   adoptWorkspaceAccess?: WorkboardWorkspaceAccess;
 };
 export type WorkboardHeartbeatInput = {

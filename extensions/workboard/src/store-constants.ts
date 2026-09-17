@@ -25,7 +25,30 @@ export const DEFAULT_WORKBOARD_DISPATCH_OWNER = "workboard-dispatcher";
 export const READY_STRANDED_MS = 60 * 60 * 1000;
 export const RUNNING_HEARTBEAT_STALE_MS = 20 * 60 * 1000;
 export const BLOCKED_TOO_LONG_MS = 24 * 60 * 60 * 1000;
+// PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+// bounded concurrent claim slots per owner lane. DEFAULT = 2 to match the
+// sprint target range ("configurable default 2-3"); operators can raise via
+// WorkboardStore.setClaimConfig() or env OPENCLAW_WORKBOARD_MAX_CLAIMS_PER_OWNER.
+export const DEFAULT_MAX_CLAIMS_PER_OWNER = 2;
+// Lane-aware means the slot counter groups owners by the substring before
+// the first ":" (e.g. "reina:review-abc" and "reina:sprint-xyz" share
+// lane "reina"). Disable for legacy single-claim-per-full-ownerId semantics.
+export const DEFAULT_LANE_AWARE_CLAIMS = true;
 const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
+
+// PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+// Resolve the lane prefix from a session-scoped owner id. The lane is the
+// substring before the first ":" — "reina:review-abc123" → "reina". Bare
+// agent ids ("reina") resolve to themselves so a legacy single-token agent
+// still has a single lane. Empty/whitespace input collapses to "" so
+// call sites that miss owner validation produce a deterministic lane key.
+export function deriveOwnerLane(ownerId: string | undefined | null): string {
+  if (typeof ownerId !== "string") return "";
+  const trimmed = ownerId.trim();
+  if (!trimmed) return "";
+  const colonIdx = trimmed.indexOf(":");
+  return colonIdx > 0 ? trimmed.slice(0, colonIdx) : trimmed;
+}
 
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,

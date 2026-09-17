@@ -110,14 +110,18 @@ function createPausedCardStore(delegate: WorkboardCardStore) {
         }
         return updated;
       },
-      async claimIfOwnerAvailable(key, value, expectedUpdatedAt, ownerId, now) {
+      async claimIfOwnerAvailable(key, value, expectedUpdatedAt, ownerId, now, options) {
         await beforeWrite();
+        // PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+        // Forward per-call options verbatim. Dropping them here would mask
+        // a regression in the runtime adapter chain.
         const result = await delegate.claimIfOwnerAvailable(
           key,
           value,
           expectedUpdatedAt,
           ownerId,
           now,
+          options,
         );
         if (result === "updated") {
           await afterWrite(key, value);
@@ -545,8 +549,12 @@ describe("WorkboardStore", () => {
       });
 
       const claims = await Promise.allSettled([
-        first.claim(firstCard.id, { ownerId: "worker" }),
-        second.claim(secondCard.id, { ownerId: "worker" }),
+        // Rework r3: explicit maxClaimsPerOwner:1 to pin the budget-1 invariant
+        // this test asserts ("allows only one cross-host claim per owner").
+        // Without the override the default budget is 2 and both claims succeed,
+        // breaking the 1-fulfilled/1-rejected expectation.
+        first.claim(firstCard.id, { ownerId: "worker" }, { maxClaimsPerOwner: 1 }),
+        second.claim(secondCard.id, { ownerId: "worker" }, { maxClaimsPerOwner: 1 }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
