@@ -4,6 +4,7 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import type { AgentToolResult } from "openclaw/plugin-sdk/tool-results";
 import { Type } from "typebox";
+import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
 import { redactClaimToken } from "./card-redaction.js";
 import type { WorkboardStore } from "./store.js";
 import { cardIdField, claimTokenField, strictObject } from "./tools-card-mutations.js";
@@ -31,6 +32,34 @@ const OptionalNextStatusField = Type.Optional(
 const OptionalOperatorNoteField = Type.Optional(
   Type.String({ description: "Optional operator note." }),
 );
+
+/**
+ * Card-id resolver for orchestration tools (Fix 2 of card d66e24c2). Mirrors
+ * `resolveToolCardId` in tools.ts but lives here so the orchestration tools
+ * (specify, decompose, runs) can resolve 8-char prefixes without crossing the
+ * tools.ts module boundary.
+ */
+async function resolveOrchestrationCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
+  if (typeof rawId !== "string" || rawId.trim() === "") {
+    throw new Error("card id is required.");
+  }
+  const trimmed = rawId.trim();
+  if (trimmed.length >= 9 || /^[0-9a-f]{8}-/.test(trimmed)) {
+    const direct = await store.get(trimmed);
+    if (direct) {
+      return direct.id;
+    }
+  }
+  const cards = await store.list();
+  const result = resolveWorkboardCardByIdOrPrefix(cards, trimmed);
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  if (!result.card) {
+    throw new Error(`Card lookup returned no card: ${trimmed}`);
+  }
+  return result.card.id;
+}
 
 export function createWorkboardOrchestrationTools(params: {
   store: WorkboardStore;
@@ -147,7 +176,8 @@ export function createWorkboardOrchestrationTools(params: {
       description: "List persisted Workboard run attempts for one card.",
       parameters: CardIdSchema,
       execute: async (_toolCallId, rawParams) => {
-        const id = readStringParam(asNonArrayRecord(rawParams), "id", { required: true });
+        const rawId = readStringParam(asNonArrayRecord(rawParams), "id", { required: true });
+        const id = await resolveOrchestrationCardId(store, rawId);
         const result = await store.runs(id);
         return jsonResult({ ...result, card: redactClaimToken(result.card) });
       },
@@ -183,7 +213,10 @@ export function createWorkboardOrchestrationTools(params: {
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
-        const id = readStringParam(record, "id", { required: true });
+        const id = await resolveOrchestrationCardId(
+          store,
+          readStringParam(record, "id", { required: true }),
+        );
         const token = typeof record.token === "string" ? record.token : undefined;
         await requireScopedCard(store, id, ownerId, token);
         return jsonResult({
@@ -230,7 +263,10 @@ export function createWorkboardOrchestrationTools(params: {
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = asNonArrayRecord(rawParams);
-        const id = readStringParam(record, "id", { required: true });
+        const id = await resolveOrchestrationCardId(
+          store,
+          readStringParam(record, "id", { required: true }),
+        );
         const token = typeof record.token === "string" ? record.token : undefined;
         await requireScopedCard(store, id, ownerId, token);
         const result = await store.decompose(id, record, { ownerId, token: record.token });
