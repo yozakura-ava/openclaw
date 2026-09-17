@@ -60,6 +60,17 @@ export type WorkboardOwnerClaimBusy = {
 
 export type WorkboardOwnerClaimResult = "updated" | "conflict" | WorkboardOwnerClaimBusy;
 
+// PATCH workboard-bounded-multi-claim (card a2deceee, issue #52/#96):
+// Per-call override of the store-wide claim config. Both fields are
+// optional; implementations fall back to their configured defaults when
+// omitted. Runtime adapters (e.g. WorkboardStoreRuntime.trackCardStore)
+// must forward this object verbatim so production SQLite honors per-call
+// configuration from WorkboardCoreStore.updateCard().
+export type WorkboardClaimIfOptions = {
+  maxClaimsPerOwner?: number;
+  laneAware?: boolean;
+};
+
 export type WorkboardCardStore = WorkboardKeyedStore & {
   registerIfAbsent(key: string, value: PersistedWorkboardCard): Promise<boolean>;
   registerIfUpdatedAt(
@@ -74,6 +85,7 @@ export type WorkboardCardStore = WorkboardKeyedStore & {
     expectedUpdatedAt: number,
     ownerId: string,
     now: number,
+    options?: WorkboardClaimIfOptions,
   ): Promise<WorkboardOwnerClaimResult>;
   listBoardAggregates(): Promise<WorkboardBoardCardAggregate[]>;
 };
