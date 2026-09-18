@@ -13,6 +13,7 @@ export type SharedCodexAppServerClientEntry = {
   anonymousLeases: number;
   pendingAcquires: number;
   closeWhenIdle: boolean;
+  idleReaper?: ReturnType<typeof setTimeout>;
   closeError?: Error;
   startupAbort?: AbortController;
   onStartedClientCallbacks: Set<(client: CodexAppServerClient) => void>;
@@ -34,6 +35,8 @@ export type SharedCodexAppServerClientState = {
   isolatedClients: Set<CodexAppServerClient>;
   entriesByClient: WeakMap<CodexAppServerClient, SharedCodexAppServerClientEntry>;
   desktopGenerationDrainChecks: Set<() => void>;
+  createdCount: number;
+  reapedCount: number;
   startup: CodexAppServerStartupLifetime;
   startMetadata: WeakMap<CodexAppServerClient, CodexAppServerClientStartMetadata>;
 };
@@ -60,6 +63,8 @@ export const getSharedCodexAppServerClientState = defineCodexBuildState(
     isolatedClients: new Set(),
     entriesByClient: new WeakMap(),
     desktopGenerationDrainChecks: new Set(),
+    createdCount: 0,
+    reapedCount: 0,
     startup: createCodexAppServerStartupLifetime(),
     startMetadata: new WeakMap(),
   }),
@@ -98,6 +103,7 @@ export function retireSharedCodexAppServerClientIfCurrent(
     return undefined;
   }
   if (currentEntry) {
+    clearSharedClientIdleReaper(entry);
     state.clients.delete(entry.key);
     entry.closeWhenIdle = true;
   }
@@ -150,6 +156,7 @@ export function closeRetiredSharedClientEntryIfIdle(
 }
 
 export function closeRetiredSharedClientEntry(entry: SharedCodexAppServerClientEntry): boolean {
+  clearSharedClientIdleReaper(entry);
   const client = entry.client;
   if (!client) {
     return false;
@@ -157,4 +164,11 @@ export function closeRetiredSharedClientEntry(entry: SharedCodexAppServerClientE
   entry.client = undefined;
   client.close();
   return true;
+}
+
+function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
+  if (entry.idleReaper) {
+    clearTimeout(entry.idleReaper);
+    entry.idleReaper = undefined;
+  }
 }
