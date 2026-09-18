@@ -55,12 +55,11 @@ export const MAX_PIPELINE_RETRY_STRIKES = 3;
 export const DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER = Number.POSITIVE_INFINITY;
 
 export function normalizeMaxConcurrentClaimsPerOwner(input: unknown): number {
-  if (typeof input === 'number' && Number.isFinite(input) && input > 0) {
+  if (typeof input === "number" && Number.isFinite(input) && input > 0) {
     return Math.floor(input);
   }
   return DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER;
 }
-
 
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
