@@ -1,4 +1,7 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { listActiveEmbeddedRunSessionKeys } from "../agents/embedded-agent-runner/active-run-projections.js";
 import { resolveEmbeddedSessionLane } from "../agents/embedded-agent-runner/lanes.js";
 import { transitionMainSessionRecovery } from "../agents/main-session-recovery/main-session-recovery-state.js";
@@ -133,12 +136,28 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
   }
   const agentId = normalizeAgentId(resolvedAgentId);
   const wakeSource = opts.source ?? inferHeartbeatWakeSourceFromReason(opts.reason);
-  const heartbeat = resolveHeartbeatForWake({
+  let heartbeat = resolveHeartbeatForWake({
     cfg,
     agentId,
     requestedHeartbeat: opts.heartbeat,
     source: wakeSource,
   });
+  if (heartbeat?.promptFile) {
+    const workspaceDir = resolveAgentWorkspaceDir(cfg, agentId);
+    const promptPath = path.resolve(workspaceDir, heartbeat.promptFile);
+    let prompt: string;
+    try {
+      prompt = await readFile(promptPath, "utf8");
+    } catch (error) {
+      throw new Error(
+        `Failed to read heartbeat prompt file ${promptPath}: ${formatErrorMessage(error)}`,
+        {
+          cause: error,
+        },
+      );
+    }
+    heartbeat = { ...heartbeat, prompt };
+  }
   const scheduledTasks = [...(opts.tasks ?? [])].toSorted((left, right) =>
     left.jobId.localeCompare(right.jobId),
   );

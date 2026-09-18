@@ -27,6 +27,26 @@ function expectSchemaFailurePath(result: SchemaParseResult, expectedPathPrefix: 
 }
 
 describe("agent defaults schema", () => {
+  it("accepts file-backed heartbeat prompts on defaults and agent entries", () => {
+    const promptFile = "docs/agents/heartbeat.md";
+    const defaults = AgentDefaultsSchema.parse({ heartbeat: { promptFile } });
+    const agent = AgentEntrySchema.parse({
+      id: "ops",
+      heartbeat: { promptFile },
+    });
+
+    expect(defaults?.heartbeat?.promptFile).toBe(promptFile);
+    expect(agent.heartbeat?.promptFile).toBe(promptFile);
+    expect(
+      validateConfigObject({
+        agents: {
+          defaults: { heartbeat: { promptFile } },
+          entries: { ops: { heartbeat: { promptFile } } },
+        },
+      }).ok,
+    ).toBe(true);
+  });
+
   it("preserves separate run directories through config validation and list projection", () => {
     const result = validateConfigObject({
       agents: {
