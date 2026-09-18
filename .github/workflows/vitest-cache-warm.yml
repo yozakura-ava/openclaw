@@ -3,6 +3,20 @@ name: Vitest Cache Warm
 on:
   push:
     branches: [main]
+    paths:
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "**/package.json"
+      - "**/tsconfig*.json"
+      - "vitest.config.*"
+      - "test/vitest/**"
+      - "src/state/*.sql"
+      - "scripts/ci-run-node-test-shard.mts"
+      - "scripts/lib/ci-node-test-plan.mts"
+      - "scripts/prepare-extension-package-boundary-artifacts.mts"
+      - ".github/actions/setup-node-env/**"
+      - ".github/actions/setup-pnpm-store-cache/**"
+      - ".github/workflows/vitest-cache-warm.yml"
   workflow_dispatch:
   repository_dispatch:
     types: [vitest-cache-warm]
@@ -14,20 +28,38 @@ permissions:
 
 concurrency:
   group: vitest-cache-warm-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   warm:
     # Shared CI cache publication is isolated from pull-request execution.
     # Trusted release/proof workflows may save only through the same authority contract.
-    if: github.repository == 'openclaw/openclaw'
-    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404') }}
+    if: >-
+      ${{
+        (
+          github.repository == 'openclaw/openclaw' ||
+          github.repository == 'yozakura-ava/openclaw'
+        ) &&
+        (
+          github.event_name == 'schedule' ||
+          github.ref == 'refs/heads/main'
+        )
+      }}
+    runs-on: >-
+      ${{
+        matrix.platform == 'macos' && 'macos-15' ||
+        (
+          github.repository == 'yozakura-ava/openclaw' ||
+          vars.OPENCLAW_CI_RUNNER_BACKEND == 'github'
+        ) && 'ubuntu-24.04' ||
+        'blacksmith-8vcpu-ubuntu-2404'
+      }}
     timeout-minutes: 60
     strategy:
       # Each platform publishes its own cache namespace independently.
       fail-fast: false
       matrix:
-        platform: [linux, macos]
+        platform: ${{ fromJSON(github.repository == 'yozakura-ava/openclaw' && '["linux"]' || '["linux","macos"]') }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,7 +70,12 @@ jobs:
         with:
           build-all-cache-scope: ${{ matrix.platform == 'linux' && 'full' || '' }}
           cache-mode: read-write
-          dependency-cache: ${{ matrix.platform == 'linux' && 'true' || 'false' }}
+          dependency-cache: >-
+            ${{
+              matrix.platform == 'linux' &&
+              github.repository == 'openclaw/openclaw' &&
+              'true' || 'false'
+            }}
           install-bun: "false"
           node-compile-cache: ${{ matrix.platform == 'linux' && 'true' || 'false' }}
           node-compile-cache-scope: "test"
@@ -213,3 +250,27 @@ jobs:
             echo "::error::Vitest cache warming failed"
             exit 1
           fi
+
+      - name: Publish cache warm summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Cache warm summary"
+            echo
+            echo "| Cache | Exact hit | Primary key | Matched key |"
+            echo "|---|---:|---|---|"
+            echo "| Dependency tree | \`${{ steps.setup-node-env.outputs.dependency-cache-hit || 'false' }}\` | \`${{ steps.setup-node-env.outputs.dependency-cache-key || 'disabled' }}\` | n/a |"
+            echo "| pnpm store | \`${{ steps.setup-node-env.outputs.pnpm-store-cache-hit || 'false' }}\` | \`${{ steps.setup-node-env.outputs.pnpm-store-cache-key || 'none' }}\` | n/a |"
+            echo "| Vitest transforms | \`${{ steps.setup-node-env.outputs.vitest-cache-hit || 'false' }}\` | \`${{ steps.setup-node-env.outputs.vitest-cache-key || 'none' }}\` | \`${{ steps.setup-node-env.outputs.vitest-cache-matched-key || 'none' }}\` |"
+            echo "| Node compile | \`${{ steps.setup-node-env.outputs.node-compile-cache-hit || 'false' }}\` | \`${{ steps.setup-node-env.outputs.node-compile-cache-key || 'none' }}\` | \`${{ steps.setup-node-env.outputs.node-compile-cache-matched-key || 'none' }}\` |"
+            echo "| build-all | \`${{ steps.setup-node-env.outputs.build-all-cache-hit || 'false' }}\` | \`${{ steps.setup-node-env.outputs.build-all-cache-key || 'none' }}\` | \`${{ steps.setup-node-env.outputs.build-all-cache-matched-key || 'none' }}\` |"
+            echo
+            echo "#### Local payload sizes"
+            du -sh \
+              "${{ steps.setup-node-env.outputs.pnpm-store-cache-path }}" \
+              /var/tmp/openclaw-vitest-fs-cache \
+              /var/tmp/openclaw-node-compile-cache \
+              .artifacts/build-all-cache \
+              dist dist-runtime 2>/dev/null || true
+          } >> "$GITHUB_STEP_SUMMARY"
