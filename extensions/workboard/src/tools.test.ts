@@ -15,6 +15,48 @@ function readPayload(result: unknown): Record<string, unknown> {
 }
 
 describe("workboard tools", () => {
+  it("falls back from a blank ambient agent id to the trimmed session owner", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const tools = new Map(
+      createWorkboardTools({
+        store,
+        context: { agentId: "   ", sessionKey: " agent:main:subagent:worker " },
+      }).map((tool) => [tool.name, tool]),
+    );
+    const card = await store.create({ title: "Ambient owner normalization" });
+
+    const claimed = await tools.get("workboard_claim")?.execute("claim-card", { id: card.id });
+
+    expect(readPayload(claimed).card).toMatchObject({
+      metadata: { claim: { ownerId: "agent:main:subagent:worker" } },
+    });
+  });
+
+  it("records a claimed review verdict for a governed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Reviewed", status: "review", reviewRequired: true });
+    const claim = await store.claim(card.id, { ownerId: "reviewer", token: "review-token" });
+    const tools = new Map(
+      createWorkboardTools({ store, context: { agentId: "reviewer" } }).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+
+    const result = readPayload(
+      await tools.get("workboard_review")?.execute("review", {
+        id: claim.card.id,
+        token: "review-token",
+        verified: true,
+        summary: "Acceptance checks passed.",
+      }),
+    );
+    expect((result.card as WorkboardCard).metadata?.reviewVerdict).toMatchObject({
+      verified: true,
+      reviewerId: "reviewer",
+      summary: "Acceptance checks passed.",
+    });
+  });
   it("inherits the active tool filesystem boundary for workspace metadata", async () => {
     const store = createWorkboardSqliteTestStore();
     const restrictedContext = {
