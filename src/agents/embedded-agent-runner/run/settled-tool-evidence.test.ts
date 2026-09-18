@@ -685,45 +685,42 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
         itemId: "progress-segment-1",
       },
     },
-  ])(
-    "continues a settled post-toolUse batch after $label",
-    ({ fallback }) => {
-      const toolUseAssistant = makeLastAssistant({
-        stopReason: "toolUse",
-        content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
-      });
-      const droppedAssistant = {
-        ...makeLastAssistant({
-          stopReason: "aborted",
-          content: [{ type: "text", text: "" }],
-        }),
-        openclawStreamFallback: fallback,
-      };
-      const instruction = resolveSettledToolTerminalContinuationInstruction(
-        makeSettledContinuationParams(
-          {
-            assistantTexts: [],
-            toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
-            itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
-            messagesSnapshot: [
-              { role: "user", content: [{ type: "text", text: "current turn" }] },
-              toolUseAssistant,
-              { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
-              droppedAssistant,
-            ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
-            lastAssistant: droppedAssistant as unknown as LastAssistant,
-            currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
-            currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
-          },
-          // Stream-drop retry does not depend on operator-configured
-          // allowEmptyStopContinuation: the alternative is a dead run.
-          { allowEmptyStopContinuation: false },
-        ),
-      );
+  ])("continues a settled post-toolUse batch after $label", ({ fallback }) => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const droppedAssistant = {
+      ...makeLastAssistant({
+        stopReason: "aborted",
+        content: [{ type: "text", text: "" }],
+      }),
+      openclawStreamFallback: fallback,
+    };
+    const instruction = resolveSettledToolTerminalContinuationInstruction(
+      makeSettledContinuationParams(
+        {
+          assistantTexts: [],
+          toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+          itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+          messagesSnapshot: [
+            { role: "user", content: [{ type: "text", text: "current turn" }] },
+            toolUseAssistant,
+            { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+            droppedAssistant,
+          ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+          lastAssistant: droppedAssistant as unknown as LastAssistant,
+          currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
+          currentAttemptReplayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+        },
+        // Stream-drop retry does not depend on operator-configured
+        // allowEmptyStopContinuation: the alternative is a dead run.
+        { allowEmptyStopContinuation: false },
+      ),
+    );
 
-      expect(instruction).toBe(SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION);
-    },
-  );
+    expect(instruction).toBe(SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION);
+  });
 
   it("does not continue a settled batch when the assistant lacks a stream fallback", () => {
     const toolUseAssistant = makeLastAssistant({
@@ -814,8 +811,16 @@ describe("hasAssistantStreamFallback (#79)", () => {
       expected: true,
     },
     { label: "no fallback marker", message: { role: "assistant", content: [] }, expected: false },
-    { label: "non-object fallback", message: { role: "assistant", openclawStreamFallback: "x" }, expected: false },
-    { label: "array fallback", message: { role: "assistant", openclawStreamFallback: [] }, expected: false },
+    {
+      label: "non-object fallback",
+      message: { role: "assistant", openclawStreamFallback: "x" },
+      expected: false,
+    },
+    {
+      label: "array fallback",
+      message: { role: "assistant", openclawStreamFallback: [] },
+      expected: false,
+    },
     { label: "null message", message: null, expected: false },
     { label: "non-message input", message: "string", expected: false },
   ])("returns $expected for $label", ({ message, expected }) => {
