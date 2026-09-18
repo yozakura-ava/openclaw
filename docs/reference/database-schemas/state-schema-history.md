@@ -29,6 +29,15 @@ Doctor completes recognized schema-1 databases that predate the audit ledger bef
 | 15      | Conversation bindings use exact target keys; redundant agent/session projections removed                                                                                                                                                                                                                                        | Unreleased          |
 | 16      | Skill Workshop ownership moves from workspace/provenance columns to per-agent directory containment                                                                                                                                                                                                                             | Unreleased          |
 | 17      | Prepared worker lifecycle facts and one-use node workspace bindings                                                                                                                                                                                                                                                             | Unreleased          |
+| 18      | Remove the channel- and direction-leading audit event indexes and drop existing copies during migration                                                                                                                                                                                                                         | Unreleased          |
+
+### State schema 18
+
+Schema 18 removes `idx_audit_events_channel_sequence` and
+`idx_audit_events_direction_sequence`, which were empty in the deployed audit
+history reported in [#31](https://github.com/yozakura-ava/openclaw/issues/31). Existing databases drop both indexes in the schema
+migration transaction. Audit event rows and the remaining indexes are
+preserved; inserts and filtered reads continue to use the canonical table.
 
 ### State schema 17
 
