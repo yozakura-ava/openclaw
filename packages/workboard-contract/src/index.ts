@@ -347,6 +347,8 @@ export type WorkboardMetadata = {
   comments?: WorkboardComment[];
   links?: WorkboardLink[];
   proof?: WorkboardProof[];
+  reviewRequired?: boolean;
+  reviewVerdict?: WorkboardReviewVerdict;
   artifacts?: WorkboardArtifact[];
   attachments?: WorkboardAttachment[];
   workerLogs?: WorkboardWorkerLog[];
@@ -360,6 +362,13 @@ export type WorkboardMetadata = {
   stale?: WorkboardStaleState;
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
+};
+
+export type WorkboardReviewVerdict = {
+  verified: boolean;
+  reviewerId: string;
+  reviewedAt: number;
+  summary?: string;
 };
 
 export type WorkboardCard = {

@@ -74,6 +74,7 @@
       "workboard_read",
       "workboard_claim",
       "workboard_heartbeat",
+      "workboard_review",
       "workboard_complete",
       "workboard_attachment_add",
       "workboard_attachment_read",
@@ -128,6 +129,9 @@
       "optional": false
     },
     "workboard_heartbeat": {
+      "optional": false
+    },
+    "workboard_review": {
       "optional": false
     },
     "workboard_complete": {
