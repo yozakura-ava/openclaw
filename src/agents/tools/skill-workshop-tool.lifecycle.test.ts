@@ -47,6 +47,18 @@ afterEach(async () => {
 });
 
 describe("skill_workshop terminal lifecycle", () => {
+  it("defaults stale proposal maintenance to dry run and requires explicit apply confirmation", async () => {
+    const workspaceDir = await tempDirs.make("openclaw-skill-workshop-purge-dry-run-");
+    const tool = createSkillWorkshopTool({ workspaceDir, agentId: "main", env: testState.env });
+
+    const dryRun = await tool.execute("purge-dry-run", { action: "purge" });
+    expect(dryRun.content[0]).toMatchObject({ type: "text" });
+    expect((dryRun.content[0] as { text: string }).text).toContain("Dry run: 0 stale proposal(s)");
+    await expect(
+      tool.execute("purge-unconfirmed", { action: "purge", dry_run: false }),
+    ).rejects.toThrow("requires confirm=true");
+  });
+
   it("disposes of proposals without reading damaged draft artifacts", async () => {
     const workspaceDir = await tempDirs.make("openclaw-skill-workshop-damaged-drafts-");
     const tool = createSkillWorkshopTool({ workspaceDir, agentId: "main", env: testState.env });

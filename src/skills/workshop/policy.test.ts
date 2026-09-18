@@ -45,6 +45,39 @@ afterEach(async () => {
 });
 
 describe("resolveSkillWorkshopToolApproval", () => {
+  it("requires operator approval before applying a stale proposal purge", async () => {
+    const result = await resolveSkillWorkshopToolApproval({
+      toolName: "skill_workshop",
+      toolParams: { action: "purge", dry_run: false, confirm: true },
+      config: pendingApprovalConfig,
+    });
+
+    expect(result?.requireApproval).toMatchObject({
+      pluginId: "workspace-skills",
+      title: "Purge stale Skill Workshop proposals",
+      severity: "warning",
+      allowedDecisions: ["allow-once", "deny"],
+    });
+    expect(result?.requireApproval?.description).toContain("older than 7d");
+  });
+
+  it("keeps stale proposal purges approval-gated under the auto policy", async () => {
+    await expect(
+      resolveSkillWorkshopToolApproval({
+        toolName: "skill_workshop",
+        toolParams: { action: "purge", dry_run: true },
+        config: { skills: { workshop: { approvalPolicy: "auto" } } },
+      }),
+    ).resolves.toBeUndefined();
+    const result = await resolveSkillWorkshopToolApproval({
+      toolName: "skill_workshop",
+      toolParams: { action: "purge", dry_run: false, confirm: true },
+      config: { skills: { workshop: { approvalPolicy: "auto" } } },
+    });
+
+    expect(result?.requireApproval?.title).toBe("Purge stale Skill Workshop proposals");
+  });
+
   it("describes the target proposal and bounds the approval wait", async () => {
     const workspaceDir = await tempDirs.make("openclaw-skill-workshop-policy-workspace-");
     const description = "d".repeat(160);
