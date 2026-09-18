@@ -13,7 +13,7 @@ import { workboardSqliteBackendEntrypoint } from "./sqlite-backend-entrypoint.te
 import { createWorkboardSqliteKernel } from "./sqlite-store-kernel.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import { secondsToDurationMs } from "./store-constants.js";
-import { normalizeExecution } from "./store-normalizers.js";
+import { normalizeExecution, normalizeMetadata } from "./store-normalizers.js";
 import { WorkboardCardConflictError, WorkboardStore } from "./store.js";
 import {
   createWorkboardSqliteTestHarness,
@@ -1241,6 +1241,21 @@ describe("WorkboardStore", () => {
 
   it("rejects empty execution records instead of fabricating lifecycle state", () => {
     expect(normalizeExecution({})).toBeUndefined();
+  });
+
+  it("preserves claim authority when a redacted card is normalized against stored state", () => {
+    const storedClaim = {
+      ownerId: "worker",
+      token: "live-claim-token",
+      claimedAt: 100,
+      lastHeartbeatAt: 200,
+    };
+    const redactedClaim = { ...storedClaim, token: "[redacted]" };
+
+    expect(normalizeMetadata({ claim: redactedClaim }, { claim: storedClaim }).claim).toEqual(
+      storedClaim,
+    );
+    expect(normalizeMetadata({ claim: redactedClaim }).claim).toBeUndefined();
   });
 
   it("preserves explicit zero positions", async () => {
