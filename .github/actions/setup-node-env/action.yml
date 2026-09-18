@@ -87,12 +87,30 @@ outputs:
   vitest-cache-key:
     description: Exact Vitest transform cache key.
     value: ${{ steps.vitest-cache.outputs.cache-primary-key }}
+  vitest-cache-hit:
+    description: Whether the exact Vitest transform cache key restored.
+    value: ${{ steps.vitest-cache.outputs.cache-hit }}
+  vitest-cache-matched-key:
+    description: Vitest transform cache key selected during restore.
+    value: ${{ steps.vitest-cache.outputs.cache-matched-key }}
   node-compile-cache-key:
     description: Exact Node compile cache key.
     value: ${{ steps.node-compile-cache.outputs.cache-primary-key }}
+  node-compile-cache-hit:
+    description: Whether the exact Node compile cache key restored.
+    value: ${{ steps.node-compile-cache.outputs.cache-hit }}
+  node-compile-cache-matched-key:
+    description: Node compile cache key selected during restore.
+    value: ${{ steps.node-compile-cache.outputs.cache-matched-key }}
   build-all-cache-key:
     description: Exact build-all cache key.
     value: ${{ steps.build-all-cache.outputs.cache-primary-key }}
+  build-all-cache-hit:
+    description: Whether the exact build-all cache key restored.
+    value: ${{ steps.build-all-cache.outputs.cache-hit }}
+  build-all-cache-matched-key:
+    description: Build-all cache key selected during restore.
+    value: ${{ steps.build-all-cache.outputs.cache-matched-key }}
 runs:
   using: composite
   steps:
