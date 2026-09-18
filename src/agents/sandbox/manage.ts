@@ -3,7 +3,7 @@
  *
  * Lists and removes registered runtime and browser containers using backend manager status.
  */
-import { getRuntimeConfig } from "../../config/config.js";
+import { getRuntimeConfig } from "../../config/io.js";
 import { getSandboxBackendManager } from "./backend.js";
 import { stopCachedBrowserBridgesForContainer } from "./browser-bridges.js";
 import { dockerSandboxBackendManager } from "./docker-backend.js";
