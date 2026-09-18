@@ -2525,6 +2525,141 @@ describe("WorkboardStore", () => {
     }
   });
 
+  // Regression tests for fb3854a7 (issue #61): the claim() guard now consults
+  // isFutureDateTimestampMs(existingClaim.expiresAt) so an expired claim frees
+  // the owner slot immediately. These tests pin the three sub-cases so future
+  // refactors cannot silently regress the semantics.
+  it("expired claim frees the owner slot so the same owner can reclaim immediately", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      // Use a non-running status so the heartbeat-grace branch does not apply;
+      // the card status "review" survives claim() unchanged, letting the claim
+      // expire without a running-state grace window.
+      const card = await store.create({ title: "Stale operator claim", status: "review" });
+      const first = await store.claim(card.id, { ownerId: "main", ttlSeconds: 1 });
+      const expiresAt = first.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("expected a timed claim");
+      }
+
+      // Advance past expiry. The claim is now expired but still present on the
+      // card; status is "review" so the running-grace path is not engaged.
+      vi.setSystemTime(expiresAt + 1);
+
+      // Same owner can re-claim because the existing claim is no longer in the
+      // future and the card is not running.
+      const second = await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+      expect(second.card.metadata?.claim?.ownerId).toBe("main");
+      expect(second.token).not.toBe(first.token);
+      expect(second.card.metadata?.claim?.expiresAt).toBeGreaterThan(expiresAt);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("unexpired claim blocks other-agent claim with the active owner in the error", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Foreign claimer blocked", status: "ready" });
+    await store.claim(card.id, { ownerId: "main", ttlSeconds: 60 });
+
+    await expect(store.claim(card.id, { ownerId: "intruder" })).rejects.toThrow(
+      "card already claimed by main.",
+    );
+    const saved = await store.get(card.id);
+    // Original owner keeps the slot; no second claim was admitted.
+    expect(saved?.metadata?.claim?.ownerId).toBe("main");
+  });
+
+  it("running-state heartbeat grace still blocks replacement during the reclaim window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Live worker heartbeat grace", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("expected a timed claim");
+      }
+
+      // After expiry but well inside the heartbeat grace window the running
+      // worker keeps the slot via isWorkboardClaimReclaimable().
+      vi.setSystemTime(expiresAt + 60_000);
+      await expect(store.claim(card.id, { ownerId: "replacement" })).rejects.toThrow(
+        "card already claimed by original.",
+      );
+
+      // Past the grace window (expiresAt + CLAIM_RECLAIM_MS) the slot opens up.
+      vi.setSystemTime(expiresAt + 5 * 60_000 + 1);
+      const replacement = await store.claim(card.id, { ownerId: "replacement" });
+      expect(replacement.card.metadata?.claim?.ownerId).toBe("replacement");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("own expired claim frees the owner slot for another card", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const first = await store.create({ title: "Slot one", status: "ready" });
+      const second = await store.create({ title: "Slot two", status: "ready" });
+      const claimed = await store.claim(first.id, { ownerId: "worker", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      if (expiresAt === undefined) {
+        throw new Error("claim expiry missing");
+      }
+      // Same owner's expired claim on a DIFFERENT card must not block their
+      // claim on another card (reclaim-expiry fix cross-card invariant).
+      vi.setSystemTime(expiresAt + 1_000);
+      await expect(store.claim(second.id, { ownerId: "worker" })).resolves.toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects scoped move and reclaim after a claim expires", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const movedCard = await store.create({ title: "Expired move", status: "ready" });
+      const movedClaim = await store.claim(movedCard.id, { ownerId: "worker", ttlSeconds: 1 });
+      const reclaimedCard = await store.create({ title: "Expired reclaim", status: "ready" });
+      const reclaimedClaim = await store.claim(reclaimedCard.id, {
+        ownerId: "worker",
+        ttlSeconds: 1,
+      });
+      const expiresAt = Math.min(
+        movedClaim.card.metadata?.claim?.expiresAt ?? Number.MAX_SAFE_INTEGER,
+        reclaimedClaim.card.metadata?.claim?.expiresAt ?? Number.MAX_SAFE_INTEGER,
+      );
+      vi.setSystemTime(expiresAt + 1);
+
+      await expect(
+        store.move(movedCard.id, "blocked", undefined, {
+          ownerId: "worker",
+          token: movedClaim.token,
+        }),
+      ).rejects.toThrow("claim has expired.");
+      await expect(
+        store.reclaim(
+          reclaimedCard.id,
+          { reason: "worker recovery" },
+          { ownerId: "worker", token: reclaimedClaim.token },
+        ),
+      ).rejects.toThrow("claim has expired.");
+
+      await expect(store.move(movedCard.id, "blocked")).resolves.toMatchObject({
+        status: "blocked",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {
