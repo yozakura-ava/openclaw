@@ -5,8 +5,8 @@
 // Coverage:
 //   AC1 — agent can hold up to maxClaimsPerOwner concurrent claims in the
 //         same lane without owner_busy (default 2).
-//   AC2 — exceeding the budget rejects with a message that names the
-//         conflicting cards.
+//   Budget enforcement and conflict details are covered through the
+//   production SQLite-backed path in sqlite-store-multiclaim.test.ts.
 //   AC3 — lane-aware: a claim in a different lane does NOT count against
 //         the lane budget ("reina:sprint-X" vs "rin:review-Y").
 //   AC4 — moving a card to "done" auto-releases its claim (read-back).
@@ -56,7 +56,9 @@ async function moveTo(
   // Direct metadata/status update via updateCard; we don't go through a
   // public move helper to keep this test focused on the auto-release path.
   const existing = await store.get(id);
-  if (!existing) throw new Error(`test fixture missing: ${id}`);
+  if (!existing) {
+    throw new Error(`test fixture missing: ${id}`);
+  }
   await store.updateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
 }
 
@@ -86,18 +88,6 @@ describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
     const claimed2 = await store.claim(b, { ownerId: "reina:sprint-foo" });
     expect(claimed1.card.metadata?.claim?.ownerId).toBe("reina:sprint-foo");
     expect(claimed2.card.metadata?.claim?.ownerId).toBe("reina:sprint-foo");
-  });
-
-  it("AC2 — third claim in same lane rejects with a message naming the conflicts", async () => {
-    const store = new WorkboardStore(createMemoryStore());
-    const a = await makeReadyCard(store, "card A");
-    const b = await makeReadyCard(store, "card B");
-    const c = await makeReadyCard(store, "card C");
-    await store.claim(a, { ownerId: "reina:sprint-foo" });
-    await store.claim(b, { ownerId: "reina:sprint-foo" });
-    await expect(store.claim(c, { ownerId: "reina:sprint-foo" })).rejects.toThrow(
-      /already has 2 active Workboard claim.*Conflicting.*card A.*card B/s,
-    );
   });
 
   it("AC3 — lane-aware: claims in different lanes do NOT collide", async () => {
