@@ -77,12 +77,16 @@ import { setCanonicalSqliteSessionMainKey } from "./session-canonical-key.js";
 import type { InternalSessionEntry, SessionCompactionCheckpoint, SessionEntry } from "./types.js";
 
 // Keep accessor conformance independent of any real openclaw.json on the machine.
-vi.mock("../config.js", async () => ({
-  ...(await vi.importActual<typeof import("../config.js")>("../config.js")),
+// Production code imports `getRuntimeConfig` from `../io.js`; mock that path so the
+// stubbed return values reach the maintenance reader instead of being bypassed by
+// vitest's per-module-specifier mock resolution (config.js re-exports the same
+// function, but the mock at `config.js` does not intercept `io.js` imports).
+vi.mock("../io.js", async () => ({
+  ...(await vi.importActual<typeof import("../io.js")>("../io.js")),
   getRuntimeConfig: vi.fn().mockReturnValue({}),
 }));
 
-import { getRuntimeConfig } from "../config.js";
+import { getRuntimeConfig } from "../io.js";
 
 type AccessorAdapter = {
   name: string;
