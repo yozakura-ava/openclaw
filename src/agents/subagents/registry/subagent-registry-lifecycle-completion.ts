@@ -18,6 +18,7 @@ import {
 } from "./subagent-lifecycle-events.js";
 import { shouldSuppressSubagentRecoverySessionEffects } from "./subagent-recovery-state.js";
 import { resolveKilledSubagentTaskEndedAt } from "./subagent-registry-completion.js";
+import { resolveSubagentCompletionOutcomeReason } from "./subagent-registry-early-settle.js";
 import { updateSubagentArchiveAtMs } from "./subagent-registry-helpers.js";
 import { completeTerminalEffects } from "./subagent-registry-lifecycle-cleanup.js";
 import type { SubagentLifecycleCompletionContext } from "./subagent-registry-lifecycle-context.js";
@@ -426,15 +427,32 @@ export async function completeSubagentRunAttempt(
       entry.completion?.terminalReply,
       completeParams.terminalReply,
     );
-    // Lifecycle events and agent.wait both settle here. A required success
-    // needs producer evidence before any transcript fallback can freeze it.
-    if (
-      entry.expectsCompletionMessage === true &&
-      completionOutcome.status === "ok" &&
-      !terminalReply
-    ) {
-      completionOutcome = { status: "error", error: MISSING_REQUIRED_FINAL_REPLY_ERROR };
-      completionReason = SUBAGENT_ENDED_REASON_ERROR;
+    // Fork issue #106 (Ask #1): a spawned mode=run child that ends on a normal
+    // stop WITHOUT a final answer must NOT settle as completed. The pure
+    // helper `resolveSubagentCompletionOutcomeReason` either returns the
+    // input untouched or replaces it with the distinct `exited-early`
+    // outcome + reason. mode=session behavior is preserved exactly: that
+    // path falls through to the existing MISSING_REQUIRED_FINAL_REPLY_ERROR
+    // branch below.
+    const earlySettle = resolveSubagentCompletionOutcomeReason({
+      ...(entry.spawnMode !== undefined ? { spawnMode: entry.spawnMode } : {}),
+      completionOutcome,
+      completionReason,
+      terminalReply,
+    });
+    completionOutcome = earlySettle.completionOutcome;
+    completionReason = earlySettle.completionReason;
+    if (!earlySettle.appliedEarlySettle) {
+      // Lifecycle events and agent.wait both settle here. A required success
+      // needs producer evidence before any transcript fallback can freeze it.
+      if (
+        entry.expectsCompletionMessage === true &&
+        completionOutcome.status === "ok" &&
+        !terminalReply
+      ) {
+        completionOutcome = { status: "error", error: MISSING_REQUIRED_FINAL_REPLY_ERROR };
+        completionReason = SUBAGENT_ENDED_REASON_ERROR;
+      }
     }
     const outcome =
       recoveryRequested && entry.execution.outcome
