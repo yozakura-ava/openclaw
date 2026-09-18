@@ -3,6 +3,7 @@ import { StartupMaintenanceRequiredError } from "../infra/startup-maintenance-re
 type OpenClawStateDatabaseSchemaMigrationRequiredKind =
   | "agent-databases-composite-primary-key"
   | "audit-events-v2"
+  | "audit-null-indexes-v18"
   | "legacy-workshop-review-index";
 
 export class OpenClawStateDatabaseSchemaMigrationRequiredError extends StartupMaintenanceRequiredError {
