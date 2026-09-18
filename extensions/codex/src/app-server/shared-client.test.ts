@@ -65,7 +65,7 @@ const mocks = vi.hoisted(() => ({
   resolveManagedCodexAppServerStartOptions: vi.fn(async (startOptions) => startOptions),
   resolveManagedCodexNativeCommand: vi.fn((command: string) => `${command}.native`),
   isManagedCodexDesktopCommand: vi.fn((command: string) => command.startsWith("/Applications/")),
-  embeddedAgentLog: { debug: vi.fn(), warn: vi.fn() },
+  embeddedAgentLog: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
   resolveDefaultAgentDir: vi.fn(() => "/tmp/openclaw-agent"),
   desktopGeneration: undefined as { epoch: number; fingerprint: string } | undefined,
   desktopGenerationCurrent: true,
@@ -131,6 +131,7 @@ let clearSharedCodexAppServerClientIfCurrentAndUnclaimed: typeof import("./share
 let clearSharedCodexAppServerClientIfCurrentAndWait: typeof import("./shared-client.js").clearSharedCodexAppServerClientIfCurrentAndWait;
 let createIsolatedCodexAppServerClient: typeof import("./shared-client.js").createIsolatedCodexAppServerClient;
 let getLeasedSharedCodexAppServerClient: typeof import("./shared-client.js").getLeasedSharedCodexAppServerClient;
+let getCodexAppServerClientPoolMetrics: typeof import("./shared-client.js").getCodexAppServerClientPoolMetrics;
 let isCodexAppServerStartSelectionChangedError: typeof import("./shared-client.js").isCodexAppServerStartSelectionChangedError;
 let retainSharedCodexAppServerClientIfCurrent: typeof import("./shared-client.js").retainSharedCodexAppServerClientIfCurrent;
 let retainSharedCodexAppServerClientByInstanceId: typeof import("./shared-client.js").retainSharedCodexAppServerClientByInstanceId;
@@ -268,6 +269,7 @@ function configureManagedDesktopFallback(): CodexAppServerStartOptions {
 describe("shared Codex app-server client", () => {
   beforeEach(() => {
     vi.spyOn(embeddedAgentLog, "debug").mockImplementation(mocks.embeddedAgentLog.debug);
+    vi.spyOn(embeddedAgentLog, "info").mockImplementation(mocks.embeddedAgentLog.info);
     vi.spyOn(embeddedAgentLog, "warn").mockImplementation(mocks.embeddedAgentLog.warn);
   });
 
@@ -280,6 +282,7 @@ describe("shared Codex app-server client", () => {
       clearSharedCodexAppServerClientIfCurrentAndWait,
       createIsolatedCodexAppServerClient,
       getLeasedSharedCodexAppServerClient,
+      getCodexAppServerClientPoolMetrics,
       isCodexAppServerStartSelectionChangedError,
       retainSharedCodexAppServerClientIfCurrent,
       retainSharedCodexAppServerClientByInstanceId,
@@ -337,6 +340,7 @@ describe("shared Codex app-server client", () => {
       (command: string) => `${command}.native`,
     );
     mocks.embeddedAgentLog.debug.mockClear();
+    mocks.embeddedAgentLog.info.mockClear();
     mocks.embeddedAgentLog.warn.mockClear();
     mocks.resolveDefaultAgentDir.mockClear();
   });
@@ -363,6 +367,32 @@ describe("shared Codex app-server client", () => {
     });
 
     expect(isCodexAppServerStartSelectionChangedError(error)).toBe(true);
+  });
+
+  it("reuses idle clients before reaping and closes them after the idle bound", async () => {
+    vi.useFakeTimers();
+    const harness = createClientHarness();
+    const startSpy = vi.spyOn(CodexAppServerClient, "start").mockResolvedValue(harness.client);
+    const options = { timeoutMs: 1_000 };
+    const firstAcquire = getLeasedSharedCodexAppServerClient(options);
+    await sendInitializeResult(harness, `codex-cli/${CODEX_APP_SERVER_VERSION}`);
+    await expect(firstAcquire).resolves.toBe(harness.client);
+
+    expect(releaseLeasedSharedCodexAppServerClient(harness.client)).toBe(true);
+    expect(getCodexAppServerClientPoolMetrics()).toMatchObject({ active: 0, idle: 1, reaped: 0 });
+    await vi.advanceTimersByTimeAsync(5 * 60_000 - 1);
+    await expect(getLeasedSharedCodexAppServerClient(options)).resolves.toBe(harness.client);
+    expect(startSpy).toHaveBeenCalledOnce();
+    expect(harness.stdinDestroyed).toBe(false);
+
+    expect(releaseLeasedSharedCodexAppServerClient(harness.client)).toBe(true);
+    await vi.advanceTimersByTimeAsync(5 * 60_000);
+    expect(harness.stdinDestroyed).toBe(true);
+    expect(getCodexAppServerClientPoolMetrics()).toMatchObject({ active: 0, idle: 0, reaped: 1 });
+    expect(mocks.embeddedAgentLog.info).toHaveBeenCalledWith(
+      "codex app-server process pool",
+      expect.objectContaining({ event: "idle_reaped", reaped: 1 }),
+    );
   });
 
   it("fingerprints argv without exposing secret-shaped config overrides", () => {
