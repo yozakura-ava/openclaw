@@ -25,6 +25,7 @@ import type {
   WorkboardAttachmentInput,
   WorkboardMutationScope,
   WorkboardProofInput,
+  WorkboardReviewVerdictInput,
   WorkboardProtocolViolationInput,
   WorkboardWorkerLogInput,
 } from "./store-inputs.js";
@@ -38,6 +39,39 @@ import {
 } from "./store-normalizers.js";
 
 export class WorkboardEnrichmentStore extends WorkboardCoreStore {
+  async recordReviewVerdict(
+    id: string,
+    input: WorkboardReviewVerdictInput,
+    scope?: WorkboardMutationScope,
+  ): Promise<WorkboardCard> {
+    if (typeof input.verified !== "boolean") {
+      throw new Error("review verdict must set verified to true or false.");
+    }
+    const summary = normalizeBoundedString(input.summary, undefined, 1000, "review summary");
+    return await this.updateMetadata(
+      id,
+      (existing) => {
+        assertCanMutateClaimedCard(existing, scope);
+        if (existing.metadata?.reviewRequired !== true) {
+          throw new Error("card is not governed by the verified-review close gate.");
+        }
+        if (existing.status !== "review") {
+          throw new Error("a review verdict can only be recorded while the card is in review.");
+        }
+        return {
+          ...existing.metadata,
+          reviewVerdict: {
+            verified: input.verified as boolean,
+            reviewerId: normalizeBoundedString(scope?.ownerId, "operator", 120, "reviewer id")!,
+            reviewedAt: Math.max(Date.now(), existing.updatedAt + 1),
+            ...(summary ? { summary } : {}),
+          },
+        };
+      },
+      { allowReviewVerdict: true },
+    );
+  }
+
   async addProof(
     id: string,
     input: WorkboardProofInput,

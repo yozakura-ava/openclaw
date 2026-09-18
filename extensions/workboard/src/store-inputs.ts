@@ -37,6 +37,7 @@ type WorkboardCardInput = {
   startedAt?: unknown;
   completedAt?: unknown;
   parents?: unknown;
+  reviewRequired?: unknown;
 };
 
 export type WorkboardCardPatch = Partial<WorkboardCardInput>;
@@ -115,6 +116,10 @@ export type WorkboardCompleteInput = {
   proofId?: unknown;
   artifacts?: unknown;
   createdCardIds?: unknown;
+};
+export type WorkboardReviewVerdictInput = {
+  verified?: unknown;
+  summary?: unknown;
 };
 export type WorkboardBlockInput = {
   ownerId?: unknown;
