@@ -59,7 +59,20 @@ async function moveTo(
   if (!existing) {
     throw new Error(`test fixture missing: ${id}`);
   }
-  await store.updateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
+  await TestStore.from(store).updateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
+}
+
+class TestStore extends WorkboardStore {
+  public updateCard(
+    id: string,
+    patch: Record<string, unknown>,
+    options?: { expectedUpdatedAt?: number },
+  ): Promise<unknown> {
+    return super.updateCard(id, patch as never, options as never);
+  }
+  static from(store: WorkboardStore): TestStore {
+    return store as unknown as TestStore;
+  }
 }
 
 describe("WorkboardWorkflowStore bounded multi-claim (issue #52/#96)", () => {
