@@ -80,7 +80,13 @@ const listSkillProposals = (input?: Partial<Parameters<typeof listSkillProposals
   listSkillProposalsImpl(withWorkshopOwner(input ?? {}));
 const purgeStaleSkillProposals = (
   input: Omit<Parameters<typeof purgeStaleSkillProposalsImpl>[0], "config" | "agentId" | "env">,
-) => purgeStaleSkillProposalsImpl(withWorkshopOwner({ ...input, env: testEnv }));
+) =>
+  purgeStaleSkillProposalsImpl({
+    ...input,
+    config: workshopConfig,
+    agentId: "main",
+    env: testEnv,
+  });
 const proposeCreateSkill = (
   input: OptionalWorkshopConfig<Parameters<typeof proposeCreateSkillImpl>[0]>,
 ) => proposeCreateSkillImpl(withWorkshopOwner(input));
