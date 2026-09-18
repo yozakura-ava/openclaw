@@ -36,6 +36,7 @@ describe("Workboard dispatcher lifecycle races", () => {
     const card = await store.create({
       title: "Concurrent dispatch transition",
       status: "ready",
+      agentId: "race-worker",
       boardId: "ops",
       workspaceAccess: { unrestricted: true },
     });
@@ -141,6 +142,7 @@ describe("Workboard dispatcher lifecycle races", () => {
     const card = await store.create({
       title: "Retain failed worker checkout",
       status: "ready",
+      agentId: "checkout-worker",
       workspace: { kind: "worktree", path: "/repo", branch: "main" },
       workspaceAccess: { unrestricted: true },
     });
