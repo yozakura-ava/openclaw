@@ -1203,6 +1203,7 @@ describe("runHeartbeatOnce", () => {
 
   it("uses per-agent heartbeat overrides and session keys", async () => {
     const tmpDir = await createCaseDir("hb-agent-overrides");
+    await fs.writeFile(path.join(tmpDir, "ops-heartbeat.md"), "File-backed ops check");
     const storePath = path.join(tmpDir, "sessions.json");
     const replySpy = vi.fn();
     try {
@@ -1216,7 +1217,12 @@ describe("runHeartbeatOnce", () => {
             {
               id: "ops",
               workspace: tmpDir,
-              heartbeat: { every: "5m", target: "whatsapp", prompt: "Ops check" },
+              heartbeat: {
+                every: "5m",
+                target: "whatsapp",
+                prompt: "Inline prompt must be overridden",
+                promptFile: "ops-heartbeat.md",
+              },
             },
           ],
         },
@@ -1253,7 +1259,7 @@ describe("runHeartbeatOnce", () => {
         replySpy,
         0,
         {
-          Body: /Ops check[\s\S]*Current time: /,
+          Body: /File-backed ops check[\s\S]*Current time: /,
           SessionKey: sessionKey,
           From: "120363401234567890@g.us",
           To: "120363401234567890@g.us",
@@ -1268,6 +1274,35 @@ describe("runHeartbeatOnce", () => {
       );
     } finally {
       replySpy.mockReset();
+    }
+  });
+
+  it("fails a heartbeat when its configured prompt file cannot be read", async () => {
+    const tmpDir = await createCaseDir("hb-missing-prompt-file");
+    try {
+      const cfg: OpenClawConfig = {
+        agents: {
+          defaults: { workspace: tmpDir },
+          list: [
+            {
+              id: "main",
+              default: true,
+              heartbeat: {
+                every: "5m",
+                prompt: "Do not silently fall back",
+                promptFile: "missing.md",
+              },
+            },
+          ],
+        },
+        session: { store: path.join(tmpDir, "sessions.json") },
+      };
+
+      await expect(runHeartbeatOnce({ cfg, agentId: "main" })).rejects.toThrow(
+        /Failed to read heartbeat prompt file .*missing\.md/,
+      );
+    } finally {
+      await fs.rm(tmpDir, { recursive: true, force: true });
     }
   });
 
