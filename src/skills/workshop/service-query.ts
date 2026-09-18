@@ -1,6 +1,8 @@
+import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
+import { removePathWithinRoot } from "../../infra/fs-safe-remove.js";
 import { isPathInside } from "../../infra/path-guards.js";
 import { normalizeSkillIndexName } from "../discovery/skill-index.js";
 import {
@@ -10,16 +12,18 @@ import {
 import { transitionPendingSkillProposalToStale } from "./apply-transition.js";
 import { resolveSkillProposalName } from "./frontmatter.js";
 import { dispatchSkillProposalChanged } from "./plugin-hooks.js";
+import { resolveSkillWorkshopStateDir } from "./proposal-generation.js";
 import { resolveWorkshopSkillsDir } from "./skills-root.js";
 import {
   SkillProposalDraftMissingError,
+  deleteStaleSkillProposalRecord,
   readSkillProposal,
   readSkillProposalDraft,
   readSkillProposalManifest,
   readSkillProposalRecord,
   readSkillProposalRollback,
 } from "./store.js";
-import { withSkillProposalCommitLock } from "./target-lock.js";
+import { withSkillProposalCommitLock, withSkillProposalTargetLock } from "./target-lock.js";
 import type {
   SkillProposalManifest,
   SkillProposalReadResult,
@@ -69,6 +73,70 @@ export async function listSkillProposals(
     }
   }
   return reconciled;
+}
+
+export async function purgeStaleSkillProposals(params: {
+  agentId: string;
+  env?: NodeJS.ProcessEnv;
+  config: OpenClawConfig;
+  staleBefore: string;
+  dryRun: boolean;
+  confirm?: boolean;
+}): Promise<{ dryRun: boolean; candidates: string[]; purged: string[] }> {
+  if (!params.dryRun && params.confirm !== true) {
+    throw new Error("Purging stale proposals requires confirm=true after reviewing a dry run.");
+  }
+  const manifest = await readSkillProposalManifest(params, params);
+  const candidates = manifest.proposals.filter(
+    (proposal) => proposal.status === "stale" && (proposal.staleAt ?? "") <= params.staleBefore,
+  );
+  if (params.dryRun) {
+    return { dryRun: true, candidates: candidates.map(({ id }) => id), purged: [] };
+  }
+  const purged: string[] = [];
+  for (const candidate of candidates) {
+    const record = await readSkillProposalRecord(candidate.id, params, params, {
+      config: params.config,
+      reconcile: false,
+    });
+    if (!record || record.status !== "stale") {
+      continue;
+    }
+    await withSkillProposalTargetLock(
+      record,
+      async () => {
+        const current = await readSkillProposalRecord(record.id, params, params, {
+          config: params.config,
+          reconcile: false,
+        });
+        if (
+          !current ||
+          current.status !== "stale" ||
+          !current.staleAt ||
+          current.staleAt > params.staleBefore
+        ) {
+          return;
+        }
+        await removePathWithinRoot({
+          rootDir: resolveSkillWorkshopStateDir(params),
+          relativePath: path.join("skill-workshop", "proposals", record.id),
+          recursive: true,
+        });
+        const removed = deleteStaleSkillProposalRecord({
+          proposalId: record.id,
+          ownerAgentId: params.agentId,
+          staleBefore: params.staleBefore,
+          store: params,
+        });
+        if (!removed) {
+          return;
+        }
+        purged.push(record.id);
+      },
+      params,
+    );
+  }
+  return { dryRun: false, candidates: candidates.map(({ id }) => id), purged };
 }
 
 export async function inspectSkillProposal(

@@ -15,6 +15,7 @@ import {
   composeSkillBodyPatch,
   evaluateSkillProposal,
   listSkillProposals,
+  purgeStaleSkillProposals,
   proposeCreateSkill,
   proposeUpdateSkill,
   quarantineSkillProposal,
@@ -260,6 +261,33 @@ export function createSkillWorkshopTool(options: SkillWorkshopToolOptions): AnyA
           limit,
         });
         return textResult(formatProposalList(proposals), { proposals });
+      }
+
+      if (action === "purge") {
+        const olderThan = readToolStringParam(params, "older_than") ?? "7d";
+        const ageMatch = /^(\d+)([dhm])$/u.exec(olderThan);
+        const ageValue = ageMatch ? Number(ageMatch[1]) : 0;
+        if (!ageMatch || !Number.isSafeInteger(ageValue) || ageValue <= 0 || ageValue > 36_500) {
+          throw new ToolInputError(
+            "older_than must be a positive duration up to 36500 days, such as 7d, 24h, or 30m.",
+          );
+        }
+        const ageMs =
+          ageValue * (ageMatch[2] === "d" ? 86_400_000 : ageMatch[2] === "h" ? 3_600_000 : 60_000);
+        const dryRun = params.dry_run !== false;
+        const result = await purgeStaleSkillProposals({
+          agentId: options.agentId,
+          config: options.config,
+          env: options.env,
+          staleBefore: new Date(Date.now() - ageMs).toISOString(),
+          dryRun,
+          confirm: params.confirm === true,
+        });
+        const ids = dryRun ? result.candidates : result.purged;
+        return textResult(
+          `${dryRun ? "Dry run" : "Purged"}: ${ids.length} stale proposal(s)${ids.length ? `: ${ids.join(", ")}` : "."}`,
+          { ...result, olderThan },
+        );
       }
 
       if (action === "inspect") {

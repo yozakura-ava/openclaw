@@ -25,6 +25,12 @@ const SKILL_WORKSHOP_LIFECYCLE_APPROVALS = {
     description: "Reject a pending Skill Workshop proposal.",
     severity: "info",
   },
+  purge: {
+    title: "Purge stale Skill Workshop proposals",
+    description:
+      "Delete stale Skill Workshop proposal records, events, and stored generations after a reviewed dry run.",
+    severity: "warning",
+  },
   quarantine: {
     title: "Quarantine Skill Workshop proposal",
     description: "Quarantine a pending Skill Workshop proposal.",
@@ -45,7 +51,11 @@ type SkillWorkshopLifecycleAction = keyof typeof SKILL_WORKSHOP_LIFECYCLE_APPROV
 
 // Lifecycle actions mutate proposals or live skills and therefore require approval checks.
 function readLifecycleAction(params: unknown): SkillWorkshopLifecycleAction | undefined {
-  const action = asNullableRecord(params)?.action;
+  const record = asNullableRecord(params);
+  const action = record?.action;
+  if (action === "purge" && record?.dry_run !== false) {
+    return undefined;
+  }
   if (typeof action !== "string" || !Object.hasOwn(SKILL_WORKSHOP_LIFECYCLE_APPROVALS, action)) {
     return undefined;
   }
@@ -148,6 +158,14 @@ function lifecycleApprovalTimeoutReason(params: {
       "Do not retry this tool call in a loop.",
     ].join(" ");
   }
+  if (params.action === "purge") {
+    return [
+      "The Skill Workshop purge approval request expired without a decision.",
+      "No proposal records or files were removed.",
+      "Review the dry-run proposal IDs, then request approval again if the same purge is still wanted.",
+      "Do not retry this tool call in a loop.",
+    ].join(" ");
+  }
   const proposal = params.proposalId ? `Proposal ${params.proposalId}` : "the proposal";
   return [
     "The Skill Workshop approval request expired without a decision.",
@@ -173,20 +191,24 @@ export async function resolveSkillWorkshopToolApproval(params: {
     return undefined;
   }
   const config = resolveSkillWorkshopConfig(params.config);
-  if (config.approvalPolicy === "auto") {
+  if (config.approvalPolicy === "auto" && action !== "purge") {
     return undefined;
   }
   const text = SKILL_WORKSHOP_LIFECYCLE_APPROVALS[action];
   const approvalDescription =
     action === "restore_collection"
       ? { description: text.description }
-      : await resolveLifecycleApprovalDescription({
-          toolParams: params.toolParams,
-          workspaceDir: params.workspaceDir,
-          config: params.config,
-          agentId: params.agentId,
-          fallback: text.description,
-        });
+      : action === "purge"
+        ? {
+            description: `${text.description} This permanently deletes only stale proposals older than ${asNullableRecord(params.toolParams)?.older_than ?? "7d"}; pending and applied proposals are excluded.`,
+          }
+        : await resolveLifecycleApprovalDescription({
+            toolParams: params.toolParams,
+            workspaceDir: params.workspaceDir,
+            config: params.config,
+            agentId: params.agentId,
+            fallback: text.description,
+          });
   return {
     requireApproval: {
       pluginId: "workspace-skills",
