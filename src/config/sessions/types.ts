@@ -49,6 +49,34 @@ import type { SessionToolOverrides } from "./session-tool-overrides.js";
 export type { SessionToolOverrides } from "./session-tool-overrides.js";
 export type { SessionSystemPromptReport } from "./session-system-prompt-report.js";
 
+/**
+ * Durable marker shape for a parent (requester) session whose
+ * requester-settle-wake delivery was abandoned after the bounded retry /
+ * deferral budget was exhausted. Written from
+ * `src/agents/subagents/announce/subagent-announce.requester-settle-wake.ts`
+ * at the deferred-too-many-times branch and queried by future settle
+ * attempts so they can recover visibility into the dropped batch.
+ *
+ * Fields are intentionally minimal so the marker stays cheap to project
+ * through the regular session-store patch path.
+ */
+export type RequesterSettleWakeDroppedDeliveryState = {
+  /** Epoch ms when the marker was written. */
+  droppedAt: number;
+  /** Requester session key the dropped wake belonged to. */
+  requesterSessionKey: string;
+  /** Child run ids that were part of the abandoned batch. */
+  childRunIds: string[];
+  /** Deferred-wake count at the moment the cap fired. */
+  deferralCount: number;
+  /** Final transport error string from the wake module. */
+  reason: string;
+  /** Bounded retry / deferral cap that was hit (mirrors the runtime constant). */
+  cap: number;
+  /** Source subagent lane that wrote the marker (e.g. "deferral-cap", "ambiguous-cap"). */
+  cause: "deferral-cap" | "ambiguous-replay-cap" | "delivery-attempts-exhausted";
+};
+
 export type SessionScope = "per-sender" | "global";
 export type SessionChatType = ChatType;
 export const SESSION_TOTAL_TOKENS_VERSION = 1 as const;
@@ -542,6 +570,18 @@ type SessionEntryCore = SessionRestartRecoveryState &
     totalTokens?: number;
     pendingFinalDelivery?: PendingFinalDeliveryState;
     pendingDeliveryNotice?: PendingDeliveryNoticeState;
+    /**
+     * Durable marker written to the parent (requester) session when a
+     * requester settle wake delivery is abandoned because the bounded
+     * deferral / replay / attempt budget was exhausted. Distinct from
+     * `pendingFinalDelivery` so a normal completion handoff never collides
+     * with a dropped-delivery notice. Recorded once per dropped batch;
+     * cleared on the next successful settle wake so a later wave can record
+     * its own drop without inheriting stale context.
+     *
+     * See fork issue #106, Ask #2.
+     */
+    requesterSettleWakeDroppedDelivery?: RequesterSettleWakeDroppedDeliveryState;
     /**
      * Ordered durable backlog of delivered assistant finals that failed to
      * reach the canonical transcript. Session admission restores each item
