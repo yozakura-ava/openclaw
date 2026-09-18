@@ -88,7 +88,7 @@ export async function purgeStaleSkillProposals(params: {
   }
   const manifest = await readSkillProposalManifest(params, params);
   const candidates = manifest.proposals.filter(
-    (proposal) => proposal.status === "stale" && (proposal.staleAt ?? "") <= params.staleBefore,
+    (proposal) => proposal.status === "stale" && proposal.updatedAt <= params.staleBefore,
   );
   if (params.dryRun) {
     return { dryRun: true, candidates: candidates.map(({ id }) => id), purged: [] };
@@ -109,12 +109,7 @@ export async function purgeStaleSkillProposals(params: {
           config: params.config,
           reconcile: false,
         });
-        if (
-          !current ||
-          current.status !== "stale" ||
-          !current.staleAt ||
-          current.staleAt > params.staleBefore
-        ) {
+        if (!current || current.status !== "stale" || current.updatedAt > params.staleBefore) {
           return;
         }
         await removePathWithinRoot({
