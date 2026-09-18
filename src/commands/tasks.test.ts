@@ -894,6 +894,36 @@ describe("tasks commands", () => {
     });
   });
 
+  it("reports post-apply output failures without changing a completed apply to failure", async () => {
+    await withTaskCommandStateDir(async () => {
+      const now = Date.now();
+      const task = createTaskRecord({
+        runtime: "cli",
+        ownerKey: "agent:main:main",
+        scopeKind: "session",
+        runId: "apply-report-failure",
+        task: "Prune before reporting",
+        status: "succeeded",
+        cleanupAfter: now - 1,
+      });
+      const runtime = createRuntime();
+      vi.mocked(runtime.log).mockImplementation(() => {
+        throw new Error("stdout closed after maintenance");
+      });
+
+      await expect(tasksMaintenanceCommand({ json: true, apply: true }, runtime)).resolves.toBe(
+        undefined,
+      );
+
+      expect(getTaskById(task.taskId)).toBeUndefined();
+      expect(runtime.error).toHaveBeenCalledWith(
+        expect.stringContaining('"code":"TASKS_MAINTENANCE_REPORT_FAILED"'),
+      );
+      expect(runtime.error).toHaveBeenCalledWith(expect.stringContaining('"applied":true'));
+      expect(runtime.exit).not.toHaveBeenCalled();
+    });
+  });
+
   it("keeps tasks maintenance JSON additive for TaskFlow state", async () => {
     await withTaskCommandStateDir(async () => {
       const now = Date.now();

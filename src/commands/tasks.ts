@@ -11,6 +11,7 @@ import { parseCliEnumFilter } from "../cli/enum-filter.js";
 import { formatLookupMiss } from "../cli/error-format.js";
 import { formatCliJsonFailure, rethrowExpectedCliError } from "../cli/failure-output.js";
 import { getRuntimeConfig } from "../config/config.js";
+import { formatErrorMessage } from "../infra/errors.js";
 import { type RuntimeEnv, writeRuntimeJson } from "../runtime.js";
 import { updateTaskNotifyPolicyById } from "../tasks/runtime-internal.js";
 import { cancelDetachedTaskRunById } from "../tasks/task-executor.js";
@@ -549,77 +550,117 @@ export async function tasksMaintenanceCommand(
   assertTaskFlowRegistryMaintenanceReady();
   const auditBefore = getInspectableTaskAuditSummary();
   const flowAuditBefore = getInspectableTaskFlowAuditSummary();
-  const taskMaintenance = opts.apply
-    ? await runTaskRegistryMaintenance()
-    : previewTaskRegistryMaintenance();
-  // JSON diagnostics explain the task-maintenance decision above, before the
-  // separate session-registry sweep can prune backing session rows.
-  const diagnostics = opts.json ? getTaskRegistryMaintenanceDiagnostics() : undefined;
-  const flowMaintenance = opts.apply
-    ? await runTaskFlowRegistryMaintenance()
-    : previewTaskFlowRegistryMaintenance();
-  const sessionMaintenance = await runSessionRegistryMaintenance({ apply: Boolean(opts.apply) });
-  const summary = getInspectableTaskRegistrySummary();
-  const auditAfter = opts.apply ? getInspectableTaskAuditSummary() : auditBefore;
-  const flowAuditAfter = opts.apply ? getInspectableTaskFlowAuditSummary() : flowAuditBefore;
-  const retainedLostAfter = summarizeRetainedLostTaskAuditFindings(
-    listTaskAuditFindings({ tasks: reconcileInspectableTasks() }),
-  );
-
-  if (opts.json) {
-    writeRuntimeJson(runtime, {
-      mode: opts.apply ? "apply" : "preview",
-      maintenance: {
-        tasks: taskMaintenance,
-        taskFlows: flowMaintenance,
-        sessions: sessionMaintenance,
-      },
-      tasks: summary,
-      diagnostics,
-      auditBefore: {
-        ...auditBefore,
-        taskFlows: flowAuditBefore,
-      },
-      auditAfter: {
-        ...auditAfter,
-        taskFlows: flowAuditAfter,
-      },
-    });
+  let taskMaintenance: ReturnType<typeof previewTaskRegistryMaintenance>;
+  let diagnostics: ReturnType<typeof getTaskRegistryMaintenanceDiagnostics> | undefined;
+  let flowMaintenance: ReturnType<typeof previewTaskFlowRegistryMaintenance>;
+  let sessionMaintenance: Awaited<ReturnType<typeof runSessionRegistryMaintenance>>;
+  let stage = "task_registry";
+  try {
+    taskMaintenance = opts.apply
+      ? await runTaskRegistryMaintenance()
+      : previewTaskRegistryMaintenance();
+    // JSON diagnostics explain the task-maintenance decision above, before the
+    // separate session-registry sweep can prune backing session rows.
+    diagnostics = opts.json ? getTaskRegistryMaintenanceDiagnostics() : undefined;
+    stage = "task_flow_registry";
+    flowMaintenance = opts.apply
+      ? await runTaskFlowRegistryMaintenance()
+      : previewTaskFlowRegistryMaintenance();
+    stage = "session_registry";
+    sessionMaintenance = await runSessionRegistryMaintenance({ apply: Boolean(opts.apply) });
+  } catch (error) {
+    if (!opts.apply) {
+      throw error;
+    }
+    runtime.error(
+      JSON.stringify({
+        code: "TASKS_MAINTENANCE_APPLY_FAILED",
+        outcome: "partial_or_ambiguous",
+        stage,
+        error: formatErrorMessage(error),
+      }),
+    );
+    runtime.exit(2);
     return;
   }
 
-  runtime.log(
-    info(
-      `Tasks maintenance (${opts.apply ? "applied" : "preview"}): tasks ${taskMaintenance.reconciled} reconcile · ${taskMaintenance.recovered} recovered · ${taskMaintenance.cleanupStamped} cleanup stamp · ${taskMaintenance.pruned} prune; task-flows ${flowMaintenance.reconciled} reconcile · ${flowMaintenance.pruned} prune`,
-    ),
-  );
-  runtime.log(
-    info(
-      sessionMaintenance.skippedReason
-        ? `Session registry: sweep skipped (${sessionMaintenance.skippedReason})`
-        : `Session registry: ${sessionMaintenance.pruned} prune · ${sessionMaintenance.runningCronJobs} running automations · ${sessionMaintenance.skippedStores} skipped ${sessionMaintenance.skippedStores === 1 ? "store" : "stores"}`,
-    ),
-  );
-  runtime.log(
-    info(
-      `${opts.apply ? "Tasks health after apply" : "Tasks health"}: ${summary.byStatus.queued} queued · ${summary.byStatus.running} running · ${auditAfter.errors + flowAuditAfter.errors} audit errors · ${auditAfter.warnings + flowAuditAfter.warnings} audit warnings`,
-    ),
-  );
-  if (retainedLostAfter.count > 0) {
+  try {
+    const summary = getInspectableTaskRegistrySummary();
+    const auditAfter = opts.apply ? getInspectableTaskAuditSummary() : auditBefore;
+    const flowAuditAfter = opts.apply ? getInspectableTaskFlowAuditSummary() : flowAuditBefore;
+    const retainedLostAfter = summarizeRetainedLostTaskAuditFindings(
+      listTaskAuditFindings({ tasks: reconcileInspectableTasks() }),
+    );
+
+    if (opts.json) {
+      writeRuntimeJson(runtime, {
+        mode: opts.apply ? "apply" : "preview",
+        maintenance: {
+          tasks: taskMaintenance,
+          taskFlows: flowMaintenance,
+          sessions: sessionMaintenance,
+        },
+        tasks: summary,
+        diagnostics,
+        auditBefore: {
+          ...auditBefore,
+          taskFlows: flowAuditBefore,
+        },
+        auditAfter: {
+          ...auditAfter,
+          taskFlows: flowAuditAfter,
+        },
+      });
+      return;
+    }
+
     runtime.log(
       info(
-        `Retained lost tasks: ${retainedLostAfter.count} retained until ${timestampMsToIsoString(retainedLostAfter.nextCleanupAfter) ?? "cleanupAfter"}; maintenance will prune after cleanupAfter.`,
+        `Tasks maintenance (${opts.apply ? "applied" : "preview"}): tasks ${taskMaintenance.reconciled} reconcile · ${taskMaintenance.recovered} recovered · ${taskMaintenance.cleanupStamped} cleanup stamp · ${taskMaintenance.pruned} prune; task-flows ${flowMaintenance.reconciled} reconcile · ${flowMaintenance.pruned} prune`,
       ),
     );
-  }
-  if (opts.apply) {
     runtime.log(
       info(
-        `Tasks health before apply: ${auditBefore.errors + flowAuditBefore.errors} audit errors · ${auditBefore.warnings + flowAuditBefore.warnings} audit warnings`,
+        sessionMaintenance.skippedReason
+          ? `Session registry: sweep skipped (${sessionMaintenance.skippedReason})`
+          : `Session registry: ${sessionMaintenance.pruned} prune · ${sessionMaintenance.runningCronJobs} running automations · ${sessionMaintenance.skippedStores} skipped ${sessionMaintenance.skippedStores === 1 ? "store" : "stores"}`,
       ),
     );
-  }
-  if (!opts.apply) {
-    runtime.log("Dry run only. Re-run with `openclaw tasks maintenance --apply` to write changes.");
+    runtime.log(
+      info(
+        `${opts.apply ? "Tasks health after apply" : "Tasks health"}: ${summary.byStatus.queued} queued · ${summary.byStatus.running} running · ${auditAfter.errors + flowAuditAfter.errors} audit errors · ${auditAfter.warnings + flowAuditAfter.warnings} audit warnings`,
+      ),
+    );
+    if (retainedLostAfter.count > 0) {
+      runtime.log(
+        info(
+          `Retained lost tasks: ${retainedLostAfter.count} retained until ${timestampMsToIsoString(retainedLostAfter.nextCleanupAfter) ?? "cleanupAfter"}; maintenance will prune after cleanupAfter.`,
+        ),
+      );
+    }
+    if (opts.apply) {
+      runtime.log(
+        info(
+          `Tasks health before apply: ${auditBefore.errors + flowAuditBefore.errors} audit errors · ${auditBefore.warnings + flowAuditBefore.warnings} audit warnings`,
+        ),
+      );
+    }
+    if (!opts.apply) {
+      runtime.log(
+        "Dry run only. Re-run with `openclaw tasks maintenance --apply` to write changes.",
+      );
+    }
+  } catch (error) {
+    if (!opts.apply) {
+      throw error;
+    }
+    runtime.error(
+      JSON.stringify({
+        code: "TASKS_MAINTENANCE_REPORT_FAILED",
+        outcome: "applied_report_failed",
+        applied: true,
+        error: formatErrorMessage(error),
+      }),
+    );
   }
 }
