@@ -1,3 +1,4 @@
+import { createSubsystemLogger } from "openclaw/plugin-sdk/memory-core-host-engine-foundation";
 import {
   resolveMemorySearchStaleness,
   stripMemoryAnnotationCarriers,
@@ -27,6 +28,7 @@ import {
   type MemoryCorpusFailure,
 } from "./memory-corpus.js";
 import { executeMemoryReadResult, executeWikiMemoryReadResult } from "./memory-read-tool.js";
+import { createMemorySearchTelemetry } from "./memory-search-telemetry.js";
 import {
   buildPausedMemoryIndexUnavailableResult,
   executeMemorySearchToolQuery,
@@ -73,6 +75,9 @@ type PrimaryMemorySearchValue = {
 };
 
 const MEMORY_SEARCH_TOOL_COOLDOWN_MS = 60_000;
+const memorySearchTelemetry = createMemorySearchTelemetry({
+  logger: createSubsystemLogger("memory/search"),
+});
 
 const memorySearchToolCooldowns = new Map<
   string,
@@ -134,6 +139,7 @@ function recordMemorySearchToolCooldown(
 export const testing = {
   resetMemorySearchToolCooldowns() {
     memorySearchToolCooldowns.clear();
+    memorySearchTelemetry.reset();
   },
 } as const;
 
@@ -270,6 +276,8 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
         const cooldown =
           requestedCorpus === "wiki" ? undefined : readMemorySearchToolCooldown(agentId, cfg);
         const toolStartedAt = Date.now();
+        let telemetryStatus: "ok" | "unavailable" | "error" = "ok";
+        let telemetryResultCount = 0;
         const searchesMemory = requestedCorpus !== "wiki";
         const searchesWiki = requestedCorpus === "wiki" || requestedCorpus === "all";
         const memoryManagerPurpose = options.oneShotCliRun ? "cli" : undefined;
@@ -456,6 +464,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
               ]);
               const memoryValue = memory?.outcome === "not-registered" ? null : memory?.value;
               if (searchesMemory && !searchesWiki && memory?.outcome === "unavailable") {
+                telemetryStatus = "unavailable";
                 return jsonResult(
                   memoryValue?.unavailableResult ??
                     buildMemorySearchUnavailableResult(memory.error, {
@@ -476,6 +485,10 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
                     balanceCorpora: requestedCorpus === "all",
                   })
                 : (memoryValue?.results ?? []);
+              telemetryResultCount = results.length;
+              if (memory?.outcome === "unavailable" || wiki?.outcome === "unavailable") {
+                telemetryStatus = "unavailable";
+              }
               // Preserve primary object identity through blending: only evidence
               // actually returned to the model earns a recall signal.
               const surfaced = new Set(results);
@@ -560,6 +573,7 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
             },
           });
         } catch (error) {
+          telemetryStatus = "error";
           if (callerSignal?.aborted) {
             throw resolveMemorySearchAbortError(callerSignal);
           }
@@ -576,6 +590,12 @@ export function createMemorySearchTool(options: MemoryToolOptions) {
             }),
           );
         } finally {
+          memorySearchTelemetry.record({
+            agentId,
+            durationMs: Date.now() - toolStartedAt,
+            resultCount: telemetryResultCount,
+            status: telemetryStatus,
+          });
           cleanupStarted = true;
           if (searchSignal?.aborted) {
             // Admitted searches retain their leases until they settle; teardown
