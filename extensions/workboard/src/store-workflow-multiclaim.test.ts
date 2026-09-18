@@ -59,17 +59,15 @@ async function moveTo(
   if (!existing) {
     throw new Error(`test fixture missing: ${id}`);
   }
-  await TestStore.from(store).updateCard(id, { status }, { expectedUpdatedAt: existing.updatedAt });
+  await TestStore.from(store).exposedUpdateCard(
+    id,
+    { status },
+    { expectedUpdatedAt: existing.updatedAt },
+  );
 }
 
 class TestStore extends WorkboardStore {
-  public updateCard(
-    id: string,
-    patch: Record<string, unknown>,
-    options?: { expectedUpdatedAt?: number },
-  ): Promise<unknown> {
-    return super.updateCard(id, patch as never, options as never);
-  }
+  exposedUpdateCard: WorkboardStore["updateCard"] = (...args) => this.updateCard(...args);
   static from(store: WorkboardStore): TestStore {
     return store as unknown as TestStore;
   }
