@@ -1,0 +1,15 @@
+name: Runner Allocation Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "ubuntu runner works"
+
+  slim:
+    runs-on: ubuntu-slim
+    steps:
+      - run: echo "slim runner works"
