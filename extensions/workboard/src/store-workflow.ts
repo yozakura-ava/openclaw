@@ -251,6 +251,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       throw new Error(`card not found: ${id}`);
     }
     assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+    if (
+      existing.metadata?.reviewRequired === true &&
+      (existing.status !== "review" || existing.metadata.reviewVerdict?.verified !== true)
+    ) {
+      throw new Error("card requires a verified review verdict before completion.");
+    }
     const now = Date.now();
     const createdCardIds = normalizeStringList(input.createdCardIds, "created card ids", 120);
     const childIds = cardChildIds(existing);
@@ -329,6 +335,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
       },
       {
+        allowGovernedCompletion: true,
+        allowReviewVerdict: true,
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
       },
@@ -450,24 +458,28 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         existing.execution?.status === "running"
           ? { ...existing.execution, status: "failed" as const, updatedAt: now }
           : existing.execution;
-      return await this.updateCard(id, {
-        status: "done",
-        completedAt: now,
-        sessionKey: null,
-        runId: null,
-        execution,
-        metadata: {
-          ...metadata,
-          claim: undefined,
-          comments: [
-            ...(metadata.comments ?? []),
-            { id: randomUUID(), body: `force_close: ${reason}`, createdAt: now },
-          ].slice(-MAX_CARD_COMMENTS),
-          notifications: [...(metadata.notifications ?? []), notification].slice(
-            -MAX_CARD_NOTIFICATIONS,
-          ),
+      return await this.updateCard(
+        id,
+        {
+          status: "done",
+          completedAt: now,
+          sessionKey: null,
+          runId: null,
+          execution,
+          metadata: {
+            ...metadata,
+            claim: undefined,
+            comments: [
+              ...(metadata.comments ?? []),
+              { id: randomUUID(), body: `force_close: ${reason}`, createdAt: now },
+            ].slice(-MAX_CARD_COMMENTS),
+            notifications: [...(metadata.notifications ?? []), notification].slice(
+              -MAX_CARD_NOTIFICATIONS,
+            ),
+          },
         },
-      });
+        { allowGovernedCompletion: true },
+      );
     });
   }
 

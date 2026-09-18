@@ -1,5 +1,6 @@
 // Workboard tests cover tools plugin behavior.
 import { expectDefined } from "@openclaw/normalization-core";
+import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { isToolResultError } from "openclaw/plugin-sdk/agent-harness-runtime";
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
@@ -31,6 +32,32 @@ function readPayload(result: unknown): Record<string, unknown> {
 }
 
 describe("workboard tools", () => {
+  it("records a claimed review verdict for a governed card", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Reviewed", status: "review", reviewRequired: true });
+    const claim = await store.claim(card.id, { ownerId: "reviewer", token: "review-token" });
+    const tools = new Map(
+      createWorkboardTools({ store, context: { agentId: "reviewer" } }).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+
+    const result = readPayload(
+      await tools.get("workboard_review")?.execute("review", {
+        id: claim.card.id,
+        token: "review-token",
+        verified: true,
+        summary: "Acceptance checks passed.",
+      }),
+    );
+    expect((result.card as WorkboardCard).metadata?.reviewVerdict).toMatchObject({
+      verified: true,
+      reviewerId: "reviewer",
+      summary: "Acceptance checks passed.",
+    });
+  });
+
   it("inherits the active tool filesystem boundary for workspace metadata", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const restrictedContext = {
