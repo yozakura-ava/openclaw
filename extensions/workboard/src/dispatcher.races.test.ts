@@ -37,6 +37,13 @@ describe("Workboard dispatcher lifecycle races", () => {
       title: "Concurrent dispatch transition",
       status: "ready",
       boardId: "ops",
+      // ee4dda8f routing gate (in selectStartableCards): blank-agent cards
+      // are skipped in the auto-dispatch path. The races suite validates the
+      // rejection chain (archived/completed/etc.), not the routing gate, so
+      // we explicitly assign a lane here. Without agentId the cherry-pick's
+      // `continue` fires before the mockImplementationOnce on claim runs,
+      // leaving startFailures empty.
+      agentId: "races-test-worker",
       workspaceAccess: { unrestricted: true },
     });
     const originalClaim = store.claim.bind(store);
@@ -63,7 +70,13 @@ describe("Workboard dispatcher lifecycle races", () => {
     expect(result.startFailures).toEqual([
       expect.objectContaining({
         cardId: card.id,
-        error: expect.stringMatching(/archived|authority/),
+        // PATCH workboard-claim-done-guard (issue #24): "completed" added
+        // to the regex now that claim() rejects status === "done" cards
+        // with the "card is completed." error. The other branches
+        // (archived, blocked, review, boardId-change) still produce
+        // "card is archived." or "card workspace authority changed..."
+        // messages.
+        error: expect.stringMatching(/archived|authority|completed/),
       }),
     ]);
     const current = await store.get(card.id);
@@ -135,6 +148,9 @@ describe("Workboard dispatcher lifecycle races", () => {
     const card = await store.create({
       title: "Retain failed worker checkout",
       status: "ready",
+      // See ee4dda8f comment in the test above — assign a lane so the
+      // cherry-pick's selectStartableCards routing gate doesn't skip the card.
+      agentId: "races-test-worker",
       workspace: { kind: "worktree", path: "/repo", branch: "main" },
       workspaceAccess: { unrestricted: true },
     });

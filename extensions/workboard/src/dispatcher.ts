@@ -21,8 +21,12 @@ import {
   type ResolveAgentWorkspaceRuntime,
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
-import { cardBoardId } from "./store-card-helpers.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
+import { cardBoardId, hasRecentFailedAttempt } from "./store-card-helpers.js";
+import {
+  DISPATCH_COOLDOWN_MS,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
+} from "./store-constants.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -252,10 +256,27 @@ function selectStartableCards(
   const selectedOwners = new Set<string>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
-    // Scheduled (cron) auto-dispatch must not pick up cards with a blank or
-    // unknown agentId — those need an explicit operator handoff. Human-
-    // initiated (exact) dispatches bypass this gate and remain allowed.
+    // Pipeline auto-dispatch dedup (card ee4dda8f, iter 3):
+    //   - Routing gate: applies ONLY to the auto-dispatch (scheduled) path.
+    //     store.dispatch() also suppresses metadata bumps on unrouted
+    //     cards, and selectStartableCards() likewise skips them when the
+    //     pipeline is doing the routing. Operator-initiated exact starts
+    //     (mode === "exact", routed through `prepareStart`) intentionally
+    //     bypass this gate — the operator owns the lane assignment and
+    //     the prepareStart path is the one operators use to launch a
+    //     known card by id.
+    //   - Dedup gate: silently skip cards whose most-recent attempt failed
+    //     within DISPATCH_COOLDOWN_MS. Active claims are caught by
+    //     `cardHasActiveClaim` below; this catches the post-TTL window
+    //     between claim expiry and the next legit dispatch.
     if (mode === "scheduled" && isBlankAgentId(card.agentId)) {
+      continue;
+    }
+
+    // Skip cards whose latest attempt failed within the cooldown window.
+    // Active claims are caught by `cardHasActiveClaim` below; this catches
+    // the post-TTL window between claim expiry and the next legit dispatch.
+    if (hasRecentFailedAttempt(card, now, DISPATCH_COOLDOWN_MS)) {
       continue;
     }
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
