@@ -555,10 +555,14 @@ export async function tasksMaintenanceCommand(
   let flowMaintenance: ReturnType<typeof previewTaskFlowRegistryMaintenance>;
   let sessionMaintenance: Awaited<ReturnType<typeof runSessionRegistryMaintenance>>;
   let stage = "task_registry";
+  let completedStages = 0;
   try {
     taskMaintenance = opts.apply
       ? await runTaskRegistryMaintenance()
       : previewTaskRegistryMaintenance();
+    if (opts.apply) {
+      completedStages += 1;
+    }
     // JSON diagnostics explain the task-maintenance decision above, before the
     // separate session-registry sweep can prune backing session rows.
     diagnostics = opts.json ? getTaskRegistryMaintenanceDiagnostics() : undefined;
@@ -566,21 +570,28 @@ export async function tasksMaintenanceCommand(
     flowMaintenance = opts.apply
       ? await runTaskFlowRegistryMaintenance()
       : previewTaskFlowRegistryMaintenance();
+    if (opts.apply) {
+      completedStages += 1;
+    }
     stage = "session_registry";
     sessionMaintenance = await runSessionRegistryMaintenance({ apply: Boolean(opts.apply) });
+    if (opts.apply) {
+      completedStages += 1;
+    }
   } catch (error) {
     if (!opts.apply) {
       throw error;
     }
+    const partial = completedStages > 0;
     runtime.error(
       JSON.stringify({
         code: "TASKS_MAINTENANCE_APPLY_FAILED",
-        outcome: "partial_or_ambiguous",
+        outcome: partial ? "partial_or_ambiguous" : "apply_failed",
         stage,
         error: formatErrorMessage(error),
       }),
     );
-    runtime.exit(2);
+    runtime.exit(partial ? 2 : 1);
     return;
   }
 
