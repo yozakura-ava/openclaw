@@ -2221,24 +2221,21 @@ NODE
 
   it("routes PR edited metadata only to interested automation", () => {
     const autoResponse = readWorkflow(".github/workflows/auto-response.yml");
-    const clawsweeperDispatch = readWorkflow(".github/workflows/clawsweeper-dispatch.yml");
     const labeler = readWorkflow(".github/workflows/labeler.yml");
     const realBehaviorProof = readWorkflow(".github/workflows/real-behavior-proof.yml");
 
-    for (const workflow of [autoResponse, clawsweeperDispatch, labeler, realBehaviorProof]) {
+    for (const workflow of [autoResponse, labeler, realBehaviorProof]) {
       expect(workflow.on.pull_request_target.types).toContain("edited");
     }
 
     expect({
       autoResponse: readPullRequestEditFields(autoResponse.jobs["auto-response"].if),
-      clawsweeperDispatch: readPullRequestEditFields(clawsweeperDispatch.jobs.dispatch.if),
       labeler: readPullRequestEditFields(labeler.jobs.label.if),
       realBehaviorProof: readPullRequestEditFields(
         realBehaviorProof.jobs["real-behavior-proof"].if,
       ),
     }).toEqual({
       autoResponse: [],
-      clawsweeperDispatch: [],
       labeler: ["title", "base"],
       realBehaviorProof: ["body", "base"],
     });
@@ -2263,51 +2260,6 @@ NODE
       betaBlocker: ["title"],
       activePrLimit: [],
     });
-  });
-
-  it("keeps ClawSweeper dispatch events aligned with receiver workflows", () => {
-    const workflowPath = ".github/workflows/clawsweeper-dispatch.yml";
-    const source = readFileSync(workflowPath, "utf8");
-    const workflow = readWorkflow(workflowPath);
-    const steps = workflow.jobs.dispatch.steps as WorkflowStep[];
-    const receiverDispatchSteps = steps.filter((step) =>
-      step.run?.includes("repos/openclaw/clawsweeper/dispatches"),
-    );
-    const eventTypes = receiverDispatchSteps.map((step) => {
-      const matches = [...(step.run ?? "").matchAll(/\bevent_type\s*:\s*"([^"]+)"/gu)];
-      expect(matches, step.name).toHaveLength(1);
-      return expectDefined(matches[0]?.[1], step.name ?? "ClawSweeper dispatch event");
-    });
-
-    // This allowlist mirrors the target repository receiver contract; changes require coordinated receiver updates.
-    expect(eventTypes.toSorted()).toEqual([
-      "clawsweeper_comment",
-      "clawsweeper_item",
-      "github_activity",
-    ]);
-    expect(source).not.toContain("clawsweeper_commit_review");
-    expect(source).not.toContain("CLAWSWEEPER_COMMIT_REVIEW_CREATE_CHECKS");
-    expect(workflow.on.push.branches).toEqual(["main"]);
-
-    const activityRun = expectDefined(
-      steps.find((step) => step.name === "Dispatch GitHub activity to ClawSweeper")?.run,
-      "ClawSweeper GitHub activity dispatch",
-    );
-    expect(activityRun).toMatch(
-      /push: \(if \$event_name == "push" then \{\s+before: \.before,\s+after: \.after,\s+ref: \.ref,\s+compare: \.compare,\s+head_commit: \.head_commit\.id\s+\} else null end\)/u,
-    );
-
-    const exactReviewStep = expectDefined(
-      steps.find((step) => step.name === "Dispatch exact ClawSweeper review"),
-      "ClawSweeper exact-review dispatch",
-    );
-    expect(exactReviewStep.env?.TARGET_BRANCH).toBe(
-      "${{ github.event.repository.default_branch }}",
-    );
-    expect(exactReviewStep.run).toContain('--arg target_branch "$TARGET_BRANCH"');
-    expect(exactReviewStep.run).toContain("target_branch:$target_branch");
-    expect(exactReviewStep.run).toContain('ingress_route:"target_dispatcher"');
-    expect(exactReviewStep.run).toContain("ingress_fingerprint:$ingress_fingerprint");
   });
 
   it("runs the PR context and evidence gate only for relevant PR changes", () => {
@@ -2405,13 +2357,6 @@ NODE
       )?.with?.script,
     );
     expect(backfillScript).toMatch(/issueExemptLabels[\s\S]*"bug"/);
-
-    const dispatchWorkflow = readWorkflow(".github/workflows/clawsweeper-dispatch.yml");
-    const dispatchCondition = String(dispatchWorkflow.jobs.dispatch.if);
-    expect(dispatchCondition).toContain("github.event.label.name == 'stale'");
-    expect(dispatchCondition).toContain("contains(github.event.issue.labels.*.name, 'bug')");
-    expect(dispatchCondition).toContain("github.actor_id == '257215752'");
-    expect(dispatchCondition).toContain("github.actor_id == '264559031'");
 
     const auditJob = staleWorkflow.jobs["audit-bug-closure-reasons"];
     expect(auditJob.permissions).toEqual({ issues: "read" });
