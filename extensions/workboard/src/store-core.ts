@@ -873,7 +873,6 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
           kind: "claim_auto_released",
           fromStatus: existing.status,
           toStatus: status,
-          at: releasedAt,
         },
         releasedAt,
       );
