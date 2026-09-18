@@ -11,6 +11,7 @@ import {
   type WorkboardRunAttempt,
   type WorkboardStatus,
 } from "@openclaw/workboard-contract";
+import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
@@ -352,6 +353,12 @@ export function assertCanMutateClaimedCard(
   const token = normalizeOptionalString(scope.token);
   if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
     throw new Error(`card is claimed by ${claim.ownerId}.`);
+  }
+  if (
+    claim.expiresAt !== undefined &&
+    !isFutureDateTimestampMs(claim.expiresAt, { nowMs: Date.now() })
+  ) {
+    throw new Error("claim has expired.");
   }
 }
 
