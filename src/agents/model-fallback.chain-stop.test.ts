@@ -31,6 +31,7 @@ import {
   createAgentRunRestartAbortError,
 } from "./run-termination.js";
 import { toSandboxProvisioningError } from "./sandbox/provisioning-error.js";
+import { SessionTranscriptDesyncError } from "./sessions/session-transcript-desync.js";
 import { makeEmbeddedRunnerAttempt } from "./test-helpers/embedded-agent-runner-e2e-fixtures.js";
 
 vi.mock("../plugins/provider-failover.js", () => ({
@@ -138,6 +139,10 @@ const stopCases: Array<{
   make: () => StopInput | Promise<StopInput>;
   image?: boolean;
 }> = [
+  {
+    reason: "session_transcript_desync",
+    make: () => ({ error: new SessionTranscriptDesyncError("stale keyed user turn") }),
+  },
   { reason: "agent_run_terminal_timeout", make: () => ({ error: terminalTimeout() }) },
   {
     reason: "command_lane_task_timeout",
