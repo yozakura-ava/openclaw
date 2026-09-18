@@ -23,9 +23,7 @@ import {
 import { workboardSessionKeyForCard } from "./session-link.js";
 import { cardBoardId, hasRecentFailedAttempt } from "./store-card-helpers.js";
 import {
-  DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER,
   DISPATCH_COOLDOWN_MS,
-  normalizeMaxConcurrentClaimsPerOwner,
   workboardCardConsumesOwnerSlot,
   workboardCardSlotOwner,
 } from "./store-constants.js";
