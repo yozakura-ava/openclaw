@@ -40,6 +40,7 @@ import type {
   SessionTreeNode,
   ThinkingLevelChangeEntry,
 } from "./session-manager-types.js";
+import { SessionTranscriptDesyncError } from "./session-transcript-desync.js";
 
 function isSqliteTranscriptMutationConflict(error: unknown): boolean {
   let current = error;
@@ -155,7 +156,7 @@ export class SessionManagerEntries extends SessionManagerPersistence {
       // Context-excluded users have no payload in byId. The exact SQLite replay
       // anchors their identity; physical ancestry still closes older turns.
       if (this.resolveCurrentTurnEntryId() !== persistenceResult.adoptedMessageId) {
-        throw new Error(
+        throw new SessionTranscriptDesyncError(
           `Session transcript keyed user is outside the current turn: ${persistenceResult.adoptedMessageId}`,
         );
       }
