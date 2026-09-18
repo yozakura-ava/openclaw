@@ -1,7 +1,12 @@
 name: Runner Allocation Test
 
 on:
+  pull_request:
+    paths:
+      - .github/workflows/runner-allocation-test.yml
   workflow_dispatch:
+
+permissions: {}
 
 jobs:
   ubuntu:
