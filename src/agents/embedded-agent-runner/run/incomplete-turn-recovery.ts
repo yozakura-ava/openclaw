@@ -389,6 +389,10 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
     !attempt.didSendDeterministicApprovalPrompt &&
     !attempt.hasToolMediaBlockReply &&
     !hasCompletedMessagingToolDeliveryEvidence(attempt);
+  const hasVisibleFinalResponse =
+    attempt.currentAttemptAssistant?.stopReason === "stop" &&
+    !streamDroppedAfterSettledTools &&
+    !classifyAssistantTurn(params).emptyResponse;
   if (
     params.payloadCount !== 0 ||
     (!params.allowEmptyStopContinuation &&
@@ -399,7 +403,7 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
     ((params.timedOut || terminal.kind === "timeout") && !idlePromptTimeout) ||
     (terminal.kind === "failed" && !attempt.settledTurnFinalizationContext) ||
     (assistant?.stopReason === "toolUse"
-      ? !allToolsProvenSettled
+      ? !allToolsProvenSettled || hasVisibleFinalResponse
       : !emptyStopAfterSettledTools && !streamDroppedAfterSettledTools) ||
     intentionalTermination ||
     hasUnsettledToolError ||
