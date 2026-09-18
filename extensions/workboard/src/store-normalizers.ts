@@ -876,7 +876,8 @@ function normalizeClaim(value: unknown, fallback?: WorkboardClaim): WorkboardCla
   }
   const record = value;
   const ownerId = normalizeBoundedString(record.ownerId, fallback?.ownerId, 120, "claim owner");
-  const token = normalizeBoundedString(record.token, fallback?.token, 160, "claim token");
+  const rawToken = record.token === "[redacted]" ? undefined : record.token;
+  const token = normalizeBoundedString(rawToken, fallback?.token, 160, "claim token");
   const claimedAt = normalizeTimestamp(record.claimedAt, fallback?.claimedAt ?? Date.now());
   const lastHeartbeatAt = normalizeTimestamp(
     record.lastHeartbeatAt,
