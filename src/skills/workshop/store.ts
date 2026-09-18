@@ -247,6 +247,34 @@ export async function readSkillProposalRecord(
   return stored && isStoredProposalVisible(stored.row, scope) ? stored.record : null;
 }
 
+export function deleteStaleSkillProposalRecord(params: {
+  proposalId: string;
+  ownerAgentId: string;
+  staleBefore: string;
+  store?: SkillWorkshopStoreOptions;
+}): boolean {
+  assertProposalId(params.proposalId);
+  ensureSkillWorkshopSchema(params.store);
+  return runOpenClawStateWriteTransaction(
+    ({ db }) => {
+      const kysely = getNodeSqliteKysely<SkillWorkshopDatabase>(db);
+      const deleted = executeSqliteQuerySync(
+        db,
+        kysely
+          .deleteFrom("skill_workshop_proposals")
+          .where("proposal_id", "=", params.proposalId)
+          .where("owner_agent_id", "=", params.ownerAgentId)
+          .where("status", "=", "stale")
+          .where("stale_at", "<=", params.staleBefore)
+          .returning("proposal_id"),
+      );
+      return deleted.rows.length > 0;
+    },
+    databaseOptions(params.store),
+    { operationLabel: "skill-workshop.proposal.purge-stale" },
+  );
+}
+
 export async function writeSkillProposal(params: {
   record: SkillProposalRecord;
   content: string;
