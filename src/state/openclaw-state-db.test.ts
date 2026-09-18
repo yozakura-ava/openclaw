@@ -1576,7 +1576,7 @@ afterEach(() => {
 });
 
 describe("openclaw state database", () => {
-  it("migrates v15 Skill Workshop ownership through v16 and prepared workers to v17 without losing rows", () => {
+  it("migrates v15 Skill Workshop ownership through v16 and v18 without losing rows", () => {
     const stateDir = createTempStateDir();
     const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
     const databasePath = materializeCurrentStateDatabase(stateDir);
@@ -1691,7 +1691,7 @@ describe("openclaw state database", () => {
     legacy.close();
 
     const migrated = openOpenClawStateDatabase(options);
-    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(17);
+    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(18);
     expect(migrated.db.prepare("PRAGMA table_info(skill_workshop_proposals)").all()).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: "workspace_dir" }),
@@ -1851,7 +1851,7 @@ describe("openclaw state database", () => {
     expect(readDanglingSkillWorkshopReviewIndex(databasePath)).toBeUndefined();
   });
 
-  it("upgrades a v15 store without Workshop tables through v16 and prepared workers to v17", () => {
+  it("upgrades a v15 store without Workshop tables through v16 and v18", () => {
     const stateDir = createTempStateDir();
     const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
     const databasePath = materializeCurrentStateDatabase(stateDir);
@@ -1872,7 +1872,7 @@ describe("openclaw state database", () => {
     legacy.close();
 
     const migrated = openOpenClawStateDatabase(options);
-    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(17);
+    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(18);
     for (const tableName of ["skill_workshop_proposals", "skill_workshop_collection_reviews"]) {
       expect(
         migrated.db
@@ -5705,6 +5705,10 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
           "idx_audit_events_run_sequence",
           "idx_audit_events_kind_sequence",
           "idx_audit_events_status_sequence",
+        ]),
+      );
+      expect(indexNames).not.toEqual(
+        expect.arrayContaining([
           "idx_audit_events_channel_sequence",
           "idx_audit_events_direction_sequence",
         ]),
@@ -5730,6 +5734,84 @@ INSERT INTO macos_port_guardian_records VALUES (4242, 18789, '/usr/bin/ssh', 're
     } finally {
       db.close();
     }
+  });
+
+  it("drops legacy NULL-only audit indexes when upgrading v17 and preserves audit writes", () => {
+    const stateDir = createTempStateDir();
+    const databasePath = materializeCurrentStateDatabase(stateDir);
+    const { DatabaseSync } = requireNodeSqlite();
+    const legacy = new DatabaseSync(databasePath);
+    legacy.exec(`
+      CREATE INDEX idx_audit_events_channel_sequence
+        ON audit_events(channel, sequence DESC);
+      CREATE INDEX idx_audit_events_direction_sequence
+        ON audit_events(direction, sequence DESC);
+      INSERT INTO audit_events (
+        event_id, source_id, source_sequence, occurred_at, kind, action, status,
+        actor_type, actor_id
+      ) VALUES (
+        'event-before-index-migration', 'source-before-index-migration', 1, 100,
+        'agent', 'agent.run.started', 'started', 'agent', 'main'
+      );
+      PRAGMA user_version = 17;
+      UPDATE schema_meta SET schema_version = 17 WHERE meta_key = 'primary';
+      UPDATE config_machine_state SET value_json = '17'
+        WHERE state_key = 'state.schema.contentVersion';
+    `);
+    legacy.close();
+
+    const options = { env: { OPENCLAW_STATE_DIR: stateDir } };
+    expect(detectOpenClawStateDatabaseSchemaMigrations(options)).toContainEqual({
+      kind: "audit-null-indexes-v18",
+      path: databasePath,
+    });
+    const migrated = openOpenClawStateDatabase(options);
+    expect(readSqliteNumberPragma(migrated.db, "user_version")).toBe(18);
+    expect(
+      migrated.db
+        .prepare("SELECT event_id, direction, channel FROM audit_events WHERE event_id = ?")
+        .get("event-before-index-migration"),
+    ).toEqual({ event_id: "event-before-index-migration", direction: null, channel: null });
+    const indexNames = (
+      migrated.db.prepare("PRAGMA index_list(audit_events)").all() as Array<{ name: string }>
+    ).map((index) => index.name);
+    expect(indexNames).not.toEqual(
+      expect.arrayContaining([
+        "idx_audit_events_channel_sequence",
+        "idx_audit_events_direction_sequence",
+      ]),
+    );
+    expect(() =>
+      migrated.db
+        .prepare(
+          `INSERT INTO audit_events (
+             event_id, source_id, source_sequence, occurred_at, kind, action, status,
+             actor_type, actor_id, direction, channel
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          "event-after-index-migration",
+          "source-after-index-migration",
+          1,
+          200,
+          "message",
+          "message.received",
+          "succeeded",
+          "channel_sender",
+          "sender-ref",
+          "inbound",
+          "telegram",
+        ),
+    ).not.toThrow();
+    expect(
+      migrated.db
+        .prepare("SELECT event_id, channel, direction FROM audit_events WHERE event_id = ?")
+        .get("event-after-index-migration"),
+    ).toEqual({
+      event_id: "event-after-index-migration",
+      channel: "telegram",
+      direction: "inbound",
+    });
   });
 
   it("preserves an empty audit ledger's sequence high-water mark", () => {

@@ -456,6 +456,25 @@ function migratePreparedWorkerOwnership(db: DatabaseSync, previousVersion: numbe
   return changed;
 }
 
+/** Drop message-field indexes reported empty in deployed audit data. */
+function migrateDropNullOnlyAuditIndexes(db: DatabaseSync, previousVersion: number): boolean {
+  if (previousVersion >= 18) {
+    return false;
+  }
+  let dropped = false;
+  for (const name of ["idx_audit_events_channel_sequence", "idx_audit_events_direction_sequence"]) {
+    const exists = db
+      .prepare("SELECT 1 FROM main.sqlite_schema WHERE type = 'index' AND name = ?")
+      .get(name);
+    if (!exists) {
+      continue;
+    }
+    db.exec(`DROP INDEX main.${name};`);
+    dropped = true;
+  }
+  return dropped;
+}
+
 // v15 collection cleanup released a dropped skill's claim so a path recreated by hand
 // stayed user-owned. Doctor relocates every applied create into the Workshop directory,
 // so released rows turn stale before the marker leaves with its column.
@@ -614,6 +633,10 @@ export const versionedStateMigrations: ReadonlyArray<{
   {
     migrate: migratePreparedWorkerOwnership,
     applied: "Recorded prepared worker ownership and one-use lifecycle (v17)",
+  },
+  {
+    migrate: migrateDropNullOnlyAuditIndexes,
+    applied: "Removed NULL-only audit-event indexes (v18)",
   },
 ];
 

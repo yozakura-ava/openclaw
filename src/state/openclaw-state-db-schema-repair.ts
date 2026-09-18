@@ -434,6 +434,17 @@ export function detectOpenClawStateDatabaseSchemaMigrationsFromDatabase(
   ) {
     migrations.push({ kind: "prepared-worker-ownership-v17", path: pathname });
   }
+  if (
+    userVersion < 18 &&
+    tableExists(db, "audit_events") &&
+    ["idx_audit_events_channel_sequence", "idx_audit_events_direction_sequence"].some((name) =>
+      Boolean(
+        db.prepare("SELECT 1 FROM main.sqlite_schema WHERE type = 'index' AND name = ?").get(name),
+      ),
+    )
+  ) {
+    migrations.push({ kind: "audit-null-indexes-v18", path: pathname });
+  }
   if (!hasCanonicalAgentDatabasesPrimaryKey(db)) {
     migrations.push({ kind: "agent-databases-composite-primary-key", path: pathname });
   }
