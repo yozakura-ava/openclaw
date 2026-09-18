@@ -16,6 +16,23 @@ function readPayload(result: unknown): Record<string, unknown> {
 }
 
 describe("workboard tools", () => {
+  it("falls back from a blank ambient agent id to the trimmed session owner", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const tools = new Map(
+      createWorkboardTools({
+        store,
+        context: { agentId: "   ", sessionKey: " agent:main:subagent:worker " },
+      }).map((tool) => [tool.name, tool]),
+    );
+    const card = await store.create({ title: "Ambient owner normalization" });
+
+    const claimed = await tools.get("workboard_claim")?.execute("claim-card", { id: card.id });
+
+    expect(readPayload(claimed).card).toMatchObject({
+      metadata: { claim: { ownerId: "agent:main:subagent:worker" } },
+    });
+  });
+
   it("records a claimed review verdict for a governed card", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({ title: "Reviewed", status: "review", reviewRequired: true });
