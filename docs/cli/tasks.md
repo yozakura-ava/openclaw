@@ -151,8 +151,9 @@ jobs and leaving non-cron session rows untouched.
 If all apply stages finish but post-apply reporting fails, the command writes a
 structured error to stderr and exits `0`; the requested maintenance has already
 been applied. If a maintenance stage fails after writes may have started, it
-writes a structured `partial_or_ambiguous` result and exits `2`. Failures before
-the apply stages keep the normal nonzero CLI error behavior.
+writes a structured `partial_or_ambiguous` result and exits `2` when an earlier
+apply stage completed. A failure in the first apply stage exits `1`. Failures
+before the apply stages keep the normal nonzero CLI error behavior.
 
 ### `flow`
 
