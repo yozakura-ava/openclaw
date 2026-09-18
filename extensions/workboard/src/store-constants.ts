@@ -43,9 +43,13 @@ const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 // still has a single lane. Empty/whitespace input collapses to "" so
 // call sites that miss owner validation produce a deterministic lane key.
 export function deriveOwnerLane(ownerId: string | undefined | null): string {
-  if (typeof ownerId !== "string") return "";
+  if (typeof ownerId !== "string") {
+    return "";
+  }
   const trimmed = ownerId.trim();
-  if (!trimmed) return "";
+  if (!trimmed) {
+    return "";
+  }
   const colonIdx = trimmed.indexOf(":");
   return colonIdx > 0 ? trimmed.slice(0, colonIdx) : trimmed;
 }
