@@ -8128,7 +8128,9 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmAssertionStep.run).toContain("steps.warm-caches.outcome");
     expect(warmAssertionStep.run).toContain("exit 1");
     expect(warmerSteps.at(-2)).toBe(warmAssertionStep);
-    expect(warmerSteps.at(-1).name).toBe("Publish cache warm summary");
+    expect(expectDefined(warmerSteps.at(-1), "cache warm summary step").name).toBe(
+      "Publish cache warm summary",
+    );
     // No close-time cleanup workflow is needed; Actions cache LRU/TTL expires
     // old hosted-writer and warmer generations.
     expect(existsSync(".github/workflows/pr-cache-cleanup.yml")).toBe(false);
@@ -14333,6 +14335,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(upload.if).toBe("always() && needs.preflight.outputs.run_checks == 'true'");
     expect(upload.with.path).toContain("${{ runner.temp }}/discord-component-attachments.json");
     expect(upload.with.path).toContain("${{ runner.temp }}/discord-component-attachments.log");
+    expect(upload.with["if-no-files-found"]).toBe("warn");
     // Every verifier reports through the shared results map so a failure can
     // never be swallowed by the wave.
     for (const name of [
