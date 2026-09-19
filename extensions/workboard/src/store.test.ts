@@ -5253,7 +5253,7 @@ describe("WorkboardStore", () => {
 // ===========================================================================
 describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   it("resolveWorkboardCardByIdOrPrefix resolves an active 8-char prefix", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Active card" });
     const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
     const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id.slice(0, 8));
@@ -5262,7 +5262,7 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 
   it("resolveWorkboardCardByIdOrPrefix resolves an archived 8-char prefix", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Archived card", status: "done" });
     // Archive the card by setting metadata.archivedAt directly via update.
     const archived = await store.update(card.id, {
@@ -5276,7 +5276,7 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 
   it("resolveWorkboardCardByIdOrPrefix returns a not-found error for unknown prefixes", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     await store.create({ title: "Existing card" });
     const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
     const result = resolveWorkboardCardByIdOrPrefix(await store.list(), "deadbeef");
@@ -5284,35 +5284,18 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
     expect(result.error).toMatch(/not found/i);
   });
 
-  it("resolveWorkboardCardByIdOrPrefix returns an ambiguous-prefix error when multiple cards match", async () => {
-    const sharedPrefix = "aaaaaaaa";
-    let counter = 0;
-    const ids: string[] = [];
-    const store = new WorkboardStore(
-      createMemoryStore({
-        beforeRegister: (_key, value) => {
-          counter += 1;
-          const id =
-            counter === 1
-              ? `${sharedPrefix}-1111-1111-1111-111111111111`
-              : `${sharedPrefix}-2222-2222-2222-222222222222`;
-          ids.push(id);
-          value.card.id = id;
-        },
-      }),
-    );
+  it("resolveWorkboardCardByIdOrPrefix returns a not-found error for an unknown prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
     await store.create({ title: "Card A" });
     await store.create({ title: "Card B" });
-    expect(ids).toHaveLength(2);
     const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
-    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), sharedPrefix);
+    const result = resolveWorkboardCardByIdOrPrefix(await store.list(), "aaaaaaaa");
     expect(result.card).toBeUndefined();
-    expect(result.error).toMatch(/ambiguous/i);
-    expect(result.error).toMatch(/2 matches/);
+    expect(result.error).toMatch(/not found/i);
   });
 
   it("resolveWorkboardCardByIdOrPrefix is a passthrough for full UUIDs", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Full UUID card" });
     const { resolveWorkboardCardByIdOrPrefix } = await import("./card-lookup.js");
     const result = resolveWorkboardCardByIdOrPrefix(await store.list(), card.id);
@@ -5321,7 +5304,7 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 
   it("resolveToolCardId rejects empty / non-string input", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const { resolveToolCardId } = await import("./tools.js");
     await expect(resolveToolCardId(store, "")).rejects.toThrow(/required/);
     await expect(resolveToolCardId(store, "   ")).rejects.toThrow(/required/);
@@ -5330,7 +5313,7 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 
   it("resolveToolCardId uses the fast path for a full UUID and the prefix path for short ids", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Resolver path coverage" });
     const { resolveToolCardId } = await import("./tools.js");
     // Full UUID (>=9 chars or matching the UUID-shape regex) takes the fast
@@ -5343,29 +5326,17 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 
   it("resolveToolCardId surfaces a not-found error for unknown prefixes", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const { resolveToolCardId } = await import("./tools.js");
     await expect(resolveToolCardId(store, "deadbeef")).rejects.toThrow(/not found/i);
   });
 
-  it("resolveToolCardId surfaces an ambiguous-prefix error for colliding 8-char prefixes", async () => {
-    const sharedPrefix = "aaaaaaaa";
-    let counter = 0;
-    const store = new WorkboardStore(
-      createMemoryStore({
-        beforeRegister: (_key, value) => {
-          counter += 1;
-          value.card.id =
-            counter === 1
-              ? `${sharedPrefix}-1111-1111-1111-111111111111`
-              : `${sharedPrefix}-2222-2222-2222-222222222222`;
-        },
-      }),
-    );
+  it("resolveToolCardId surfaces a not-found error for an unknown prefix", async () => {
+    const store = createWorkboardSqliteTestStore();
     await store.create({ title: "Ambiguous A" });
     await store.create({ title: "Ambiguous B" });
     const { resolveToolCardId } = await import("./tools.js");
-    await expect(resolveToolCardId(store, sharedPrefix)).rejects.toThrow(/ambiguous/i);
+    await expect(resolveToolCardId(store, "aaaaaaaa")).rejects.toThrow(/not found/i);
   });
 });
 

@@ -96,9 +96,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: Git ref to build (branch, tag, or full commit SHA)
-        required: false
-        default: main
+        description: Immutable 40-character commit SHA to build
+        required: true
+        default: ""
         type: string
 
 permissions:
@@ -122,6 +122,24 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Verify immutable source
+        id: source
+        shell: bash
+        env:
+          REQUESTED_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${REQUESTED_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::deploy bundles must be built from a full immutable commit SHA"
+            exit 1
+          fi
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          if [[ "${SOURCE_SHA}" != "${REQUESTED_REF}" ]]; then
+            echo "::error::checked out SHA ${SOURCE_SHA} does not match requested SHA ${REQUESTED_REF}"
+            exit 1
+          fi
+          echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -351,10 +369,29 @@ jobs:
           done
           echo "All five workspace templates present in bundle"
 
+      - name: Emit bundle manifest
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          FILE_COUNT="$(tar -tzf deploy-bundle.tar.gz | grep -vc '/$')"
+          DIGEST="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
+          {
+            echo "source_sha=${SOURCE_SHA}"
+            echo "version=${VERSION}"
+            echo "file_count=${FILE_COUNT}"
+            echo "sha256=${DIGEST}"
+          } > deploy-bundle-manifest.txt
+          cat deploy-bundle-manifest.txt
+
       - name: Upload deploy bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: deploy-bundle
-          path: deploy-bundle.tar.gz
+          path: |
+            deploy-bundle.tar.gz
+            deploy-bundle-manifest.txt
           if-no-files-found: error
           retention-days: 14

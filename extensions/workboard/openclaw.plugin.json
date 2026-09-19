@@ -75,6 +75,7 @@
       "workboard_claim",
       "workboard_heartbeat",
       "workboard_complete",
+      "workboard_force_close",
       "workboard_attachment_add",
       "workboard_attachment_read",
       "workboard_attachment_delete",
@@ -130,6 +131,9 @@
       "optional": false
     },
     "workboard_complete": {
+      "optional": false
+    },
+    "workboard_force_close": {
       "optional": false
     },
     "workboard_attachment_add": {

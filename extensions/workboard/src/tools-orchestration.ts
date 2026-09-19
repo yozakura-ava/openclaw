@@ -55,6 +55,9 @@ async function resolveOrchestrationCardId(store: WorkboardStore, rawId: unknown)
   if (result.error) {
     throw new Error(result.error);
   }
+  if (!result.card) {
+    throw new Error(`card not found: ${trimmed}`);
+  }
   return result.card.id;
 }
 
@@ -352,6 +355,37 @@ export function createWorkboardOrchestrationTools(params: {
         return runScopedCardMutation(rawParams, (id, record, scope) =>
           store.promote(id, record, scope),
         );
+      },
+    },
+    {
+      name: "workboard_force_close",
+      label: "Workboard Force Close",
+      description:
+        "Orchestrator-only terminal close for superseded, duplicate, cancelled, or invalid cards.",
+      parameters: strictObject({
+        id: cardIdField(),
+        reason_code: Type.Union([
+          Type.Literal("superseded"),
+          Type.Literal("duplicate"),
+          Type.Literal("cancelled"),
+          Type.Literal("invalid"),
+        ]),
+        explanation: Type.String({ minLength: 20, maxLength: 4000 }),
+        reference_card_id: Type.Optional(cardIdField()),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = asNonArrayRecord(rawParams);
+        const id = await resolveOrchestrationCardId(store, record.id);
+        const card = await store.forceClose(
+          id,
+          {
+            reasonCode: record.reason_code,
+            explanation: record.explanation,
+            referenceCardId: record.reference_card_id,
+          },
+          ownerId,
+        );
+        return redactedCardResult(card);
       },
     },
     {
