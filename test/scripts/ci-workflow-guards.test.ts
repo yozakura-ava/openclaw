@@ -18620,7 +18620,8 @@ it("pins simple release admission owners before selected checkout and preserves 
   expect(appImageTools).toMatch(/continuous[\s\S]*digest-pinned/u);
 
   const prLinux = parse(readFileSync(".github/workflows/linux-app.yml", "utf8"));
-  expect(prLinux.jobs.build["runs-on"]).toBe("ubuntu-22.04");
+  expect(prLinux.jobs.build["runs-on"]).toBe("ubuntu-24.04");
+  expect((prLinux.jobs.build.container as { image?: string }).image).toBe("ubuntu:22.04");
   expect(prLinux.jobs.build.strategy).toBeUndefined();
   expect(prLinux.on.workflow_dispatch?.inputs).toBeUndefined();
   const abiScannerTest = expectDefined(
@@ -18684,7 +18685,8 @@ it("pins simple release admission owners before selected checkout and preserves 
       ({ name }) => name === "Build Linux companion bundles",
     )?.env,
   ).not.toHaveProperty("LDAI_RUNTIME_FILE");
-  expect(linux.jobs.build_linux["runs-on"]).toBe("ubuntu-22.04");
+  expect(linux.jobs.build_linux["runs-on"]).toBe("ubuntu-24.04");
+  expect((linux.jobs.build_linux.container as { image?: string }).image).toBe("ubuntu:22.04");
   expect(linux.jobs.build_linux.strategy).toBeUndefined();
   const finalizerSource = readFileSync("apps/linux/scripts/finalize-appimage.sh", "utf8");
   const postBuildVerifications =
