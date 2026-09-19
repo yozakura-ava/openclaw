@@ -50,6 +50,7 @@ import {
   filterCurrentDirectChildCompletionRows,
 } from "./subagent-announce-output.js";
 import { hasUsableSessionEntry } from "./subagent-announce.js";
+import { recordRequesterSettleWakeDeliveryDropped } from "./subagent-announce.requester-settle-wake-dropped-marker.js";
 
 export type RequesterSettleWakeBatchState = Omit<RequesterSettleWakeState, "retireAfterSettle">;
 
@@ -349,7 +350,7 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     finalizeRequesterAttachment(batchRunIds, selectedState);
     return false;
   }
-  function deferBatch(state: RequesterSettleWakeBatchState): void {
+  async function deferBatch(state: RequesterSettleWakeBatchState): Promise<void> {
     const countTowardsLimit =
       countActiveDescendantRuns(requesterSessionKey, requesterAgentId) === 0;
     const now = Date.now();
@@ -361,10 +362,19 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     // an already completed sibling before the requester can receive it.
     const deferralCount = countTowardsLimit ? (state.deferralCount ?? 0) + 1 : 0;
     if (countTowardsLimit && deferralCount >= REQUESTER_SETTLE_WAKE_MAX_DEFERRALS) {
+      const reason = "requester settle wake deferred too many times";
+      await recordRequesterSettleWakeDeliveryDropped({
+        requesterSessionKey,
+        childRunIds: batchRunIds,
+        deferralCount,
+        reason,
+        cap: REQUESTER_SETTLE_WAKE_MAX_DEFERRALS,
+        cause: "deferral-cap",
+      });
       completeBatch(settledBatch, state.rearmGeneration, {
         delivered: false,
         path: "none",
-        error: "requester settle wake deferred too many times",
+        error: reason,
       });
       finalizeRequesterAttachment(batchRunIds, state);
       return;
@@ -387,7 +397,7 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
   }
   if (hasUnsettledDescendants) {
     if (frozenBatchRunIds && frozenBatchRunIds.length > 0) {
-      deferBatch(selectedState);
+      await deferBatch(selectedState);
     }
     return false;
   }
@@ -506,7 +516,7 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     // A requester may spawn more work while this durable batch is waiting
     // or replaying. Keep the frozen batch pending until the new work drains.
     if (requesterHasUnsettledDescendants()) {
-      deferBatch(state);
+      await deferBatch(state);
       return false;
     }
 
@@ -517,10 +527,19 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
       attemptIndex = Math.max(0, state.attemptCount - 1);
     } else {
       if (state.attemptCount >= REQUESTER_SETTLE_WAKE_MAX_ATTEMPTS) {
+        const reason = state.lastError ?? "requester settle wake attempts exhausted";
+        await recordRequesterSettleWakeDeliveryDropped({
+          requesterSessionKey,
+          childRunIds: batchRunIds,
+          deferralCount: state.deferralCount ?? 0,
+          reason,
+          cap: REQUESTER_SETTLE_WAKE_MAX_ATTEMPTS,
+          cause: "delivery-attempts-exhausted",
+        });
         completeBatch(settledBatch, state.rearmGeneration, {
           delivered: false,
           path: "none",
-          error: state.lastError ?? "requester settle wake attempts exhausted",
+          error: reason,
         });
         finalizeRequesterAttachment(batchRunIds, state);
         return false;
@@ -636,6 +655,14 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
         replayCount >= REQUESTER_SETTLE_WAKE_MAX_AMBIGUOUS_REPLAYS ||
         retryDelayMs === undefined
       ) {
+        await recordRequesterSettleWakeDeliveryDropped({
+          requesterSessionKey,
+          childRunIds: batchRunIds,
+          deferralCount: state.deferralCount ?? 0,
+          reason: lastError,
+          cap: REQUESTER_SETTLE_WAKE_MAX_AMBIGUOUS_REPLAYS,
+          cause: "ambiguous-replay-cap",
+        });
         completeBatch(settledBatch, state.rearmGeneration, {
           delivered: false,
           path: "none",
@@ -685,6 +712,14 @@ export async function maybeWakeRequesterAfterAllChildrenSettled(
     const retryDelayMs = REQUESTER_SETTLE_WAKE_RETRY_DELAYS_MS[attemptIndex];
     const lastError = delivery.error ?? delivery.reason ?? "undelivered";
     if (attemptCount >= REQUESTER_SETTLE_WAKE_MAX_ATTEMPTS || retryDelayMs === undefined) {
+      await recordRequesterSettleWakeDeliveryDropped({
+        requesterSessionKey,
+        childRunIds: batchRunIds,
+        deferralCount: state.deferralCount ?? 0,
+        reason: lastError,
+        cap: REQUESTER_SETTLE_WAKE_MAX_ATTEMPTS,
+        cause: "delivery-attempts-exhausted",
+      });
       completeBatch(settledBatch, state.rearmGeneration, { ...delivery, error: lastError });
       finalizeRequesterAttachment(batchRunIds, state, delivery, requesterEntry.sessionId);
       return false;
