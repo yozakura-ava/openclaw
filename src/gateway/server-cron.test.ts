@@ -1413,10 +1413,9 @@ describe("buildGatewayCronService", () => {
     },
   );
 
-  it("aborts and drains active cron runs during shutdown", async () => {
+  it("lets active cron runs finish during the shutdown drain window", async () => {
     const controller = new AbortController();
     const coreRun = createDeferred();
-    controller.signal.addEventListener("abort", () => coreRun.resolve(), { once: true });
     const release = registerActiveCronTaskRun({ runId: "run-shutdown", controller });
     const trackedRun = coreRun.promise.finally(() => release?.());
     trackActiveCronTaskRunSettlement(trackedRun);
@@ -1425,9 +1424,12 @@ describe("buildGatewayCronService", () => {
     const state = loadCronService(cfg);
 
     try {
-      await state.cron.stopAndDrain?.();
-      expect(controller.signal.aborted).toBe(true);
+      const shutdown = state.cron.stopAndDrain?.();
+      expect(controller.signal.aborted).toBe(false);
+      coreRun.resolve();
       await expect(trackedRun).resolves.toBeUndefined();
+      await shutdown;
+      expect(controller.signal.aborted).toBe(false);
     } finally {
       state.cron.stop();
       coreRun.resolve();
