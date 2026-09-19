@@ -91,6 +91,7 @@ type Workflow = {
   jobs: Record<string, Job>;
 };
 type Github = {
+  repository: string;
   workflow: string;
   event_name: "pull_request" | "pull_request_target" | "issues" | "workflow_dispatch" | "push";
   run_id: number;
@@ -98,7 +99,11 @@ type Github = {
   ref: string;
   event: {
     action?: string;
-    pull_request?: { number: number; draft: boolean; head: { sha: string } };
+    pull_request?: {
+      number: number;
+      draft: boolean;
+      head: { sha: string; repo?: { full_name: string } };
+    };
     changes?: Partial<Record<"title" | "base" | "body", unknown>>;
   };
 };
@@ -112,12 +117,20 @@ function pr(
   number = 123,
 ): Github {
   return {
+    repository: "openclaw/openclaw",
     workflow: workflow.name,
     event_name: "pull_request",
     run_id: runId,
     sha: "e".repeat(40),
     ref: `refs/pull/${number}/merge`,
-    event: { action, pull_request: { number, draft, head: { sha: head.repeat(40) } } },
+    event: {
+      action,
+      pull_request: {
+        number,
+        draft,
+        head: { sha: head.repeat(40), repo: { full_name: "openclaw/openclaw" } },
+      },
+    },
   };
 }
 
@@ -129,6 +142,7 @@ function refEvent(
   ref = "refs/heads/main",
 ): Github {
   return {
+    repository: "openclaw/openclaw",
     workflow: workflow.name,
     event_name: eventName,
     run_id: runId,
