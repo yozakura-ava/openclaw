@@ -1591,6 +1591,7 @@ function runReleaseFallbackHistoryFixture(options: {
   const home = path.join(root, "home");
   const hooks = path.join(root, "hooks");
   const records = path.join(root, "git-results.jsonl");
+  const globalGitConfig = path.join(home, "gitconfig");
   const fixtureEnv: NodeJS.ProcessEnv = {
     PATH: [path.dirname(testNodeExecPath), "/usr/local/bin", "/usr/bin", "/bin"].join(
       path.delimiter,
@@ -1599,7 +1600,7 @@ function runReleaseFallbackHistoryFixture(options: {
     XDG_CONFIG_HOME: home,
     LC_ALL: "C",
     GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_GLOBAL: devNull,
+    GIT_CONFIG_GLOBAL: globalGitConfig,
     GIT_ALLOW_PROTOCOL: "file",
     GIT_TERMINAL_PROMPT: "0",
     GIT_CONFIG_COUNT: "6",
@@ -1625,6 +1626,7 @@ function runReleaseFallbackHistoryFixture(options: {
     for (const dir of [checkout, bin, home, hooks]) {
       mkdirSync(dir);
     }
+    writeFileSync(globalGitConfig, "", "utf8");
     const realGit = execFileSync("bash", ["--noprofile", "--norc", "-c", "command -v git"], {
       env: fixtureEnv,
       encoding: "utf8",
