@@ -350,7 +350,10 @@ export function assertCanMutateClaimedCard(
   }
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
-  if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
+  if (
+    (token !== undefined && !safeEqualSecret(token, claim.token)) ||
+    (token === undefined && claim.ownerId !== ownerId)
+  ) {
     throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }

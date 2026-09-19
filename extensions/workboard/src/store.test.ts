@@ -3408,6 +3408,23 @@ describe("WorkboardStore", () => {
     });
   });
 
+  it("rejects a mismatched token even when the supplied owner matches", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Fenced owner mutation" });
+    await store.claim(card.id, { ownerId: "main", token: "current-token" });
+
+    await expect(
+      store.addComment(
+        card.id,
+        { body: "stale token write" },
+        { ownerId: "main", token: "stale-token" },
+      ),
+    ).rejects.toThrow(/card is claimed by main/);
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      metadata: { claim: { token: "current-token" } },
+    });
+  });
+
   it("clears resolved proof diagnostics when adding proof", async () => {
     const store = new WorkboardStore(createMemoryStore());
     const card = await store.create({
