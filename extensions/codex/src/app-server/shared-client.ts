@@ -8,7 +8,10 @@ import {
   AgentHarnessPreflightError,
   resolveDefaultAgentDir,
 } from "openclaw/plugin-sdk/agent-harness-registration";
-import type { AgentHarnessRuntimeArtifactBinding } from "openclaw/plugin-sdk/agent-harness-runtime";
+import {
+  embeddedAgentLog,
+  type AgentHarnessRuntimeArtifactBinding,
+} from "openclaw/plugin-sdk/agent-harness-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { AuthProfileStore } from "openclaw/plugin-sdk/provider-auth";
 import { codexBuildSymbol } from "../build-state.js";
@@ -103,6 +106,7 @@ type CodexAppServerClientStartupOptions = {
 };
 
 const CODEX_APP_SERVER_INITIALIZE_TIMEOUT_MESSAGE = "codex app-server initialize timed out";
+const CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS = 5 * 60_000;
 
 /** Successful physical process identity, excluding environment and credentials. */
 type CodexAppServerClientProcessIdentity = {
@@ -849,6 +853,7 @@ function createSharedCodexAppServerClientStartup(
       ...params,
       onStartedClient: (startedClient) => {
         const state = getSharedCodexAppServerClientState();
+        state.createdCount += 1;
         // Rejected candidates must never retain a reverse path to their replacement.
         if (params.entry.client) {
           state.entriesByClient.delete(params.entry.client);
@@ -865,6 +870,7 @@ function createSharedCodexAppServerClientStartup(
         for (const callback of params.entry.onStartedClientCallbacks) {
           callback(startedClient);
         }
+        logSharedClientPoolMetrics("created");
         retirePendingSharedClientEntryIfUnclaimed(params.entry);
       },
       onInitializedClient: () => initialized.resolve(),
@@ -1246,9 +1252,14 @@ export function resetSharedCodexAppServerClientForTests(): void {
   const state = getSharedCodexAppServerClientState();
   state.startup.controller.abort();
   state.startup = createCodexAppServerStartupLifetime();
+  for (const entry of state.clients.values()) {
+    clearSharedClientIdleReaper(entry);
+  }
   const clients = [...state.liveClients];
   const isolatedClients = [...state.isolatedClients];
   state.clients.clear();
+  state.createdCount = 0;
+  state.reapedCount = 0;
   state.liveClients.clear();
   state.isolatedClients.clear();
   state.entriesByClient = new WeakMap();
@@ -1273,6 +1284,7 @@ export function clearSharedCodexAppServerClientIfCurrent(
   if (!entry) {
     return false;
   }
+  clearSharedClientIdleReaper(entry);
   state.clients.delete(entry.key);
   client.close();
   return true;
@@ -1531,7 +1543,9 @@ function retainSharedClientEntry(
   counter: "activeLeases" | "pendingAcquires" = "activeLeases",
 ): () => void {
   let released = false;
+  clearSharedClientIdleReaper(entry);
   entry[counter] += 1;
+  logSharedClientPoolMetrics("leased");
   return () => {
     if (released) {
       return;
@@ -1547,7 +1561,86 @@ function releaseSharedClientEntry(
 ): void {
   entry[counter] -= 1;
   closeRetiredSharedClientEntryIfIdle(entry);
+  scheduleSharedClientIdleReaper(entry);
+  logSharedClientPoolMetrics("released");
   notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState());
+}
+
+function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
+  if (entry.idleReaper) {
+    clearTimeout(entry.idleReaper);
+    entry.idleReaper = undefined;
+  }
+}
+
+function scheduleSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
+  if (
+    entry.activeLeases > 0 ||
+    entry.pendingAcquires > 0 ||
+    !entry.client ||
+    entry.closeWhenIdle ||
+    entry.closeError ||
+    entry.idleReaper
+  ) {
+    return;
+  }
+  const state = getSharedCodexAppServerClientState();
+  if (state.clients.get(entry.key) !== entry) {
+    return;
+  }
+  entry.idleReaper = setTimeout(() => {
+    entry.idleReaper = undefined;
+    if (
+      state.clients.get(entry.key) !== entry ||
+      entry.activeLeases > 0 ||
+      entry.pendingAcquires > 0 ||
+      !entry.client ||
+      entry.closeWhenIdle ||
+      entry.closeError
+    ) {
+      return;
+    }
+    const client = entry.client;
+    state.clients.delete(entry.key);
+    state.reapedCount += 1;
+    client.close();
+    logSharedClientPoolMetrics("idle_reaped");
+  }, CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS);
+  entry.idleReaper.unref?.();
+}
+
+function readSharedClientPoolMetrics() {
+  const state = getSharedCodexAppServerClientState();
+  let active = 0;
+  let idle = 0;
+  for (const entry of state.clients.values()) {
+    if (!entry.client) {
+      continue;
+    }
+    if (entry.activeLeases > 0 || entry.pendingAcquires > 0) {
+      active += 1;
+    } else {
+      idle += 1;
+    }
+  }
+  return { created: state.createdCount, active, idle, reaped: state.reapedCount };
+}
+
+function logSharedClientPoolMetrics(event: string): void {
+  embeddedAgentLog.info("codex app-server process pool", {
+    event,
+    ...readSharedClientPoolMetrics(),
+  });
+}
+
+/** Returns bounded process-pool gauges for diagnostics and monitoring. */
+export function getCodexAppServerClientPoolMetrics(): {
+  created: number;
+  active: number;
+  idle: number;
+  reaped: number;
+} {
+  return readSharedClientPoolMetrics();
 }
 
 function closeSharedClientEntryIfUnclaimed(entry: SharedCodexAppServerClientEntry): boolean {
@@ -1558,6 +1651,7 @@ function closeSharedClientEntryIfUnclaimed(entry: SharedCodexAppServerClientEntr
   if (state.clients.get(entry.key) !== entry) {
     return false;
   }
+  clearSharedClientIdleReaper(entry);
   state.clients.delete(entry.key);
   entry.client?.close();
   return Boolean(entry.client);
@@ -1568,6 +1662,7 @@ function retirePendingSharedClientEntryIfUnclaimed(entry: SharedCodexAppServerCl
     return;
   }
   entry.startupAbort?.abort(new Error("Codex app-server startup was abandoned"));
+  clearSharedClientIdleReaper(entry);
   entry.closeWhenIdle = true;
   const state = getSharedCodexAppServerClientState();
   if (state.clients.get(entry.key) === entry) {
