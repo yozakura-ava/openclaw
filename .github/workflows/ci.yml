@@ -2668,7 +2668,10 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 15
     env:
-      CHECKOUT_BASE_SHA: ${{ needs.preflight.outputs.diff_base_revision }}
+      # A frozen/release target is intentionally validated outside the current
+      # fork-main release line. Compare it with its own immutable source tree;
+      # ordinary PRs and main pushes retain the normal diff-base ratchet.
+      CHECKOUT_BASE_SHA: ${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.diff_base_revision }}
       COMPATIBILITY_TARGET: ${{ needs.preflight.outputs.compatibility_target }}
     steps:
       - *linux_node_checkout_step
