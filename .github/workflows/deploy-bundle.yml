@@ -326,6 +326,8 @@ jobs:
             package.json \
             pnpm-workspace.yaml \
             openclaw.mjs \
+            node-runtime-recovery.mjs \
+            node-sqlite.mjs \
             node-version.mjs \
             dist \
             docs \
