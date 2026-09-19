@@ -8099,7 +8099,7 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmAssertionStep.if).toBe("${{ always() && matrix.platform == 'linux' }}");
     expect(warmAssertionStep.run).toContain("steps.warm-caches.outcome");
     expect(warmAssertionStep.run).toContain("exit 1");
-    expect(warmerSteps.at(-1)).toBe(warmAssertionStep);
+    expect(expectDefined(warmerSteps.at(-1), "cache warm summary step")).toBe(warmAssertionStep);
     // No close-time cleanup workflow is needed; Actions cache LRU/TTL expires
     // old hosted-writer and warmer generations.
     expect(existsSync(".github/workflows/pr-cache-cleanup.yml")).toBe(false);
