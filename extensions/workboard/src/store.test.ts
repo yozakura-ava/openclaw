@@ -20,6 +20,7 @@ import {
   createWorkboardSqliteTestStore,
   sqliteTestAuxStores,
 } from "./test/sqlite-store.js";
+import { resolveToolCardId } from "./tools.js";
 
 const workerModuleUrl = resolveRuntimeWorkerUrl(workboardSqliteBackendEntrypoint);
 
@@ -5286,7 +5287,6 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
 
   it("resolveToolCardId rejects empty / non-string input", async () => {
     const store = createWorkboardSqliteTestStore();
-    const { resolveToolCardId } = await import("./tools.js");
     await expect(resolveToolCardId(store, "")).rejects.toThrow(/required/);
     await expect(resolveToolCardId(store, "   ")).rejects.toThrow(/required/);
     await expect(resolveToolCardId(store, undefined)).rejects.toThrow(/required/);
@@ -5296,7 +5296,6 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   it("resolveToolCardId uses the fast path for a full UUID and the prefix path for short ids", async () => {
     const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Resolver path coverage" });
-    const { resolveToolCardId } = await import("./tools.js");
     // Full UUID (>=9 chars or matching the UUID-shape regex) takes the fast
     // path that calls store.get directly without listing.
     const fullIdResult = await resolveToolCardId(store, card.id);
@@ -5308,7 +5307,6 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
 
   it("resolveToolCardId surfaces a not-found error for unknown prefixes", async () => {
     const store = createWorkboardSqliteTestStore();
-    const { resolveToolCardId } = await import("./tools.js");
     await expect(resolveToolCardId(store, "deadbeef")).rejects.toThrow(/not found/i);
   });
 
@@ -5316,7 +5314,6 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
     const store = createWorkboardSqliteTestStore();
     await store.create({ title: "Ambiguous A" });
     await store.create({ title: "Ambiguous B" });
-    const { resolveToolCardId } = await import("./tools.js");
     await expect(resolveToolCardId(store, "aaaaaaaa")).rejects.toThrow(/not found/i);
   });
 });
