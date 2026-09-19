@@ -2783,7 +2783,9 @@ NODE
         paths: [".github/workflows/**"],
       });
       expect(workflow.jobs[jobName].if).toBe(
-        "${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}",
+        workflowPath === ".github/workflows/ci-check-arm-testbox.yml"
+          ? "${{ github.repository == 'openclaw/openclaw' && (github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository)) }}"
+          : "${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}",
       );
     }
   });
@@ -5139,38 +5141,22 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     }
 
     // Synthetic admission orders, not recovered webhook payloads.
-    it.each(
-      ["opened", "reopened", "synchronize"].flatMap((action) =>
-        ["pending", "running"].map((state) => ({ action, state })),
-      ),
-    )("preserves $state ready CI after a delayed draft $action", ({ action, state }) => {
-      const scheduler = admissionDriver();
-      const predecessor = scheduler.admit(event(1, { action: "opened" }));
-      scheduler.start(predecessor);
-      const ready = scheduler.admit(event(2));
-      if (state === "running") {
+    it.each(["opened", "reopened", "synchronize"])(
+      "uses one cancellable PR group for draft and ready %s events",
+      (action) => {
+        const scheduler = admissionDriver();
+        const predecessor = scheduler.admit(event(1, { action: "opened" }));
+        scheduler.start(predecessor);
+        const ready = scheduler.admit(event(2));
+        const lateDraft = scheduler.admit(event(3, { action, draft: true }));
+        expect(lateDraft.group).toBe(ready.group);
+        expect(ready.state).toBe("cancelled");
         scheduler.finish(predecessor);
-        scheduler.start(ready);
-      }
-      expect(ready.state).toBe(state);
-      const lateDraft = scheduler.admit(event(3, { action, draft: true }));
-      expect(ready.state, "late draft displaced runnable ready CI").toBe(state);
-      scheduler.start(lateDraft);
-      expect(lateDraft.state).toBe("skipped");
-      expect(lateDraft.eligibleJobs).toEqual([]);
-      const anotherDraft = scheduler.admit(event(4, { action, draft: true }));
-      expect(anotherDraft.group).not.toBe(lateDraft.group);
-      expect(lateDraft.group).not.toBe(ready.group);
-      if (state === "pending") {
-        expect(ready.eligibleJobs).toBeUndefined();
-        scheduler.start(ready);
-        expect(ready.state).toBe("pending");
-        scheduler.finish(predecessor);
-        scheduler.start(ready);
-      }
-      expect(ready.state).toBe("running");
-      expect(ready.eligibleJobs).toEqual(guardedJobs);
-    });
+        scheduler.start(lateDraft);
+        expect(lateDraft.state).toBe("skipped");
+        expect(lateDraft.eligibleJobs).toEqual([]);
+      },
+    );
 
     it("admits ready CI after the forward draft-to-ready sequence", () => {
       const scheduler = admissionDriver();
@@ -5180,7 +5166,7 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
       expect(draft.state).toBe("skipped");
       const ready = scheduler.admit(event(2));
       scheduler.start(ready);
-      expect(ready.group).toBe("CI-v7-7");
+      expect(ready.group).toBe("CI-v9-pr-7");
       expect(ready.eligibleJobs).toEqual(guardedJobs);
     });
 
@@ -5192,7 +5178,7 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
         scheduler.start(previous);
         const ready = state === "pending" ? scheduler.admit(event(2)) : previous;
         const converted = scheduler.admit(event(3, { action: "converted_to_draft", draft: true }));
-        expect(converted.group).toBe("CI-v7-7");
+        expect(converted.group).toBe("CI-v9-pr-7");
         expect(ready.state).toBe(state === "pending" ? "cancelled" : "cancelling");
         expect(previous.state).toBe("cancelling");
         scheduler.finish(previous);
@@ -5249,12 +5235,12 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
         expect(run.state).toBe("running");
         expect(run.eligibleJobs).toEqual(guardedJobs);
       }
-      expect(manual.map((run) => run.group)).toEqual(["CI-manual-v1-2", "CI-manual-v1-3"]);
+      expect(manual.map((run) => run.group)).toEqual(["CI-v9-manual-2", "CI-v9-manual-3"]);
       expect(ready.state).toBe("running");
     });
 
     it.each(["pending", "running"])(
-      "passive drafts do not resurrect explicitly cancelled %s CI",
+      "draft events do not resurrect explicitly cancelled %s CI",
       (state) => {
         const scheduler = admissionDriver();
         const ready = scheduler.admit(event(1));
@@ -5317,16 +5303,53 @@ require("node:fs").writeFileSync("scheduler-baseline", process.env.OPENCLAW_UPGR
     });
 
     it.each([
-      ["openclaw/openclaw", "refs/heads/topic", "CI-v7-refs/heads/topic"],
-      ["contributor/fork", "refs/heads/main", `CI-v7-refs/heads/main-${"b".repeat(40)}`],
-      ["contributor/fork", "refs/heads/topic", `CI-v7-refs/heads/topic-${"b".repeat(40)}`],
+      ["openclaw/openclaw", "refs/heads/topic", `CI-v9-refs/heads/topic-${"b".repeat(40)}`],
+      ["contributor/fork", "refs/heads/main", "CI-v9-refs/heads/main"],
+      ["contributor/fork", "refs/heads/topic", `CI-v9-refs/heads/topic-${"b".repeat(40)}`],
     ])("preserves push grouping for %s on %s", (repository, ref, group) => {
       const workflow = readCiWorkflow();
       const context = event(1, { eventName: "push", repository, ref });
       expect(evaluateWorkflowExpression(workflow.concurrency.group, context)).toBe(group);
       expect(evaluateWorkflowExpression(workflow.concurrency["cancel-in-progress"], context)).toBe(
-        false,
+        repository === "contributor/fork" && ref === "refs/heads/main" ? true : false,
       );
+    });
+
+    it("skips upstream-only ARM admission for fork PRs and fork manual dispatches", () => {
+      const workflow = parse(readFileSync(".github/workflows/ci-check-arm-testbox.yml", "utf8"));
+      const condition = workflow.jobs["check-arm"].if;
+      const evaluate = (context: EventContext) =>
+        evaluateWorkflowExpression(
+          condition.startsWith("${{") ? condition : `\${{ ${condition} }}`,
+          context,
+        );
+      expect(
+        evaluate(
+          event(1, {
+            eventName: "pull_request",
+            repository: "openclaw/openclaw",
+            headRepository: "openclaw/openclaw",
+          }),
+        ),
+      ).toBe(true);
+      expect(
+        evaluate(
+          event(2, {
+            eventName: "pull_request",
+            repository: "openclaw/openclaw",
+            headRepository: "contributor/fork",
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        evaluate(
+          event(3, {
+            eventName: "workflow_dispatch",
+            repository: "contributor/fork",
+          }),
+        ),
+      ).toBe(false);
+      expect(workflow.jobs["check-arm"]["runs-on"]).toBe("blacksmith-16vcpu-ubuntu-2404-arm");
     });
   });
 
