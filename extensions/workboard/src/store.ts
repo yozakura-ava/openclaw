@@ -569,7 +569,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
     const referenceCardId =
       typeof input.referenceCardId === "string" ? input.referenceCardId.trim() : "";
     if ((reasonCode === "superseded" || reasonCode === "duplicate") && !referenceCardId) {
-      throw new Error(`force-close reason ${String(reasonCode)} requires reference_card_id`);
+      throw new Error(`force-close reason ${reasonCode} requires reference_card_id`);
     }
     if (referenceCardId && !(await this.get(referenceCardId))) {
       throw new Error(`reference card not found: ${referenceCardId}`);
