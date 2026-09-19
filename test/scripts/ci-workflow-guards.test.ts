@@ -8020,7 +8020,7 @@ server.listen(0, "127.0.0.1", () => {
       }
     }
     for (const eventName of ["push", "workflow_dispatch", "schedule"] as const) {
-      const forkContext = {
+      const forkContext: Parameters<typeof evaluateWorkflowExpression>[1] = {
         eventName,
         matrix: { platform: "linux" },
         repository: "yozakura-ava/openclaw",
@@ -8128,7 +8128,9 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmAssertionStep.run).toContain("steps.warm-caches.outcome");
     expect(warmAssertionStep.run).toContain("exit 1");
     expect(warmerSteps.at(-2)).toBe(warmAssertionStep);
-    expect(warmerSteps.at(-1).name).toBe("Publish cache warm summary");
+    expect(expectDefined(warmerSteps.at(-1), "cache warm summary step").name).toBe(
+      "Publish cache warm summary",
+    );
     // No close-time cleanup workflow is needed; Actions cache LRU/TTL expires
     // old hosted-writer and warmer generations.
     expect(existsSync(".github/workflows/pr-cache-cleanup.yml")).toBe(false);

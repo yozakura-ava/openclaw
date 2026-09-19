@@ -2845,6 +2845,37 @@ describe("WorkboardStore", () => {
     await expect(store.linkCards(lateParent.id, child.id)).rejects.toThrow(/active child/);
   });
 
+  it("allows review cards to be claimed after all dependency parents finish", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const unfinishedParent = await store.create({
+      title: "Unfinished prerequisite",
+      status: "running",
+    });
+    const heldReviewCard = await store.create({
+      title: "Review dependent work",
+      status: "review",
+      parents: [unfinishedParent.id],
+    });
+
+    await expect(store.claim(heldReviewCard.id, { ownerId: "reviewer" })).rejects.toThrow(
+      "card dependencies are not done.",
+    );
+
+    const doneParent = await store.create({ title: "Finished prerequisite", status: "done" });
+    const reviewCard = await store.create({
+      title: "Review completed dependent work",
+      status: "review",
+      parents: [doneParent.id],
+    });
+
+    const claimed = await store.claim(reviewCard.id, { ownerId: "reviewer" });
+    expect(claimed.card).toMatchObject({
+      id: reviewCard.id,
+      status: "running",
+      metadata: { claim: { ownerId: "reviewer" } },
+    });
+  });
+
   it("resolves parent dependency status with targeted lookups instead of a full-corpus scan", async () => {
     const cardStore = createMemoryStore();
     const entriesSpy = vi.spyOn(cardStore, "entries");
