@@ -45,6 +45,7 @@ import {
   suspendSession,
   type SessionSuspensionParams,
 } from "./session-suspension.js";
+import { isSessionTranscriptDesyncError } from "./sessions/session-transcript-desync.js";
 
 type FailoverAttribution = {
   sessionId?: string;
@@ -207,6 +208,9 @@ function resolveChainStopReason(params: {
   callerSignalAborted: boolean;
 }): ModelFallbackChainStopReason | undefined {
   const { err } = params;
+  if (isSessionTranscriptDesyncError(err)) {
+    return "session_transcript_desync";
+  }
   if (isAgentRunTerminalTimeout(err)) {
     return "agent_run_terminal_timeout";
   }

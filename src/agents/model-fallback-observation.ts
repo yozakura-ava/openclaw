@@ -348,6 +348,7 @@ export function logModelFallbackDecision(
 }
 
 export type ModelFallbackChainStopReason =
+  | "session_transcript_desync"
   | "agent_run_terminal_timeout"
   | "idle_timeout_circuit_breaker"
   | "command_lane_task_timeout"
