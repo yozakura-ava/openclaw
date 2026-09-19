@@ -7911,7 +7911,7 @@ server.listen(0, "127.0.0.1", () => {
     }
   });
 
-  it("warms protected caches without main-run cancellation", () => {
+  it("warms protected caches and cancels obsolete warmers", () => {
     const warmerSource = readFileSync(".github/workflows/vitest-cache-warm.yml", "utf8");
     const warmer = parse(warmerSource);
     const warmerSetup = warmer.jobs.warm.steps.find(
@@ -7952,7 +7952,7 @@ server.listen(0, "127.0.0.1", () => {
       "final cache warming assertion",
     );
 
-    expect(warmer.concurrency["cancel-in-progress"]).toBe(false);
+    expect(warmer.concurrency["cancel-in-progress"]).toBe(true);
     expect(warmer.concurrency.group).toBe("vitest-cache-warm-${{ github.ref }}");
     // hosted-mode cache recovery needs a maintainer-operated fallback when the
     // scheduled seed is missing or stale.
@@ -7960,15 +7960,19 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmer.on.push.branches).toEqual(["main"]);
     expect(warmer.on.repository_dispatch.types).toEqual(["vitest-cache-warm"]);
     expect(warmer.jobs.warm.if).toContain("github.repository == 'openclaw/openclaw'");
+    expect(warmer.jobs.warm.if).toContain("github.repository == 'yozakura-ava/openclaw'");
     expect(warmer.jobs.warm.strategy).toEqual({
       "fail-fast": false,
-      matrix: { platform: ["linux", "macos"] },
+      matrix: {
+        platform:
+          "${{ fromJSON(github.repository == 'yozakura-ava/openclaw' && '[\"linux\"]' || '[\"linux\",\"macos\"]') }}",
+      },
     });
     expect(warmer.on).not.toHaveProperty("pull_request");
     expect(warmer.on).not.toHaveProperty("pull_request_target");
     for (const eventName of ["push", "workflow_dispatch"] as const) {
       for (const runnerBackend of ["blacksmith", "hybrid", "github"] as const) {
-        for (const platform of warmer.jobs.warm.strategy.matrix.platform) {
+        for (const platform of ["linux", "macos"]) {
           const context = {
             eventName,
             matrix: { platform },
@@ -8014,6 +8018,30 @@ server.listen(0, "127.0.0.1", () => {
           }
         }
       }
+    }
+    for (const eventName of ["push", "workflow_dispatch", "schedule"] as const) {
+      const forkContext = {
+        eventName,
+        matrix: { platform: "linux" },
+        repository: "yozakura-ava/openclaw",
+        ref: "refs/heads/main",
+        runAttempt: 1,
+        runnerBackend: "blacksmith",
+      };
+      expect(evaluateWorkflowExpression(warmer.jobs.warm["runs-on"], forkContext)).toBe(
+        "ubuntu-24.04",
+      );
+      const forkSetupInputs = Object.fromEntries(
+        Object.entries(warmerSetup.with).map(([key, value]) => [
+          key,
+          typeof value === "string" && value.startsWith("${{")
+            ? evaluateWorkflowExpression(value, forkContext)
+            : value,
+        ]),
+      );
+      expect(forkSetupInputs["dependency-cache"]).toBe("false");
+      expect(forkSetupInputs["build-all-cache-scope"]).toBe("full");
+      expect(forkSetupInputs["vitest-fs-cache"]).toBe("true");
     }
     expect(warmer.on).not.toHaveProperty("workflow_run");
     expect(checkoutStep.with).toBeUndefined();
@@ -8099,7 +8127,10 @@ server.listen(0, "127.0.0.1", () => {
     expect(warmAssertionStep.if).toBe("${{ always() && matrix.platform == 'linux' }}");
     expect(warmAssertionStep.run).toContain("steps.warm-caches.outcome");
     expect(warmAssertionStep.run).toContain("exit 1");
-    expect(expectDefined(warmerSteps.at(-1), "cache warm summary step")).toBe(warmAssertionStep);
+    expect(warmerSteps.at(-2)).toBe(warmAssertionStep);
+    expect(expectDefined(warmerSteps.at(-1), "cache warm summary step").name).toBe(
+      "Publish cache warm summary",
+    );
     // No close-time cleanup workflow is needed; Actions cache LRU/TTL expires
     // old hosted-writer and warmer generations.
     expect(existsSync(".github/workflows/pr-cache-cleanup.yml")).toBe(false);
@@ -18591,7 +18622,8 @@ it("pins simple release admission owners before selected checkout and preserves 
   expect(appImageTools).toMatch(/continuous[\s\S]*digest-pinned/u);
 
   const prLinux = parse(readFileSync(".github/workflows/linux-app.yml", "utf8"));
-  expect(prLinux.jobs.build["runs-on"]).toBe("ubuntu-22.04");
+  expect(prLinux.jobs.build["runs-on"]).toBe("ubuntu-24.04");
+  expect((prLinux.jobs.build.container as { image?: string }).image).toBe("ubuntu:22.04");
   expect(prLinux.jobs.build.strategy).toBeUndefined();
   expect(prLinux.on.workflow_dispatch?.inputs).toBeUndefined();
   const abiScannerTest = expectDefined(
@@ -18655,7 +18687,8 @@ it("pins simple release admission owners before selected checkout and preserves 
       ({ name }) => name === "Build Linux companion bundles",
     )?.env,
   ).not.toHaveProperty("LDAI_RUNTIME_FILE");
-  expect(linux.jobs.build_linux["runs-on"]).toBe("ubuntu-22.04");
+  expect(linux.jobs.build_linux["runs-on"]).toBe("ubuntu-24.04");
+  expect((linux.jobs.build_linux.container as { image?: string }).image).toBe("ubuntu:22.04");
   expect(linux.jobs.build_linux.strategy).toBeUndefined();
   const finalizerSource = readFileSync("apps/linux/scripts/finalize-appimage.sh", "utf8");
   const postBuildVerifications =

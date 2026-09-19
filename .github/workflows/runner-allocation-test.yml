@@ -1,0 +1,20 @@
+name: Runner Allocation Test
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/runner-allocation-test.yml
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "ubuntu runner works"
+
+  slim:
+    runs-on: ubuntu-slim
+    steps:
+      - run: echo "slim runner works"
