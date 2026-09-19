@@ -200,7 +200,7 @@ export async function resolveSkillWorkshopToolApproval(params: {
       ? { description: text.description }
       : action === "purge"
         ? {
-            description: `${text.description} This permanently deletes only stale proposals older than ${asNullableRecord(params.toolParams)?.older_than ?? "7d"}; pending and applied proposals are excluded.`,
+            description: `${text.description} This permanently deletes only stale proposals older than ${normalizeOptionalString(asNullableRecord(params.toolParams)?.older_than) ?? "7d"}; pending and applied proposals are excluded.`,
           }
         : await resolveLifecycleApprovalDescription({
             toolParams: params.toolParams,
