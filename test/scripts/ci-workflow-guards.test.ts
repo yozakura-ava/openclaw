@@ -16681,7 +16681,9 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     () => {
       const job = readCiWorkflow().jobs["control-ui-performance"];
       expect(job.needs).toEqual(["preflight"]);
-      expect(job.env.CHECKOUT_BASE_SHA).toBe("${{ needs.preflight.outputs.diff_base_revision }}");
+      expect(job.env.CHECKOUT_BASE_SHA).toBe(
+        "${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.diff_base_revision }}",
+      );
       const step = job.steps.find(
         (candidate: WorkflowStep) => candidate.name === "Check Control UI performance against base",
       );
