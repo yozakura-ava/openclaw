@@ -2514,6 +2514,46 @@ describe("WorkboardStore", () => {
       vi.useRealTimers();
     }
   });
+
+  it("rejects scoped move and reclaim after a claim expires", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const movedCard = await store.create({ title: "Expired move", status: "ready" });
+      const movedClaim = await store.claim(movedCard.id, { ownerId: "worker", ttlSeconds: 1 });
+      const reclaimedCard = await store.create({ title: "Expired reclaim", status: "ready" });
+      const reclaimedClaim = await store.claim(reclaimedCard.id, {
+        ownerId: "worker",
+        ttlSeconds: 1,
+      });
+      const expiresAt = Math.min(
+        movedClaim.card.metadata?.claim?.expiresAt ?? Number.MAX_SAFE_INTEGER,
+        reclaimedClaim.card.metadata?.claim?.expiresAt ?? Number.MAX_SAFE_INTEGER,
+      );
+      vi.setSystemTime(expiresAt + 1);
+
+      await expect(
+        store.move(movedCard.id, "blocked", undefined, {
+          ownerId: "worker",
+          token: movedClaim.token,
+        }),
+      ).rejects.toThrow("claim has expired.");
+      await expect(
+        store.reclaim(
+          reclaimedCard.id,
+          { reason: "worker recovery" },
+          { ownerId: "worker", token: reclaimedClaim.token },
+        ),
+      ).rejects.toThrow("claim has expired.");
+
+      await expect(store.move(movedCard.id, "blocked")).resolves.toMatchObject({
+        status: "blocked",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {
