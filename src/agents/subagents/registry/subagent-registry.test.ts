@@ -71,6 +71,7 @@ import { testing as swarmSchedulerTesting } from "../swarm/swarm-scheduler.test-
 import {
   SUBAGENT_ENDED_REASON_COMPLETE,
   SUBAGENT_ENDED_REASON_ERROR,
+  SUBAGENT_ENDED_REASON_EXITED_EARLY,
   SUBAGENT_ENDED_REASON_KILLED,
 } from "./subagent-lifecycle-events.js";
 import { countPendingDescendantRuns } from "./subagent-registry-read.js";
@@ -2794,7 +2795,7 @@ describe("subagent registry seam flow", () => {
       expectRecordFields(
         run?.execution.outcome,
         {
-          status: "ok",
+          status: "exited-early",
           startedAt: observedStartedAt,
           endedAt: createdAt + 65_000,
           elapsedMs: 55_000,
@@ -3345,7 +3346,12 @@ describe("subagent registry seam flow", () => {
       waitStartedAtMs: 10_000,
       sessionStartedAtMs: 0,
       sessionEndedAtMs: 65_000,
-      expected: { status: "ok", startedAtMs: 10_000, endedAtMs: 65_000, elapsedMs: 55_000 },
+      expected: {
+        status: "exited-early",
+        startedAtMs: 10_000,
+        endedAtMs: 65_000,
+        elapsedMs: 55_000,
+      },
       label: "wait observed start beats stale session store start",
     },
     {
@@ -3356,7 +3362,12 @@ describe("subagent registry seam flow", () => {
       waitNowMs: 61_000,
       sessionStartedAtMs: 10_000,
       sessionEndedAtMs: 65_000,
-      expected: { status: "ok", startedAtMs: 10_000, endedAtMs: 65_000, elapsedMs: 55_000 },
+      expected: {
+        status: "exited-early",
+        startedAtMs: 10_000,
+        endedAtMs: 65_000,
+        elapsedMs: 55_000,
+      },
       label: "session store observed start beats stale registry start",
     },
     {
@@ -3367,7 +3378,12 @@ describe("subagent registry seam flow", () => {
       waitNowMs: 61_000,
       sessionStartedAtMs: -60_000,
       sessionEndedAtMs: 30_000,
-      expected: { status: "ok", startedAtMs: 0, endedAtMs: 30_000, elapsedMs: 30_000 },
+      expected: {
+        status: "exited-early",
+        startedAtMs: 0,
+        endedAtMs: 30_000,
+        elapsedMs: 30_000,
+      },
       label: "fresh terminal completion ignores stale session start",
     },
     {
@@ -3655,7 +3671,7 @@ describe("subagent registry seam flow", () => {
       const completedRun = findRequesterRun("run-reactivated-timeout");
       expectRecordFields(
         completedRun?.execution.outcome,
-        { status: "ok" },
+        { status: "exited-early" },
         "reactivated run outcome",
       );
     });
@@ -4498,7 +4514,7 @@ describe("subagent registry seam flow", () => {
       );
       expectRecordFields(
         announceParams.outcome,
-        { status: "ok", endedAt: persistedEndedAt },
+        { status: "exited-early", endedAt: persistedEndedAt },
         "stale terminal announce outcome",
       );
     });
@@ -5600,7 +5616,7 @@ describe("subagent registry seam flow", () => {
       expectRecordFields(
         run?.execution.outcome,
         {
-          status: "ok",
+          status: "exited-early",
           startedAt: sessionStartedAt,
           endedAt: sessionEndedAt,
           elapsedMs: 55_000,
@@ -5666,7 +5682,7 @@ describe("subagent registry seam flow", () => {
         cleanup: "delete",
         roundOneReply: "final completion reply",
         outcome: {
-          status: "ok",
+          status: "exited-early",
           startedAt: 111,
           endedAt: 222,
           elapsedMs: 111,
@@ -5726,11 +5742,11 @@ describe("subagent registry seam flow", () => {
     await waitForFast(() => {
       const run = findRequesterRun("run-retry-durable-completion");
       expect(run).toMatchObject({
-        endedReason: SUBAGENT_ENDED_REASON_COMPLETE,
+        endedReason: SUBAGENT_ENDED_REASON_EXITED_EARLY,
         execution: {
           status: "terminal",
           endedAt: 222,
-          outcome: { status: "ok", startedAt: 111, endedAt: 222 },
+          outcome: { status: "exited-early", startedAt: 111, endedAt: 222 },
         },
       });
       expect(mocks.persistSubagentRunsToDiskOrThrow.mock.calls.length).toBeGreaterThanOrEqual(3);
@@ -6832,12 +6848,12 @@ describe("subagent registry seam flow", () => {
     });
     await waitForFast(() => {
       const run = findRequesterRun("run-killed-hook-race");
-      expect(run?.endedReason).toBe("subagent-complete");
+      expect(run?.endedReason).toBe(SUBAGENT_ENDED_REASON_EXITED_EARLY);
     });
     expect(mocks.runSubagentEnded).toHaveBeenCalledTimes(1);
     expectRecordFields(
       getMockCallArg(mocks.runSubagentEnded, 0, 0, "exactly-once completion hook"),
-      { reason: "subagent-complete", outcome: "ok", error: undefined },
+      { reason: SUBAGENT_ENDED_REASON_EXITED_EARLY, outcome: "exited-early", error: undefined },
       "exactly-once completion hook",
     );
   });
