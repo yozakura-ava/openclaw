@@ -21,8 +21,11 @@ permissions:
 jobs:
   build:
     name: Build Linux companion
-    # Match the release build base for native tests and manually built bundles.
-    runs-on: ubuntu-22.04
+    # Use the supported hosted runner while matching the release userspace so
+    # native tests and manually built bundles keep the same compatibility floor.
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -35,8 +38,8 @@ jobs:
 
       - name: Install Tauri system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             at-spi2-core \
             build-essential \
             curl \
