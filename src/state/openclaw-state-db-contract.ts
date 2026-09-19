@@ -1,6 +1,7 @@
 import type { DatabaseSync } from "node:sqlite";
 import type { SqliteWalMaintenance } from "../infra/sqlite-wal.js";
 
+// v18 removes audit-event indexes that were empty in the deployed audit history.
 // v17 records one-use prepared worker capacity and node workspace ownership.
 // v16 makes Skill Workshop ownership directory-based instead of row-provenance-based.
 // v15 removes redundant agent/session projections from conversation bindings.
@@ -14,7 +15,7 @@ import type { SqliteWalMaintenance } from "../infra/sqlite-wal.js";
 // v7 retires the inert shared commitments table.
 // v6 makes every committed shared-state table part of the canonical runtime schema.
 // v5 records durable cloud-worker result refs on pending workspace fences.
-export const OPENCLAW_STATE_SCHEMA_VERSION = 17;
+export const OPENCLAW_STATE_SCHEMA_VERSION = 18;
 export const OPENCLAW_STATE_STRICT_SCHEMA_VERSION = 3;
 // Privacy-sensitive feature tables remain absent even in fresh databases until
 // their feature-local first write. The canonical SQL still owns their shape.
@@ -124,6 +125,7 @@ export type OpenClawStateDatabaseSchemaMigration = {
     | "conversation-binding-targets-v15"
     | "skill-workshop-directory-ownership-v16"
     | "prepared-worker-ownership-v17"
+    | "audit-null-indexes-v18"
     | "operator-approvals-system-agent"
     | "session-watch-cursor-provenance-v4"
     | "strict-tables-v3";

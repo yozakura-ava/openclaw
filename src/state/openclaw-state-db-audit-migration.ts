@@ -324,10 +324,6 @@ export function repairAuditEventsSchema(db: DatabaseSync): boolean {
       ON audit_events(kind, sequence DESC);
     CREATE INDEX idx_audit_events_status_sequence
       ON audit_events(status, sequence DESC);
-    CREATE INDEX idx_audit_events_channel_sequence
-      ON audit_events(channel, sequence DESC);
-    CREATE INDEX idx_audit_events_direction_sequence
-      ON audit_events(direction, sequence DESC);
     CREATE TABLE IF NOT EXISTS audit_identity_keys (
       id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
       key_id TEXT NOT NULL,
