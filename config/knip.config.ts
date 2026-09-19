@@ -550,6 +550,9 @@ const config = {
     "extensions/signal/src/setup-core.ts": ["exports"],
     // Focused CLI tests exercise plan construction through this explicit test seam.
     "extensions/onepassword/src/secret-ref-cli.ts": ["exports"],
+    // Workboard prefix-resolution tests consume this explicit helper seam; the
+    // production graph uses it internally but does not otherwise import it.
+    "extensions/workboard/src/tools.ts": ["exports"],
     // Mirror config parsing, redaction mapping, cap fitting, and the runner are
     // asserted by the focused Beam mirror tests; production wires only the service.
     "extensions/beam/src/mirror.ts": ["exports", "types"],
