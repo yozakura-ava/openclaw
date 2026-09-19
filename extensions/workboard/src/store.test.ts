@@ -2524,25 +2524,6 @@ describe("WorkboardStore", () => {
     }
   });
 
-  it("lets an owner's expired claim free its slot on another card immediately", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.setSystemTime(1_000);
-      const store = createWorkboardSqliteTestStore();
-      const first = await store.create({ title: "Slot one", status: "ready" });
-      const second = await store.create({ title: "Slot two", status: "ready" });
-      const claimed = await store.claim(first.id, { ownerId: "worker", ttlSeconds: 1 });
-      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
-      if (expiresAt === undefined) {
-        throw new Error("expected a timed claim");
-      }
-      vi.setSystemTime(expiresAt + 1);
-      await expect(store.claim(second.id, { ownerId: "worker" })).resolves.toBeDefined();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("preserves scheduled and retry-budget errors when a claim is active", async () => {
     vi.useFakeTimers();
     try {

@@ -13,7 +13,6 @@ import {
   sqliteStringSet,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { isFutureDateTimestampMs } from "openclaw/plugin-sdk/number-runtime";
 import type {
   PersistedWorkboardAttachment,
   PersistedWorkboardBoard,
@@ -160,15 +159,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
               }
             : undefined,
         };
-        const slotClaim = card.metadata?.claim;
-        const ownExpiredClaim =
-          slotClaim?.ownerId === ownerId &&
-          !isFutureDateTimestampMs(slotClaim.expiresAt, { nowMs: now });
-        if (
-          !ownExpiredClaim &&
-          workboardCardConsumesOwnerSlot(card, now) &&
-          workboardCardSlotOwner(card) === ownerId
-        ) {
+        if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
           return "owner_busy";
         }
       }
