@@ -30,7 +30,9 @@ env:
 
 jobs:
   check-arm:
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    # Blacksmith ARM is upstream-only. Fork PRs and fork manual dispatches are
+    # intentionally skipped until live configuration proves a valid runner.
+    if: ${{ github.repository == 'openclaw/openclaw' && (github.event_name == 'workflow_dispatch' || (!github.event.pull_request.draft && github.event.pull_request.head.repo.full_name == github.repository)) }}
     permissions:
       contents: read
     name: "check-arm"
