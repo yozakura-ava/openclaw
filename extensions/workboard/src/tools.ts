@@ -35,7 +35,7 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
  * against a full listing before any `store.get(id)` / `store.claim(id)` /
  * `store.X(id)` call. Fix 2 of card d66e24c2.
  */
-export async function resolveToolCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
+async function resolveToolCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
   if (typeof rawId !== "string" || rawId.trim() === "") {
     throw new Error("card id is required.");
   }

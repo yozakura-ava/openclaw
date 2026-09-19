@@ -12124,6 +12124,9 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(parsedWorkflow.jobs.preflight.outputs.diff_base_revision).toBe(
       "${{ steps.diff_base.outputs.sha }}",
     );
+    expect(parsedWorkflow.jobs.preflight.outputs.baseline_base_revision).toBe(
+      "${{ steps.diff_base.outputs.baseline_sha }}",
+    );
     const diffBaseStep = parsedWorkflow.jobs.preflight.steps.find(
       (step: WorkflowStep) => step.name === "Resolve exact diff base",
     );
@@ -12176,7 +12179,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
           repository: "openclaw/openclaw",
           runAttempt: 1,
           matrix: { task },
-          preflightOutputs: { diff_base_revision: base },
+          preflightOutputs: { diff_base_revision: base, baseline_base_revision: base },
         }),
         eventName,
       ).toBe(events.includes(eventName) ? base : "");
@@ -13003,7 +13006,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
         repository: "fixture/checkout",
         runAttempt: 1,
         matrix: { task },
-        preflightOutputs: { diff_base_revision: base },
+        preflightOutputs: { diff_base_revision: base, baseline_base_revision: base },
       });
       const report = await runCiGitStep({
         job: jobName,
@@ -16682,7 +16685,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       const job = readCiWorkflow().jobs["control-ui-performance"];
       expect(job.needs).toEqual(["preflight"]);
       expect(job.env.CHECKOUT_BASE_SHA).toBe(
-        "${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.diff_base_revision }}",
+        "${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.baseline_base_revision }}",
       );
       const step = job.steps.find(
         (candidate: WorkflowStep) => candidate.name === "Check Control UI performance against base",
