@@ -311,6 +311,8 @@ export type AgentDefaultsConfig = {
     accountId?: string;
     /** Override the heartbeat prompt body. The default treats scratch as monitor prose and directs recurring work to cron jobs. */
     prompt?: string;
+    /** Read the heartbeat prompt from a file; relative paths resolve from the agent workspace. */
+    promptFile?: string;
     /** Run timeout in seconds for heartbeat agent turns. Unset uses global timeout or heartbeat cadence capped at 600 seconds. */
     timeoutSeconds?: number;
     /**
