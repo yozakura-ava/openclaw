@@ -176,6 +176,8 @@ env:
 
 jobs:
   resolve_target:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Resolve target ref
     # Hosted admission delays compound along this serial release path.
     runs-on: ${{ github.repository == 'openclaw/openclaw' && vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
@@ -637,7 +639,7 @@ jobs:
   evidence_reuse:
     name: Check for reusable validation evidence
     needs: [resolve_target]
-    if: inputs.rerun_group == 'all' && inputs.reuse_evidence && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-ci/'))
+    if: false  # original if: inputs.rerun_group == 'all' && inputs.reuse_evidence && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-ci/'))
     runs-on: ${{ github.repository == 'openclaw/openclaw' && vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 10
     outputs:
@@ -792,7 +794,7 @@ jobs:
     needs: [resolve_target, evidence_reuse]
     # Release image preparation checks runtime-assets on both native architectures.
     # Alpha has no release image producer, so it retains this standalone proof.
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && contains(needs.resolve_target.outputs.target_version, '-alpha.') && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && inputs.rerun_group == 'all' && contains(needs.resolve_target.outputs.target_version, '-alpha.') && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -818,7 +820,7 @@ jobs:
   normal_ci:
     name: Run normal full CI
     needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","ci"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -1201,7 +1203,7 @@ jobs:
   plugin_prerelease_independent:
     name: Run plugin prerelease independent validation
     needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -1227,7 +1229,7 @@ jobs:
   plugin_prerelease_candidate:
     name: Run plugin prerelease candidate validation
     needs: [resolve_target, evidence_reuse, candidate_acquisition]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && needs.resolve_target.outputs.plugin_candidate_required == 'true' && needs.candidate_acquisition.result == 'success' && needs.candidate_acquisition.outputs.state == 'ready' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && needs.resolve_target.outputs.plugin_candidate_required == 'true' && needs.candidate_acquisition.result == 'success' && needs.candidate_acquisition.outputs.state == 'ready' && contains(fromJSON('["all","plugin-prerelease"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -1253,7 +1255,7 @@ jobs:
   release_checks_independent:
     name: Run release checks independent validation
     needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","install-smoke","live-e2e","qa-parity","qa-live"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && contains(fromJSON('["all","install-smoke","live-e2e","qa-parity","qa-live"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     outputs:
@@ -1292,7 +1294,7 @@ jobs:
   release_checks_candidate:
     name: Run release checks candidate validation
     needs: [resolve_target, evidence_reuse, candidate_acquisition]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && (needs.resolve_target.outputs.release_candidate_artifact_required != 'true' || (needs.candidate_acquisition.result == 'success' && needs.candidate_acquisition.outputs.state == 'ready')) && (contains(fromJSON('["all","cross-os","package"]'), inputs.rerun_group) || (inputs.rerun_group == 'live-e2e' && needs.resolve_target.outputs.live_suite_filter == '')) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && (needs.resolve_target.outputs.release_candidate_artifact_required != 'true' || (needs.candidate_acquisition.result == 'success' && needs.candidate_acquisition.outputs.state == 'ready')) && (contains(fromJSON('["all","cross-os","package"]'), inputs.rerun_group) || (inputs.rerun_group == 'live-e2e' && needs.resolve_target.outputs.live_suite_filter == '')) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     outputs:
@@ -1331,7 +1333,7 @@ jobs:
   npm_telegram:
     name: Run package Telegram E2E
     needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && inputs.telegram_waiver == '' && needs.resolve_target.outputs.coverage_policy != 'npm-beta-v1' && contains(fromJSON('["all","npm-telegram"]'), inputs.rerun_group) && (inputs.npm_telegram_package_spec != '' || inputs.release_package_spec != '') && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && inputs.telegram_waiver == '' && needs.resolve_target.outputs.coverage_policy != 'npm-beta-v1' && contains(fromJSON('["all","npm-telegram"]'), inputs.rerun_group) && (inputs.npm_telegram_package_spec != '' || inputs.release_package_spec != '') && needs.evidence_reuse.outputs.reuse != 'true' }}
     continue-on-error: ${{ startsWith(github.ref, 'refs/heads/tideclaw/alpha/') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -1356,7 +1358,7 @@ jobs:
   performance:
     name: Run product performance evidence
     needs: [resolve_target, evidence_reuse]
-    if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && needs.resolve_target.outputs.coverage_policy != 'npm-beta-v1' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
+    if: false  # original if: ${{ always() && github.run_attempt == 1 && needs.resolve_target.result == 'success' && needs.resolve_target.outputs.coverage_policy != 'npm-beta-v1' && contains(fromJSON('["all","performance"]'), inputs.rerun_group) && needs.evidence_reuse.outputs.reuse != 'true' }}
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     outputs:
@@ -1378,7 +1380,7 @@ jobs:
   prepare_npm_package:
     name: Prepare release npm artifacts
     needs: resolve_target
-    if: ${{ needs.resolve_target.result == 'success' && (inputs.rerun_group == 'all' || needs.resolve_target.outputs.candidate_required == 'true') }}
+    if: false  # original if: ${{ needs.resolve_target.result == 'success' && (inputs.rerun_group == 'all' || needs.resolve_target.outputs.candidate_required == 'true') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
@@ -1429,7 +1431,7 @@ jobs:
   qualify_npm_package:
     name: Qualify release npm artifacts
     needs: [resolve_target, prepare_npm_package]
-    if: ${{ inputs.rerun_group == 'all' && needs.prepare_npm_package.result == 'success' }}
+    if: false  # original if: ${{ inputs.rerun_group == 'all' && needs.prepare_npm_package.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
@@ -1455,7 +1457,7 @@ jobs:
   prepare_docker_release:
     name: Prepare release Docker artifacts
     needs: resolve_target
-    if: ${{ inputs.rerun_group == 'all' && needs.resolve_target.result == 'success' && !contains(needs.resolve_target.outputs.target_version, '-alpha.') }}
+    if: false  # original if: ${{ inputs.rerun_group == 'all' && needs.resolve_target.result == 'success' && !contains(needs.resolve_target.outputs.target_version, '-alpha.') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
@@ -1491,7 +1493,7 @@ jobs:
   candidate_acquisition:
     name: Acquire full release candidate
     needs: [resolve_target, evidence_reuse, prepare_npm_package]
-    if: ${{ always() && needs.resolve_target.result == 'success' && needs.prepare_npm_package.result == 'success' && needs.evidence_reuse.outputs.reuse != 'true' && needs.resolve_target.outputs.candidate_required == 'true' }}
+    if: false  # original if: ${{ always() && needs.resolve_target.result == 'success' && needs.prepare_npm_package.result == 'success' && needs.evidence_reuse.outputs.reuse != 'true' && needs.resolve_target.outputs.candidate_required == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     outputs:
@@ -1541,7 +1543,7 @@ jobs:
         npm_telegram,
         performance,
       ]
-    if: always()
+    if: false  # original if: always()
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     outputs:
@@ -1746,7 +1748,7 @@ jobs:
   release_decision:
     name: Release Decision
     needs: [resolve_target, release_execution_plan]
-    if: always()
+    if: false  # original if: always()
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 720
     outputs:
@@ -1805,7 +1807,7 @@ jobs:
   diagnostic_drain:
     name: Diagnostic Drain
     needs: [resolve_target, release_execution_plan]
-    if: always()
+    if: false  # original if: always()
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 720
     outputs:
@@ -1892,7 +1894,7 @@ jobs:
         release_decision,
         diagnostic_drain,
       ]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

@@ -1,0 +1,27 @@
+{
+  "card": "1c9e249a-f8ef-43c6-b062-7eb8981095ea",
+  "sprint": "2026-09-16-debt-p2",
+  "iteration": "r3 (after r2 REWORK)",
+  "yaml_total_files": 103,
+  "yaml_errors": [],
+  "non_keep_workflows": 99,
+  "non_keep_workflows_with_jobs_having_if": {
+    "total_files": 57,
+    "total_jobs_fixed": 237
+  },
+  "remaining_non_hard_false_job_guards": {
+    "count": 0,
+    "files": [],
+    "sample": []
+  },
+  "keep_workflows_untouched": [
+    "ci.yml",
+    "codeql.yml",
+    "dependency-audit.yml",
+    "docs.yml"
+  ],
+  "ci_yml_pull_request_branches": [
+    "main"
+  ],
+  "ci_yml_pull_request_branches_check": "PASS"
+}

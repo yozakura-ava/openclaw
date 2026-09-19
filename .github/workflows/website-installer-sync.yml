@@ -34,6 +34,8 @@ env:
 
 jobs:
   static:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -64,6 +66,7 @@ jobs:
           }
 
   linux-docker:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -85,6 +88,7 @@ jobs:
             bash -lc 'apt-get update -y && apt-get install -y curl && bash /tmp/install-cli.sh --prefix /tmp/openclaw --no-onboard --version latest && /tmp/openclaw/bin/openclaw --version'
 
   debian-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -110,6 +114,7 @@ jobs:
           CONTAINER
 
   linux-build-tools-failure:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -172,6 +177,7 @@ jobs:
           CONTAINER
 
   linux-non-root:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
@@ -207,6 +213,7 @@ jobs:
           CONTAINER
 
   fedora-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Fedora installer (${{ matrix.user }})
     strategy:
       fail-fast: false
@@ -254,6 +261,7 @@ jobs:
           fi
 
   macos-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: macos-15
     steps:
       - name: Checkout
@@ -275,6 +283,7 @@ jobs:
           openclaw --version
 
   windows-installer:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -352,9 +361,12 @@ jobs:
       - fedora-installer
       - macos-installer
       - windows-installer
-    if: >
-      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
-      (github.event_name == 'workflow_dispatch' && inputs.sync_website)
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >
+    # (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+    # (github.event_name == 'workflow_dispatch' && inputs.sync_website)
+    if: false
     runs-on: ubuntu-24.04
     env:
       OPENCLAW_GH_TOKEN: ${{ secrets.OPENCLAW_GH_TOKEN }}

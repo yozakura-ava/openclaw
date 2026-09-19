@@ -51,6 +51,8 @@ env:
 
 jobs:
   probe:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Windows probe
     runs-on: ${{ inputs.runner_label }}
     timeout-minutes: 75
@@ -321,7 +323,7 @@ jobs:
   # Native session qualification must not depend on headless CI or WSL results.
   native-schtasks:
     name: Native Scheduled Task proof
-    if: ${{ inputs.run_windows_ci }}
+    if: false  # original if: ${{ inputs.run_windows_ci }}
     runs-on: windows-2025
     timeout-minutes: 75
     steps:

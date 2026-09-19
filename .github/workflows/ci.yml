@@ -61,6 +61,7 @@ on:
       - "docs/**"
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    branches: [main]
 
 permissions:
   contents: read

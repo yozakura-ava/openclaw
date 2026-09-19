@@ -38,7 +38,8 @@ permissions: {}
 
 jobs:
   stale:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     permissions:
       issues: write
       pull-requests: write
@@ -247,7 +248,7 @@ jobs:
             That channel is the escape hatch for high-quality PRs that get auto-closed.
 
   stale-bug-verification:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
+    if: false  # original if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
     permissions:
       issues: write
     runs-on: ubuntu-24.04
@@ -431,7 +432,7 @@ jobs:
               .write();
 
   backfill-stale-closures:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_stale_closures == true }}
+    if: false  # original if: ${{ github.event_name == 'workflow_dispatch' && inputs.backfill_stale_closures == true }}
     permissions:
       issues: write
       pull-requests: write
@@ -684,7 +685,7 @@ jobs:
 
   audit-bug-closure-reasons:
     needs: stale
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
+    if: false  # original if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
     permissions:
       issues: read
     runs-on: ubuntu-24.04
@@ -784,7 +785,7 @@ jobs:
 
   lock-closed-issues:
     needs: stale
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
+    if: false  # original if: ${{ github.event_name != 'workflow_dispatch' || inputs.backfill_stale_closures != true }}
     permissions:
       issues: write
     runs-on: blacksmith-16vcpu-ubuntu-2404

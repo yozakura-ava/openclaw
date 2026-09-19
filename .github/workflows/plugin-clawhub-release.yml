@@ -82,6 +82,8 @@ env:
 
 jobs:
   preview_plugins_clawhub:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -494,7 +496,7 @@ jobs:
   validate_release_publish_approval:
     name: Validate release publish approval
     needs: preview_plugins_clawhub
-    if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -556,7 +558,7 @@ jobs:
   pack_plugins_clawhub_artifacts:
     name: Pack ClawHub package (${{ matrix.plugin.packageName }})
     needs: [preview_plugins_clawhub, validate_release_publish_approval]
-    if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -730,7 +732,7 @@ jobs:
   seal_clawhub_transactions:
     name: Seal ClawHub package transactions
     needs: [preview_plugins_clawhub, pack_plugins_clawhub_artifacts]
-    if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && inputs.dry_run != true && needs.preview_plugins_clawhub.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read

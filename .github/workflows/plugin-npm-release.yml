@@ -110,6 +110,8 @@ env:
 
 jobs:
   preview_plugins_npm:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -484,7 +486,7 @@ jobs:
   validate_release_publish_approval:
     name: Validate release publish approval
     needs: preview_plugins_npm
-    if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
+    if: false  # original if: github.event_name == 'workflow_dispatch' && !inputs.preflight_only && needs.preview_plugins_npm.outputs.has_candidates == 'true'
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -1353,7 +1355,7 @@ jobs:
   trusted_publisher_preflight:
     name: Trusted publisher OIDC exchange
     needs: preview_plugins_npm
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_only && inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true' }}
+    if: false  # original if: ${{ github.event_name == 'workflow_dispatch' && inputs.preflight_only && inputs.trusted_publisher_preflight && needs.preview_plugins_npm.outputs.has_selection == 'true' }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:
@@ -1905,7 +1907,7 @@ jobs:
 
   verify_plugins_npm:
     needs: [preview_plugins_npm, publish_plugins_npm]
-    if: ${{ always() && github.event_name == 'workflow_dispatch' && !inputs.preflight_only && inputs.npm_dist_tag == 'extended-stable' && needs.preview_plugins_npm.result == 'success' && (needs.publish_plugins_npm.result == 'success' || (needs.preview_plugins_npm.outputs.has_candidates == 'false' && needs.publish_plugins_npm.result == 'skipped')) }}
+    if: false  # original if: ${{ always() && github.event_name == 'workflow_dispatch' && !inputs.preflight_only && inputs.npm_dist_tag == 'extended-stable' && needs.preview_plugins_npm.result == 'success' && (needs.publish_plugins_npm.result == 'success' || (needs.preview_plugins_npm.outputs.has_candidates == 'false' && needs.publish_plugins_npm.result == 'skipped')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

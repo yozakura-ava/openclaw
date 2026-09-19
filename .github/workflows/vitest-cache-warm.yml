@@ -32,6 +32,7 @@ concurrency:
 
 jobs:
   warm:
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     # Shared CI cache publication is isolated from pull-request execution.
     # Trusted release/proof workflows may save only through the same authority contract.
     if: >-

@@ -109,7 +109,8 @@ jobs:
   # openclaw/releases/.github/workflows/openclaw-npm-dist-tags.yml
   # so this source workflow can stay focused on OIDC publish only.
   preflight_openclaw_npm:
-    if: ${{ inputs.preflight_only }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     permissions:
       actions: read
       contents: read
@@ -125,7 +126,7 @@ jobs:
       bypass_extended_stable_guard: ${{ inputs.bypass_extended_stable_guard }}
 
   validate_publish_request:
-    if: ${{ !inputs.preflight_only }}
+    if: false  # original if: ${{ !inputs.preflight_only }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -311,7 +312,7 @@ jobs:
     # KEEP THE REAL RELEASE/PUBLISH PATH ON A GITHUB-HOSTED RUNNER.
     # npm trusted publishing + provenance requires this to stay on ubuntu-latest.
     needs: [validate_publish_request]
-    if: ${{ !inputs.preflight_only }}
+    if: false  # original if: ${{ !inputs.preflight_only }}
     runs-on: ubuntu-latest
     environment: npm-release
     permissions:

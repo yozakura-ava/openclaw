@@ -22,7 +22,8 @@ env:
 
 jobs:
   no-tabs:
-    if: github.event_name != 'workflow_dispatch'
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     steps:
       - &workflow_sanity_checkout_step
@@ -58,7 +59,7 @@ jobs:
           PY
 
   actionlint:
-    if: github.event_name != 'workflow_dispatch'
+    if: false  # original if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - *workflow_sanity_checkout_step
@@ -201,7 +202,7 @@ jobs:
         run: node scripts/check-no-conflict-markers.mjs
 
   generated-doc-baselines:
-    if: github.event_name == 'workflow_dispatch'
+    if: false  # original if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     steps:
       - *workflow_sanity_checkout_step

@@ -139,6 +139,8 @@ env:
 
 jobs:
   authorize_actor:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Authorize workflow actor
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 10
@@ -178,7 +180,7 @@ jobs:
   validate_selected_ref:
     name: Validate selected ref
     needs: authorize_actor
-    if: needs.authorize_actor.outputs.authorized == 'true'
+    if: false  # original if: needs.authorize_actor.outputs.authorized == 'true'
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     outputs:
@@ -270,7 +272,7 @@ jobs:
   run_mock_parity:
     name: Run QA Lab mock parity lane
     needs: [validate_selected_ref]
-    if: (inputs.expected_sha == '' || inputs.run_mock_parity) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
+    if: false  # original if: (inputs.expected_sha == '' || inputs.run_mock_parity) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 30
     env:
@@ -344,7 +346,7 @@ jobs:
   run_live_runtime_token_efficiency:
     name: Run live runtime token-efficiency lane
     needs: [authorize_actor, validate_selected_ref]
-    if: github.event_name == 'schedule'
+    if: false  # original if: github.event_name == 'schedule'
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     environment: qa-live-shared
@@ -472,7 +474,7 @@ jobs:
   run_live_matrix:
     name: Run Matrix live QA lane
     needs: [authorize_actor, validate_selected_ref]
-    if: (inputs.expected_sha == '' || inputs.run_matrix) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
+    if: false  # original if: (inputs.expected_sha == '' || inputs.run_matrix) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 90
     concurrency:
@@ -538,7 +540,7 @@ jobs:
   run_live_buzz:
     name: Run Buzz live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.run_buzz
+    if: false  # original if: inputs.run_buzz
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     concurrency:
@@ -678,7 +680,7 @@ jobs:
   run_live_telegram:
     name: Run Telegram live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: inputs.expected_sha == '' || inputs.run_telegram
+    if: false  # original if: inputs.expected_sha == '' || inputs.run_telegram
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: qa-live-shared
@@ -776,7 +778,7 @@ jobs:
   run_live_discord:
     name: Run Discord live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: (inputs.expected_sha == '' || inputs.run_discord) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
+    if: false  # original if: (inputs.expected_sha == '' || inputs.run_discord) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: qa-live-shared
@@ -862,7 +864,7 @@ jobs:
   run_live_whatsapp:
     name: Run WhatsApp live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: (inputs.expected_sha == '' || inputs.run_whatsapp) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
+    if: false  # original if: (inputs.expected_sha == '' || inputs.run_whatsapp) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     concurrency:
@@ -941,7 +943,7 @@ jobs:
   run_live_slack:
     name: Run Slack live QA lane with Convex leases
     needs: [authorize_actor, validate_selected_ref]
-    if: (inputs.expected_sha == '' || inputs.run_slack) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
+    if: false  # original if: (inputs.expected_sha == '' || inputs.run_slack) && (github.event_name != 'workflow_dispatch' || inputs.scenario == '')
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     environment: qa-live-shared

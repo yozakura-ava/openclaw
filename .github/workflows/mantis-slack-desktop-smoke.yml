@@ -74,6 +74,8 @@ env:
 
 jobs:
   authorize_actor:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Authorize workflow actor
     runs-on: ubuntu-24.04
     outputs:
@@ -105,7 +107,7 @@ jobs:
   validate_ref:
     name: Validate candidate ref
     needs: authorize_actor
-    if: needs.authorize_actor.outputs.authorized == 'true'
+    if: false  # original if: needs.authorize_actor.outputs.authorized == 'true'
     runs-on: ubuntu-24.04
     outputs:
       candidate_revision: ${{ steps.validate.outputs.candidate-revision }}
@@ -125,6 +127,7 @@ jobs:
           candidate-ref: ${{ inputs.candidate_ref }}
 
   run_slack_desktop:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Run Slack desktop smoke
     needs: validate_ref
     runs-on: ubuntu-24.04

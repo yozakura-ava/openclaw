@@ -23,6 +23,7 @@ env:
 
 jobs:
   validate_release:
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Validate release tag
     if: >-
       github.repository == 'openclaw/openclaw' &&
@@ -196,6 +197,7 @@ jobs:
         run: gh release view "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --json tagName --jq .tagName
 
   build_linux:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Build Linux companion bundles
     needs: validate_release
     # Use the supported hosted runner, but keep the oldest supported userspace:
@@ -387,6 +389,7 @@ jobs:
   # Signing secrets enter only this fresh artifact-only runner; selected-tag
   # source and trusted packaging helpers never cross the job boundary.
   sign_linux:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Sign finalized Linux AppImage
     needs:
       - validate_release
@@ -481,7 +484,7 @@ jobs:
   # Users must bypass Gatekeeper or SmartScreen before running them.
   build_macos:
     name: Build unsigned macOS test bundles
-    if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
+    if: false  # original if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
     needs: validate_release
     # macos-15, not macos-14: tauri-plugin-notifications' Swift sources use
     # typed throws (`throws(FFIResult)`), which needs Swift 6. The macos-14
@@ -572,7 +575,7 @@ jobs:
 
   build_windows:
     name: Build unsigned Windows test bundle
-    if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
+    if: false  # original if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
     needs: validate_release
     runs-on: windows-2022
     timeout-minutes: 45
@@ -648,7 +651,7 @@ jobs:
   # selected-tag build jobs must cross the same artifact-only signing boundary.
   sign_desktop:
     name: Sign finalized desktop updater bundles
-    if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
+    if: false  # original if: ${{ needs.validate_release.outputs.desktop_test_bundles == 'true' }}
     needs:
       - validate_release
       - build_macos
@@ -765,16 +768,19 @@ jobs:
 
   publish:
     name: Publish companion bundles and updater manifest
-    if: >-
-      ${{
-        always() &&
-        needs.build_linux.result == 'success' &&
-        needs.sign_linux.result == 'success' &&
-        (needs.validate_release.outputs.desktop_test_bundles != 'true' ||
-          (needs.build_macos.result == 'success' &&
-            needs.build_windows.result == 'success' &&
-            needs.sign_desktop.result == 'success'))
-      }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{
+    # always() &&
+    # needs.build_linux.result == 'success' &&
+    # needs.sign_linux.result == 'success' &&
+    # (needs.validate_release.outputs.desktop_test_bundles != 'true' ||
+    # (needs.build_macos.result == 'success' &&
+    # needs.build_windows.result == 'success' &&
+    # needs.sign_desktop.result == 'success'))
+    # }}
+    if: false
     needs:
       - validate_release
       - build_linux

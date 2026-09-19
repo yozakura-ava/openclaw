@@ -43,6 +43,8 @@ env:
 
 jobs:
   preflight:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     outputs:
@@ -143,7 +145,7 @@ jobs:
 
   install-smoke-fast:
     needs: [preflight]
-    if: needs.preflight.outputs.run_fast_install_smoke == 'true' && needs.preflight.outputs.run_full_install_smoke != 'true'
+    if: false  # original if: needs.preflight.outputs.run_fast_install_smoke == 'true' && needs.preflight.outputs.run_full_install_smoke != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -254,7 +256,7 @@ jobs:
 
   root_dockerfile_image:
     needs: [preflight]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -446,7 +448,7 @@ jobs:
 
   root_dockerfile_image_ready:
     needs: [preflight, root_dockerfile_image]
-    if: always() && needs.preflight.result == 'success' && needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: always() && needs.preflight.result == 'success' && needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -464,7 +466,7 @@ jobs:
 
   qr_package_install_smoke:
     needs: [preflight]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -481,7 +483,7 @@ jobs:
 
   root_dockerfile_smokes:
     needs: [preflight, root_dockerfile_image, root_dockerfile_image_ready]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
@@ -661,7 +663,7 @@ jobs:
 
   installer_smoke_candidate_payload:
     needs: [preflight]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 75
     outputs:
@@ -839,7 +841,7 @@ jobs:
 
   installer_smoke_update_image:
     needs: [preflight]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -912,7 +914,7 @@ jobs:
 
   installer_smoke_nonroot_image:
     needs: [preflight]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -985,7 +987,7 @@ jobs:
 
   installer_smoke_update:
     needs: [preflight, installer_smoke_candidate_payload, installer_smoke_update_image]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     env:
@@ -1205,7 +1207,7 @@ jobs:
 
   installer_smoke_nonroot:
     needs: [preflight, installer_smoke_candidate_payload, installer_smoke_nonroot_image]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -1388,7 +1390,7 @@ jobs:
         installer_smoke_nonroot_image,
         installer_smoke_nonroot,
       ]
-    if: always() && needs.preflight.result == 'success' && needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: always() && needs.preflight.result == 'success' && needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
@@ -1423,7 +1425,7 @@ jobs:
 
   bun_global_install_smoke:
     needs: [preflight, installer_smoke_candidate_payload]
-    if: needs.preflight.outputs.run_full_install_smoke == 'true' && needs.preflight.outputs.run_bun_global_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_full_install_smoke == 'true' && needs.preflight.outputs.run_bun_global_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -1527,7 +1529,7 @@ jobs:
 
   docker-e2e-fast:
     needs: [preflight]
-    if: needs.preflight.outputs.run_fast_install_smoke == 'true' || needs.preflight.outputs.run_full_install_smoke == 'true'
+    if: false  # original if: needs.preflight.outputs.run_fast_install_smoke == 'true' || needs.preflight.outputs.run_full_install_smoke == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:

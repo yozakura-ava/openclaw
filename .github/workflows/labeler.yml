@@ -27,15 +27,8 @@ permissions: {}
 
 jobs:
   label:
-    if: >-
-      ${{
-        github.event_name == 'pull_request_target' &&
-        (
-          github.event.action != 'edited' ||
-          github.event.changes.title ||
-          github.event.changes.base
-        )
-      }}
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     permissions:
       contents: read
       pull-requests: write
@@ -514,7 +507,7 @@ jobs:
             }
 
   backfill-pr-labels:
-    if: github.event_name == 'workflow_dispatch'
+    if: false  # original if: github.event_name == 'workflow_dispatch'
     permissions:
       contents: read
       pull-requests: write
@@ -843,7 +836,7 @@ jobs:
             core.info(`Processed ${processed} pull requests.`);
 
   label-issues:
-    if: github.event_name == 'issues'
+    if: false  # original if: github.event_name == 'issues'
     permissions:
       contents: read
       issues: write
