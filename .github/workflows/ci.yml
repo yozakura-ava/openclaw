@@ -110,6 +110,7 @@ jobs:
       hybrid_hosted_base_rows: ${{ steps.manifest.outputs.hybrid_hosted_base_rows }}
       hybrid_hosted_total_rows: ${{ steps.manifest.outputs.hybrid_hosted_total_rows }}
       diff_base_revision: ${{ steps.diff_base.outputs.sha }}
+      baseline_base_revision: ${{ steps.diff_base.outputs.baseline_sha }}
       diff_head_revision: ${{ steps.diff_base.outputs.head_sha }}
       docs_only: ${{ steps.manifest.outputs.docs_only }}
       docs_changed: ${{ steps.manifest.outputs.docs_changed }}
@@ -1020,6 +1021,16 @@ jobs:
           fi
           echo "sha=$base_sha" >> "$GITHUB_OUTPUT"
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          baseline_sha="$base_sha"
+          if ! git merge-base --is-ancestor "$base_sha" "$head_sha"; then
+            # A fork-main replacement migration can intentionally replace the
+            # old fork tree with an upstream release tree. Keep ordinary diff
+            # routing anchored to the event base, but make baseline-only
+            # ratchets compare against the replacement tree itself until the
+            # next incremental main push has an ancestor base again.
+            baseline_sha="$head_sha"
+          fi
+          echo "baseline_sha=$baseline_sha" >> "$GITHUB_OUTPUT"
 
       - name: Validate historical release target
         id: historical_target
@@ -2671,7 +2682,7 @@ jobs:
       # A frozen/release target is intentionally validated outside the current
       # fork-main release line. Compare it with its own immutable source tree;
       # ordinary PRs and main pushes retain the normal diff-base ratchet.
-      CHECKOUT_BASE_SHA: ${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.diff_base_revision }}
+      CHECKOUT_BASE_SHA: ${{ needs.preflight.outputs.compatibility_target == 'true' && needs.preflight.outputs.checkout_revision || needs.preflight.outputs.baseline_base_revision }}
       COMPATIBILITY_TARGET: ${{ needs.preflight.outputs.compatibility_target }}
     steps:
       - *linux_node_checkout_step
@@ -3124,7 +3135,7 @@ jobs:
       max-parallel: 12
       matrix: ${{ fromJson(needs.preflight.outputs.checks_fast_core_matrix) }}
     env:
-      CHECKOUT_BASE_SHA: ${{ (matrix.task == 'baseline-ratchets' || matrix.task == 'bundled-protocol' || startsWith(matrix.task, 'release-lint-')) && needs.preflight.outputs.diff_base_revision || '' }}
+      CHECKOUT_BASE_SHA: ${{ (matrix.task == 'baseline-ratchets' || matrix.task == 'bundled-protocol' || startsWith(matrix.task, 'release-lint-')) && needs.preflight.outputs.baseline_base_revision || '' }}
     steps:
       - *linux_node_checkout_step
       - name: Smoke test trusted Git owner action
