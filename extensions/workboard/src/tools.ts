@@ -17,12 +17,12 @@ import { createWorkboardOrchestrationTools } from "./tools-orchestration.js";
 
 function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   const record = (ctx ?? {}) as Record<string, unknown>;
-  return (
-    (typeof record.agentId === "string" && record.agentId) ||
-    (typeof record.sessionKey === "string" && record.sessionKey) ||
-    (typeof record.sessionId === "string" && record.sessionId) ||
-    "agent"
-  );
+  for (const value of [record.agentId, record.sessionKey, record.sessionId]) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "agent";
 }
 
 /**
