@@ -2863,7 +2863,8 @@ jobs:
           path: |
             ${{ runner.temp }}/discord-component-attachments.json
             ${{ runner.temp }}/discord-component-attachments.log
-          if-no-files-found: error
+          # Frozen targets predating the proof intentionally produce no report.
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Upload startup memory report
