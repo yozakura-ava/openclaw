@@ -50,6 +50,7 @@ const eventLabelKeys: Record<WorkboardEvent["kind"], string> = {
   specified: "workboard.eventSpecified",
   decomposed: "workboard.eventDecomposed",
   claimed: "workboard.eventClaimed",
+  claim_auto_released: "workboard.eventClaimAutoReleased",
   heartbeat: "workboard.eventHeartbeat",
   execution_updated: "workboard.eventExecutionUpdated",
   attempt_started: "workboard.eventAttemptStarted",
