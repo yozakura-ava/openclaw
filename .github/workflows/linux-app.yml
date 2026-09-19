@@ -23,8 +23,11 @@ jobs:
     if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Build Linux companion
-    # Match the release build base for native tests and manually built bundles.
-    runs-on: ubuntu-22.04
+    # Use the supported hosted runner while matching the release userspace so
+    # native tests and manually built bundles keep the same compatibility floor.
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
     timeout-minutes: 30
     steps:
       - name: Checkout
@@ -37,8 +40,8 @@ jobs:
 
       - name: Install Tauri system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             at-spi2-core \
             build-essential \
             curl \

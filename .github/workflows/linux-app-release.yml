@@ -25,17 +25,14 @@ jobs:
   validate_release:
         # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Validate release tag
-    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
-    # original:
-    # if: >-
-    # github.repository == 'openclaw/openclaw' &&
-    # github.event.workflow_run.repository.full_name == 'openclaw/openclaw' &&
-    # github.event.workflow_run.event == 'workflow_dispatch' &&
-    # github.event.workflow_run.name == 'Linux App Release Request' &&
-    # github.event.workflow_run.head_branch == 'main' &&
-    # github.event.workflow_run.conclusion == 'success'
-    if: false
-    runs-on: ubuntu-22.04
+    if: >-
+      github.repository == 'openclaw/openclaw' &&
+      github.event.workflow_run.repository.full_name == 'openclaw/openclaw' &&
+      github.event.workflow_run.event == 'workflow_dispatch' &&
+      github.event.workflow_run.name == 'Linux App Release Request' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -203,9 +200,11 @@ jobs:
     if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Build Linux companion bundles
     needs: validate_release
-    # Oldest supported build base: bundles link against this glibc, so newer
-    # runners would silently drop Ubuntu 22.04/Debian 12 users.
-    runs-on: ubuntu-22.04
+    # Use the supported hosted runner, but keep the oldest supported userspace:
+    # bundles link against its glibc to retain Ubuntu 22.04/Debian 12 support.
+    runs-on: ubuntu-24.04
+    container:
+      image: ubuntu:22.04
     timeout-minutes: 45
     permissions:
       contents: read
@@ -215,8 +214,8 @@ jobs:
     steps:
       - name: Install Tauri system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             at-spi2-core \
             build-essential \
             curl \
@@ -395,7 +394,7 @@ jobs:
     needs:
       - validate_release
       - build_linux
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions: {}
     outputs:
@@ -657,7 +656,7 @@ jobs:
       - validate_release
       - build_macos
       - build_windows
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions: {}
     outputs:
@@ -793,7 +792,7 @@ jobs:
     concurrency:
       group: linux-app-release-publish
       cancel-in-progress: false
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
