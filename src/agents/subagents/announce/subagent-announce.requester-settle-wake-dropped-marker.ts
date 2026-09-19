@@ -67,10 +67,9 @@ export async function recordRequesterSettleWakeDeliveryDropped(
     cause: params.cause,
   };
   try {
-    await patchSessionEntryWithKey({
-      sessionKey: requesterSessionKey,
-      patch: { requesterSettleWakeDroppedDelivery: marker },
-    });
+    await patchSessionEntryWithKey({ sessionKey: requesterSessionKey }, () => ({
+      requesterSettleWakeDroppedDelivery: marker,
+    }));
     return marker;
   } catch {
     // The wake module still owns the abandoned batch; surfacing the patch
