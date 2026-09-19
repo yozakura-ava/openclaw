@@ -1172,6 +1172,7 @@ export function normalizeMetadata(
       typeof record.failureCount === "number" && Number.isFinite(record.failureCount)
         ? Math.max(0, Math.trunc(record.failureCount))
         : fallback.failureCount,
+    closureType: record.closureType === "force_close" ? "force_close" : fallback.closureType,
   };
   return trimMetadataToBudget(normalized, options);
 }

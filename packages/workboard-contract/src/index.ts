@@ -365,6 +365,7 @@ export type WorkboardMetadata = {
   stale?: WorkboardStaleState;
   lifecycleStatusSourceUpdatedAt?: number;
   failureCount?: number;
+  closureType?: "force_close";
 };
 
 export type WorkboardCard = {
