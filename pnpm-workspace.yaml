@@ -8,10 +8,20 @@ packages:
 minimumReleaseAge: 10080
 minimumReleaseAgeStrict: true
 
+# CI install resilience (card 9e0643ab): transient npm-registry network blips
+# (ECONNRESET in @matrix-org/matrix-sdk-crypto-nodejs postinstall) killed whole
+# CI runs at INSTALL stage. pnpm >= 11 ignores non-auth .npmrc keys, so retry
+# settings live here. Retry fetches so blips are absorbed instead of fatal.
+fetchRetries: 3
+fetchRetryFactor: 2
+fetchRetryMintimeout: 10000
+fetchRetryMaxtimeout: 60000
+fetchTimeout: 300000
+
 # Trusted Codex runtimes are outside the dependency cooldown.
 minimumReleaseAgeExclude:
-  # Reviewed Proxyline Bun runtime fix; remove after 2026-09-13 20:51 UTC.
-  - "@openclaw/proxyline@0.3.11"
+  # Reviewed proxy DNS/TLS controls; remove after 2026-09-15 10:08 UTC.
+  - "@openclaw/proxyline@0.3.12"
   # GHSA-vp8m-p9jh-q5pm / GHSA-w293-vg96-wgc3 security fixes; remove after 2026-09-12.
   - "undici@8.10.2"
   - "undici@7.29.1"
