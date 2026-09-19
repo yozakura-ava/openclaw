@@ -35,6 +35,7 @@ import {
   type WorkboardOrchestrationSettings,
   type WorkboardPriority,
   type WorkboardProof,
+  type WorkboardReviewVerdict,
   type WorkboardRunAttempt,
   type WorkboardStatus,
   type WorkboardTemplateId,
@@ -1050,6 +1051,8 @@ export function normalizeMetadata(
     allowDependencyLinks?: boolean;
     allowArchivedAt?: boolean;
     allowAutomationLaunch?: boolean;
+    allowReviewRequired?: boolean;
+    allowReviewVerdict?: boolean;
     preserveProofId?: string;
   } = {},
 ): WorkboardMetadata {
@@ -1101,6 +1104,13 @@ export function normalizeMetadata(
     ),
     links: normalizedLinks,
     proof: normalizeList(record.proof, normalizeProof, MAX_CARD_PROOF, fallback.proof),
+    reviewRequired:
+      options.allowReviewRequired && typeof record.reviewRequired === "boolean"
+        ? record.reviewRequired
+        : fallback.reviewRequired,
+    reviewVerdict: options.allowReviewVerdict
+      ? normalizeReviewVerdict(record.reviewVerdict, fallback.reviewVerdict)
+      : fallback.reviewVerdict,
     artifacts: normalizeList(
       record.artifacts,
       normalizeArtifact,
@@ -1168,6 +1178,26 @@ export function normalizeMetadata(
         : fallback.failureCount,
   };
   return trimMetadataToBudget(normalized, options);
+}
+
+function normalizeReviewVerdict(
+  value: unknown,
+  fallback?: WorkboardReviewVerdict,
+): WorkboardReviewVerdict | undefined {
+  if (!isRecord(value) || typeof value.verified !== "boolean") {
+    return fallback;
+  }
+  const reviewerId = normalizeBoundedString(value.reviewerId, undefined, 120, "reviewer id");
+  if (!reviewerId) {
+    return fallback;
+  }
+  const summary = normalizeBoundedString(value.summary, undefined, 1000, "review summary");
+  return {
+    verified: value.verified,
+    reviewerId,
+    reviewedAt: normalizeTimestamp(value.reviewedAt, Date.now()),
+    ...(summary ? { summary } : {}),
+  };
 }
 
 export function normalizeExecution(value: unknown): WorkboardExecution | undefined {

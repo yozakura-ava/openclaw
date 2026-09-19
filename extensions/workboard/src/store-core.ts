@@ -85,6 +85,8 @@ import { WorkboardStoreRuntime } from "./store-runtime.js";
 
 type WorkboardUpdateCardOptions = {
   allowAutomationLaunch?: boolean;
+  allowGovernedCompletion?: boolean;
+  allowReviewVerdict?: boolean;
   allowMetadataDependencyLinks?: boolean;
   enforceStatusHolds?: boolean;
   event?: Omit<WorkboardEvent, "id" | "at">;
@@ -298,7 +300,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   protected async updateMetadata(
     id: string,
     mutate: (existing: WorkboardCard) => WorkboardMetadata,
-    options: { preserveProofId?: string } = {},
+    options: { allowReviewVerdict?: boolean; preserveProofId?: string } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const result = await this.updateLatestCard(
@@ -576,9 +578,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       input.metadata,
       {
         templateId: normalizeTemplateId(input.templateId),
+        ...(input.reviewRequired === true ? { reviewRequired: true } : {}),
         ...(childAutomation ? { automation: childAutomation } : {}),
       },
-      { allowDependencyLinks: false, allowArchivedAt: false },
+      { allowDependencyLinks: false, allowArchivedAt: false, allowReviewRequired: true },
     );
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
@@ -750,6 +753,14 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       }
     }
     const status = normalizeStatus(effectivePatch.status, existing.status);
+    if (
+      status === "done" &&
+      existing.metadata?.reviewRequired === true &&
+      !options.allowGovernedCompletion &&
+      (existing.status !== "review" || existing.metadata.reviewVerdict?.verified !== true)
+    ) {
+      throw new Error("card requires a verified review verdict before completion.");
+    }
     const now = Math.max(Date.now(), existing.updatedAt + 1);
     const startedAt =
       effectivePatch.startedAt === undefined
@@ -776,8 +787,12 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     let metadata = normalizeMetadata(effectivePatch.metadata, existing.metadata, {
       allowAutomationLaunch: options.allowAutomationLaunch,
       allowDependencyLinks: options.allowMetadataDependencyLinks !== false,
+      allowReviewVerdict: options.allowReviewVerdict,
       preserveProofId: options.preserveProofId,
     });
+    if (!options.allowReviewVerdict && metadata.reviewVerdict) {
+      metadata = { ...metadata, reviewVerdict: undefined };
+    }
     if (status !== existing.status && !hasFreshLifecycleStatusSource) {
       // Status patches often spread existing metadata. Only a newly supplied
       // lifecycle source is provenance; copied markers must not survive a manual transition.

@@ -202,8 +202,11 @@ function buildWorkerPrompt(params: {
     `Claim token: ${params.token}`,
     "",
     "Heartbeat with workboard_heartbeat using the card id and token while working.",
-    "When done, call workboard_complete with the card id, token, summary, and proof.",
+    params.card.metadata?.reviewRequired === true
+      ? "When implementation is ready, release the card to review with workboard_release. Do not complete it; a reviewer must record a verified workboard_review verdict before completion."
+      : "When done, call workboard_complete with the card id, token, summary, and proof.",
     "If you recorded proof separately, pass its returned proofId to workboard_complete.",
+    "For governed cards, a reviewer should claim the card after it enters review, record the workboard_review verdict, and complete it only when the verdict is verified.",
     "If blocked, call workboard_block with the card id, token, and reason.",
     "",
     params.context,
