@@ -303,7 +303,9 @@ linuxIt.each(
     expect(report.fetches).toHaveLength(1);
     expect(report.fetches[0]?.args).toEqual(expect.arrayContaining([target, "--depth=2"]));
     if (step === "Resolve exact diff base") {
-      expect(report.githubOutput).toBe(code === 0 ? `sha=${base}\nhead_sha=${merge}\n` : "");
+      expect(report.githubOutput).toBe(
+        code === 0 ? `sha=${base}\nhead_sha=${merge}\nbaseline_sha=${merge}\n` : "",
+      );
     }
     if (step === "Prepare release-gate ratchet merge tree") {
       expect(report.githubEnv).toBe(code === 0 ? `RATCHET_BASE_REF=${base}\n` : "");
