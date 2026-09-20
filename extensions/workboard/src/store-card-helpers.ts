@@ -340,6 +340,7 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
+  recovery = false,
 ) {
   if (!scope) {
     return;
@@ -353,7 +354,7 @@ export function assertCanMutateClaimedCard(
   if (
     claim.ownerId !== ownerId &&
     !safeEqualSecret(token, claim.token) &&
-    !isWorkboardClaimReclaimable(claim, Date.now())
+    !(recovery && isWorkboardClaimReclaimable(claim, Date.now()))
   ) {
     throw new Error(`card is claimed by ${claim.ownerId}.`);
   }

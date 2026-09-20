@@ -46,14 +46,15 @@ export async function addCommentWithChunking(
   id: string,
   body: string,
   scope: WorkboardMutationScope | undefined,
+  recovery = false,
 ): Promise<WorkboardCard> {
   const now = Date.now();
   if (body.length > MAX_COMMENT_BODY_LENGTH) {
-    return await addOversizedComment(host, id, body, scope, now);
+    return await addOversizedComment(host, id, body, scope, now, recovery);
   }
   const comment = { id: randomUUID(), body, createdAt: now };
   return await host.updateMetadata(id, (existing) => {
-    assertCanMutateClaimedCard(existing, scope);
+    assertCanMutateClaimedCard(existing, scope, recovery);
     return {
       ...existing.metadata,
       comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
@@ -67,6 +68,7 @@ export async function addOversizedComment(
   body: string,
   scope: WorkboardMutationScope | undefined,
   now: number,
+  recovery: boolean,
 ): Promise<WorkboardCard> {
   return await host.enqueueMutation(async () => {
     // Reserve space for "(N/M)" continuation labels so no labeled chunk
@@ -138,7 +140,7 @@ export async function addOversizedComment(
           createdAt: now + index,
         };
         const result = await host.updateLatestCard(id, (current) => {
-          assertCanMutateClaimedCard(current, scope);
+          assertCanMutateClaimedCard(current, scope, recovery);
           return {
             metadata: {
               ...current.metadata,

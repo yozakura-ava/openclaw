@@ -5291,4 +5291,4 @@ describe("WorkboardStore 8-char prefix resolver on tool surface", () => {
   });
 });
 
->/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
