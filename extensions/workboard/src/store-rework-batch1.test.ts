@@ -103,6 +103,32 @@ describe("rework batch 1: claim-expiry semantics (#61, upstream 9.3)", () => {
     await expect(store.claim(card.id, { ownerId: "other" })).rejects.toThrow(/already claimed/);
     vi.useRealTimers();
   });
+
+  it("running-state heartbeat grace still blocks replacement during the reclaim window", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000);
+      const store = new WorkboardStore(createMemoryStore());
+      const card = await store.create({ title: "Live worker heartbeat grace", status: "ready" });
+      const claimed = await store.claim(card.id, { ownerId: "original", ttlSeconds: 1 });
+      const expiresAt = claimed.card.metadata?.claim?.expiresAt;
+      assert(expiresAt !== undefined, "claim must set expiresAt");
+
+      // After expiry but well inside the heartbeat grace window the running
+      // worker keeps the slot via isWorkboardClaimReclaimable().
+      vi.setSystemTime(expiresAt + 60_000);
+      await expect(store.claim(card.id, { ownerId: "replacement" })).rejects.toThrow(
+        "card already claimed by original.",
+      );
+
+      // Past the grace window (expiresAt + CLAIM_RECLAIM_MS) the slot opens up.
+      vi.setSystemTime(expiresAt + 5 * 60_000 + 1);
+      const replacement = await store.claim(card.id, { ownerId: "replacement" });
+      expect(replacement.card.metadata?.claim?.ownerId).toBe("replacement");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("rework batch 1: Unicode-heavy split preflight (Rin round 2)", () => {
@@ -148,5 +174,53 @@ describe("rework batch 1: concurrent oversized comments (Rin round 3)", () => {
       expect(allFromOneBody).toBe(true);
       expect(comments.length).toBe(3);
     }
+  });
+});
+
+describe("rework batch 1: persistence path and partial-progress errors", () => {
+  it("persists mid-sequence splits as separate comment rows with distinct UUIDs", async () => {
+    const store = new WorkboardStore(createMemoryStore());
+    const card = await store.create({ title: "Persistence path", status: "todo" });
+    const body = "x".repeat(10_000);
+
+    const updated = await store.addComment(card.id, { body });
+    const comments = (updated as WorkboardCard).metadata?.comments ?? [];
+
+    expect(comments.length).toBeGreaterThanOrEqual(2);
+    const ids = new Set(comments.map((comment) => comment.id));
+    expect(ids.size).toBe(comments.length);
+    for (const comment of comments) {
+      expect(comment.body.length).toBeLessThanOrEqual(4096);
+    }
+  });
+
+  it("reports split-progress on mid-sequence persistence failure (original error identity preserved)", async () => {
+    let registerCount = 0;
+    const memStore = createMemoryStore({
+      beforeRegister: () => {
+        registerCount += 1;
+        if (registerCount === 3) {
+          throw new Error("simulated persistence failure on second chunk");
+        }
+      },
+    });
+    const store = new WorkboardStore(memStore);
+    const card = await store.create({ title: "Mid-sequence failure", status: "todo" });
+    const body = "y".repeat(9_000);
+
+    const failure = await store.addComment(card.id, { body }).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("simulated persistence failure on second chunk");
+    expect((failure as Error & { splitProgress?: string }).splitProgress).toBe(
+      "chunks 1 of 3 were persisted before the failure",
+    );
+
+    const saved = await store.get(card.id);
+    const persistedBodies = (saved?.metadata?.comments ?? []).map((comment) => comment.body);
+    const firstChunk = persistedBodies.find((entry) => /^y+$/.test(entry));
+    expect(firstChunk).toBeDefined();
+    expect(firstChunk?.length).toBeLessThanOrEqual(4096);
+    const failedLabeledChunks = persistedBodies.filter((entry) => /\(\d+\/\d+\)$/.test(entry));
+    expect(failedLabeledChunks.length).toBe(0);
   });
 });
