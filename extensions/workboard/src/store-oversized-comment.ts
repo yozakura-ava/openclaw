@@ -11,13 +11,14 @@
  * deadlock the serial queue.
  */
 import { randomUUID } from "node:crypto";
+import type { WorkboardCard, WorkboardMetadata } from "@openclaw/workboard-contract";
 import { assertCanMutateClaimedCard, splitCommentBody } from "./store-card-helpers.js";
 import {
   MAX_CARD_COMMENTS,
   MAX_CARD_METADATA_BYTES,
   MAX_COMMENT_BODY_LENGTH,
 } from "./store-constants.js";
-import type { WorkboardCard, WorkboardMutationScope } from "./store-inputs.js";
+import type { WorkboardMutationScope } from "./store-inputs.js";
 
 type CardUpdater = (current: WorkboardCard) => { metadata?: WorkboardCard["metadata"] };
 
@@ -30,7 +31,7 @@ interface OversizedCommentHost {
 interface AddCommentHost extends OversizedCommentHost {
   updateMetadata(
     id: string,
-    updater: (existing: WorkboardCard) => WorkboardCard,
+    updater: (existing: WorkboardCard) => WorkboardMetadata,
   ): Promise<WorkboardCard>;
 }
 
@@ -61,7 +62,7 @@ export async function addCommentWithChunking(
   });
 }
 
-export async function addOversizedComment(
+async function addOversizedComment(
   host: OversizedCommentHost,
   id: string,
   body: string,
