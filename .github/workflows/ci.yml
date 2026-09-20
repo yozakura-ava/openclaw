@@ -2846,7 +2846,8 @@ jobs:
       OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1"
     strategy:
       fail-fast: false
-      max-parallel: 14
+      # Public forks use standard hosted capacity (20 concurrent jobs on GitHub Free).
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 14 }}
       matrix: ${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3132,7 +3133,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_fast_core_matrix) }}
     env:
       CHECKOUT_BASE_SHA: ${{ (matrix.task == 'baseline-ratchets' || matrix.task == 'bundled-protocol' || startsWith(matrix.task, 'release-lint-')) && needs.preflight.outputs.baseline_base_revision || '' }}
@@ -3524,7 +3525,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.plugin_contracts_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3585,7 +3586,7 @@ jobs:
     timeout-minutes: 60
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.channel_contracts_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3651,7 +3652,7 @@ jobs:
       fail-fast: false
       # Compact and PR manifest caps bound registrations; parallelism bounds
       # active jobs. Canonical main retains two non-canceling parity slots.
-      max-parallel: 96
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 96 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_node_core_nondist_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3834,7 +3835,7 @@ jobs:
       CHECKOUT_BASE_SHA: ${{ ((matrix.task == 'guards' && github.event_name == 'pull_request') || (matrix.task == 'npm-lock' && github.event_name != 'workflow_dispatch')) && needs.preflight.outputs.diff_base_revision || '' }}
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix:
         include:
           - check_name: check-guards
@@ -4350,7 +4351,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
-      max-parallel: 12
+      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJSON(needs.preflight.outputs.check_additional_matrix) }}
     steps:
       - *linux_node_checkout_step

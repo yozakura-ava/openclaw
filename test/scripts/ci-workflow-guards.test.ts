@@ -4808,14 +4808,35 @@ NODE
     expect(workflow.concurrency["cancel-in-progress"]).toContain(
       "github.event_name == 'pull_request'",
     );
-    expect(workflow.jobs["checks-fast-core"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["checks-node-core-test-nondist-shard"].strategy["max-parallel"]).toBe(96);
-    expect(workflow.jobs["checks-fast-plugin-contracts-shard"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["checks-fast-channel-contracts-shard"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["check-shard"].strategy["max-parallel"]).toBe(12);
-    expect(workflow.jobs["check-additional-shard"].strategy["max-parallel"]).toBe(12);
+    const githubHostedCap = (otherwise: number) =>
+      `\${{ needs.preflight.outputs.runner_profile == 'github' && 6 || ${otherwise} }}`;
+    expect(workflow.jobs["checks-fast-core"].strategy["max-parallel"]).toBe(githubHostedCap(12));
+    expect(workflow.jobs["checks-node-core-test-nondist-shard"].strategy["max-parallel"]).toBe(
+      githubHostedCap(96),
+    );
+    expect(workflow.jobs["checks-fast-plugin-contracts-shard"].strategy["max-parallel"]).toBe(
+      githubHostedCap(12),
+    );
+    expect(workflow.jobs["checks-fast-channel-contracts-shard"].strategy["max-parallel"]).toBe(
+      githubHostedCap(12),
+    );
+    expect(workflow.jobs["check-shard"].strategy["max-parallel"]).toBe(githubHostedCap(12));
+    expect(workflow.jobs["check-additional-shard"].strategy["max-parallel"]).toBe(
+      githubHostedCap(12),
+    );
     expect(workflow.jobs["checks-windows"].strategy["max-parallel"]).toBe(2);
     expect(workflow.jobs.android.strategy["max-parallel"]).toBe(2);
+  });
+
+  it("keeps Apple Periphery scans upstream-only", () => {
+    for (const workflowPath of [
+      ".github/workflows/ios-periphery.yml",
+      ".github/workflows/macos-periphery.yml",
+      ".github/workflows/shared-openclawkit-periphery.yml",
+    ]) {
+      const workflow = parse(readFileSync(workflowPath, "utf8"));
+      expect(workflow.jobs.scope.if, workflowPath).toBe("github.repository == 'openclaw/openclaw'");
+    }
   });
 
   it("runs changed Docker seed owners in one gated scheduler job", () => {
@@ -12497,6 +12518,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       });
       expect(result.status, result.output).toBe(0);
       expect(result.outputs).toEqual({
+        baseline_sha: result.headSha,
         default_sha: result.parentSha,
         sha: result.parentSha,
         head_sha: result.headSha,
@@ -14908,7 +14930,9 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(uiE2e["timeout-minutes"]).toBe(25);
     expect(uiE2e.env).toEqual({ OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1" });
     expect(uiE2e.strategy["fail-fast"]).toBe(false);
-    expect(uiE2e.strategy["max-parallel"]).toBe(14);
+    expect(uiE2e.strategy["max-parallel"]).toBe(
+      "${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 14 }}",
+    );
     expect(uiE2e.strategy.matrix).toBe("${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}");
     const expectedUiE2eMatrices = [6, 12].map((vitestShardCount) => ({
       include: Array.from({ length: vitestShardCount + 1 }, (_, index) => {
