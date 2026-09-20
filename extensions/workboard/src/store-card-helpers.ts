@@ -367,6 +367,14 @@ export function retryBudgetExhausted(card: WorkboardCard): boolean {
 // (the prior inlined block pushed the file past its 700-line cap). Re-exported
 // here to preserve existing import paths in store.ts without changing them.
 export { computeCardDiagnostics, mergeDiagnostics } from "./store-diagnostics.js";
+export {
+  CLAIM_CONFLICT_HISTORY_CAP,
+  clearClaimConflictHistory,
+  recordClaimConflict,
+  snapshotClaimConflictHistory,
+  type WorkboardClaimConflictEvent,
+  type WorkboardClaimConflictKind,
+} from "./store-claim-conflict.js";
 
 export function cardBoardId(card: WorkboardCard): string {
   return card.metadata?.automation?.boardId ?? "default";
