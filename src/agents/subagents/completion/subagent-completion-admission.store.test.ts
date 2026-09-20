@@ -36,6 +36,7 @@ import { resolveSubagentAttachmentDir } from "../subagent-attachment-paths.js";
 import {
   admitSubagentCompletionDelivery,
   blockSubagentCompletionDelivery,
+  blockSubagentCompletionDeliveryBatch,
   settleSubagentCompletionDelivery,
 } from "./subagent-completion-admission.store.js";
 import {
@@ -400,6 +401,63 @@ describe("atomic subagent completion admission store", () => {
 
   it("commits one linked generation and rejects asynchronous transaction hooks", () => {
     expectLinkedGenerationTransaction({ database, rowCount, clearRows });
+  });
+
+  it("does not retire the requester wake when batch suspension persistence fails", () => {
+    const input = armRequesterWake(records());
+    persistOwner(input);
+    expect(() =>
+      blockSubagentCompletionDeliveryBatch({
+        entries: [{ subagent: input.subagent, taskId: input.task.taskId }],
+        reason: "requester settle wake deferred too many times",
+        suspendedReason: "permanent_failure",
+        clearRequesterSettleWake: true,
+        databaseOptions: { database },
+        testHooks: {
+          afterMutation: (phase) => {
+            if (phase === "task") {
+              throw new Error("completion suspension persistence failed");
+            }
+          },
+        },
+      }),
+    ).toThrow("completion suspension persistence failed");
+
+    expect(input.subagent.requesterSettleWake).toMatchObject({ status: "pending" });
+    expect(input.subagent.delivery).toMatchObject({ status: "in_progress" });
+    expect(
+      JSON.parse(
+        (
+          database.db
+            .prepare("SELECT payload_json FROM subagent_runs WHERE run_id = ?")
+            .get(input.subagent.runId) as { payload_json: string }
+        ).payload_json,
+      ),
+    ).toMatchObject({
+      requesterSettleWake: { status: "pending" },
+      delivery: { status: "in_progress" },
+    });
+    expect(
+      database.db
+        .prepare("SELECT delivery_status, status FROM task_runs WHERE task_id = ?")
+        .get(input.task.taskId),
+    ).toEqual({ delivery_status: "session_queued", status: "succeeded" });
+
+    expect(
+      blockSubagentCompletionDeliveryBatch({
+        entries: [{ subagent: input.subagent, taskId: input.task.taskId }],
+        reason: "requester settle wake deferred too many times",
+        suspendedReason: "permanent_failure",
+        clearRequesterSettleWake: true,
+        databaseOptions: { database },
+      }),
+    ).toBe(true);
+    expect(input.subagent.requesterSettleWake).toBeUndefined();
+    expect(input.subagent.delivery).toMatchObject({
+      status: "suspended",
+      disposition: "permanent_failure",
+      payload: expect.objectContaining({ childRunId: input.subagent.runId }),
+    });
   });
 
   it.each(["queue", "subagent", "task"] as const)(

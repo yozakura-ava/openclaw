@@ -682,6 +682,17 @@ describe("subagent registry lifecycle hardening", () => {
     expect(captureSubagentCompletionReply).not.toHaveBeenCalled();
   });
 
+  it("classifies a run-mode completion without a visible reply as exited early", async () => {
+    const entry = createRunEntry({ spawnMode: "run", expectsCompletionMessage: true });
+    const captureSubagentCompletionReply = vi.fn(async () => "stale transcript reply");
+    const controller = createLifecycleController({ entry, captureSubagentCompletionReply });
+
+    await completeRun(controller, entry, { terminalReply: undefined });
+
+    expect(entry.endedReason).toBe("subagent-exited-early");
+    expect(entry.execution.outcome).toMatchObject({ status: "exited-early" });
+  });
+
   it("keeps reply-optional successful completion compatible without evidence", async () => {
     const entry = createRunEntry({ expectsCompletionMessage: false });
     const captureSubagentCompletionReply = vi.fn(async () => "legacy transcript reply");
