@@ -10,6 +10,7 @@
 // Sibling re-exported from store-card-helpers.ts so existing importers
 // (notably store.ts) continue to work without import-path changes.
 
+import type { WorkboardCard, WorkboardDiagnostic } from "@openclaw/workboard-contract";
 import {
   BLOCKED_TOO_LONG_MS,
   READY_STRANDED_MS,

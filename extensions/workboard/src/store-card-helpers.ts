@@ -17,6 +17,7 @@ import {
   MAX_CARD_EVENTS,
   isWorkboardClaimReclaimable,
 } from "./store-constants.js";
+import { computeCardDiagnostics } from "./store-diagnostics.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import {
   capText,
