@@ -225,6 +225,15 @@ function readSettledToolCalls(
   });
 }
 
+/** True when the provider replaced an interrupted assistant stream with fallback text. */
+export function hasAssistantStreamFallback(message: unknown): boolean {
+  if (!message || typeof message !== "object") {
+    return false;
+  }
+  const fallback = (message as { openclawStreamFallback?: unknown }).openclawStreamFallback;
+  return Boolean(fallback) && typeof fallback === "object" && !Array.isArray(fallback);
+}
+
 /** Proves settlement and intentional termination for the exact current-turn tool-call batch. */
 export function resolveSettledToolBatchEvidence(attempt: IncompleteTurnAttempt) {
   const snapshot = attempt.messagesSnapshot ?? [];
@@ -361,16 +370,37 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
     !hasAcceptedSessionSpawn(attempt.acceptedSessionSpawns) &&
     classifyAssistantTurn(params).emptyResponse,
   );
+  // A provider stream can end after all tool results are durable and replace
+  // the in-progress assistant turn with provider-shaped fallback text. That
+  // text is not an authored final answer, so it must not block the one fresh
+  // text-only continuation. Keep this behind the same current-turn settlement
+  // and side-effect guards as the ordinary settled-tool path.
+  const streamDroppedAfterSettledTools =
+    Boolean(attempt.currentAttemptAssistant) &&
+    hasAssistantStreamFallback(attempt.currentAttemptAssistant) &&
+    allToolsProvenSettled &&
+    !hasAcceptedSessionSpawn(attempt.acceptedSessionSpawns) &&
+    !attempt.clientToolCalls &&
+    !attempt.yieldDetected &&
+    !attempt.didSendDeterministicApprovalPrompt &&
+    !attempt.hasToolMediaBlockReply &&
+    !hasCompletedMessagingToolDeliveryEvidence(attempt);
+  const hasVisibleFinalResponse =
+    attempt.currentAttemptAssistant?.stopReason === "stop" &&
+    !streamDroppedAfterSettledTools &&
+    !classifyAssistantTurn(params).emptyResponse;
   if (
-    params.payloadCount !== 0 ||
-    (!params.allowEmptyStopContinuation && hasExplicitSilentAssistantReply(attempt)) ||
+    (params.payloadCount !== 0 && !streamDroppedAfterSettledTools) ||
+    (!params.allowEmptyStopContinuation &&
+      !streamDroppedAfterSettledTools &&
+      hasExplicitSilentAssistantReply(attempt)) ||
     params.hasTerminalToolPresentation ||
     params.aborted ||
     ((params.timedOut || terminal.kind === "timeout") && !idlePromptTimeout) ||
     (terminal.kind === "failed" && !attempt.settledTurnFinalizationContext) ||
     (toolBatchAssistant?.stopReason === "toolUse"
-      ? !allToolsProvenSettled
-      : !emptyStopAfterSettledTools) ||
+      ? !allToolsProvenSettled || hasVisibleFinalResponse
+      : !emptyStopAfterSettledTools && !streamDroppedAfterSettledTools) ||
     intentionalTermination ||
     hasUnsettledToolError ||
     hasAsyncActivity(attempt.toolMetas) ||

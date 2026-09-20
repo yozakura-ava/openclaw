@@ -7,6 +7,7 @@ import {
 } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
 import { isIncompleteTerminalAssistantTurn } from "./incomplete-turn-classification.js";
 import {
+  hasAssistantStreamFallback,
   resolveSettledToolBatchEvidence,
   resolveSettledToolTerminalContinuationInstruction,
 } from "./incomplete-turn-recovery.js";
@@ -665,5 +666,127 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     );
 
     expect(instruction).toBeNull();
+  });
+
+  it.each([
+    {
+      label: "an unkeyed fallback marker",
+      fallback: { replacementText: "Possibly final output.", source: "current" },
+    },
+    {
+      label: "a keyed fallback marker",
+      fallback: {
+        replacementText: "Segment in progress.",
+        source: "segment",
+        itemId: "progress-segment-1",
+      },
+    },
+  ])("continues once after a settled tool batch with $label", ({ fallback }) => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const droppedAssistant = {
+      ...makeLastAssistant({ stopReason: "aborted", content: [{ type: "text", text: "" }] }),
+      openclawStreamFallback: fallback,
+    };
+    const attempt = makeAttemptResult({
+      assistantTexts: [],
+      toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+      itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+      messagesSnapshot: [
+        { role: "user", content: [{ type: "text", text: "current turn" }] },
+        toolUseAssistant,
+        { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+        droppedAssistant,
+      ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+      lastAssistant: droppedAssistant as unknown as LastAssistant,
+      currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
+    });
+
+    expect(
+      resolveSettledToolTerminalContinuationInstruction({
+        provider: "openai",
+        modelId: "gpt-5.6-luna",
+        modelApi: "openai-responses",
+        payloadCount: 1,
+        allowEmptyStopContinuation: false,
+        aborted: false,
+        timedOut: false,
+        attempt,
+      }),
+    ).toBe(SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION);
+  });
+
+  it("does not continue a genuine visible final answer", () => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const finalAssistant = makeLastAssistant({
+      stopReason: "stop",
+      content: [{ type: "text", text: "Authored final answer." }],
+    });
+    const instruction = resolveSettledToolTerminalContinuationInstruction(
+      makeSettledContinuationParams({
+        assistantTexts: ["Authored final answer."],
+        toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+        itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+        messagesSnapshot: [
+          { role: "user", content: [{ type: "text", text: "current turn" }] },
+          toolUseAssistant,
+          { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+          finalAssistant,
+        ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+        lastAssistant: finalAssistant,
+        currentAttemptAssistant: finalAssistant,
+      }),
+    );
+
+    expect(instruction).toBeNull();
+  });
+
+  it("suppresses stream-drop continuation when an accepted child owns the response", () => {
+    const toolUseAssistant = makeLastAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool_1", name: "write", arguments: {} }],
+    });
+    const droppedAssistant = {
+      ...makeLastAssistant({ stopReason: "aborted", content: [{ type: "text", text: "" }] }),
+      openclawStreamFallback: { replacementText: "Partial.", source: "current" },
+    };
+    const instruction = resolveSettledToolTerminalContinuationInstruction(
+      makeSettledContinuationParams({
+        assistantTexts: [],
+        toolMetas: [{ toolName: "write", toolCallId: "tool_1", replaySafe: false }],
+        itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+        messagesSnapshot: [
+          { role: "user", content: [{ type: "text", text: "current turn" }] },
+          toolUseAssistant,
+          { role: "toolResult", toolCallId: "tool_1", toolName: "write", isError: false },
+          droppedAssistant,
+        ] as unknown as EmbeddedRunAttemptResult["messagesSnapshot"],
+        lastAssistant: droppedAssistant as unknown as LastAssistant,
+        currentAttemptAssistant: droppedAssistant as unknown as LastAssistant,
+        acceptedSessionSpawns: [
+          { runId: "run-child", childSessionKey: "agent:main:subagent:child" },
+        ],
+      }),
+    );
+
+    expect(instruction).toBeNull();
+  });
+});
+
+describe("hasAssistantStreamFallback", () => {
+  it.each([
+    ["an object marker", { replacementText: "x", source: "current" }, true],
+    ["a missing marker", undefined, false],
+    ["a malformed string marker", "x", false],
+    ["a malformed array marker", [], false],
+    ["a null message", null, false],
+  ])("recognizes %s", (_label, marker, expected) => {
+    const message = marker === null ? null : { openclawStreamFallback: marker };
+    expect(hasAssistantStreamFallback(message)).toBe(expected);
   });
 });
