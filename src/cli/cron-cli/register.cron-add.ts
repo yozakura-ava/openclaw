@@ -58,8 +58,15 @@ export function registerCronListCommand(cron: Command) {
       .option("--json", "Output JSON", false)
       .action(async (opts) => {
         try {
-          const listParams: { includeDisabled: boolean; agentId?: string } = {
+          const listParams: {
+            includeDisabled: boolean;
+            agentId?: string;
+            includeDeliveryPreviews: boolean;
+          } = {
             includeDisabled: Boolean(opts.all),
+            // JSON consumers do not render delivery targets. Avoid resolving
+            // each job's target while keeping the preview for human listings.
+            includeDeliveryPreviews: !opts.json,
           };
           const agentId = normalizeOptionalString(opts.agent);
           if (typeof opts.agent === "string" && !agentId) {
