@@ -749,13 +749,14 @@ export function recordSubagentSpawned(params: {
   });
 }
 
-type SubagentTerminalStatus = "ok" | "error" | "timeout" | "cancelled";
+type SubagentTerminalStatus = "ok" | "error" | "timeout" | "cancelled" | "exited-early";
 
 const SUBAGENT_TERMINAL_SUMMARY: Record<SubagentTerminalStatus, string> = {
   ok: "child run completed",
   error: "child run failed",
   timeout: "child run timed out",
   cancelled: "child run cancelled",
+  "exited-early": "child run exited before producing a final reply",
 };
 
 /** Project an already-normalized subagent terminal outcome into the signal log. */

@@ -10,7 +10,13 @@ const AGENT_INTERNAL_EVENT_SOURCES = [
   "music_generation",
 ] as const;
 
-const AGENT_INTERNAL_EVENT_STATUSES = ["ok", "timeout", "error", "unknown"] as const;
+const AGENT_INTERNAL_EVENT_STATUSES = [
+  "ok",
+  "timeout",
+  "error",
+  "unknown",
+  "exited-early",
+] as const;
 
 const GENERATED_MEDIA_COMPLETION_SOURCES = new Set<AgentInternalEventSource>([
   "image_generation",
