@@ -6,6 +6,7 @@ import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { Type } from "typebox";
 import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
 import { redactClaimToken } from "./card-redaction.js";
+import { isWorkboardClaimReclaimable } from "./store-constants.js";
 import type { WorkboardStore } from "./store.js";
 import {
   cardIdField,
@@ -61,7 +62,12 @@ export async function resolveToolCardId(store: WorkboardStore, rawId: unknown): 
 
 function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): boolean {
   const claim = card.metadata?.claim;
-  return !claim || claim.ownerId === ownerId || safeEqualSecret(token, claim.token);
+  return (
+    !claim ||
+    claim.ownerId === ownerId ||
+    safeEqualSecret(token, claim.token) ||
+    isWorkboardClaimReclaimable(claim, Date.now())
+  );
 }
 
 function readParentIds(value: unknown): string[] {
