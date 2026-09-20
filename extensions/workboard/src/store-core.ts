@@ -38,7 +38,7 @@ import {
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
 import type {
   WorkboardBoardInput,
   WorkboardBoardSummary,
@@ -73,7 +73,6 @@ import {
   syncExecutionSessionKey,
   trimMetadataToBudget,
 } from "./store-normalizers.js";
-import { addCommentWithChunking } from "./store-oversized-comment.js";
 import { WorkboardStoreRuntime } from "./store-runtime.js";
 
 type WorkboardUpdateCardOptions = {
@@ -964,11 +963,21 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     input: WorkboardCommentInput,
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
-    const body = normalizeOptionalString(input.body);
+    const now = Date.now();
+    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
     if (!body) {
       throw new Error("comment body is required.");
     }
-    return await addCommentWithChunking(this as never, id, body, scope);
+    const comment = { id: randomUUID(), body, createdAt: now };
+    return await this.updateMetadata(id, (existing) => {
+      // Comments are recovery-safe evidence: allow them past an expired claim so
+      // reclaim-then-handoff flows can record context before re-claiming.
+      assertCanMutateClaimedCard(existing, scope, true);
+      return {
+        ...existing.metadata,
+        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
+      };
+    });
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
