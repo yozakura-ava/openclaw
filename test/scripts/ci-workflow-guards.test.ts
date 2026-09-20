@@ -12518,6 +12518,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
       });
       expect(result.status, result.output).toBe(0);
       expect(result.outputs).toEqual({
+        baseline_sha: result.headSha,
         default_sha: result.parentSha,
         sha: result.parentSha,
         head_sha: result.headSha,
