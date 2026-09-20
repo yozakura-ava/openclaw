@@ -4828,6 +4828,17 @@ NODE
     expect(workflow.jobs.android.strategy["max-parallel"]).toBe(2);
   });
 
+  it("keeps Apple Periphery scans upstream-only", () => {
+    for (const workflowPath of [
+      ".github/workflows/ios-periphery.yml",
+      ".github/workflows/macos-periphery.yml",
+      ".github/workflows/shared-openclawkit-periphery.yml",
+    ]) {
+      const workflow = parse(readFileSync(workflowPath, "utf8"));
+      expect(workflow.jobs.scope.if, workflowPath).toBe("github.repository == 'openclaw/openclaw'");
+    }
+  });
+
   it("runs changed Docker seed owners in one gated scheduler job", () => {
     const source = readFileSync(".github/workflows/ci.yml", "utf8");
     const jobs = readCiWorkflow().jobs;
