@@ -26,6 +26,7 @@ permissions:
 jobs:
   scope:
     name: Detect macOS scan scope
+    if: github.repository == 'openclaw/openclaw'
     runs-on: ubuntu-24.04
     outputs:
       should-scan: ${{ steps.scope.outputs.should-scan }}
