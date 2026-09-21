@@ -1178,6 +1178,7 @@ describe("scripts/test-projects changed-target routing", () => {
         "test/scripts/verify-pr-hosted-gates.test.ts",
         "src/scripts/ci-changed-scope.control-ui.test.ts",
         "src/scripts/ci-changed-scope.test.ts",
+        "src/scripts/ci-scope-policy.test.ts",
         "test/scripts/authorized-beta-focused-evidence.test.ts",
         "test/scripts/changed-path-facts.test.ts",
         "test/scripts/ci-changed-node-test-plan.test.ts",
