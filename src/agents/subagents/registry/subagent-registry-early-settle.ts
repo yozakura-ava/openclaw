@@ -24,7 +24,7 @@ export type SubagentEarlySettleResolution = {
 };
 
 /** A terminal reply is visible only when it contains non-empty assistant text. */
-export function hasVisibleFinalAnswer(terminalReply?: AgentRunTerminalReplySnapshot): boolean {
+function hasVisibleFinalAnswer(terminalReply?: AgentRunTerminalReplySnapshot): boolean {
   return (
     terminalReply?.disposition === "visible" &&
     typeof terminalReply.text === "string" &&
