@@ -83,7 +83,6 @@ export function createWorkboardOrchestrationTools(params: {
     store,
     ownerId,
     requireScopedCard,
-    readScopedCardToolParams,
     readRecoveryCardToolParams,
     readClaimedCardToolParams,
     runScopedCardMutation,
