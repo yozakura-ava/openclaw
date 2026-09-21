@@ -77,34 +77,3 @@ export function classifyCiScope({
   }
   return { scope: "scoped", reason: "affected-path plan eligible" };
 }
-
-export function skippedCiLanes({
-  scope,
-  runWindows,
-  runMacos,
-  runIos,
-  runAndroid,
-  runBrowser,
-  runNative,
-  runQa,
-  runCodeql,
-  runPeriphery,
-  runOpenGrepFull,
-} = {}) {
-  const lanes = [
-    ["windows", runWindows],
-    ["macos", runMacos],
-    ["ios", runIos],
-    ["android", runAndroid],
-    ["browser", runBrowser],
-    ["native", runNative],
-    ["qa", runQa],
-    ["codeql", runCodeql],
-    ["periphery", runPeriphery],
-    ["opengrep-full", runOpenGrepFull],
-  ];
-  return lanes
-    .filter(([, selected]) => selected !== true)
-    .map(([name]) => name)
-    .concat(scope === "scoped" ? ["full-matrix"] : []);
-}

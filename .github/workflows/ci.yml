@@ -1305,10 +1305,39 @@ jobs:
           import {
             CI_MATRIX_BUDGETS,
             classifyCiScope,
-            skippedCiLanes,
           } from "./scripts/lib/ci-scope-policy.mjs";
 
           const eventName = process.env.OPENCLAW_CI_EVENT_NAME ?? "";
+          const skippedCiLanes = ({
+            scope,
+            runWindows,
+            runMacos,
+            runIos,
+            runAndroid,
+            runBrowser,
+            runNative,
+            runQa,
+            runCodeql,
+            runPeriphery,
+            runOpenGrepFull,
+          } = {}) => {
+            const lanes = [
+              ["windows", runWindows],
+              ["macos", runMacos],
+              ["ios", runIos],
+              ["android", runAndroid],
+              ["browser", runBrowser],
+              ["native", runNative],
+              ["qa", runQa],
+              ["codeql", runCodeql],
+              ["periphery", runPeriphery],
+              ["opengrep-full", runOpenGrepFull],
+            ];
+            return lanes
+              .filter(([, selected]) => selected !== true)
+              .map(([name]) => name)
+              .concat(scope === "scoped" ? ["full-matrix"] : []);
+          };
           const ref = process.env.OPENCLAW_CI_REF ?? "";
           const checkoutRevision = process.env.OPENCLAW_CI_CHECKOUT_REVISION ?? "";
           const workflowRevision = process.env.OPENCLAW_CI_WORKFLOW_REVISION ?? "";
