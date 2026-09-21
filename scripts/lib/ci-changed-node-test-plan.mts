@@ -115,7 +115,7 @@ const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
 // import graph cannot bound. Keep this lifecycle proof on its narrow owner
 // tests instead of promoting an otherwise scoped PR to the compact suite.
 const SUBAGENT_COMPLETION_SCOPE_RE =
-  /^(?:\.github\/workflows\/ci\.yml$|config\/assertion-safety-baseline\.txt$|extensions\/workboard\/src\/lifecycle-sync\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+  /^(?:\.github\/workflows\/ci\.yml$|config\/assertion-safety-baseline\.txt$|extensions\/workboard\/src\/lifecycle-sync(?:\.test)?\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
 const SUBAGENT_COMPLETION_TEST_TARGETS = [
   "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
   "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
