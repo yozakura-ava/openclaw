@@ -11,6 +11,13 @@ type SkillWorkshopConfig = {
   approvalPolicy: "pending" | "auto";
   maxPending: number;
   maxSkillBytes: number;
+  /**
+   * When true, system-owned skill-collection-review cron jobs consolidate into a
+   * single weekly sweep spec (declarationKey `skill-collection-review:sweep`)
+   * instead of one job per configured agent. Defaults to false (zero behavior
+   * change); Step B flips this flag on the gateway config (Craig-gated).
+   */
+  consolidated?: boolean;
 };
 
 const DEFAULT_CONFIG: SkillWorkshopConfig = {
@@ -21,6 +28,10 @@ const DEFAULT_CONFIG: SkillWorkshopConfig = {
   maxPending: 50,
   maxSkillBytes: 40_000,
 };
+
+function readBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
 
 function readInteger(value: unknown, fallback: number, min: number, max: number): number {
   return typeof value === "number" && Number.isFinite(value)
@@ -49,5 +60,6 @@ export function resolveSkillWorkshopConfig(config?: OpenClawConfig): SkillWorksh
     approvalPolicy: readApprovalPolicy(raw.approvalPolicy, DEFAULT_CONFIG.approvalPolicy),
     maxPending: readInteger(raw.maxPending, DEFAULT_CONFIG.maxPending, 1, 200),
     maxSkillBytes: readInteger(raw.maxSkillBytes, DEFAULT_CONFIG.maxSkillBytes, 1024, 200_000),
+    consolidated: readBoolean(raw.consolidated, false),
   };
 }

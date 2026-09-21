@@ -12,6 +12,7 @@ import { extractStoredAssistantText } from "../../tools/chat-history-text.js";
 import { resolveSubagentCompletionResultText } from "../completion/subagent-completion-result.js";
 import {
   SUBAGENT_ENDED_REASON_KILLED,
+  SUBAGENT_ENDED_REASON_EXITED_EARLY,
   type SubagentLifecycleEndedReason,
 } from "../registry/subagent-lifecycle-events.js";
 
@@ -122,6 +123,9 @@ function describeSubagentOutcome(child: ChildCompletionRow): string {
   if (child.endedReason === SUBAGENT_ENDED_REASON_KILLED) {
     const error = outcome?.error?.trim();
     return error ? `cancelled: ${error}` : "cancelled";
+  }
+  if (child.endedReason === SUBAGENT_ENDED_REASON_EXITED_EARLY) {
+    return "exited early: no visible final reply";
   }
   if (!outcome) {
     return "unknown";

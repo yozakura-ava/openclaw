@@ -503,6 +503,14 @@ export const OpenClawSchemaShape = {
           maxPending: z.number().int().min(1).optional(),
           /** Maximum generated skill proposal size in bytes. */
           maxSkillBytes: z.number().int().min(1).optional(),
+          /**
+           * When true, system-owned skill-collection-review cron jobs consolidate
+           * into a single weekly sweep spec (declarationKey
+           * `skill-collection-review:sweep`) instead of one job per configured
+           * agent. Defaults to false. Step B flips this on the gateway config
+           * (Craig-gated); the resolver seam lives in the fork regardless.
+           */
+          consolidated: z.boolean().optional(),
         })
         .optional(),
       entries: z.record(z.string(), SkillEntrySchema).optional(),

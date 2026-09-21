@@ -14,6 +14,58 @@ const SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION =
   "The previous assistant turn completed its tool calls but did not produce a user-visible answer. Continue from the current transcript and produce the final user-visible answer now. Do not repeat completed tool calls or restart from scratch. Tools are unavailable in this step: it is a text-only pass, so reply with plain text and do not attempt any tool call.";
 
 describe("resolveSettledTurnFinalizationRequest", () => {
+  it("routes a provider stream-fallback marker through the embedded finalization path", () => {
+    const toolUseAssistant = buildEmbeddedRunnerAssistant({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", id: "tool-1", name: "write", arguments: {} }],
+    });
+    const droppedAssistant = {
+      ...buildEmbeddedRunnerAssistant({
+        stopReason: "stop",
+        content: [{ type: "text", text: "Partial provider text." }],
+      }),
+      openclawStreamFallback: {
+        replacementText: "Partial provider text.",
+        source: "segment",
+        itemId: "segment-1",
+      },
+    };
+    const attempt = makeEmbeddedRunnerAttempt({
+      assistantTexts: [],
+      toolMetas: [{ toolName: "write", toolCallId: "tool-1", replaySafe: false }],
+      itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+      messagesSnapshot: [
+        { role: "user", content: "Current turn" },
+        toolUseAssistant,
+        { role: "toolResult", toolCallId: "tool-1", toolName: "write", isError: false },
+        droppedAssistant,
+      ] as never,
+      lastAssistant: droppedAssistant as never,
+      currentAttemptAssistant: droppedAssistant as never,
+    });
+    const request = resolveSettledTurnFinalizationRequest({
+      runParams: {
+        sessionId: "session:stream-drop",
+        runId: "run:stream-drop",
+        trigger: "user",
+        terminalReplyExpectation: "required",
+      } as never,
+      attempt,
+      activeErrorContext: { provider: "openai", model: "gpt-5.6-luna" },
+      modelApi: "openai-responses",
+      executionContract: undefined,
+      payloadsWithToolMedia: [],
+      hasTerminalToolPresentation: false,
+      terminalState: resolveEmbeddedRunAttemptTerminalState({
+        attempt,
+        assistant: droppedAssistant as never,
+      }),
+      settledTurnFinalizationAvailable: true,
+    });
+
+    expect(request).toBe(SETTLED_TOOL_TERMINAL_CONTINUATION_INSTRUCTION);
+  });
+
   it("requests isolated finalization only for a required settled-tool turn", () => {
     const assistant = buildEmbeddedRunnerAssistant({ content: [{ type: "text", text: "" }] });
     const attempt = makeEmbeddedRunnerAttempt({

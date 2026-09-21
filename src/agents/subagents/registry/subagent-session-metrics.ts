@@ -81,6 +81,9 @@ export function resolveSubagentSessionStatus(
   if (status === "timeout") {
     return "timeout";
   }
+  if (status === "exited-early") {
+    return "failed";
+  }
   return "done";
 }
 

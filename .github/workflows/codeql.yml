@@ -12,32 +12,9 @@ on:
           - all
           - security
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - ".github/actions/**"
-      - ".github/codeql/**"
-      - ".github/workflows/**"
-      - "extensions/acpx/src/**"
-      - "extensions/bonjour/src/advertiser.ts"
-      - "extensions/browser/src/browser/chrome-mcp.ts"
-      - "extensions/browser/src/browser/chrome.executables.ts"
-      - "extensions/browser/src/browser/chrome.ts"
-      - "extensions/codex/src/app-server/sandbox-exec-server/**"
-      - "extensions/codex/src/app-server/transport-stdio.ts"
-      - "extensions/codex/src/node-cli-sessions.ts"
-      - "extensions/file-transfer/src/**"
-      - "extensions/google-meet/src/**"
-      - "extensions/imessage/src/**"
-      - "extensions/memory-wiki/src/obsidian.ts"
-      - "extensions/microsoft-foundry/cli.ts"
-      - "extensions/ollama/src/wsl2-crash-loop-check.ts"
-      - "extensions/qa-lab/src/**"
-      - "extensions/signal/src/daemon.ts"
-      - "extensions/tts-local-cli/speech-provider.ts"
-      - "extensions/voice-call/src/**"
-      - "packages/**"
-      - "scripts/**"
-      - "src/**"
+    # Admission is label-based so adding ci/full retriggers the complete
+    # matrix even when the PR itself does not touch a former CodeQL path.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches:
       - main
@@ -54,12 +31,67 @@ env:
 permissions:
   actions: read
   contents: read
+  pull-requests: read
   security-events: write
 
 jobs:
+  scope:
+    name: Select CodeQL security scope
+    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.draft }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      should-scan: ${{ steps.detect.outputs.should-scan }}
+    steps:
+      - name: Detect CodeQL security paths
+        id: detect
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          FULL_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full') && 'true' || 'false' }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          should_scan=false
+          if [[ "${EVENT_NAME}" != "pull_request" || "${FULL_LABEL:-false}" == "true" ]]; then
+            should_scan=true
+          else
+            # Keep security admission path-sensitive for ordinary PRs while
+            # retaining the label as an explicit full-matrix expansion.
+            changed_files="$(gh api --paginate "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files" --jq '.[].filename')"
+            while IFS= read -r file; do
+              case "${file}" in
+                .github/actions/*|.github/codeql/*|.github/workflows/*|\
+                extensions/acpx/src/*|extensions/bonjour/src/advertiser.ts|\
+                extensions/browser/src/browser/chrome-mcp.ts|\
+                extensions/browser/src/browser/chrome.executables.ts|\
+                extensions/browser/src/browser/chrome.ts|\
+                extensions/codex/src/app-server/sandbox-exec-server/*|\
+                extensions/codex/src/app-server/transport-stdio.ts|\
+                extensions/codex/src/node-cli-sessions.ts|\
+                extensions/file-transfer/src/*|extensions/google-meet/src/*|\
+                extensions/imessage/src/*|extensions/memory-wiki/src/obsidian.ts|\
+                extensions/microsoft-foundry/cli.ts|\
+                extensions/ollama/src/wsl2-crash-loop-check.ts|\
+                extensions/qa-lab/src/*|extensions/signal/src/daemon.ts|\
+                extensions/tts-local-cli/speech-provider.ts|\
+                extensions/voice-call/src/*|packages/*|scripts/*|src/*|src/**/*)
+                  should_scan=true
+                  break
+                  ;;
+              esac
+            done <<< "${changed_files}"
+          fi
+
+          echo "should-scan=${should_scan}" >> "${GITHUB_OUTPUT}"
+
   security-high:
     name: Security High (${{ matrix.category }})
-    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == 'security') }}
+    needs: scope
+    if: ${{ needs.scope.outputs.should-scan == 'true' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == 'security') }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:

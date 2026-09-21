@@ -931,4 +931,27 @@ describe("subagent registry sqlite store", () => {
       expect(loadSubagentRunsForChildSessionFromSqlite("   ")).toEqual([]);
     });
   });
+
+  it("round-trips the exited-early outcome through SQLite", async () => {
+    await withTempStateEnv(async () => {
+      const run = createRun({
+        execution: {
+          status: "terminal",
+          startedAt: 110,
+          endedAt: 250,
+          outcome: {
+            status: "exited-early",
+            startedAt: 110,
+            endedAt: 250,
+            elapsedMs: 140,
+          },
+        },
+      });
+      saveSubagentRegistryToSqlite(new Map([[run.runId, run]]));
+
+      expect(loadSubagentRegistryFromSqlite().get(run.runId)?.execution.outcome).toEqual(
+        run.execution.outcome,
+      );
+    });
+  });
 });

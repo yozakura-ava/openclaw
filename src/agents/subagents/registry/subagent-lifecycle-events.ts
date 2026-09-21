@@ -13,12 +13,15 @@ export const SUBAGENT_ENDED_REASON_COMPLETE = "subagent-complete" as const;
 export const SUBAGENT_ENDED_REASON_ERROR = "subagent-error" as const;
 /** End reason for an explicitly killed subagent run. */
 export const SUBAGENT_ENDED_REASON_KILLED = "subagent-killed" as const;
+/** End reason for a mode=run child that stopped without a visible final reply. */
+export const SUBAGENT_ENDED_REASON_EXITED_EARLY = "subagent-exited-early" as const;
 
 /** Allowed subagent lifecycle end reason literals. */
 export type SubagentLifecycleEndedReason =
   | typeof SUBAGENT_ENDED_REASON_COMPLETE
   | typeof SUBAGENT_ENDED_REASON_ERROR
-  | typeof SUBAGENT_ENDED_REASON_KILLED;
+  | typeof SUBAGENT_ENDED_REASON_KILLED
+  | typeof SUBAGENT_ENDED_REASON_EXITED_EARLY;
 
 /** Successful subagent lifecycle outcome. */
 export const SUBAGENT_ENDED_OUTCOME_OK = "ok" as const;
@@ -28,10 +31,13 @@ export const SUBAGENT_ENDED_OUTCOME_ERROR = "error" as const;
 export const SUBAGENT_ENDED_OUTCOME_TIMEOUT = "timeout" as const;
 /** Killed subagent lifecycle outcome. */
 export const SUBAGENT_ENDED_OUTCOME_KILLED = "killed" as const;
+/** Exited-early outcome for a run-mode child without a visible final reply. */
+export const SUBAGENT_ENDED_OUTCOME_EXITED_EARLY = "exited-early" as const;
 
 /** Allowed subagent lifecycle outcome literals. */
 export type SubagentLifecycleEndedOutcome =
   | typeof SUBAGENT_ENDED_OUTCOME_OK
   | typeof SUBAGENT_ENDED_OUTCOME_ERROR
   | typeof SUBAGENT_ENDED_OUTCOME_TIMEOUT
-  | typeof SUBAGENT_ENDED_OUTCOME_KILLED;
+  | typeof SUBAGENT_ENDED_OUTCOME_KILLED
+  | typeof SUBAGENT_ENDED_OUTCOME_EXITED_EARLY;
