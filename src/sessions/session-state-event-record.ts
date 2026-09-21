@@ -24,7 +24,9 @@ export function rowToSessionStateEvent(row: SessionStateEventRow): SessionStateE
     sessionKey: row.session_key,
     ...(row.session_id ? { sessionId: row.session_id } : {}),
     agentId: row.agent_id,
+    // SAFETY: session-state kernel rows constrain kind to the closed event-kind union.
     kind: row.kind as SessionStateEventKind,
+    // SAFETY: session-state kernel rows constrain actor_type to the closed actor-type union.
     actorType: row.actor_type as SessionStateActorType,
     ...(row.actor_id ? { actorId: row.actor_id } : {}),
     ...(row.run_id ? { runId: row.run_id } : {}),
