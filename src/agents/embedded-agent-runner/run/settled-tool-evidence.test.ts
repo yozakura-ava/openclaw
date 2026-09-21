@@ -7,7 +7,6 @@ import {
 } from "../../test-helpers/embedded-agent-runner-e2e-fixtures.js";
 import { isIncompleteTerminalAssistantTurn } from "./incomplete-turn-classification.js";
 import {
-  hasAssistantStreamFallback,
   resolveSettledToolBatchEvidence,
   resolveSettledToolTerminalContinuationInstruction,
 } from "./incomplete-turn-recovery.js";
@@ -775,18 +774,5 @@ describe("runEmbeddedAgent incomplete-turn safety", () => {
     );
 
     expect(instruction).toBeNull();
-  });
-});
-
-describe("hasAssistantStreamFallback", () => {
-  it.each([
-    ["an object marker", { replacementText: "x", source: "current" }, true],
-    ["a missing marker", undefined, false],
-    ["a malformed string marker", "x", false],
-    ["a malformed array marker", [], false],
-    ["a null message", null, false],
-  ])("recognizes %s", (_label, marker, expected) => {
-    const message = marker === null ? null : { openclawStreamFallback: marker };
-    expect(hasAssistantStreamFallback(message)).toBe(expected);
   });
 });
