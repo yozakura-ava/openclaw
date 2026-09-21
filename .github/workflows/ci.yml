@@ -1305,6 +1305,7 @@ jobs:
           import {
             CI_MATRIX_BUDGETS,
             classifyCiScope,
+            isGlobalCiPath,
           } from "./scripts/lib/ci-scope-policy.mjs";
 
           const eventName = process.env.OPENCLAW_CI_EVENT_NAME ?? "";
@@ -1433,6 +1434,11 @@ jobs:
           const packageScripts = packageJson.scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
+          const sameRepositoryPullRequest =
+            eventName === "pull_request" &&
+            Boolean(process.env.OPENCLAW_CI_HEAD_REPOSITORY) &&
+            process.env.OPENCLAW_CI_HEAD_REPOSITORY === process.env.OPENCLAW_CI_REPOSITORY;
+          const scopedPullRequestRepository = isCanonicalRepository || sameRepositoryPullRequest;
           const parsedChangedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -1502,6 +1508,20 @@ jobs:
           });
           let ciScope = initialScope.scope;
           let ciScopeReason = initialScope.reason;
+          const scopedRoutingWorkflowChange =
+            sameRepositoryPullRequest &&
+            changedPaths?.includes(".github/workflows/ci.yml") &&
+            changedPaths.some((path) => path === "scripts/lib/ci-changed-node-test-plan.mts") &&
+            changedPaths.every((path) =>
+              path === ".github/workflows/ci.yml" || !isGlobalCiPath(path),
+            );
+          if (scopedRoutingWorkflowChange && ciScope === "fallback") {
+            ciScope = "scoped";
+            ciScopeReason = "affected-path CI routing update";
+          }
+          const changedImpactPaths = scopedRoutingWorkflowChange
+            ? changedPaths?.filter((path) => path !== ".github/workflows/ci.yml") ?? changedPaths
+            : changedPaths;
           const runNodeFastOnly =
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_ONLY);
           const runNodeFull = runNode && !runNodeFastOnly;
@@ -1570,15 +1590,16 @@ jobs:
           const runSkillsPython = parseBoolean(process.env.OPENCLAW_CI_RUN_SKILLS_PYTHON) && !docsOnly;
           const runControlUiI18n =
             parseBoolean(process.env.OPENCLAW_CI_RUN_CONTROL_UI_I18N) && !docsOnly;
-          const runUiTests = parseBoolean(process.env.OPENCLAW_CI_RUN_UI_TESTS) && !docsOnly;
+          const runUiTests =
+            parseBoolean(process.env.OPENCLAW_CI_RUN_UI_TESTS) && !docsOnly && !scopedRoutingWorkflowChange;
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
             ciScope === "full" ||
-            !isCanonicalRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
+            !scopedPullRequestRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
-            changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
+            changedNodeTestPlan.hasUiE2eAffectingChange(changedImpactPaths)
           );
           const runnerProfile = process.env.OPENCLAW_CI_RUNNER_PROFILE ?? "blacksmith";
           const usesHostedRunnerProfile =
@@ -1677,8 +1698,8 @@ jobs:
             );
           }
 
-          const compactPullRequest = isCanonicalRepository && eventName === "pull_request";
-          const ownerPathEvent = isCanonicalRepository && (
+          const compactPullRequest = scopedPullRequestRepository && eventName === "pull_request";
+          const ownerPathEvent = scopedPullRequestRepository && (
             eventName === "pull_request" ||
             (eventName === "push" && process.env.GITHUB_REF === "refs/heads/main")
           );
@@ -1770,13 +1791,14 @@ jobs:
             changedNodeTestShards.some((shard) => shard.requiresDist) ||
             typeof changedNodeTestPlan.hasBuildArtifactAffectingChange !== "function" ||
             changedNodeTestPlan.hasBuildArtifactAffectingChange(changedPaths);
-          const changedScopeHasQaImpact =
-            ciScope === "full" ||
+          const changedScopeHasQaImpact = scopedRoutingWorkflowChange
+            ? false
+            : ciScope === "full" ||
             ciScope === "fallback" ||
             changedPaths === null ||
             eventName === "workflow_dispatch" ||
             typeof changedNodeTestPlan.hasQaSmokeAffectingChange !== "function" ||
-            changedNodeTestPlan.hasQaSmokeAffectingChange(changedPaths);
+            changedNodeTestPlan.hasQaSmokeAffectingChange(changedImpactPaths);
           // Prompt snapshots only change when the generator's import graph or
           // its fixtures do; unaffected PR diffs skip the regeneration lane.
           const changedScopeHasPromptSnapshotImpact =
@@ -1800,7 +1822,7 @@ jobs:
             changedScopeHasSqliteSessionLifecycleImpact;
           const runBuildArtifacts =
             runNodeFull && (changedScopeHasBuildImpact || runSqliteSessionLifecycle);
-          const runControlUiPerformance = (runBuildArtifacts || runUiTests) && (
+          const runControlUiPerformance = (runBuildArtifacts || runUiTests) && !scopedRoutingWorkflowChange && (
             eventName === "workflow_dispatch" || changedPaths === null ||
             typeof changedNodeTestPlan.hasControlUiPerformanceAffectingChange !== "function" ||
             changedNodeTestPlan.hasControlUiPerformanceAffectingChange(changedPaths)
