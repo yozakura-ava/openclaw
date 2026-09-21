@@ -12,32 +12,9 @@ on:
           - all
           - security
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - ".github/actions/**"
-      - ".github/codeql/**"
-      - ".github/workflows/**"
-      - "extensions/acpx/src/**"
-      - "extensions/bonjour/src/advertiser.ts"
-      - "extensions/browser/src/browser/chrome-mcp.ts"
-      - "extensions/browser/src/browser/chrome.executables.ts"
-      - "extensions/browser/src/browser/chrome.ts"
-      - "extensions/codex/src/app-server/sandbox-exec-server/**"
-      - "extensions/codex/src/app-server/transport-stdio.ts"
-      - "extensions/codex/src/node-cli-sessions.ts"
-      - "extensions/file-transfer/src/**"
-      - "extensions/google-meet/src/**"
-      - "extensions/imessage/src/**"
-      - "extensions/memory-wiki/src/obsidian.ts"
-      - "extensions/microsoft-foundry/cli.ts"
-      - "extensions/ollama/src/wsl2-crash-loop-check.ts"
-      - "extensions/qa-lab/src/**"
-      - "extensions/signal/src/daemon.ts"
-      - "extensions/tts-local-cli/speech-provider.ts"
-      - "extensions/voice-call/src/**"
-      - "packages/**"
-      - "scripts/**"
-      - "src/**"
+    # Admission is label-based so adding ci/full retriggers the complete
+    # matrix even when the PR itself does not touch a former CodeQL path.
+    types: [opened, synchronize, reopened, ready_for_review, labeled]
   push:
     branches:
       - main
@@ -59,7 +36,7 @@ permissions:
 jobs:
   security-high:
     name: Security High (${{ matrix.category }})
-    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == 'security') }}
+    if: ${{ (github.event_name != 'pull_request' || (!github.event.pull_request.draft && contains(github.event.pull_request.labels.*.name, 'ci/full'))) && (github.event_name != 'workflow_dispatch' || inputs.profile == 'all' || inputs.profile == 'security') }}
     runs-on: ${{ matrix.runs_on }}
     timeout-minutes: ${{ matrix.timeout_minutes }}
     strategy:

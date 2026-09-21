@@ -6,6 +6,10 @@ name: OpenGrep — Full
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    types: [labeled]
 
 concurrency:
   group: opengrep-full-${{ github.workflow }}-${{ github.ref }}
@@ -20,6 +24,7 @@ permissions:
 
 jobs:
   scan:
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci/full') }}
     name: Scan full repository (precise)
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 30
