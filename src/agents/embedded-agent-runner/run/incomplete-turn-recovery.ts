@@ -230,7 +230,7 @@ export function hasAssistantStreamFallback(message: unknown): boolean {
   if (!message || typeof message !== "object") {
     return false;
   }
-  const fallback = (message as { openclawStreamFallback?: unknown }).openclawStreamFallback;
+  const fallback = Object.getOwnPropertyDescriptor(message, "openclawStreamFallback")?.value;
   return Boolean(fallback) && typeof fallback === "object" && !Array.isArray(fallback);
 }
 
