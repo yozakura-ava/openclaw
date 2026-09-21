@@ -1305,6 +1305,7 @@ jobs:
           import {
             CI_MATRIX_BUDGETS,
             classifyCiScope,
+            isGlobalCiPath,
           } from "./scripts/lib/ci-scope-policy.mjs";
 
           const eventName = process.env.OPENCLAW_CI_EVENT_NAME ?? "";
@@ -1433,6 +1434,10 @@ jobs:
           const packageScripts = packageJson.scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
+          const sameRepositoryPullRequest =
+            eventName === "pull_request" &&
+            Boolean(process.env.OPENCLAW_CI_HEAD_REPOSITORY) &&
+            process.env.OPENCLAW_CI_HEAD_REPOSITORY === process.env.OPENCLAW_CI_REPOSITORY;
           const parsedChangedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -1502,6 +1507,17 @@ jobs:
           });
           let ciScope = initialScope.scope;
           let ciScopeReason = initialScope.reason;
+          const scopedRoutingWorkflowChange =
+            sameRepositoryPullRequest &&
+            changedPaths?.includes(".github/workflows/ci.yml") &&
+            changedPaths.some((path) => path === "scripts/lib/ci-changed-node-test-plan.mts") &&
+            changedPaths.every((path) =>
+              path === ".github/workflows/ci.yml" || !isGlobalCiPath(path),
+            );
+          if (scopedRoutingWorkflowChange && ciScope === "fallback") {
+            ciScope = "scoped";
+            ciScopeReason = "affected-path CI routing update";
+          }
           const runNodeFastOnly =
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_ONLY);
           const runNodeFull = runNode && !runNodeFastOnly;
@@ -1677,8 +1693,9 @@ jobs:
             );
           }
 
-          const compactPullRequest = isCanonicalRepository && eventName === "pull_request";
-          const ownerPathEvent = isCanonicalRepository && (
+          const compactPullRequest =
+            (isCanonicalRepository || sameRepositoryPullRequest) && eventName === "pull_request";
+          const ownerPathEvent = (isCanonicalRepository || sameRepositoryPullRequest) && (
             eventName === "pull_request" ||
             (eventName === "push" && process.env.GITHUB_REF === "refs/heads/main")
           );
