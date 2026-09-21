@@ -41,6 +41,8 @@ import {
 } from "./subagent-completion-admission.store.js";
 import {
   armRequesterWake,
+  assertStaleRequesterSettleOwner,
+  createAdmissionStoreDatabaseTools,
   failedRecords,
   expectLinkedGenerationTransaction,
   records,
@@ -66,6 +68,25 @@ describe("atomic subagent completion admission store", () => {
   let database: OpenClawStateDatabase;
   let queueContext: OpenClawStateWorkerContext;
 
+  const {
+    rowCount,
+    clearRows,
+    persistOwner,
+    systemEvents,
+    resetOwners,
+    useDefaultDatabase,
+    reopenOwners,
+  } = createAdmissionStoreDatabaseTools({
+    getDatabase: () => database,
+    setDatabase: (value) => {
+      database = value;
+    },
+    getTempDir: () => tempDir,
+    setQueueContext: (value) => {
+      queueContext = value;
+    },
+  });
+
   beforeEach(() => {
     tempDir = tempDirs.make("openclaw-subagent-admission-", resolvePreferredOpenClawTmpDir());
     database = openOpenClawStateDatabase({ path: path.join(tempDir, "state.sqlite") });
@@ -82,84 +103,6 @@ describe("atomic subagent completion admission store", () => {
     closeOpenClawStateDatabaseForTest();
     vi.unstubAllEnvs();
   });
-
-  function rowCount(table: "delivery_queue_entries" | "subagent_runs" | "task_runs"): number {
-    const row = database.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get() as {
-      count: number;
-    };
-    return row.count;
-  }
-
-  function clearRows(): void {
-    database.db.exec(
-      "DELETE FROM delivery_queue_entries; DELETE FROM subagent_runs; DELETE FROM task_runs;",
-    );
-  }
-
-  function persistOwner(input = records()) {
-    settleSubagentCompletionDelivery({
-      subagent: input.subagent,
-      task: input.task,
-      databaseOptions: { database },
-    });
-    subagentRuns.set(input.subagent.runId, input.subagent);
-    ensureTaskRegistryReady();
-    publishTaskRecordAfterAtomicStore(input.task);
-    return input;
-  }
-
-  function systemEvents() {
-    return (
-      database.db
-        .prepare(
-          "SELECT id, status, entry_json FROM delivery_queue_entries WHERE entry_kind = 'systemEvent' ORDER BY id",
-        )
-        .all() as Array<{ id: string; status: string; entry_json: string }>
-    ).map((row) =>
-      Object.assign(row, { entry: JSON.parse(row.entry_json) as Record<string, unknown> }),
-    );
-  }
-
-  async function resetOwners(): Promise<void> {
-    const previousPath = database.path;
-    await closeOpenClawStateDatabaseAsync();
-    database = openOpenClawStateDatabase({ path: previousPath });
-    clearRows();
-    subagentRuns.clear();
-    resetTaskRegistryForTests({ persist: false });
-    database = openOpenClawStateDatabase({ path: path.join(tempDir, "state.sqlite") });
-    queueContext = captureOpenClawStateWorkerContext({
-      path: database.path,
-      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
-    });
-  }
-
-  async function useDefaultDatabase(): Promise<void> {
-    await closeOpenClawStateDatabaseAsync();
-    closeOpenClawStateDatabaseForTest();
-    vi.stubEnv("OPENCLAW_STATE_DIR", tempDir);
-    database = openOpenClawStateDatabase();
-    queueContext = captureOpenClawStateWorkerContext({
-      path: database.path,
-      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
-    });
-  }
-
-  async function reopenOwners() {
-    await closeOpenClawStateDatabaseAsync();
-    closeOpenClawStateDatabaseForTest();
-    subagentRuns.clear();
-    resetTaskRegistryForTests({ persist: false });
-    database = openOpenClawStateDatabase();
-    queueContext = captureOpenClawStateWorkerContext({
-      path: database.path,
-      env: { ...process.env, OPENCLAW_STATE_DIR: tempDir },
-    });
-    for (const [runId, entry] of loadSubagentRegistryFromSqlite()) {
-      subagentRuns.set(runId, entry);
-    }
-    ensureTaskRegistryReady();
-  }
 
   it.each([
     { name: "cancelled/error", status: "cancelled", outcome: { status: "error" } },
@@ -226,55 +169,14 @@ describe("atomic subagent completion admission store", () => {
 
   it.each(["successful generation", "successful task run", "cancelled delivered"] as const)(
     "rejects a stale %s requester-settle owner without changing durable records",
-    async (change) => {
-      await useDefaultDatabase();
-      const input = persistOwner(
-        change === "cancelled delivered"
-          ? failedRecords("cancelled", { status: "error" })
-          : armRequesterWake(records()),
-      );
-      const durable = structuredClone(input);
-      if (change === "successful generation") {
-        durable.subagent.delivery!.generation = 2;
-      } else if (change === "successful task run") {
-        durable.task.runId = "replacement-task-run";
-      } else {
-        durable.subagent.delivery!.status = "delivered";
-        durable.subagent.delivery!.deliveredAt = Date.now();
-        durable.task.deliveryStatus = "delivered";
-      }
-      // Leave the controller's in-memory row stale while the canonical owner advances.
-      settleSubagentCompletionDelivery({
-        subagent: durable.subagent,
-        task: durable.task,
-        databaseOptions: { database },
-      });
-      const driver = requesterWakeDriver([input]);
-      try {
-        await driver.run();
-        expect(driver.warn).toHaveBeenCalledWith(
-          "failed to persist requester settle wake rejection",
-          expect.objectContaining({
-            error: expect.objectContaining({
-              message: expect.stringContaining(
-                "subagent completion owner changed before settlement",
-              ),
-            }),
-          }),
-        );
-        expect(systemEvents()).toEqual([]);
-        await reopenOwners();
-        expect(subagentRuns.get(input.subagent.runId)).toEqual(durable.subagent);
-        expect(getTaskById(input.task.taskId)).toMatchObject({
-          runId: durable.task.runId,
-          status: durable.task.status,
-          deliveryStatus: durable.task.deliveryStatus,
-        });
-        expect(getTaskById(input.task.taskId)?.terminalOutcome).toBe(durable.task.terminalOutcome);
-      } finally {
-        driver.controller.clearScheduledResumeTimers();
-      }
-    },
+    async (change) =>
+      assertStaleRequesterSettleOwner(change, {
+        getDatabase: () => database,
+        persistOwner,
+        systemEvents,
+        useDefaultDatabase,
+        reopenOwners,
+      }),
   );
 
   it("rolls a non-success wake settlement back when its task write fails", async () => {

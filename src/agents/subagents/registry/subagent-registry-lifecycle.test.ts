@@ -82,6 +82,12 @@ import {
   SubagentLifecycleController,
   type SubagentLifecycleOptions,
 } from "./subagent-registry-lifecycle.js";
+import {
+  findCallArg,
+  firstCall,
+  firstCallArg,
+  waitForLifecycleState,
+} from "./subagent-registry-lifecycle.test-helpers.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
 import { getLatestSubagentRunByChildSessionKeyFromRuns } from "./subagent-registry-queries.js";
 import {
@@ -141,10 +147,6 @@ describe("subagent recovery session-effect ownership", () => {
     expect(shouldSuppressSubagentRecoverySessionEffects(legacyKillEntry)).toBe(true);
   });
 });
-
-function waitForLifecycleState<T>(assertion: () => T | Promise<T>): Promise<T> {
-  return vi.waitFor(assertion, { interval: 1 });
-}
 
 const taskExecutorMocks = vi.hoisted(() => ({
   completeTaskRunByRunId: vi.fn(),
@@ -447,34 +449,6 @@ function expectFields(value: unknown, expected: Record<string, unknown>): void {
   for (const [key, expectedValue] of Object.entries(expected)) {
     expect(record[key], key).toEqual(expectedValue);
   }
-}
-
-function firstCall(mock: ReturnType<typeof vi.fn>): ReadonlyArray<unknown> {
-  const call = mock.mock.calls[0];
-  if (!call) {
-    throw new Error("expected first mock call");
-  }
-  return call;
-}
-
-function firstCallArg(mock: ReturnType<typeof vi.fn>): Record<string, unknown> {
-  const [arg] = firstCall(mock);
-  if (!arg || typeof arg !== "object") {
-    throw new Error("expected first call argument object");
-  }
-  return arg as Record<string, unknown>;
-}
-
-function findCallArg(
-  mock: ReturnType<typeof vi.fn>,
-  predicate: (arg: Record<string, unknown>) => boolean,
-): Record<string, unknown> {
-  for (const [arg] of mock.mock.calls) {
-    if (arg && typeof arg === "object" && predicate(arg as Record<string, unknown>)) {
-      return arg as Record<string, unknown>;
-    }
-  }
-  throw new Error("expected matching mock call");
 }
 
 function hasDeliveredTaskStatusUpdate(runId: string): boolean {

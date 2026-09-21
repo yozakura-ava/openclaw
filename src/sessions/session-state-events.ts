@@ -1,5 +1,4 @@
 /** Best-effort durable signal log for session state changes. */
-import { safeParseJsonRecord } from "@openclaw/normalization-core/json-coercion";
 import { loadSessionEntryReadOnly } from "../config/sessions/session-accessor.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import { executeSqliteQuerySync, executeSqliteQueryTakeFirstSync } from "../infra/kysely-sync.js";
@@ -21,6 +20,10 @@ import { classifySessionKind } from "./classify-session-kind.js";
 import type { InputProvenance } from "./input-provenance.js";
 import type { SessionStateActorType, SessionStateEventKind } from "./session-state-event-kinds.js";
 import {
+  rowToSessionStateEvent,
+  type SessionStateEventRecord,
+} from "./session-state-event-record.js";
+import {
   getSessionStateKysely,
   isAmbientGroupWatchCursor,
   isNotifiableWatcherKey,
@@ -30,48 +33,16 @@ import {
   recordSessionStateEventInDatabase,
   upsertSeedCursor,
   type SessionStateEventInput,
-  type SessionStateEventRow,
 } from "./session-state-events.kernel.js";
 import { enqueueSessionStateNotice } from "./session-state-notices.js";
 import { deleteSessionUpstreamLink } from "./session-upstream-links.js";
 
 export type { SessionStateActorType } from "./session-state-event-kinds.js";
 
-type SessionStateEventRecord = {
-  sequence: number;
-  sessionKey: string;
-  sessionId?: string;
-  agentId: string;
-  kind: SessionStateEventKind;
-  actorType: SessionStateActorType;
-  actorId?: string;
-  runId?: string;
-  occurredAt: number;
-  summary: string;
-  payload?: Record<string, unknown>;
-};
-
 const SESSION_STATE_PRUNE_INTERVAL_MS = 60 * 60_000;
 const log = createSubsystemLogger("sessions/state-events");
 let lastPruneAt = 0;
 let prunePending = false;
-
-function rowToSessionStateEvent(row: SessionStateEventRow): SessionStateEventRecord {
-  const payload = row.payload_json ? safeParseJsonRecord(row.payload_json) : undefined;
-  return {
-    sequence: normalizeSqliteNumber(row.sequence) ?? 0,
-    sessionKey: row.session_key,
-    ...(row.session_id ? { sessionId: row.session_id } : {}),
-    agentId: row.agent_id,
-    kind: row.kind as SessionStateEventKind,
-    actorType: row.actor_type as SessionStateActorType,
-    ...(row.actor_id ? { actorId: row.actor_id } : {}),
-    ...(row.run_id ? { runId: row.run_id } : {}),
-    occurredAt: normalizeSqliteNumber(row.occurred_at) ?? 0,
-    summary: row.summary,
-    ...(payload ? { payload } : {}),
-  };
-}
 
 /** Classify the actor once at producer boundaries; missing provenance is interactive human input. */
 export function classifySessionStateActor(opts: {
