@@ -1590,7 +1590,8 @@ jobs:
           const runSkillsPython = parseBoolean(process.env.OPENCLAW_CI_RUN_SKILLS_PYTHON) && !docsOnly;
           const runControlUiI18n =
             parseBoolean(process.env.OPENCLAW_CI_RUN_CONTROL_UI_I18N) && !docsOnly;
-          const runUiTests = parseBoolean(process.env.OPENCLAW_CI_RUN_UI_TESTS) && !docsOnly;
+          const runUiTests =
+            parseBoolean(process.env.OPENCLAW_CI_RUN_UI_TESTS) && !docsOnly && !scopedRoutingWorkflowChange;
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
@@ -1790,8 +1791,9 @@ jobs:
             changedNodeTestShards.some((shard) => shard.requiresDist) ||
             typeof changedNodeTestPlan.hasBuildArtifactAffectingChange !== "function" ||
             changedNodeTestPlan.hasBuildArtifactAffectingChange(changedPaths);
-          const changedScopeHasQaImpact =
-            ciScope === "full" ||
+          const changedScopeHasQaImpact = scopedRoutingWorkflowChange
+            ? false
+            : ciScope === "full" ||
             ciScope === "fallback" ||
             changedPaths === null ||
             eventName === "workflow_dispatch" ||
@@ -1820,7 +1822,7 @@ jobs:
             changedScopeHasSqliteSessionLifecycleImpact;
           const runBuildArtifacts =
             runNodeFull && (changedScopeHasBuildImpact || runSqliteSessionLifecycle);
-          const runControlUiPerformance = (runBuildArtifacts || runUiTests) && (
+          const runControlUiPerformance = (runBuildArtifacts || runUiTests) && !scopedRoutingWorkflowChange && (
             eventName === "workflow_dispatch" || changedPaths === null ||
             typeof changedNodeTestPlan.hasControlUiPerformanceAffectingChange !== "function" ||
             changedNodeTestPlan.hasControlUiPerformanceAffectingChange(changedPaths)
