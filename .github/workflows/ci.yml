@@ -1438,6 +1438,7 @@ jobs:
             eventName === "pull_request" &&
             Boolean(process.env.OPENCLAW_CI_HEAD_REPOSITORY) &&
             process.env.OPENCLAW_CI_HEAD_REPOSITORY === process.env.OPENCLAW_CI_REPOSITORY;
+          const scopedPullRequestRepository = isCanonicalRepository || sameRepositoryPullRequest;
           const parsedChangedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -1591,7 +1592,7 @@ jobs:
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
             ciScope === "full" ||
-            !isCanonicalRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
+            !scopedPullRequestRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
             changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
@@ -1693,9 +1694,8 @@ jobs:
             );
           }
 
-          const compactPullRequest =
-            (isCanonicalRepository || sameRepositoryPullRequest) && eventName === "pull_request";
-          const ownerPathEvent = (isCanonicalRepository || sameRepositoryPullRequest) && (
+          const compactPullRequest = scopedPullRequestRepository && eventName === "pull_request";
+          const ownerPathEvent = scopedPullRequestRepository && (
             eventName === "pull_request" ||
             (eventName === "push" && process.env.GITHUB_REF === "refs/heads/main")
           );
