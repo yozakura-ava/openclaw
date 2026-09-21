@@ -399,7 +399,7 @@ describe("skills workshop cli", () => {
     };
 
     const statusCallTimeoutMs = (): number | undefined => {
-      const call = mocks.callGateway.mock.calls
+      const call = (mocks.callGateway.mock.calls as unknown as Array<[GatewayCall | undefined]>)
         .map((args) => args[0] as GatewayCall | undefined)
         .find((params) => params?.method === "skills.status");
       return call?.timeoutMs;
