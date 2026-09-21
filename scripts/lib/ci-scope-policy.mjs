@@ -34,6 +34,15 @@ export function isGlobalCiPath(changedPath) {
  * Classifies the admission policy before the detailed matrix planner runs.
  * The planner may promote a known, non-global change to fallback if it cannot
  * prove an affected-only plan.
+ *
+ * @param {{
+ *   eventName?: string,
+ *   repository?: string,
+ *   ref?: string,
+ *   changedPaths?: string[] | null,
+ *   manualScope?: string,
+ *   fullLabel?: boolean,
+ * }} options
  */
 export function classifyCiScope({
   eventName,
