@@ -110,6 +110,7 @@ const EMBEDDED_STREAM_RECOVERY_SCOPE_RE =
 const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
   "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
   "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
+];
 // Subagent completion crosses hook and session contracts that the generic
 // import graph cannot bound. Keep this lifecycle proof on its narrow owner
 // tests instead of promoting an otherwise scoped PR to the compact suite.
