@@ -5,6 +5,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
+  clearSharedClientIdleReaper,
   AgentHarnessPreflightError,
   resolveDefaultAgentDir,
 } from "openclaw/plugin-sdk/agent-harness-registration";
@@ -63,6 +64,10 @@ import {
 import { acquireCodexNativeConfigFence } from "./native-config-fence.js";
 import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import {
+  readSharedClientPoolMetrics,
+  scheduleSharedClientIdleReaper as scheduleIdleReaper,
+} from "./shared-client-idle-reaper.js";
+import {
   closeRetiredSharedClientEntry,
   closeRetiredSharedClientEntryIfIdle,
   createCodexAppServerStartupLifetime,
@@ -112,7 +117,6 @@ type CodexAppServerClientStartupOptions = {
 };
 
 const CODEX_APP_SERVER_INITIALIZE_TIMEOUT_MESSAGE = "codex app-server initialize timed out";
-const CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS = 5 * 60_000;
 
 function ownCodexStartup<T>(
   lifetime: CodexAppServerStartupLifetime,
@@ -1547,64 +1551,16 @@ function releaseSharedClientEntry(
   notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState());
 }
 
-function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
-  if (entry.idleReaper) {
-    clearTimeout(entry.idleReaper);
-    entry.idleReaper = undefined;
-  }
-}
-
 function scheduleSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
-  if (
-    entry.activeLeases > 0 ||
-    entry.pendingAcquires > 0 ||
-    !entry.client ||
-    entry.closeWhenIdle ||
-    entry.closeError ||
-    entry.idleReaper
-  ) {
-    return;
-  }
-  const state = getSharedCodexAppServerClientState();
-  if (state.clients.get(entry.key) !== entry) {
-    return;
-  }
-  entry.idleReaper = setTimeout(() => {
-    entry.idleReaper = undefined;
-    if (
-      state.clients.get(entry.key) !== entry ||
-      entry.activeLeases > 0 ||
-      entry.pendingAcquires > 0 ||
-      !entry.client ||
-      entry.closeWhenIdle ||
-      entry.closeError
-    ) {
-      return;
-    }
-    const client = entry.client;
-    state.clients.delete(entry.key);
-    state.reapedCount += 1;
-    client.close();
-    logSharedClientPoolMetrics("idle_reaped");
-  }, CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS);
-  entry.idleReaper.unref?.();
+  scheduleIdleReaper({
+    entry,
+    state: getSharedCodexAppServerClientState(),
+    onReaped: () => logSharedClientPoolMetrics("idle_reaped"),
+  });
 }
 
 function readSharedClientPoolMetrics() {
-  const state = getSharedCodexAppServerClientState();
-  let active = 0;
-  let idle = 0;
-  for (const entry of state.clients.values()) {
-    if (!entry.client) {
-      continue;
-    }
-    if (entry.activeLeases > 0 || entry.pendingAcquires > 0) {
-      active += 1;
-    } else {
-      idle += 1;
-    }
-  }
-  return { created: state.createdCount, active, idle, reaped: state.reapedCount };
+  return readSharedClientPoolMetrics(getSharedCodexAppServerClientState());
 }
 
 function logSharedClientPoolMetrics(event: string): void {

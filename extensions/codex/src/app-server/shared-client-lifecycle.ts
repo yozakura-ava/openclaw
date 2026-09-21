@@ -166,7 +166,7 @@ export function closeRetiredSharedClientEntry(entry: SharedCodexAppServerClientE
   return true;
 }
 
-function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
+export function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEntry): void {
   if (entry.idleReaper) {
     clearTimeout(entry.idleReaper);
     entry.idleReaper = undefined;
