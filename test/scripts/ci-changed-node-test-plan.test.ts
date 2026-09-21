@@ -703,6 +703,24 @@ describe("CI changed Node test plan", () => {
     ]);
   });
 
+  it("keeps subagent completion contract changes on their narrow lifecycle owners", () => {
+    const shards = createChangedNodeTestShards([
+      "src/agents/internal-event-contract.ts",
+      "src/agents/subagents/registry/subagent-registry-lifecycle-completion.ts",
+      "src/plugins/hook-types.ts",
+      "src/sessions/session-state-events.ts",
+      "config/assertion-safety-baseline.txt",
+      "extensions/workboard/src/lifecycle-sync.ts",
+    ]);
+
+    expect(shards?.flatMap((shard) => shard.targets ?? [])).toEqual([
+      "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
+      "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
+      "src/agents/subagents/registry/subagent-registry-lifecycle.test.ts",
+      "src/agents/subagents/registry/subagent-registry.store.sqlite.test.ts",
+    ]);
+  });
+
   it.each([
     "src/node-host/node-worker-bundle-installer.test.ts",
     "src/plugin-sdk/config-runtime.test.ts",
