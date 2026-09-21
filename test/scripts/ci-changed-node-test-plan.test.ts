@@ -690,6 +690,19 @@ describe("CI changed Node test plan", () => {
     ]);
   });
 
+  it("keeps embedded stream recovery changes on their narrow lifecycle owners", () => {
+    const shards = createChangedNodeTestShards([
+      "src/agents/embedded-agent-runner/run/incomplete-turn-recovery.ts",
+      "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
+      "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
+    ]);
+
+    expect(shards?.flatMap((shard) => shard.targets ?? [])).toEqual([
+      "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
+      "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
+    ]);
+  });
+
   it.each([
     "src/node-host/node-worker-bundle-installer.test.ts",
     "src/plugin-sdk/config-runtime.test.ts",

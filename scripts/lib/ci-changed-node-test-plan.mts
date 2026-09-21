@@ -102,6 +102,15 @@ const MAX_CHANGED_EXTENSION_FALLBACK_JOBS = 50;
 // processes starve each other on 4-vCPU runners and push otherwise healthy
 // integration tests past the global timeout.
 const SERIAL_CHANGED_TARGET_RE = /^extensions\/memory-core\//u;
+// Embedded stream recovery crosses provider/runtime boundaries that the
+// generic import graph cannot bound. Keep its scoped PR proof on the focused
+// continuation and finalization owners.
+const EMBEDDED_STREAM_RECOVERY_SCOPE_RE =
+  /^(?:src\/agents\/embedded-agent-runner\/run\/|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
+  "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
+  "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
+];
 const BOUNDARY_NODE_TEST_CONFIG = "test/vitest/vitest.boundary.config.ts";
 const publicPluginSdkEntrySources = Object.values(
   buildPluginSdkEntrySources(publicPluginSdkEntrypoints),
@@ -684,6 +693,7 @@ export function createChangedNodeTestShards(
   const regularPaths = resolutionPaths.filter(
     (changedPath) =>
       (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
+      !EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) &&
       // The emitted ratchet checks this data against the exact tested merge tree.
       !(
         options.dedicatedMaxLinesRatchet === true && changedPath === "config/max-lines-baseline.txt"
@@ -699,11 +709,17 @@ export function createChangedNodeTestShards(
 
   // Package-specifier consumers are invisible to the relative import graph.
   // Fail safe when a core change reaches a public SDK entrypoint indirectly.
-  if (hasCoreExtensionImpact(changedPaths, { cwd })) {
+  if (
+    hasCoreExtensionImpact(changedPaths, { cwd }) &&
+    !changedPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))
+  ) {
     return null;
   }
 
   const targetPlans = resolvePreciseChangedTargets(regularPaths, cwd, documentationPaths, [
+    ...(resolutionPaths.some((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))
+      ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS
+      : []),
     ...[...policyTargetsByPath.values()].flat(),
     // Plugin changes normally select only extension suites. This host-owned
     // proof also exercises the real Copilot entrypoint and manifest discovery.
