@@ -1,4 +1,4 @@
-export type MemorySearchTelemetryStatus = "ok" | "unavailable" | "error";
+type MemorySearchTelemetryStatus = "ok" | "unavailable" | "error";
 
 export type MemorySearchTelemetryEvent = {
   agentId: string;
@@ -47,7 +47,7 @@ export function createMemorySearchTelemetry(params: {
       if (samples.length < MIN_ALERT_SAMPLES) {
         return;
       }
-      const orderedDurations = samples.map((sample) => sample.durationMs).sort((a, b) => a - b);
+      const orderedDurations = samples.map((sample) => sample.durationMs).toSorted((a, b) => a - b);
       const p95Index = Math.ceil(orderedDurations.length * 0.95) - 1;
       const p95Ms = Math.max(0, orderedDurations[p95Index] ?? 0);
       const errorRate =
