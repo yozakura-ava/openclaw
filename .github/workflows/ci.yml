@@ -1519,6 +1519,9 @@ jobs:
             ciScope = "scoped";
             ciScopeReason = "affected-path CI routing update";
           }
+          const changedImpactPaths = scopedRoutingWorkflowChange
+            ? changedPaths?.filter((path) => path !== ".github/workflows/ci.yml") ?? changedPaths
+            : changedPaths;
           const runNodeFastOnly =
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_ONLY);
           const runNodeFull = runNode && !runNodeFastOnly;
@@ -1595,7 +1598,7 @@ jobs:
             !scopedPullRequestRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
-            changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
+            changedNodeTestPlan.hasUiE2eAffectingChange(changedImpactPaths)
           );
           const runnerProfile = process.env.OPENCLAW_CI_RUNNER_PROFILE ?? "blacksmith";
           const usesHostedRunnerProfile =
@@ -1793,7 +1796,7 @@ jobs:
             changedPaths === null ||
             eventName === "workflow_dispatch" ||
             typeof changedNodeTestPlan.hasQaSmokeAffectingChange !== "function" ||
-            changedNodeTestPlan.hasQaSmokeAffectingChange(changedPaths);
+            changedNodeTestPlan.hasQaSmokeAffectingChange(changedImpactPaths);
           // Prompt snapshots only change when the generator's import graph or
           // its fixtures do; unaffected PR diffs skip the regeneration lane.
           const changedScopeHasPromptSnapshotImpact =
