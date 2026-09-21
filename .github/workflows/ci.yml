@@ -1580,6 +1580,14 @@ jobs:
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
             changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
           );
+          // The scoped UI budget is intentionally smaller than the complete
+          // browser matrix. If the diff requires browser coverage, retain it
+          // under the bounded fallback policy rather than exceeding scoped
+          // admission limits.
+          if (isCanonicalRepository && eventName === "pull_request" && ciScope === "scoped" && runUiE2e) {
+            ciScope = "fallback";
+            ciScopeReason = "browser coverage requires bounded fallback";
+          }
           const runnerProfile = process.env.OPENCLAW_CI_RUNNER_PROFILE ?? "blacksmith";
           const usesHostedRunnerProfile =
             runnerProfile === "github" || runnerProfile === "hybrid";
@@ -1721,8 +1729,10 @@ jobs:
             } else {
               try {
                 changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
+                  runnerBackend: runnerProfile,
                   dedicatedContractShards: [...pluginContractShards, ...channelContractShards],
                   dedicatedUiE2e: runUiE2e && !compatibilityTarget,
+                  dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
                 });
                 if (changedNodeTestShards === null) {
                   changedExtensionFallbackShards =
@@ -1738,16 +1748,6 @@ jobs:
                 ciScopeReason = `affected-only planner failed: ${error instanceof Error ? error.message : String(error)}`;
                 compactPlanMode = "pull-request";
               }
-            }
-            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
-              runnerBackend: runnerProfile,
-              dedicatedContractShards: [...pluginContractShards, ...channelContractShards],
-              dedicatedUiE2e: runUiE2e && !compatibilityTarget,
-              dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
-            });
-            if (changedNodeTestShards === null) {
-              changedExtensionFallbackShards =
-                changedNodeTestPlan.createChangedExtensionFallbackShards(changedPaths);
             }
           }
           // A planner failure promotes the run to the bounded fallback, which
