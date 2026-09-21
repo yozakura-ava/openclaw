@@ -659,6 +659,12 @@ export function createChangedNodeTestShards(
       shardName: "changed",
     });
   }
+  if (changedPaths.every((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))) {
+    return createChangedTargetShards(SUBAGENT_COMPLETION_TEST_TARGETS, {
+      checkName: "checks-node-changed",
+      shardName: "changed",
+    });
+  }
 
   // Packing changes can move every compact child. Observe the complete plan on
   // Blacksmith while preserving hosted targeting and its registration footprint.
