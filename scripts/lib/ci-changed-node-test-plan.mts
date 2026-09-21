@@ -106,7 +106,7 @@ const SERIAL_CHANGED_TARGET_RE = /^extensions\/memory-core\//u;
 // generic import graph cannot bound. Keep its scoped PR proof on the focused
 // continuation and finalization owners.
 const EMBEDDED_STREAM_RECOVERY_SCOPE_RE =
-  /^(?:src\/agents\/embedded-agent-runner\/run\/|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+  /^(?:\.github\/workflows\/ci\.yml$|src\/agents\/embedded-agent-runner\/run\/|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
 const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
   "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
   "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
