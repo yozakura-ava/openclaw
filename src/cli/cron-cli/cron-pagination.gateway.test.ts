@@ -239,10 +239,10 @@ describe("cron CLI with the real Gateway pagination contract", () => {
       expect(
         mocks.callGatewayFromCli.mock.calls
           .filter(([method]) => method === "cron.list")
-          .every(
-            ([, , params]) =>
-              (params as { includeDeliveryPreviews?: boolean }).includeDeliveryPreviews === false,
-          ),
+          .every((call) => {
+            const params = call[2] as { includeDeliveryPreviews?: boolean };
+            return params.includeDeliveryPreviews === false;
+          }),
       ).toBe(true);
     } else {
       const output = mocks.runtime.log.mock.calls.map(([line]) => line).join("\n");
@@ -270,10 +270,10 @@ describe("cron CLI with the real Gateway pagination contract", () => {
     expect(
       mocks.callGatewayFromCli.mock.calls
         .filter(([method]) => method === "cron.list")
-        .map(
-          ([, , params]) =>
-            (params as { includeDeliveryPreviews?: boolean }).includeDeliveryPreviews,
-        ),
+        .map((call) => {
+          const params = call[2] as { includeDeliveryPreviews?: boolean };
+          return params.includeDeliveryPreviews;
+        }),
     ).toEqual([false, false]);
   });
 
