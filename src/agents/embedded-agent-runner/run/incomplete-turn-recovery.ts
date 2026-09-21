@@ -226,7 +226,7 @@ function readSettledToolCalls(
 }
 
 /** True when the provider replaced an interrupted assistant stream with fallback text. */
-export function hasAssistantStreamFallback(message: unknown): boolean {
+function hasAssistantStreamFallback(message: unknown): boolean {
   if (!message || typeof message !== "object") {
     return false;
   }

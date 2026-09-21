@@ -181,7 +181,7 @@ export async function syncWorkboardSubagentEnded(params: {
     targetSessionKey: string;
     runId?: string;
     endedAt?: number;
-    outcome?: "ok" | "error" | "timeout" | "killed" | "reset" | "deleted";
+    outcome?: "ok" | "error" | "timeout" | "killed" | "reset" | "deleted" | "exited-early";
   };
   now?: number;
   onMatched?: WorkboardLifecycleMatchHandler;

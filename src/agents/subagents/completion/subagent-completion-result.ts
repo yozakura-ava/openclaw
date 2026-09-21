@@ -11,7 +11,7 @@ export function resolveSubagentCompletionResultText(entry: {
   };
   execution: {
     status?: "queued" | "running" | "interrupted" | "terminal";
-    outcome?: { status: "ok" | "error" | "timeout" | "unknown" };
+    outcome?: { status: "ok" | "error" | "timeout" | "unknown" | "exited-early" };
   };
 }): string | undefined {
   const terminalReply = entry.completion?.terminalReply;

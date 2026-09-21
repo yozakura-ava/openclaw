@@ -111,6 +111,18 @@ const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
   "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
   "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
 ];
+// Subagent completion crosses hook and session contracts that the generic
+// import graph cannot bound. Keep this lifecycle proof on its narrow owner
+// tests instead of promoting an otherwise scoped PR to the compact suite.
+const SUBAGENT_COMPLETION_SCOPE_RE =
+  /^(?:\.github\/workflows\/ci\.yml$|config\/(?:assertion-safety-baseline|max-lines-baseline)\.txt$|extensions\/workboard\/src\/lifecycle-sync(?:\.test)?\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+const SUBAGENT_COMPLETION_TEST_TARGETS = [
+  "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
+  "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
+  "src/agents/subagents/registry/subagent-registry-lifecycle.test.ts",
+  "src/agents/subagents/registry/subagent-registry.store.sqlite.test.ts",
+  "extensions/workboard/src/lifecycle-sync.test.ts",
+];
 const BOUNDARY_NODE_TEST_CONFIG = "test/vitest/vitest.boundary.config.ts";
 const publicPluginSdkEntrySources = Object.values(
   buildPluginSdkEntrySources(publicPluginSdkEntrypoints),
@@ -649,6 +661,12 @@ export function createChangedNodeTestShards(
       shardName: "changed",
     });
   }
+  if (changedPaths.every((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))) {
+    return createChangedTargetShards(SUBAGENT_COMPLETION_TEST_TARGETS, {
+      checkName: "checks-node-changed",
+      shardName: "changed",
+    });
+  }
 
   // Packing changes can move every compact child. Observe the complete plan on
   // Blacksmith while preserving hosted targeting and its registration footprint.
@@ -700,6 +718,7 @@ export function createChangedNodeTestShards(
     (changedPath) =>
       (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
       !EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) &&
+      !SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath) &&
       // The emitted ratchet checks this data against the exact tested merge tree.
       !(
         options.dedicatedMaxLinesRatchet === true && changedPath === "config/max-lines-baseline.txt"
@@ -717,7 +736,11 @@ export function createChangedNodeTestShards(
   // Fail safe when a core change reaches a public SDK entrypoint indirectly.
   if (
     hasCoreExtensionImpact(changedPaths, { cwd }) &&
-    !changedPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))
+    !changedPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    )
   ) {
     return null;
   }
@@ -725,6 +748,9 @@ export function createChangedNodeTestShards(
   const targetPlans = resolvePreciseChangedTargets(regularPaths, cwd, documentationPaths, [
     ...(resolutionPaths.some((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))
       ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS
+      : []),
+    ...(resolutionPaths.some((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))
+      ? SUBAGENT_COMPLETION_TEST_TARGETS
       : []),
     ...[...policyTargetsByPath.values()].flat(),
     // Plugin changes normally select only extension suites. This host-owned
@@ -736,10 +762,14 @@ export function createChangedNodeTestShards(
   if (targetPlans === null) {
     return null;
   }
-  const narrowEmbeddedAdmission =
+  const narrowRuntimeAdmission =
     resolutionPaths.length > 0 &&
-    resolutionPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath));
-  const canonicalTargets = (narrowEmbeddedAdmission ? [] : targetPlans)
+    resolutionPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    );
+  const canonicalTargets = (narrowRuntimeAdmission ? [] : targetPlans)
     .filter(({ plans }) =>
       plans.some(({ config }) => configsRequiringCanonicalMetadata.has(config)),
     )
@@ -799,7 +829,11 @@ export function createChangedNodeTestShards(
 
   const shards = [
     ...canonicalShards.map((shard) => Object.assign({}, shard, { configs: [] })),
-    ...packChangedExtensionConfigShards(createChangedExtensionConfigShardsForPaths(livePaths, cwd)),
+    ...(narrowRuntimeAdmission
+      ? []
+      : packChangedExtensionConfigShards(
+          createChangedExtensionConfigShardsForPaths(livePaths, cwd),
+        )),
     // Native browser files run in checks-ui, including precise changed-file plans.
     ...createChangedTargetShards(
       targets.filter((target) => !isUiBrowserTestFile(target)),

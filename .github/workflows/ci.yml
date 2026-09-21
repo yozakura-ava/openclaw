@@ -3475,12 +3475,17 @@ jobs:
                   exit 1
                 fi
               fi
+              echo "baseline-ratchets: check:max-lines-ratchet"
               pnpm check:max-lines-ratchet --base "$base_ref"
               if [[ -n "${RATCHET_PR_HEAD_SHA:-}" ]]; then
+                echo "baseline-ratchets: check:line-cap-ratchet"
                 pnpm check:line-cap-ratchet --base "$base_ref"
               fi
+              echo "baseline-ratchets: check:assertion-safety"
               pnpm check:assertion-safety --base "$base_ref"
+              echo "baseline-ratchets: config:docs:check"
               pnpm config:docs:check
+              echo "baseline-ratchets: plugins:inventory:check"
               pnpm plugins:inventory:check
               ;;
             release-lint-core-*)
