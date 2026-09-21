@@ -121,6 +121,7 @@ const SUBAGENT_COMPLETION_TEST_TARGETS = [
   "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
   "src/agents/subagents/registry/subagent-registry-lifecycle.test.ts",
   "src/agents/subagents/registry/subagent-registry.store.sqlite.test.ts",
+  "extensions/workboard/src/lifecycle-sync.test.ts",
 ];
 const BOUNDARY_NODE_TEST_CONFIG = "test/vitest/vitest.boundary.config.ts";
 const publicPluginSdkEntrySources = Object.values(
@@ -828,7 +829,11 @@ export function createChangedNodeTestShards(
 
   const shards = [
     ...canonicalShards.map((shard) => Object.assign({}, shard, { configs: [] })),
-    ...packChangedExtensionConfigShards(createChangedExtensionConfigShardsForPaths(livePaths, cwd)),
+    ...(narrowRuntimeAdmission
+      ? []
+      : packChangedExtensionConfigShards(
+          createChangedExtensionConfigShardsForPaths(livePaths, cwd),
+        )),
     // Native browser files run in checks-ui, including precise changed-file plans.
     ...createChangedTargetShards(
       targets.filter((target) => !isUiBrowserTestFile(target)),

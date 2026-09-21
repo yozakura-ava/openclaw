@@ -723,6 +723,7 @@ describe("CI changed Node test plan", () => {
       "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
       "src/agents/subagents/registry/subagent-registry-lifecycle.test.ts",
       "src/agents/subagents/registry/subagent-registry.store.sqlite.test.ts",
+      "extensions/workboard/src/lifecycle-sync.test.ts",
     ]);
   });
 
