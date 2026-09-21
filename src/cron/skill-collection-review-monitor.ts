@@ -43,6 +43,49 @@ import type { CronJob, CronJobCreate } from "./types.js";
 const SKILL_COLLECTION_REVIEW_EVERY_MS = 7 * 24 * 60 * 60_000;
 const SKILL_COLLECTION_REVIEW_NO_ROOTED_RUNTIME_REASON = "no-rooted-runtime";
 
+/** Sentinel agent id used by the consolidated weekly sweep spec. */
+export const SKILL_COLLECTION_REVIEW_SWEEP_AGENT_ID = "sweep" as const;
+
+/** Declaration key for the consolidated weekly sweep spec. */
+export const SKILL_COLLECTION_REVIEW_SWEEP_DECLARATION_KEY =
+  `${SKILL_COLLECTION_REVIEW_DECLARATION_PREFIX}${SKILL_COLLECTION_REVIEW_SWEEP_AGENT_ID}` as const;
+
+/**
+ * Code-mode script body the consolidated sweep runs. Delegates to the durable
+ * shell script at /root/.openclaw/workspace/scripts/ops/skill_collection_sweep.sh
+ * so the 28-agent census, the 4 in-error carve-outs, and the JSONL row shape
+ * stay defined in exactly one place (ops-runnable shell). The cron completion
+ * flow escalates a non-zero exit to Telegram automatically.
+ */
+export const SKILL_COLLECTION_REVIEW_SWEEP_SCRIPT = String.raw`// skill-collection-review:sweep — consolidated weekly audit (Step A of trace f9d69fd1).
+import { execFileSync } from "node:child_process";
+
+const SHELL_SCRIPT = "/root/.openclaw/workspace/scripts/ops/skill_collection_sweep.sh";
+
+// Delegate to the durable shell script (single source of truth for the
+// 28-agent census, the 4 in-error carve-outs, and the JSONL row shape).
+let stdout: string;
+let ok: boolean;
+try {
+  stdout = execFileSync("/bin/sh", [SHELL_SCRIPT], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  ok = true;
+} catch (err) {
+  const error = err as { status?: number | null; stdout?: string; stderr?: string };
+  stdout = (error.stdout ?? "") + (error.stderr ?? "");
+  ok = false;
+}
+const summary = stdout.trim().split("\n").pop() ?? "skill-collection-sweep (no output)";
+return {
+  notify: summary,
+  wake: ok ? undefined : "now",
+  stateChanged: true,
+  state: { sweep: { ok, summary } },
+};
+`;
+
 /** Returns undefined when static config cannot prove the full runtime chain. */
 function hasEligibleSkillCollectionReviewRuntime(
   cfg: OpenClawConfig,
@@ -216,8 +259,42 @@ export function* resolveSkillCollectionReviewMonitorSpecs(
   options: { schedulerSeed?: string } = {},
 ): IterableIterator<{ agentId: string; input: CronJobCreate }> {
   const schedulerSeed = resolveHeartbeatSchedulerSeed(options.schedulerSeed);
+  const workshopConfig = resolveSkillWorkshopConfig(cfg);
   const { retained } = partitionSystemMonitors(jobs, skillCollectionReviewMonitorAgentId);
-  const workshopEnabled = resolveSkillWorkshopConfig(cfg).autonomous.mode === "auto";
+  const workshopEnabled = workshopConfig.autonomous.mode === "auto";
+  // Consolidated sweep mode (Step A of trace f9d69fd1): when `consolidated: true`
+  // is set on `skills.workshop`, yield ONE weekly script-driven spec instead of
+  // one per-agent spec. The reconciler removes the per-agent retained entries
+  // it does not match, so flipping the flag on Step B consolidates 28→1 without
+  // any additional gateway-side logic.
+  if (workshopConfig.consolidated === true) {
+    yield {
+      agentId: SKILL_COLLECTION_REVIEW_SWEEP_AGENT_ID,
+      input: {
+        declarationKey: SKILL_COLLECTION_REVIEW_SWEEP_DECLARATION_KEY,
+        name: "skill-collection-review-sweep",
+        displayName: "Skill collection review (sweep)",
+        enabled: workshopEnabled,
+        schedule: {
+          kind: "every",
+          everyMs: SKILL_COLLECTION_REVIEW_EVERY_MS,
+          anchorMs: resolveHeartbeatPhaseMs({
+            schedulerSeed,
+            agentId: SKILL_COLLECTION_REVIEW_SWEEP_AGENT_ID,
+            intervalMs: SKILL_COLLECTION_REVIEW_EVERY_MS,
+          }),
+        },
+        payload: {
+          kind: "script",
+          script: SKILL_COLLECTION_REVIEW_SWEEP_SCRIPT,
+        },
+        sessionTarget: "isolated",
+        delivery: { mode: "none" },
+        wakeMode: "next-heartbeat",
+      },
+    };
+    return;
+  }
   // Static projection consumes the selected generation, never provider load planning.
   const manifestPlugins =
     getCurrentPluginMetadataSnapshot({ config: cfg, allowWorkspaceScopedSnapshot: true }) ?? [];
