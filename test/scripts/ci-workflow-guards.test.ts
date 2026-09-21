@@ -6749,6 +6749,40 @@ setImmediate(() => {
     expect(source).not.toContain("blacksmith-");
   });
 
+  it("keeps CodeQL security path-sensitive while allowing ci/full to expand coverage", () => {
+    const workflow = readWorkflow(".github/workflows/codeql.yml");
+    const source = readFileSync(".github/workflows/codeql.yml", "utf8");
+    const securityJob = workflow.jobs["security-high"];
+    const scopeJob = workflow.jobs.scope;
+    const detectStep = scopeJob.steps.find((step: WorkflowStep) => step.id === "detect");
+
+    expect(workflow.on.pull_request.types).toContain("labeled");
+    expect(securityJob.needs).toBe("scope");
+    expect(securityJob.if).not.toContain("ci/full");
+    expect(scopeJob.outputs["should-scan"]).toContain("steps.detect.outputs.should-scan");
+    expect(detectStep.run).toContain("FULL_LABEL");
+    expect(detectStep.run).toContain(".github/codeql/*");
+    expect(detectStep.run).toContain(".github/workflows/*");
+    expect(detectStep.run).toContain("packages/*");
+    expect(detectStep.run).toContain("scripts/*");
+    expect(detectStep.run).toContain("src/*");
+    expect(source).toContain("pull-requests: read");
+  });
+
+  it("keeps critical-quality shard admission independent of ci/full", () => {
+    const source = readCriticalQualityWorkflow();
+    const workflow = parse(source);
+
+    expect(source).toContain('changed_files="$(gh api --paginate');
+    expect(source).toContain("FULL_LABEL:-false");
+    for (const [name, job] of Object.entries(workflow.jobs)) {
+      const condition = (job as { if?: unknown }).if;
+      if (name !== "quality-shards" && typeof condition === "string") {
+        expect(condition, name).not.toContain("ci/full");
+      }
+    }
+  });
+
   it("keeps trusted hybrid controls on Blacksmith when optional hosted admission is closed", () => {
     const workflow = readCiWorkflow();
     expect(workflow.jobs["ci-gate"]["runs-on"]).toBe("ubuntu-24.04");
