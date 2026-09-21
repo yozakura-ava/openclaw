@@ -36,7 +36,6 @@ import { resolveShardPlans, runShardPlans } from "../../scripts/ci-run-node-test
 import { resolveChangedDockerSeedLanes } from "../../scripts/lib/ci-changed-node-test-plan.mts";
 import { createNodeTestShardBundles } from "../../scripts/lib/ci-node-test-plan.mts";
 import { CI_MATRIX_BUDGETS } from "../../scripts/lib/ci-scope-policy.mjs";
-import { visitModuleSpecifiers } from "../../scripts/lib/guard-inventory-utils.mjs";
 import { pnpmLockfileDocuments } from "../../scripts/lib/pnpm-lockfile-documents.mjs";
 import { resolveRunVitestSpawnEnv } from "../../scripts/lib/vitest-process-env.mts";
 import { NATIVE_I18N_LOCALES } from "../../scripts/native-i18n-locales.ts";
@@ -2569,7 +2568,9 @@ describe("ci workflow guards", () => {
     const rowCounts = JSON.parse(
       expectDefined(manifest.outputs.ci_scope_row_counts, "scope row counts"),
     );
-    expect(rowCounts.node).toBeLessThanOrEqual(CI_MATRIX_BUDGETS[scenario.expectedScope].node);
+    expect(rowCounts.node).toBeLessThanOrEqual(
+      CI_MATRIX_BUDGETS[scenario.expectedScope as keyof typeof CI_MATRIX_BUDGETS].node,
+    );
     expect(manifest.outputs.run_plugin_contracts_shards).toBe(
       scenario.expectedScope === "scoped" ? "false" : "true",
     );
@@ -13964,7 +13965,10 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
         run_native_i18n: "false",
         android_matrix: JSON.stringify({ include: [] }),
       });
-      expect(JSON.parse(qualification.outputs.ci_scope_row_counts).native).toBe(2);
+      expect(
+        JSON.parse(expectDefined(qualification.outputs.ci_scope_row_counts, "scope row counts"))
+          .native,
+      ).toBe(2);
       for (const output of [
         "run_node",
         "run_macos_node",
