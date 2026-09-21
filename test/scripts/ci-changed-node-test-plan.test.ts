@@ -710,6 +710,7 @@ describe("CI changed Node test plan", () => {
       "src/plugins/hook-types.ts",
       "src/sessions/session-state-events.ts",
       "config/assertion-safety-baseline.txt",
+      "config/max-lines-baseline.txt",
       "extensions/workboard/src/lifecycle-sync.ts",
     ]);
 
