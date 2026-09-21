@@ -1,7 +1,5 @@
 import { getChangedPathFacts } from "./changed-path-facts.mjs";
 
-export const CI_SCOPES = Object.freeze(["scoped", "fallback", "full"]);
-
 // These are admission budgets, not performance targets.  A scoped plan is
 // expected to be small; a fallback plan may use the compact PR suite, but it
 // must never silently expand into an unbounded matrix.
@@ -78,10 +76,6 @@ export function classifyCiScope({
     return { scope: "scoped", reason: "no product changes" };
   }
   return { scope: "scoped", reason: "affected-path plan eligible" };
-}
-
-export function isFullCiScope(scope) {
-  return scope === "full";
 }
 
 export function skippedCiLanes({
