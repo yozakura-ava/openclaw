@@ -730,7 +730,10 @@ export function createChangedNodeTestShards(
   if (targetPlans === null) {
     return null;
   }
-  const canonicalTargets = targetPlans
+  const narrowEmbeddedAdmission =
+    resolutionPaths.length > 0 &&
+    resolutionPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath));
+  const canonicalTargets = (narrowEmbeddedAdmission ? [] : targetPlans)
     .filter(({ plans }) =>
       plans.some(({ config }) => configsRequiringCanonicalMetadata.has(config)),
     )
