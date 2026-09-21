@@ -974,6 +974,7 @@ function runCiManifestFixture(options: {
         OPENCLAW_CI_RUN_MACOS: "true",
         OPENCLAW_CI_RUN_NATIVE_I18N: "true",
         OPENCLAW_CI_RUN_NODE: String(options.runNode ?? true),
+        OPENCLAW_CI_RUN_UI_TESTS: "false",
         OPENCLAW_CI_RUN_NODE_FAST_CI_ROUTING: String(options.nodeFastCiRouting ?? false),
         OPENCLAW_CI_RUN_NODE_FAST_ONLY: String(options.nodeFastOnly ?? false),
         OPENCLAW_CI_RUN_NODE_FAST_PLUGIN_CONTRACTS: String(

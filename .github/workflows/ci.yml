@@ -1580,14 +1580,6 @@ jobs:
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
             changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
           );
-          // The scoped UI budget is intentionally smaller than the complete
-          // browser matrix. If the diff requires browser coverage, retain it
-          // under the bounded fallback policy rather than exceeding scoped
-          // admission limits.
-          if (isCanonicalRepository && eventName === "pull_request" && ciScope === "scoped" && runUiE2e) {
-            ciScope = "fallback";
-            ciScopeReason = "browser coverage requires bounded fallback";
-          }
           const runnerProfile = process.env.OPENCLAW_CI_RUNNER_PROFILE ?? "blacksmith";
           const usesHostedRunnerProfile =
             runnerProfile === "github" || runnerProfile === "hybrid";
@@ -1749,6 +1741,16 @@ jobs:
                 compactPlanMode = "pull-request";
               }
             }
+          }
+          // The scoped UI budget is intentionally smaller than the complete
+          // browser matrix. If the diff requires browser coverage, retain it
+          // under the bounded fallback policy rather than exceeding scoped
+          // admission limits. Run the precise planner first so it still
+          // receives the dedicated-suite inputs used by its coverage tests.
+          if (eventName === "pull_request" && ciScope === "scoped" && runUiE2e) {
+            ciScope = "fallback";
+            ciScopeReason = "browser coverage requires bounded fallback";
+            compactPlanMode = "pull-request";
           }
           // A planner failure promotes the run to the bounded fallback, which
           // restores the complete contract ownership that fallback promises.
@@ -2016,12 +2018,12 @@ jobs:
               { check_name: "report-plugin-sdk-api-diff", group: "plugin-sdk-api-diff", runner: "blacksmith-8vcpu-ubuntu-2404" },
             ] : []),
             ...(runNodeFull && packageImpact
-              ? [{ check_name: "check-additional-extension-package-boundary", group: "extension-package-boundary", runner: "blacksmith-32vcpu-ubuntu-2404" }]
+              ? [{ check_name: "check-additional-extension-package-boundary", group: "extension-package-boundary", runner: "blacksmith-16vcpu-ubuntu-2404" }]
               : []),
             // Architecture is a broad contract lane; keep it for fallback/full
             // admission and for changes that can alter the repository topology.
             ...(runNodeFull && architectureImpact
-              ? [{ check_name: "check-additional-runtime-topology-architecture", group: "runtime-topology-architecture", runner: "blacksmith-32vcpu-ubuntu-2404" }]
+              ? [{ check_name: "check-additional-runtime-topology-architecture", group: "runtime-topology-architecture", runner: "blacksmith-16vcpu-ubuntu-2404" }]
               : []),
           ];
 
