@@ -8,6 +8,12 @@ on:
         required: false
         default: ""
         type: string
+      scope:
+        description: CI scope for this dispatch. Full is the default and runs the complete validation matrices.
+        required: false
+        default: full
+        type: choice
+        options: [full, scoped, fallback]
       capture_ui_proof:
         description: Capture and upload sanitized Control UI screenshots from real-Gateway tests.
         required: false
@@ -60,7 +66,7 @@ on:
       - "**/*.md"
       - "docs/**"
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, labeled]
 
 permissions:
   contents: read
@@ -83,6 +89,7 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  CI_FULL_LABEL: ${{ github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci/full') && 'true' || 'false' }}
   IOS_SCREENSHOT_FASTLANE_VERSION: "2.239.0"
   IOS_SCREENSHOT_NODE_VERSION: "24.16.0"
   IOS_SCREENSHOT_XCODE_VERSION: "Xcode 26.6 Build version 17F113"
@@ -114,6 +121,11 @@ jobs:
       diff_head_revision: ${{ steps.diff_base.outputs.head_sha }}
       docs_only: ${{ steps.manifest.outputs.docs_only }}
       docs_changed: ${{ steps.manifest.outputs.docs_changed }}
+      ci_scope: ${{ steps.manifest.outputs.ci_scope }}
+      ci_scope_reason: ${{ steps.manifest.outputs.ci_scope_reason }}
+      ci_scope_row_counts: ${{ steps.manifest.outputs.ci_scope_row_counts }}
+      ci_scope_skipped_lanes: ${{ steps.manifest.outputs.ci_scope_skipped_lanes }}
+      check_matrix: ${{ steps.manifest.outputs.check_matrix }}
       release_scope: ${{ steps.manifest.outputs.release_scope }}
       run_node: ${{ steps.manifest.outputs.run_node }}
       # docker-seed-e2e-contract-v1: frozen targets without this marker skip the lane.
@@ -1241,21 +1253,21 @@ jobs:
         env:
           OPENCLAW_CI_DOCS_ONLY: ${{ github.event_name == 'workflow_dispatch' && 'false' || steps.docs_scope.outputs.docs_only }}
           OPENCLAW_CI_DOCS_CHANGED: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.docs_scope.outputs.docs_changed }}
-          OPENCLAW_CI_RUN_NODE: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_node || 'false' }}
+          OPENCLAW_CI_RUN_NODE: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_node || 'false' }}
           # Ordinary manual/release validation stays full. A release_gate is a
           # hosted substitute for PR CI, so it must retain the exact Apple scope.
-          OPENCLAW_CI_RUN_MACOS: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_macos || 'false' }}
-          OPENCLAW_CI_RUN_MACOS_NODE: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_macos_node || 'false' }}
-          OPENCLAW_CI_RUN_IOS_BUILD: ${{ github.event_name == 'workflow_dispatch' && !inputs.release_gate && 'true' || steps.changed_scope.outputs.run_ios_build || 'false' }}
-          OPENCLAW_CI_RUN_ANDROID: ${{ github.event_name == 'workflow_dispatch' && (inputs.release_gate || inputs.include_android) && 'true' || steps.changed_scope.outputs.run_android || 'false' }}
-          OPENCLAW_CI_RUN_WINDOWS: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_windows || 'false' }}
+          OPENCLAW_CI_RUN_MACOS: ${{ ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_macos || 'false' }}
+          OPENCLAW_CI_RUN_MACOS_NODE: ${{ ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_macos_node || 'false' }}
+          OPENCLAW_CI_RUN_IOS_BUILD: ${{ ((github.event_name == 'workflow_dispatch' && !inputs.release_gate) || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_ios_build || 'false' }}
+          OPENCLAW_CI_RUN_ANDROID: ${{ ((github.event_name == 'workflow_dispatch' && (inputs.release_gate || inputs.include_android)) || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_android || 'false' }}
+          OPENCLAW_CI_RUN_WINDOWS: ${{ ((github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_windows || 'false' }}
           OPENCLAW_CI_RUN_NODE_FAST_ONLY: ${{ github.event_name == 'workflow_dispatch' && 'false' || steps.changed_scope.outputs.run_node_fast_only || 'false' }}
           OPENCLAW_CI_RUN_NODE_FAST_PLUGIN_CONTRACTS: ${{ github.event_name == 'workflow_dispatch' && 'false' || steps.changed_scope.outputs.run_node_fast_plugin_contracts || 'false' }}
           OPENCLAW_CI_RUN_NODE_FAST_CI_ROUTING: ${{ github.event_name == 'workflow_dispatch' && 'false' || steps.changed_scope.outputs.run_node_fast_ci_routing || 'false' }}
-          OPENCLAW_CI_RUN_SKILLS_PYTHON: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_skills_python || 'false' }}
-          OPENCLAW_CI_RUN_CONTROL_UI_I18N: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_control_ui_i18n || 'false' }}
-          OPENCLAW_CI_RUN_UI_TESTS: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_ui_tests || 'false' }}
-          OPENCLAW_CI_RUN_NATIVE_I18N: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.changed_scope.outputs.run_native_i18n || 'false' }}
+          OPENCLAW_CI_RUN_SKILLS_PYTHON: ${{ ((github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_skills_python || 'false' }}
+          OPENCLAW_CI_RUN_CONTROL_UI_I18N: ${{ ((github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_control_ui_i18n || 'false' }}
+          OPENCLAW_CI_RUN_UI_TESTS: ${{ ((github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_ui_tests || 'false' }}
+          OPENCLAW_CI_RUN_NATIVE_I18N: ${{ ((github.event_name == 'workflow_dispatch') || (github.event_name == 'push' && github.ref == 'refs/heads/main') || env.CI_FULL_LABEL == 'true') && 'true' || steps.changed_scope.outputs.run_native_i18n || 'false' }}
           OPENCLAW_CI_CHANGED_PATHS_JSON: ${{ steps.changed_scope.outputs.changed_paths_json || 'null' }}
           OPENCLAW_CI_CHECKOUT_REVISION: ${{ steps.checkout_ref.outputs.sha }}
           OPENCLAW_CI_CORRECTION_BASE_SHA: ${{ steps.release_correction_base.outputs.sha }}
@@ -1271,6 +1283,9 @@ jobs:
           OPENCLAW_CI_WORKFLOW_REVISION: ${{ github.workflow_sha }}
           OPENCLAW_CI_REPOSITORY: ${{ github.repository }}
           OPENCLAW_CI_EVENT_NAME: ${{ github.event_name }}
+          OPENCLAW_CI_REF: ${{ github.ref }}
+          OPENCLAW_CI_REQUESTED_SCOPE: ${{ inputs.scope || 'full' }}
+          OPENCLAW_CI_FULL_LABEL: ${{ env.CI_FULL_LABEL }}
           OPENCLAW_CI_RUNNER_PROFILE: ${{ steps.runner_profile.outputs.runner_profile }}
           OPENCLAW_CI_RUNNER_BACKEND: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND }}
           OPENCLAW_CI_AUTHOR_ASSOCIATION: ${{ github.event.pull_request.author_association }}
@@ -1287,8 +1302,43 @@ jobs:
           import { resolveTestGitCommits } from "./.ci-harness/.github/actions/git-owner/test-prerequisites.mjs";
           import { resolveReleaseContextIdentity } from "./.ci-harness/scripts/lib/release-context.mjs";
           import { classifyReleaseTrain, parseReleaseVersion } from "./.ci-harness/scripts/lib/release-version.mjs";
+          import {
+            CI_MATRIX_BUDGETS,
+            classifyCiScope,
+          } from "./scripts/lib/ci-scope-policy.mjs";
 
           const eventName = process.env.OPENCLAW_CI_EVENT_NAME ?? "";
+          const skippedCiLanes = ({
+            scope,
+            runWindows,
+            runMacos,
+            runIos,
+            runAndroid,
+            runBrowser,
+            runNative,
+            runQa,
+            runCodeql,
+            runPeriphery,
+            runOpenGrepFull,
+          } = {}) => {
+            const lanes = [
+              ["windows", runWindows],
+              ["macos", runMacos],
+              ["ios", runIos],
+              ["android", runAndroid],
+              ["browser", runBrowser],
+              ["native", runNative],
+              ["qa", runQa],
+              ["codeql", runCodeql],
+              ["periphery", runPeriphery],
+              ["opengrep-full", runOpenGrepFull],
+            ];
+            return lanes
+              .filter(([, selected]) => selected !== true)
+              .map(([name]) => name)
+              .concat(scope === "scoped" ? ["full-matrix"] : []);
+          };
+          const ref = process.env.OPENCLAW_CI_REF ?? "";
           const checkoutRevision = process.env.OPENCLAW_CI_CHECKOUT_REVISION ?? "";
           const workflowRevision = process.env.OPENCLAW_CI_WORKFLOW_REVISION ?? "";
           const historicalTargetApproved = process.env.OPENCLAW_CI_HISTORICAL_TARGET === "true";
@@ -1383,7 +1433,7 @@ jobs:
           const packageScripts = packageJson.scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
-          const changedPaths = (() => {
+          const parsedChangedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
               return Array.isArray(value) && value.every((path) => typeof path === "string")
@@ -1394,8 +1444,11 @@ jobs:
             }
           })();
           const docsOnly = parseBoolean(process.env.OPENCLAW_CI_DOCS_ONLY);
+          const changedPaths = docsOnly ? [] : parsedChangedPaths;
           const docsChanged = parseBoolean(process.env.OPENCLAW_CI_DOCS_CHANGED);
           const releaseGate = parseBoolean(process.env.OPENCLAW_CI_RELEASE_GATE);
+          const requestedScope = process.env.OPENCLAW_CI_REQUESTED_SCOPE ?? "full";
+          const fullLabel = parseBoolean(process.env.OPENCLAW_CI_FULL_LABEL);
           const releaseScope = process.env.OPENCLAW_CI_RELEASE_SCOPE ?? "full";
           const npmQualification = releaseScope === "npm-beta" || releaseScope === "npm-stable";
           const fullNativeValidation =
@@ -1437,6 +1490,18 @@ jobs:
             }
           }
           const runNode = parseBoolean(process.env.OPENCLAW_CI_RUN_NODE) && !docsOnly;
+          const initialScope = classifyCiScope({
+            eventName,
+            repository: process.env.OPENCLAW_CI_REPOSITORY,
+            // Test fixtures and older workflow revisions may not publish the
+            // ref input; a canonical push is still the authoritative main run.
+            ref: ref || (eventName === "push" && isCanonicalRepository ? "refs/heads/main" : ""),
+            changedPaths,
+            manualScope: requestedScope,
+            fullLabel,
+          });
+          let ciScope = initialScope.scope;
+          let ciScopeReason = initialScope.reason;
           const runNodeFastOnly =
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_ONLY);
           const runNodeFull = runNode && !runNodeFastOnly;
@@ -1463,9 +1528,18 @@ jobs:
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_PLUGIN_CONTRACTS);
           const runNodeFastCiRouting =
             runNode && parseBoolean(process.env.OPENCLAW_CI_RUN_NODE_FAST_CI_ROUTING);
-          const runPluginContractShards = runNodeFull || runNodeFastPluginContracts;
-          const pluginContractShards = runPluginContractShards ? createPluginContractTestShards() : [];
-          const channelContractShards = runNodeFull ? createChannelContractTestShards() : [];
+          const changedPathList = Array.isArray(changedPaths) ? changedPaths : [];
+          const hasPath = (pattern) => changedPathList.some((path) => pattern.test(path));
+          const pluginContractImpact =
+            ciScope !== "scoped" || hasPath(/^(?:src\/plugins\/|extensions\/)/u);
+          const channelContractImpact =
+            ciScope !== "scoped" || hasPath(/^(?:src\/channels\/|extensions\/)/u);
+          const allPluginContractShards = runNodeFull || runNodeFastPluginContracts
+            ? createPluginContractTestShards()
+            : [];
+          const allChannelContractShards = runNodeFull ? createChannelContractTestShards() : [];
+          let pluginContractShards = pluginContractImpact ? allPluginContractShards : [];
+          let channelContractShards = channelContractImpact ? allChannelContractShards : [];
           const runMacos =
             parseBoolean(process.env.OPENCLAW_CI_RUN_MACOS) && !docsOnly && isCanonicalRepository;
           // Older selected checkouts report only run_macos; retain their native Node coverage.
@@ -1500,6 +1574,7 @@ jobs:
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
+            ciScope === "full" ||
             !isCanonicalRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
@@ -1620,51 +1695,84 @@ jobs:
               eventName === "workflow_dispatch" || (ownerPathEvent && changedPaths === null))) {
             dockerSeedLanes.push("published-upgrade-survivor");
           }
-          // Canonical pushes also use compact bins: 80+ single-group jobs
-          // drain the runner pool for minutes, and per-shard check names on
-          // main have no branch-protection consumers. Dispatch (release
-          // validation) keeps the full named matrix.
-          const compactPlanMode = !isCanonicalRepository
-            ? undefined
-            : eventName === "pull_request"
-              ? "pull-request"
-              : eventName === "push"
-                ? "push"
-                : undefined;
+          // Full runs are authoritative on main, manual dispatches, and
+          // explicitly labeled PRs. Ordinary PRs use an affected-only plan;
+          // unknown/global diffs use the bounded compact fallback.
+          let compactPlanMode = ciScope === "fallback" ? "pull-request" : undefined;
           let changedNodeTestShards = null;
           let changedExtensionFallbackShards = [];
-          if (compactPullRequest && runNodeFull) {
-            // Compact core excludes plugins; a failed planner is not a complete fallback.
+          if (compactPullRequest && runNodeFull && ciScope === "scoped") {
+            // Compact core excludes plugins; a failed planner promotes the
+            // run to the bounded fallback instead of failing preflight.
             if (changedPaths === null) {
-              throw new Error("Current PR CI requires complete changed paths for Node test planning");
-            }
-            for (const name of ["createChangedNodeTestShards", "createChangedExtensionFallbackShards"]) {
-              if (typeof changedNodeTestPlan[name] !== "function") {
-                throw new Error(`Current PR CI target does not export ${name}`);
-              }
-            }
-            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
-              runnerBackend: runnerProfile,
-              dedicatedContractShards: [...pluginContractShards, ...channelContractShards],
-              dedicatedUiE2e: runUiE2e && !compatibilityTarget,
-              dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
-            });
-            if (changedNodeTestShards === null) {
-              changedExtensionFallbackShards =
-                changedNodeTestPlan.createChangedExtensionFallbackShards(changedPaths);
+              ciScope = "fallback";
+              ciScopeReason = "changed paths unavailable to precise planner";
+              compactPlanMode = "pull-request";
             }
           }
+          if (compactPullRequest && runNodeFull && ciScope === "scoped") {
+            const precisePlannerAvailable =
+              typeof changedNodeTestPlan.createChangedNodeTestShards === "function" &&
+              typeof changedNodeTestPlan.createChangedExtensionFallbackShards === "function";
+            if (!precisePlannerAvailable) {
+              ciScope = "fallback";
+              ciScopeReason = "affected-only planner unavailable";
+              compactPlanMode = "pull-request";
+            } else {
+              try {
+                changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
+                  runnerBackend: runnerProfile,
+                  dedicatedContractShards: [...pluginContractShards, ...channelContractShards],
+                  dedicatedUiE2e: runUiE2e && !compatibilityTarget,
+                  dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
+                });
+                if (changedNodeTestShards === null) {
+                  changedExtensionFallbackShards =
+                    changedNodeTestPlan.createChangedExtensionFallbackShards(changedPaths);
+                  ciScope = "fallback";
+                  ciScopeReason = "affected-only planner could not prove complete coverage";
+                  compactPlanMode = "pull-request";
+                }
+              } catch (error) {
+                changedNodeTestShards = null;
+                changedExtensionFallbackShards = [];
+                ciScope = "fallback";
+                ciScopeReason = `affected-only planner failed: ${error instanceof Error ? error.message : String(error)}`;
+                compactPlanMode = "pull-request";
+              }
+            }
+          }
+          // The scoped UI budget is intentionally smaller than the complete
+          // browser matrix. If the diff requires browser coverage, retain it
+          // under the bounded fallback policy rather than exceeding scoped
+          // admission limits. Run the precise planner first so it still
+          // receives the dedicated-suite inputs used by its coverage tests.
+          if (eventName === "pull_request" && ciScope === "scoped" && runUiE2e) {
+            ciScope = "fallback";
+            ciScopeReason = "browser coverage requires bounded fallback";
+            compactPlanMode = "pull-request";
+          }
+          // A planner failure promotes the run to the bounded fallback, which
+          // restores the complete contract ownership that fallback promises.
+          if (ciScope !== "scoped") {
+            pluginContractShards = allPluginContractShards;
+            channelContractShards = allChannelContractShards;
+          }
+          const runPluginContractShards = pluginContractShards.length > 0;
           // Heavy packaging lanes run only when the diff touches surfaces they
           // exist to prove: built-artifact tests need dist even on test-only diffs, and QA
           // smoke only sees changes on its scenario surface or inside the
           // packaged CLI's import graph. QA gating is diff-based, so it also
           // applies when test targeting fell back to the full compact suite.
           const changedScopeHasBuildImpact =
+            ciScope !== "scoped" ||
             changedNodeTestShards === null ||
             changedNodeTestShards.some((shard) => shard.requiresDist) ||
             typeof changedNodeTestPlan.hasBuildArtifactAffectingChange !== "function" ||
             changedNodeTestPlan.hasBuildArtifactAffectingChange(changedPaths);
           const changedScopeHasQaImpact =
+            ciScope === "full" ||
+            ciScope === "fallback" ||
             changedPaths === null ||
             eventName === "workflow_dispatch" ||
             typeof changedNodeTestPlan.hasQaSmokeAffectingChange !== "function" ||
@@ -1672,6 +1780,7 @@ jobs:
           // Prompt snapshots only change when the generator's import graph or
           // its fixtures do; unaffected PR diffs skip the regeneration lane.
           const changedScopeHasPromptSnapshotImpact =
+            ciScope !== "scoped" ||
             changedPaths === null ||
             eventName !== "pull_request" ||
             typeof changedNodeTestPlan.hasPromptSnapshotAffectingChange !== "function" ||
@@ -1680,6 +1789,7 @@ jobs:
             "test/scripts/sqlite-sessions-transcripts-flip-proof.built-cli.e2e.test.ts",
           );
           const changedScopeHasSqliteSessionLifecycleImpact =
+            ciScope !== "scoped" ||
             changedPaths === null ||
             eventName === "workflow_dispatch" ||
             typeof changedNodeTestPlan.hasSqliteSessionLifecycleAffectingChange !== "function" ||
@@ -1813,6 +1923,12 @@ jobs:
             typeof nodeTestPlan.hasCompleteStartupCorpusCoverage === "function" &&
             nodeTestPlan.hasCompleteStartupCorpusCoverage(rawNodeTestShards)
               ? checkoutRevision : "";
+          const matrixBudget = CI_MATRIX_BUDGETS[ciScope] ?? CI_MATRIX_BUDGETS.fallback;
+          if (nodeTestNonDistShards.length > matrixBudget.node) {
+            throw new Error(
+              `CI ${ciScope} Node matrix has ${nodeTestNonDistShards.length} jobs, exceeding budget ${matrixBudget.node}`,
+            );
+          }
           // Targeted jobs cannot discover repository-scanning boundary tests
           // through imports. Keep the full boundary gate inside build-artifacts
           // when that lane runs; test-only targeted plans carry their own
@@ -1825,30 +1941,99 @@ jobs:
             protocolCoverageRequested &&
             (!frozenTarget || existsSync("scripts/check-protocol-event-coverage.mjs"));
 
+          const rowCounts = {
+            node: nodeTestNonDistShards.length + nodeTestDistShards.length,
+            ui: runUiE2e ? uiE2eJobCount : 0,
+            qa: runQaSmokeCi ? qaSmokeCiPartCount : 0,
+            native: Number(runWindows) + Number(runMacosNode) + Number(runIosBuild) + Number(runAndroid),
+          };
+          for (const [lane, count] of Object.entries(rowCounts)) {
+            if (count > matrixBudget[lane]) {
+              throw new Error(
+                `CI ${ciScope} ${lane} matrix has ${count} rows, exceeding budget ${matrixBudget[lane]}`,
+              );
+            }
+          }
+          const skippedLanes = skippedCiLanes({
+            scope: ciScope,
+            runWindows,
+            runMacos: runMacos || runMacosNode,
+            runIos: runIosBuild,
+            runAndroid,
+            runBrowser: runUiTests || runUiE2e,
+            runNative: runMacos || runMacosNode || runIosBuild || runAndroid,
+            runQa: runQaSmokeCi,
+            runCodeql: ciScope === "full",
+            runPeriphery: ciScope === "full",
+            runOpenGrepFull: ciScope === "full",
+          });
+
+          const checkMatrixRows = (() => {
+            if (!runNodeFull) return [];
+            const globalOrFallback = ciScope !== "scoped";
+            const sourceOrTestChange = globalOrFallback || hasPath(
+              /^(?:src\/|packages\/|extensions\/|test\/|scripts\/).*\.(?:c|m)?[jt]sx?$/u,
+            );
+            const packageChange = globalOrFallback || hasPath(
+              /^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|packages\/|extensions\/[^/]+\/)/u,
+            );
+            const sourceChange = globalOrFallback || hasPath(
+              /^(?:src\/|packages\/|extensions\/|ui\/|scripts\/|test\/).*\.(?:c|m)?[jt]sx?$/u,
+            );
+            return [
+              { check_name: "check-guards", task: "guards", runner: "blacksmith-4vcpu-ubuntu-2404" },
+              ...(sourceChange ? [{ check_name: "check-lint", task: "lint", runner: "blacksmith-32vcpu-ubuntu-2404" }] : []),
+              ...(sourceChange ? [{ check_name: "check-prod-types", task: "prod-types", runner: "blacksmith-4vcpu-ubuntu-2404" }] : []),
+              ...(packageChange ? [{ check_name: "check-npm-lock", task: "npm-lock", runner: "blacksmith-4vcpu-ubuntu-2404" }] : []),
+              ...(packageChange ? [{ check_name: "check-bundled-channel-config-metadata", task: "bundled-channel-config-metadata", runner: "blacksmith-4vcpu-ubuntu-2404" }] : []),
+              ...(packageChange ? [{ check_name: "check-dependencies", task: "dependencies", runner: "blacksmith-32vcpu-ubuntu-2404" }] : []),
+              ...(sourceOrTestChange ? [{ check_name: "check-test-types", task: "test-types", runner: "blacksmith-32vcpu-ubuntu-2404" }] : []),
+            ];
+          })();
+          const packageImpact =
+            ciScope !== "scoped" ||
+            hasPath(/^(?:package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|packages\/|extensions\/[^/]+\/)/u);
+          const sourceContractImpact =
+            ciScope !== "scoped" || hasPath(/^(?:packages\/|extensions\/|src\/(?:plugin-sdk|plugins)\/)/u);
+          const architectureImpact = ciScope !== "scoped";
           const additionalChecks = [
-            { check_name: "check-additional-boundaries", group: "boundaries", runner: "blacksmith-8vcpu-ubuntu-2404" },
+            ...(runNodeFull ? [{ check_name: "check-additional-boundaries", group: "boundaries", runner: "blacksmith-8vcpu-ubuntu-2404" }] : []),
             // Prompt regeneration loads the full tool/prompt import graph independently.
-            { check_name: "check-prompt-snapshots", group: "prompt-snapshots", runner: "blacksmith-8vcpu-ubuntu-2404" },
+            ...(runNodeFull && changedScopeHasPromptSnapshotImpact
+              ? [{ check_name: "check-prompt-snapshots", group: "prompt-snapshots", runner: "blacksmith-8vcpu-ubuntu-2404" }]
+              : []),
             // Frozen targets retain their original rows and command boundaries.
-            ...(frozenTarget ? [
-              { check_name: "check-export-name-collisions", group: "export-name-collisions", runner: "blacksmith-4vcpu-ubuntu-2404" },
-              { check_name: "check-session-accessor-boundary", group: "session-accessor-boundary", runner: "blacksmith-4vcpu-ubuntu-2404" },
-              { check_name: "check-sqlite-session-schema-baseline", group: "sqlite-session-schema-baseline", runner: "blacksmith-4vcpu-ubuntu-2404" },
-            ] : [
-              { check_name: "check-source-contracts", group: "source-contracts", runner: "blacksmith-4vcpu-ubuntu-2404" },
-            ]),
+            ...(runNodeFull && (frozenTarget || sourceContractImpact)
+              ? (frozenTarget
+                ? [
+                    { check_name: "check-export-name-collisions", group: "export-name-collisions", runner: "blacksmith-4vcpu-ubuntu-2404" },
+                    { check_name: "check-session-accessor-boundary", group: "session-accessor-boundary", runner: "blacksmith-4vcpu-ubuntu-2404" },
+                    { check_name: "check-sqlite-session-schema-baseline", group: "sqlite-session-schema-baseline", runner: "blacksmith-4vcpu-ubuntu-2404" },
+                  ]
+                : [{ check_name: "check-source-contracts", group: "source-contracts", runner: "blacksmith-4vcpu-ubuntu-2404" }])
+              : []),
             // Only dispatches execute this report; ordinary runs need no report runner.
             ...(eventName === "workflow_dispatch" ? [
               // Diff generation took 209–246s on smaller hosts; keep its 8GiB heap isolated.
               { check_name: "report-plugin-sdk-api-diff", group: "plugin-sdk-api-diff", runner: "blacksmith-8vcpu-ubuntu-2404" },
             ] : []),
-            // Keep these scans on available capacity; their resource guards remain authoritative.
-            { check_name: "check-additional-extension-package-boundary", group: "extension-package-boundary", runner: "blacksmith-16vcpu-ubuntu-2404" },
-            { check_name: "check-additional-runtime-topology-architecture", group: "runtime-topology-architecture", runner: "blacksmith-16vcpu-ubuntu-2404" },
+            ...(runNodeFull && packageImpact
+              ? [{ check_name: "check-additional-extension-package-boundary", group: "extension-package-boundary", runner: "blacksmith-16vcpu-ubuntu-2404" }]
+              : []),
+            // Architecture is a broad contract lane; keep it for fallback/full
+            // admission and for changes that can alter the repository topology.
+            ...(runNodeFull && architectureImpact
+              ? [{ check_name: "check-additional-runtime-topology-architecture", group: "runtime-topology-architecture", runner: "blacksmith-16vcpu-ubuntu-2404" }]
+              : []),
           ];
 
           const manifest = {
             release_scope: releaseScope,
+            ci_scope: ciScope,
+            ci_scope_reason: ciScopeReason,
+            ci_scope_row_counts: JSON.stringify(rowCounts),
+            ci_scope_skipped_lanes: skippedLanes.join(","),
+            check_matrix: createMatrix(checkMatrixRows),
             docs_only: docsOnly,
             docs_changed: docsChanged,
             run_node: runNode,
@@ -1893,7 +2078,7 @@ jobs:
             run_check: runNodeFull,
             startup_corpus_node_revision: startupCorpusNodeRevision,
             changed_core_test_paths_json: changedCoreTestPaths ? JSON.stringify(changedCoreTestPaths) : "",
-            run_check_additional: runNodeFull,
+            run_check_additional: runNodeFull && additionalChecks.length > 0,
             check_additional_matrix: createMatrix(runNodeFull ? additionalChecks : []),
             run_check_docs: docsChanged && eventName !== "push",
             run_format_check: runFormatCheck,
@@ -2060,9 +2245,14 @@ jobs:
               "utf8",
             );
           }
+          console.log(`CI scope: ${ciScope} (${ciScopeReason})`);
+          console.log(`CI matrix rows: ${JSON.stringify(rowCounts)}`);
+          console.log(`CI skipped lanes: ${skippedLanes.join(", ") || "none"}`);
           console.log(`CI release scope: ${releaseScope}`);
           if (process.env.GITHUB_STEP_SUMMARY) {
             appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `### CI routing\n\n- Selected scope: \`${ciScope}\`\n- Reason: ${ciScopeReason}\n- Target: \`${checkoutRevision}\`\n` +
+              `- Matrix rows: \`${JSON.stringify(rowCounts)}\`\n- Skipped lanes: ${skippedLanes.join(", ") || "none"}\n\n` +
               `### CI release qualification\n\n- Scope: \`${releaseScope}\`\n- Target: \`${checkoutRevision}\`\n` +
               (npmQualification ? "- Native app qualification: deferred; Linux, macOS, and Windows Node coverage retained.\n" : ""));
           }
@@ -2753,8 +2943,8 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && needs.preflight.outputs.hybrid_hosted_offload == 'true') && 'ubuntu-24.04' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-8vcpu-ubuntu-2404' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04')) }}
     timeout-minutes: 20
     strategy:
-      fail-fast: false
-      max-parallel: 3
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || 3 }}
       matrix:
         # Frozen checkouts retain their original unsharded test envelope.
         shard: ${{ fromJSON(needs.preflight.outputs.frozen_target == 'true' && '[1]' || '[1,2,3]') }}
@@ -2845,9 +3035,8 @@ jobs:
     env:
       OPENCLAW_UI_E2E_SKIP_REAL_GATEWAY: "1"
     strategy:
-      fail-fast: false
-      # Public forks use standard hosted capacity (20 concurrent jobs on GitHub Free).
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 14 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 14 }}
       matrix: ${{ fromJson(needs.preflight.outputs.ui_e2e_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3132,8 +3321,8 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04') }}
     timeout-minutes: 60
     strategy:
-      fail-fast: false
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_fast_core_matrix) }}
     env:
       CHECKOUT_BASE_SHA: ${{ (matrix.task == 'baseline-ratchets' || matrix.task == 'bundled-protocol' || startsWith(matrix.task, 'release-lint-')) && needs.preflight.outputs.baseline_base_revision || '' }}
@@ -3342,8 +3531,8 @@ jobs:
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 60
     strategy:
-      fail-fast: false
-      max-parallel: ${{ (needs.preflight.outputs.runner_profile == 'github' || needs.preflight.outputs.runner_profile == 'hybrid') && 6 || 4 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || ((needs.preflight.outputs.runner_profile == 'github' || needs.preflight.outputs.runner_profile == 'hybrid') && 6 || 4) }}
       matrix: ${{ fromJson(needs.preflight.outputs.qa_smoke_ci_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3524,8 +3713,8 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 60
     strategy:
-      fail-fast: false
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.plugin_contracts_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3585,8 +3774,8 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 60
     strategy:
-      fail-fast: false
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJson(needs.preflight.outputs.channel_contracts_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3649,10 +3838,10 @@ jobs:
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && ((matrix.runner == 'blacksmith-8vcpu-ubuntu-2404' && contains(fromJSON('["checks-node-changed-extensions-bundle-16","checks-node-compact-large-9","checks-node-changed-extensions-bundle-25","checks-node-compact-large-5"]'), matrix.check_name)) && 'blacksmith-16vcpu-ubuntu-2404' || matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04') }}
     timeout-minutes: ${{ matrix.timeout_minutes || 60 }}
     strategy:
-      fail-fast: false
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
       # Compact and PR manifest caps bound registrations; parallelism bounds
       # active jobs. Canonical main retains two non-canceling parity slots.
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 96 }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 96 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_node_core_nondist_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -3834,34 +4023,9 @@ jobs:
       # Prepare comparison history before checkout's credential scope ends.
       CHECKOUT_BASE_SHA: ${{ ((matrix.task == 'guards' && github.event_name == 'pull_request') || (matrix.task == 'npm-lock' && github.event_name != 'workflow_dispatch')) && needs.preflight.outputs.diff_base_revision || '' }}
     strategy:
-      fail-fast: false
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
-      matrix:
-        include:
-          - check_name: check-guards
-            task: guards
-            runner: blacksmith-4vcpu-ubuntu-2404
-          - check_name: check-npm-lock
-            task: npm-lock
-            runner: blacksmith-4vcpu-ubuntu-2404
-          - check_name: check-bundled-channel-config-metadata
-            task: bundled-channel-config-metadata
-            runner: blacksmith-4vcpu-ubuntu-2404
-          - check_name: check-prod-types
-            task: prod-types
-            runner: blacksmith-4vcpu-ubuntu-2404
-          - check_name: check-lint
-            task: lint
-            # Oxlint shard concurrency scales with observed CPU and memory capacity.
-            runner: blacksmith-16vcpu-ubuntu-2404
-          - check_name: check-dependencies
-            task: dependencies
-            # Concurrent Knip scans need CPU and memory headroom.
-            runner: blacksmith-16vcpu-ubuntu-2404
-          - check_name: check-test-types
-            task: test-types
-            # Actual CPU and memory capacity still govern type-check parallelism.
-            runner: blacksmith-16vcpu-ubuntu-2404
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
+      matrix: ${{ fromJSON(needs.preflight.outputs.check_matrix) }}
     steps:
       - *linux_node_checkout_step
       - name: Setup Node environment
@@ -4222,8 +4386,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     strategy:
-      fail-fast: false
-      max-parallel: 5
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || 5 }}
       matrix:
         stripe: ${{ fromJSON(needs.preflight.outputs.runner_profile == 'hybrid' && needs.preflight.outputs.frozen_target != 'true' && !inputs.release_gate && (github.event_name == 'push' || github.event_name == 'pull_request') && '[1,2]' || '[1,2,3,4,5]') }}
     steps:
@@ -4314,7 +4478,7 @@ jobs:
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) && 'ubuntu-24.04' || github.event_name == 'workflow_dispatch' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-16vcpu-ubuntu-2404' || 'ubuntu-24.04') }}
     timeout-minutes: 15
     strategy:
-      fail-fast: false
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
       max-parallel: 2
       matrix:
         stripe: [1, 2]
@@ -4350,8 +4514,8 @@ jobs:
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && (github.run_attempt > 1 || (matrix.group != 'extension-package-boundary' && matrix.group != 'runtime-topology-architecture' && matrix.group != 'plugin-sdk-api-diff'))) && 'ubuntu-24.04' || (github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04') }}
     timeout-minutes: 20
     strategy:
-      fail-fast: false
-      max-parallel: ${{ needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 2 || needs.preflight.outputs.runner_profile == 'github' && 6 || 12 }}
       matrix: ${{ fromJSON(needs.preflight.outputs.check_additional_matrix) }}
     steps:
       - *linux_node_checkout_step
@@ -4707,10 +4871,10 @@ jobs:
       run:
         shell: bash
     strategy:
-      fail-fast: false
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
       # Both parts must run concurrently or the split gains nothing; Blacksmith's
       # Windows class admits exactly 2, so this is the width, not a cap.
-      max-parallel: 2
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 1 || 2 }}
       matrix: ${{ fromJson(needs.preflight.outputs.checks_windows_matrix) }}
     steps:
       - &platform_checkout_step
@@ -4824,8 +4988,8 @@ jobs:
     runs-on: ${{ (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid') && 'macos-15' || (github.event_name == 'workflow_dispatch' || github.run_attempt > 1) && 'macos-15' || (github.repository == 'openclaw/openclaw' && (github.event_name != 'pull_request' || contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association)) && 'blacksmith-6vcpu-macos-15' || 'macos-15') }}
     timeout-minutes: 20
     strategy:
-      fail-fast: false
-      max-parallel: 3
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 1 || 3 }}
       matrix: ${{ fromJson(needs.preflight.outputs.macos_node_matrix) }}
     steps:
       - *platform_checkout_step
@@ -4869,8 +5033,8 @@ jobs:
     # Debug/coverage tests remain required; full validation adds an independent
     # optimized build whose products are not inputs to the test graph.
     strategy:
-      fail-fast: false
-      max-parallel: 2
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 1 || 2 }}
       matrix:
         phase: ${{ fromJSON(github.event_name == 'workflow_dispatch' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && '["release","tests"]' || '["tests"]') }}
     # Unassigned Blacksmith Mac jobs can hold both non-canceling main slots.
@@ -5270,8 +5434,8 @@ jobs:
     # Automatic CI compiles and lints; full manual validation adds independent
     # Release device and simulator test phases.
     strategy:
-      fail-fast: false
-      max-parallel: 2
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
+      max-parallel: ${{ needs.preflight.outputs.ci_scope == 'scoped' && 1 || 2 }}
       matrix:
         phase: ${{ fromJSON(github.event_name == 'workflow_dispatch' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && (needs.preflight.outputs.compatibility_target == 'true' && '["tests"]' || '["release","tests"]') || '["smoke"]') }}
     # Blacksmith macOS 26 admission stalled while hosted retries completed.
@@ -5786,7 +5950,7 @@ jobs:
     # runner routes. Hosted build-play keeps its three-invocation budget on retries.
     timeout-minutes: ${{ (matrix.task == 'test-play' || matrix.task == 'test-third-party') && matrix.lint && 35 || matrix.task == 'build-play' && (vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' || (vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && github.run_attempt > 1) || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1) || github.repository != 'openclaw/openclaw' || (github.event_name == 'pull_request' && !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR","CONTRIBUTOR"]'), github.event.pull_request.author_association))) && 35 || 20 }}
     strategy:
-      fail-fast: false
+      fail-fast: ${{ needs.preflight.outputs.ci_scope == 'scoped' }}
       max-parallel: 2
       matrix: ${{ fromJson(needs.preflight.outputs.android_matrix) }}
     steps:
@@ -6143,7 +6307,7 @@ jobs:
       - docker-seed-e2e
     # Report failed prerequisites, but let superseded runs release their slot
     # without waiting for an aggregate runner after workflow cancellation.
-    if: ${{ !cancelled() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
+    if: ${{ !cancelled() && always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     # The gate only aggregates job results; keep it independent of Blacksmith capacity.
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -6151,6 +6315,8 @@ jobs:
       - name: Verify selected CI lanes
         shell: bash
         env:
+          CI_SCOPE: ${{ needs.preflight.outputs.ci_scope || 'unavailable' }}
+          CI_SCOPE_REASON: ${{ needs.preflight.outputs.ci_scope_reason || 'preflight did not publish a scope' }}
           JOB_RESULTS: |
             preflight=${{ needs.preflight.result }}|true
             security-fast=${{ needs.security-fast.result }}|true
@@ -6183,6 +6349,8 @@ jobs:
             docker-seed-e2e=${{ needs.docker-seed-e2e.result }}|${{ needs.preflight.outputs.run_docker_seed_e2e }}
         run: |
           set -euo pipefail
+
+          echo "selected CI scope: ${CI_SCOPE:-unavailable} (${CI_SCOPE_REASON:-preflight did not publish a scope})"
 
           # Preserve raw fields: IFS splitting can erase malformed trailing
           # delimiters and turn invalid results or selection into accepted values.

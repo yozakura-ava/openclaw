@@ -5,7 +5,9 @@ run-name: ${{ github.workflow }} [${{ github.event_name == 'workflow_dispatch' &
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
@@ -32,7 +34,7 @@ jobs:
       should-scan: ${{ steps.scope.outputs.should-scan }}
     steps:
       - name: Checkout
-        if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+        if: github.event_name != 'workflow_dispatch' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 2
@@ -45,7 +47,8 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
         with:
           script: |
-            if (context.eventName === "workflow_dispatch") {
+            if (context.eventName === "workflow_dispatch" || context.eventName === "push" ||
+                context.payload.pull_request?.labels?.some((label) => label.name === "ci/full")) {
               core.setOutput("should-scan", "true");
               return;
             }
