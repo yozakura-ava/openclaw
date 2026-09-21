@@ -18,7 +18,7 @@ import {
 } from "../state/session-watch-cursor-provenance.js";
 import { classifySessionKind } from "./classify-session-kind.js";
 import type { InputProvenance } from "./input-provenance.js";
-import type { SessionStateActorType, SessionStateEventKind } from "./session-state-event-kinds.js";
+import type { SessionStateActorType } from "./session-state-event-kinds.js";
 import {
   rowToSessionStateEvent,
   type SessionStateEventRecord,
