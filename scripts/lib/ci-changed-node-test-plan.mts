@@ -643,6 +643,12 @@ export function createChangedNodeTestShards(
   if (!Array.isArray(changedPaths) || changedPaths.length === 0) {
     return null;
   }
+  if (changedPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))) {
+    return createChangedTargetShards(EMBEDDED_STREAM_RECOVERY_TEST_TARGETS, {
+      checkName: "checks-node-changed",
+      shardName: "changed",
+    });
+  }
 
   // Packing changes can move every compact child. Observe the complete plan on
   // Blacksmith while preserving hosted targeting and its registration footprint.
