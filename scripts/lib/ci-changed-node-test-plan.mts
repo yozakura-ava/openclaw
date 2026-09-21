@@ -761,13 +761,14 @@ export function createChangedNodeTestShards(
   if (targetPlans === null) {
     return null;
   }
-  const narrowEmbeddedAdmission =
+  const narrowRuntimeAdmission =
     resolutionPaths.length > 0 &&
-    resolutionPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath));
-  const narrowSubagentAdmission =
-    resolutionPaths.length > 0 &&
-    resolutionPaths.every((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath));
-  const canonicalTargets = (narrowEmbeddedAdmission || narrowSubagentAdmission ? [] : targetPlans)
+    resolutionPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    );
+  const canonicalTargets = (narrowRuntimeAdmission ? [] : targetPlans)
     .filter(({ plans }) =>
       plans.some(({ config }) => configsRequiringCanonicalMetadata.has(config)),
     )
