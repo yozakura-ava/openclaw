@@ -296,7 +296,7 @@ describe("Workboard gateway lifecycle sync", () => {
     expect(changes).toHaveBeenCalledOnce();
   });
 
-  it.each(["error", "timeout", "killed"] as const)(
+  it.each(["error", "timeout", "killed", "exited-early"] as const)(
     "moves a linked running card to blocked for subagent outcome %s",
     async (outcome) => {
       const store = createWorkboardSqliteTestStore();
