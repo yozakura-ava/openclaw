@@ -752,5 +752,3 @@ export function recordSubagentTerminalState(params: {
     watcherSessionKeys: [params.requesterSessionKey],
   });
 }
-
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
