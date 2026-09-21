@@ -91,7 +91,7 @@ jobs:
           network_runtime=false
           session_diagnostics=false
 
-          if [[ "${EVENT_NAME}" != "pull_request" || "${FULL_LABEL}" == "true" ]]; then
+          if [[ "${EVENT_NAME}" != "pull_request" || "${FULL_LABEL:-false}" == "true" ]]; then
             agent=true
             channel=true
             config=true
