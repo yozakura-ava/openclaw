@@ -129,8 +129,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
-      if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
-        throw new Error("card dependencies are not done.");
+      const parentIds = cardParentIds(guarded);
+      if (parentIds.length > 0 && guarded.status !== "ready" && !activeClaim) {
+        const parents = await Promise.all(parentIds.map((parentId) => this.get(parentId)));
+        if (!parents.every((parent) => parent?.status === "done")) {
+          throw new Error("card dependencies are not done.");
+        }
       }
       if (guarded.status === "scheduled") {
         throw new Error("card is scheduled for later.");
