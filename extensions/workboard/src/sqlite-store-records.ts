@@ -471,6 +471,7 @@ function readMetadata(
   const stale = parseJson(row.stale_json) as WorkboardMetadata["stale"] | undefined;
   const lifecycleStatusSourceUpdatedAt = numberValue(row, "lifecycle_status_source_updated_at");
   const reviewRequired = numberValue(row, "review_required");
+  // SAFETY: review verdict JSON is written from WorkboardMetadata.reviewVerdict unchanged.
   const reviewVerdict = parseJson(row.review_verdict_json) as WorkboardMetadata["reviewVerdict"];
   return optional({
     ...(attempts.length > 0 ? { attempts } : {}),

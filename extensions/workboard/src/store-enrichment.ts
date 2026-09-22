@@ -61,7 +61,7 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
         return {
           ...existing.metadata,
           reviewVerdict: {
-            verified: input.verified as boolean,
+            verified: input.verified,
             reviewerId: normalizeBoundedString(scope?.ownerId, "operator", 120, "reviewer id")!,
             reviewedAt: Math.max(Date.now(), existing.updatedAt + 1),
             ...(summary ? { summary } : {}),
