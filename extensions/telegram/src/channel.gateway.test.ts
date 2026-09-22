@@ -374,7 +374,11 @@ describe("telegramPlugin gateway startup", () => {
     });
     monitorTelegramProvider.mockResolvedValue(undefined);
 
-    const tokenFile = path.join(testState.env.OPENCLAW_STATE_DIR, "telegram-token");
+    const stateDir = testState.env.OPENCLAW_STATE_DIR;
+    if (!stateDir) {
+      throw new Error("expected Telegram test state directory");
+    }
+    const tokenFile = path.join(stateDir, "telegram-token");
     const firstToken = "123456:first-file-token";
     const secondToken = "123456:second-file-token";
     await fs.writeFile(tokenFile, `${firstToken}\n`, "utf8");
