@@ -117,6 +117,7 @@ import {
   type CronExitWatcherHandlers,
   type CronExitWatchers,
 } from "./cron-exit-watchers.js";
+import { settleActiveCronRunsAfterShutdownDeadline } from "./cron-shutdown-drain.js";
 import {
   createCronStreamWatchers,
   type CronStreamFireDisposition,
@@ -388,7 +389,6 @@ function isCommandCronJob(job: CronJob | null | undefined): boolean {
 
 // Match the daemon's five-minute SIGTERM drain, leaving its stop timeout a teardown reserve.
 const CRON_ACTIVE_RUN_SHUTDOWN_DRAIN_MS = 5 * 60_000;
-const CRON_ACTIVE_RUN_ABORT_SETTLE_MS = 10_000;
 
 /** Build the cron service state used by Gateway startup and lazy cron loading. */
 export function buildGatewayCronService(params: {
@@ -1497,20 +1497,12 @@ export function buildGatewayCronService(params: {
       exitWatchersStop,
       streamWatchersStop,
     ]);
-    if (!activeRunDrain.drained) {
-      const abortedRuns = abortActiveCronTaskRuns("Gateway shutdown drain deadline elapsed.");
-      const cancelledRunDrain = await waitForActiveCronTaskRuns(CRON_ACTIVE_RUN_ABORT_SETTLE_MS);
-      cronLogger.warn(
-        {
-          abortedRuns,
-          activeRuns: cancelledRunDrain.active,
-          settledAfterCancellation: cancelledRunDrain.drained,
-        },
-        cancelledRunDrain.drained
-          ? "cron: active runs were cancelled after the shutdown drain deadline"
-          : "cron: active runs did not settle after the shutdown drain deadline",
-      );
-    }
+    await settleActiveCronRunsAfterShutdownDeadline({
+      activeRunDrain,
+      waitForActiveCronTaskRuns,
+      abortActiveCronTaskRuns,
+      warn: (details, message) => cronLogger.warn(details, message),
+    });
     if (!streamWatchersResult.ok) {
       throw streamWatchersResult.error;
     }

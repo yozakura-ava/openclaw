@@ -1850,12 +1850,10 @@ describe("buildGatewayCronService", () => {
       const shutdown = state.cron.stopAndDrain?.();
       expect(controller.signal.aborted).toBe(false);
       coreRun.resolve();
-      await expect(trackedRun).resolves.toBeUndefined();
-      await shutdown;
+      await Promise.all([expect(trackedRun).resolves.toBeUndefined(), shutdown]);
       expect(controller.signal.aborted).toBe(false);
     } finally {
       state.cron.stop();
-      coreRun.resolve();
       await trackedRun;
       await vi.waitFor(() => expect(getSuspensionVisibleCronTaskRunCount()).toBe(0));
       resetActiveCronTaskRunsForTests();
