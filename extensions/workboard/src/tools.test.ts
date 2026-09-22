@@ -690,6 +690,20 @@ describe("workboard tools", () => {
         },
       });
 
+      const attached = readPayload(
+        await tools.get("workboard_attachment_add")?.execute("attachment-past-grace", {
+          id: card.id,
+          fileName: "handoff.txt",
+          contentBase64: Buffer.from("recovery evidence").toString("base64"),
+          note: "evidence from the previous worker",
+        }),
+      );
+      expect(attached.card).toMatchObject({
+        metadata: {
+          attachments: [expect.objectContaining({ fileName: "handoff.txt" })],
+        },
+      });
+
       // Regression guard: tokenless completion by another agent stays rejected
       // even when the claim is expired past the reclaim grace window.
       await expect(

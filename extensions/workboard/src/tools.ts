@@ -585,7 +585,7 @@ export function createWorkboardTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: async (_toolCallId, rawParams) => {
-        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const { record, id, scope } = await readRecoveryCardToolParams(rawParams);
         return redactedCardResult(await store.addAttachment(id, record, scope));
       },
     },
