@@ -443,6 +443,25 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return board?.version === 1 && board.board.orchestration?.autoDecompose === true;
   }
 
+  private async recordDispatch(
+    card: WorkboardCard,
+    now: number,
+    fields: { pipelineStrikes?: number } = {},
+  ): Promise<WorkboardCard> {
+    const automation = normalizeAutomation(
+      {
+        ...card.metadata?.automation,
+        dispatchCount: (card.metadata?.automation?.dispatchCount ?? 0) + 1,
+        lastDispatchAt: now,
+        ...fields,
+      },
+      card.metadata?.automation,
+    );
+    return await this.updateCard(card.id, {
+      metadata: { ...card.metadata, ...(automation ? { automation } : {}) },
+    });
+  }
+
   async dispatch(
     input: number | WorkboardDispatchOptions = Date.now(),
   ): Promise<WorkboardDispatchResult> {
@@ -623,6 +642,53 @@ export class WorkboardStore extends WorkboardNotificationStore {
     });
   }
 
+  async forceClose(
+    id: string,
+    input: { reasonCode?: unknown; explanation?: unknown; referenceCardId?: unknown },
+    ownerId: string,
+  ): Promise<WorkboardCard> {
+    const normalizedOwner = ownerId.trim().toLowerCase();
+    if (!["ava", "craig", "operator:craig", "agent:craig"].includes(normalizedOwner)) {
+      throw new Error("force-close is orchestrator-only");
+    }
+    const reasonCode = input.reasonCode;
+    if (!["superseded", "duplicate", "cancelled", "invalid"].includes(String(reasonCode))) {
+      throw new Error("force-close reason_code is invalid");
+    }
+    const explanation = typeof input.explanation === "string" ? input.explanation.trim() : "";
+    if (explanation.length < 20 || explanation.length > 4000) {
+      throw new Error("force-close explanation must be between 20 and 4000 characters");
+    }
+    const referenceCardId =
+      typeof input.referenceCardId === "string" ? input.referenceCardId.trim() : "";
+    if ((reasonCode === "superseded" || reasonCode === "duplicate") && !referenceCardId) {
+      throw new Error(`force-close reason ${reasonCode} requires reference_card_id`);
+    }
+    if (referenceCardId && !(await this.get(referenceCardId))) {
+      throw new Error(`reference card not found: ${referenceCardId}`);
+    }
+    const existing = await this.get(id);
+    if (!existing) {
+      throw new Error(`card not found: ${id}`);
+    }
+    if (existing.status === "done") {
+      throw new Error(`card is already done: ${id}`);
+    }
+    const now = Date.now();
+    return await this.update(id, {
+      status: "done",
+      metadata: {
+        ...existing.metadata,
+        claim: undefined,
+        closureType: "force_close",
+        comments: [
+          ...(existing.metadata?.comments ?? []),
+          { id: randomUUID(), body: `[${String(reasonCode)}] ${explanation}`, createdAt: now },
+        ].slice(-50),
+      },
+    });
+  }
+
   async bulkUpdate(input: WorkboardBulkInput): Promise<{ cards: WorkboardCard[] }> {
     const ids = Array.isArray(input.ids)
       ? input.ids.filter((id): id is string => typeof id === "string" && id.trim() !== "")
@@ -645,12 +711,20 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return { cards };
   }
 
-  async archive(id: string, archived: unknown): Promise<WorkboardCard> {
+  async archive(
+    id: string,
+    archived: unknown,
+    options: { expectedUpdatedAt?: number } = {},
+  ): Promise<WorkboardCard> {
     const shouldArchive = archived !== false;
-    return await this.updateMetadata(id, (existing) => ({
-      ...existing.metadata,
-      archivedAt: shouldArchive ? Date.now() : 0,
-    }));
+    return await this.updateMetadata(
+      id,
+      (existing) => ({
+        ...existing.metadata,
+        archivedAt: shouldArchive ? Date.now() : 0,
+      }),
+      options,
+    );
   }
 
   async exportCards(): Promise<{
@@ -713,8 +787,8 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return buildWorkerContext(card, await this.list());
   }
 
-  static openSqlite() {
-    const stores = createWorkboardSqliteStores();
+  static openSqlite(workerModuleUrl: URL) {
+    const stores = createWorkboardSqliteStores({ workerModuleUrl });
     return new WorkboardStore(stores.cards, stores);
   }
 }

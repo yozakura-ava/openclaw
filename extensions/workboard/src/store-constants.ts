@@ -57,15 +57,6 @@ export const MAX_PIPELINE_RETRY_STRIKES = 3;
 // authored. The definitions are added here to restore the import contract
 // after the forward-port to canonical/2026.9.4-base. Track F / Sprint
 // 2026-09-15 (HR42: ava-trackf-forwardports-20260915).
-export const DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER = Number.POSITIVE_INFINITY;
-
-export function normalizeMaxConcurrentClaimsPerOwner(input: unknown): number {
-  if (typeof input === "number" && Number.isFinite(input) && input > 0) {
-    return Math.floor(input);
-  }
-  return DEFAULT_MAX_CONCURRENT_CLAIMS_PER_OWNER;
-}
-
 export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
   now: number,

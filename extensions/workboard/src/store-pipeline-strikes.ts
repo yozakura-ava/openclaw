@@ -85,6 +85,3 @@ export function pipelineStrikeCount(card: WorkboardCard): number {
  * parked in `blocked` rather than re-dispatched. Caller parks the card with
  * a notification + worker-log entry explaining the saturation.
  */
-export function pipelineStrikesExhausted(card: WorkboardCard, maxStrikes: number): boolean {
-  return pipelineStrikeCount(card) >= maxStrikes;
-}
