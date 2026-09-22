@@ -198,12 +198,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_events_kind_sequence
 CREATE INDEX IF NOT EXISTS idx_audit_events_status_sequence
   ON audit_events(status, sequence DESC);
 
-CREATE INDEX IF NOT EXISTS idx_audit_events_channel_sequence
-  ON audit_events(channel, sequence DESC);
-
-CREATE INDEX IF NOT EXISTS idx_audit_events_direction_sequence
-  ON audit_events(direction, sequence DESC);
-
 CREATE TABLE IF NOT EXISTS outbound_message_execution_bindings (
   event_id TEXT NOT NULL PRIMARY KEY,
   context_id TEXT NOT NULL CHECK (length(context_id) BETWEEN 1 AND 256),
