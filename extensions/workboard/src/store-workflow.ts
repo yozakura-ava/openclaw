@@ -19,11 +19,13 @@ import {
   cardRunId,
   cardSessionKey,
   closeRunningAttempts,
-  recordClaimConflict,
   retryBudgetExhausted,
+} from "./store-card-helpers.js";
+import {
+  recordClaimConflict,
   snapshotClaimConflictHistory,
   type WorkboardClaimConflictEvent,
-} from "./store-card-helpers.js";
+} from "./store-claim-conflict.js";
 import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,

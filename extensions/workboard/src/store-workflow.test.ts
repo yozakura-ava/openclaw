@@ -21,7 +21,7 @@ import {
   CLAIM_CONFLICT_HISTORY_CAP,
   clearClaimConflictHistory,
   snapshotClaimConflictHistory,
-} from "./store-card-helpers.js";
+} from "./store-claim-conflict.js";
 import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
