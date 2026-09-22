@@ -15918,6 +15918,7 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
     expect(upload.if).toBe("always() && needs.preflight.outputs.run_checks == 'true'");
     expect(upload.with.path).toContain("${{ runner.temp }}/discord-component-attachments.json");
     expect(upload.with.path).toContain("${{ runner.temp }}/discord-component-attachments.log");
+    expect(upload.with["if-no-files-found"]).toBe("warn");
     // Every verifier reports through the shared results map so a failure can
     // never be swallowed by the wave.
     for (const name of [
