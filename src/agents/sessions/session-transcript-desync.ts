@@ -1,5 +1,5 @@
 /** Marks a persisted user turn that no longer belongs to the active transcript turn. */
-export const SESSION_TRANSCRIPT_DESYNC_ERROR_CODE = "SESSION_TRANSCRIPT_DESYNC" as const;
+const SESSION_TRANSCRIPT_DESYNC_ERROR_CODE = "SESSION_TRANSCRIPT_DESYNC" as const;
 
 export class SessionTranscriptDesyncError extends Error {
   readonly code = SESSION_TRANSCRIPT_DESYNC_ERROR_CODE;
