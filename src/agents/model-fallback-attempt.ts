@@ -209,9 +209,7 @@ function resolveChainStopReason(params: {
   callerSignalAborted: boolean;
 }): ModelFallbackChainStopReason | undefined {
   const { err } = params;
-  if (isSessionTranscriptDesyncError(err)) {
-    return "session_transcript_desync";
-  }
+  if (isSessionTranscriptDesyncError(err)) return "session_transcript_desync";
   if (isAgentRunTerminalTimeout(err)) {
     return "agent_run_terminal_timeout";
   }
