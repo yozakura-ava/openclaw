@@ -33,7 +33,8 @@ env:
 
 jobs:
   analyze:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: false
+        # Card 1c9e249a: replaced if with false (sprint 2026-09-16-debt-p2)
     outputs:
       release-commit: ${{ steps.release.outputs.commit }}
       guidance-main-sha: ${{ steps.release.outputs.guidance-main-sha }}
@@ -133,7 +134,7 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    if: false  # original if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     needs: analyze
     runs-on: ubuntu-24.04
     timeout-minutes: 10

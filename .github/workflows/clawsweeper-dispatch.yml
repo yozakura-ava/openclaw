@@ -23,24 +23,27 @@ concurrency:
 
 jobs:
   dispatch:
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
-    if: >-
-      ${{
-        github.repository == 'openclaw/openclaw' &&
-        (github.event_name != 'issue_comment' ||
-          (github.actor != 'clawsweeper[bot]' && github.actor != 'openclaw-clawsweeper[bot]')) &&
-        !(
-          endsWith(github.actor, '[bot]') &&
-          (github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
-          !(
-            github.event_name == 'issues' &&
-            github.event.action == 'labeled' &&
-            github.event.label.name == 'stale' &&
-            contains(github.event.issue.labels.*.name, 'bug') &&
-            (github.actor_id == '257215752' || github.actor_id == '264559031')
-          )
-        )
-      }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{
+    # (github.event_name != 'issue_comment' ||
+    # (github.actor != 'clawsweeper[bot]' && github.actor != 'openclaw-clawsweeper[bot]')) &&
+    # !(
+    # endsWith(github.actor, '[bot]') &&
+    # (github.event.action == 'labeled' || github.event.action == 'unlabeled') &&
+    # !(
+    # github.event_name == 'issues' &&
+    # github.event.action == 'labeled' &&
+    # github.event.label.name == 'stale' &&
+    # contains(github.event.issue.labels.*.name, 'bug') &&
+    # (github.actor_id == '257215752' || github.actor_id == '264559031')
+    # )
+    # )
+    # }}
+    if: false
     env:
       HAS_CLAWSWEEPER_APP_PRIVATE_KEY: ${{ secrets.CLAWSWEEPER_APP_PRIVATE_KEY != '' }}
       CLAWSWEEPER_APP_CLIENT_ID: Iv23liOECG0slfuhz093
@@ -63,9 +66,8 @@ jobs:
               if output="$(gh api "$@" 2>&1)"; then
                 printf '%s\n' "$output"
                 return 0
-              else
-                status=$?
               fi
+              status=$?
               lower_output="${output,,}"
               if [[ "$lower_output" != *"rate limit"* && "$output" != *"HTTP 429"* ]]; then
                 printf '%s\n' "$output" >&2

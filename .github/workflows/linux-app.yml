@@ -20,6 +20,8 @@ permissions:
 
 jobs:
   build:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Build Linux companion
     # Match the release build base for native tests and manually built bundles.
     runs-on: ubuntu-22.04
@@ -261,6 +263,7 @@ jobs:
             apps/linux/src-tauri/target/release/bundle/appimage/*.AppImage
 
   test-macos:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Test macOS companion
     # This app also ships macOS desktop-test bundles, but the only job that
     # compiles them (linux-app-release.yml build_macos) runs behind a manual

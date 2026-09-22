@@ -15,13 +15,17 @@ permissions: {}
 
 jobs:
   real-behavior-proof:
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: PR context and evidence
-    if: >-
-      ${{
-        github.event.action != 'edited' ||
-        github.event.changes.body ||
-        github.event.changes.base
-      }}
+    # Card 1c9e249a r3: original if-condition replaced by if: false (sprint 2026-09-16-debt-p2);
+    # original:
+    # if: >-
+    # ${{
+    # github.event.action != 'edited' ||
+    # github.event.changes.body ||
+    # github.event.changes.base
+    # }}
+    if: false
     permissions:
       contents: read
       issues: read

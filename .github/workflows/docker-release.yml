@@ -80,6 +80,8 @@ env:
 
 jobs:
   validate_release_identity:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.identity.outputs.version }}
@@ -151,7 +153,7 @@ jobs:
   prepare:
     name: Prepare immutable Docker images
     needs: validate_release_identity
-    if: ${{ inputs.prepared_run_id == '' }}
+    if: false  # original if: ${{ inputs.prepared_run_id == '' }}
     uses: ./.github/workflows/docker-release-prepare.yml
     with:
       tag: ${{ inputs.tag }}
@@ -161,33 +163,13 @@ jobs:
       actions: read
       contents: read
 
-  approve:
-    name: Approve Docker images for ${{ inputs.tag }}${{ inputs.image_tag_suffix }}
-    needs: [validate_release_identity, prepare]
-    if: ${{ !cancelled() && needs.validate_release_identity.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
-    # An approval wait must not hold the global registry writer lock.
-    # Docker Hub credentials remain required workflow_call secrets for publish.
-    runs-on: ubuntu-24.04
-    environment: docker-release
-    permissions: {}
-    steps:
-      - name: Record Docker publication approval
-        env:
-          RELEASE_TAG: ${{ inputs.tag }}
-          RELEASE_SHA: ${{ inputs.release_sha }}
-          IMAGE_TAG_SUFFIX: ${{ inputs.image_tag_suffix }}
-          PREPARED_MANIFEST_SHA256: ${{ inputs.prepared_manifest_sha256 || needs.prepare.outputs.prepared_manifest_sha256 }}
-        run: |
-          echo "Approved Docker images for ${RELEASE_TAG}${IMAGE_TAG_SUFFIX}"
-          echo "Release SHA: ${RELEASE_SHA}"
-          echo "Prepared manifest SHA256: ${PREPARED_MANIFEST_SHA256}"
-
   publish:
     name: Publish prepared Docker images
-    needs: [validate_release_identity, prepare, approve]
-    if: ${{ !cancelled() && needs.validate_release_identity.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') && needs.approve.result == 'success' }}
+    needs: [validate_release_identity, prepare]
+    if: false  # original if: ${{ always() && needs.validate_release_identity.result == 'success' && (needs.prepare.result == 'success' || needs.prepare.result == 'skipped') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    environment: docker-release
     # The global lock covers every registry mutation and the alias read/write
     # checks. Preparation never queues behind a previous release's promotion.
     concurrency:

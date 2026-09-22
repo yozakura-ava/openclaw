@@ -28,6 +28,8 @@ env:
 
 jobs:
   plan:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Plan npm placeholder publication
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -176,6 +178,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   verify:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Verify npm placeholder publication
     needs: plan
     runs-on: ubuntu-latest
@@ -260,7 +263,7 @@ jobs:
   publish:
     name: Publish npm placeholders
     needs: [plan, verify]
-    if: inputs.dry_run != true
+    if: false  # original if: inputs.dry_run != true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: npm-release

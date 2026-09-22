@@ -60,6 +60,8 @@ env:
 
 jobs:
   discover:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Find trusted release candidate
     runs-on: ${{ github.repository == 'openclaw/openclaw' && vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 10
@@ -111,7 +113,7 @@ jobs:
   prepare:
     name: Prepare shared release candidate
     needs: discover
-    if: ${{ needs.discover.result == 'success' && needs.discover.outputs.state == 'miss' }}
+    if: false  # original if: ${{ needs.discover.result == 'success' && needs.discover.outputs.state == 'miss' }}
     permissions:
       actions: read
       contents: read
@@ -140,7 +142,7 @@ jobs:
   resolve_candidate:
     name: Resolve release candidate
     needs: [discover, prepare]
-    if: always()
+    if: false  # original if: always()
     runs-on: ${{ github.repository == 'openclaw/openclaw' && vars.OPENCLAW_CI_RUNNER_BACKEND == 'hybrid' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-24.04' }}
     timeout-minutes: 5
     outputs:

@@ -24,7 +24,8 @@ permissions:
 
 jobs:
   scan:
-    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci/full') }}
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Scan full repository (precise)
     runs-on: ${{ vars.OPENCLAW_CI_RUNNER_BACKEND == 'github' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 30

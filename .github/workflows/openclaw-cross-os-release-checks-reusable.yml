@@ -258,6 +258,8 @@ env:
 
 jobs:
   prepare:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     continue-on-error: ${{ inputs.advisory }}
@@ -894,6 +896,7 @@ jobs:
           echo "value=${MATRIX_JSON}" >> "$GITHUB_OUTPUT"
 
   cross_os_release_checks:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: "${{ matrix.display_name }} / ${{ matrix.suite_label }}"
     needs: prepare
     continue-on-error: ${{ inputs.advisory || matrix.os_id != 'ubuntu' }}

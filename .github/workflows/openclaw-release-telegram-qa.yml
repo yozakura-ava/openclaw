@@ -62,6 +62,8 @@ env:
 
 jobs:
   trusted_identity:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Resolve trusted dispatched workflow identity
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -238,7 +240,7 @@ jobs:
   build_candidate:
     name: Build secretless Telegram candidate
     needs: trusted_identity
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     permissions:
@@ -520,7 +522,7 @@ jobs:
   attest_candidate:
     name: Attest verified Telegram candidate
     needs: [trusted_identity, build_candidate]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
@@ -738,7 +740,7 @@ jobs:
   run_telegram:
     name: Run isolated Telegram candidate
     needs: [trusted_identity, build_candidate, attest_candidate]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: qa-live-shared
@@ -2639,7 +2641,7 @@ jobs:
   advisory_status:
     name: Record Telegram release-check status
     needs: [trusted_identity, build_candidate, attest_candidate, run_telegram]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:

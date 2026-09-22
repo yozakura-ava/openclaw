@@ -28,6 +28,8 @@ env:
 
 jobs:
   validate_macos_release_request:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     runs-on: ubuntu-latest
     permissions:
       contents: read

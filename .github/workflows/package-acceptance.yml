@@ -441,6 +441,8 @@ env:
 
 jobs:
   resolve_package:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Resolve package candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -1180,6 +1182,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   package_integrity:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
     name: Package integrity
     needs: resolve_package
     runs-on: ubuntu-24.04
@@ -1226,7 +1229,7 @@ jobs:
   npm_12_install_sh:
     name: npm 12 install.sh acceptance
     needs: [resolve_package, package_integrity]
-    if: inputs.suite_profile != 'telegram'
+    if: false  # original if: inputs.suite_profile != 'telegram'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -1319,7 +1322,7 @@ jobs:
   docker_acceptance:
     name: Docker product acceptance (artifact-only)
     needs: [resolve_package, package_integrity]
-    if: inputs.suite_profile != 'telegram' && inputs.shared_image_policy == 'no-push-artifact'
+    if: false  # original if: inputs.suite_profile != 'telegram' && inputs.shared_image_policy == 'no-push-artifact'
     permissions:
       actions: read
       contents: read
@@ -1416,7 +1419,7 @@ jobs:
   docker_acceptance_registry:
     name: Docker product acceptance (existing registry images)
     needs: [resolve_package, package_integrity]
-    if: inputs.suite_profile != 'telegram' && inputs.shared_image_policy == 'existing-only'
+    if: false  # original if: inputs.suite_profile != 'telegram' && inputs.shared_image_policy == 'existing-only'
     permissions:
       actions: read
       contents: read
@@ -1429,7 +1432,7 @@ jobs:
   package_telegram:
     name: Telegram package acceptance
     needs: [resolve_package, package_integrity]
-    if: needs.resolve_package.outputs.telegram_enabled == 'true'
+    if: false  # original if: needs.resolve_package.outputs.telegram_enabled == 'true'
     uses: ./.github/workflows/npm-telegram-beta-e2e.yml
     with:
       advisory: ${{ inputs.advisory || inputs.telegram_advisory || false }}
@@ -1470,7 +1473,7 @@ jobs:
         docker_acceptance_registry,
         package_telegram,
       ]
-    if: always()
+    if: false  # original if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

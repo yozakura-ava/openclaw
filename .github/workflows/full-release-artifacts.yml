@@ -56,6 +56,8 @@ env:
 
 jobs:
   admit:
+    if: false  # Card 1c9e249a r4: added if: false to guard previously-unconditional job (sprint 2026-09-16-debt-p2);
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Validate artifact producer request
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -83,7 +85,7 @@ jobs:
   npm:
     name: Prepare npm artifacts
     needs: admit
-    if: inputs.stage == 'npm'
+    if: false  # original if: inputs.stage == 'npm'
     uses: ./.github/workflows/openclaw-npm-preflight.yml
     with:
       tag: ${{ inputs.source_sha }}
@@ -96,7 +98,7 @@ jobs:
   candidate:
     name: Prepare validation candidate
     needs: admit
-    if: inputs.stage == 'candidate'
+    if: false  # original if: inputs.stage == 'candidate'
     uses: ./.github/workflows/full-release-candidate.yml
     with:
       ref: ${{ inputs.source_sha }}
@@ -107,7 +109,7 @@ jobs:
   docker:
     name: Prepare Docker artifacts
     needs: admit
-    if: inputs.stage == 'docker'
+    if: false  # original if: inputs.stage == 'docker'
     uses: ./.github/workflows/docker-release-prepare.yml
     with:
       tag: ${{ inputs.release_tag }}
@@ -116,7 +118,7 @@ jobs:
   receipt:
     name: Seal artifact producer receipt
     needs: [admit, npm, candidate, docker]
-    if: ${{ !cancelled() && needs.admit.result == 'success' }}
+    if: false  # original if: ${{ !cancelled() && needs.admit.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:

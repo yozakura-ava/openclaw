@@ -39,8 +39,9 @@ env:
 
 jobs:
   authorize:
+        # Card 1c9e249a: disabled via if-guard (kept for upstream parity; sprint 2026-09-16-debt-p2)
     name: Authorize exact iOS release candidate
-    if: inputs.operation == 'upload-and-record'
+    if: false  # original if: inputs.operation == 'upload-and-record'
     permissions:
       actions: read
       attestations: write
@@ -96,7 +97,7 @@ jobs:
   release:
     name: Upload and record iOS beta
     needs: authorize
-    if: inputs.operation == 'upload-and-record' && needs.authorize.outputs.approved == 'true'
+    if: false  # original if: inputs.operation == 'upload-and-record' && needs.authorize.outputs.approved == 'true'
     permissions:
       actions: read
       attestations: read
@@ -358,7 +359,7 @@ jobs:
 
   recover-record:
     name: Recover immutable iOS release ref
-    if: inputs.operation == 'record-only'
+    if: false  # original if: inputs.operation == 'record-only'
     permissions:
       actions: read
       attestations: read
