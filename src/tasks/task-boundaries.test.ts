@@ -54,7 +54,7 @@ describe("task boundaries", () => {
   it("ignores test entries and split utility modules", () => {
     expect(
       sources.filter(({ relative }) =>
-        /\.(?:test|test-harness|test-utils|e2e-harness)\.ts$/u.test(relative),
+        /\.(?:test|test-helpers|test-harness|test-utils|e2e-harness)\.ts$/u.test(relative),
       ),
     ).toStrictEqual([]);
   });
