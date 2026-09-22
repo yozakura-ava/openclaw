@@ -5,7 +5,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import {
-  clearSharedClientIdleReaper,
   AgentHarnessPreflightError,
   resolveDefaultAgentDir,
 } from "openclaw/plugin-sdk/agent-harness-registration";
@@ -68,6 +67,7 @@ import {
 } from "./shared-client-idle-reaper.js";
 import {
   closeSharedClientEntryIfUnclaimed,
+  clearSharedClientIdleReaper,
   createCodexAppServerStartupLifetime,
   getCurrentSharedClientEntry,
   getSharedCodexAppServerClientState,
