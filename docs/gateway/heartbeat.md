@@ -124,7 +124,7 @@ Proactive heartbeat behavior is opt-in:
 
 Heartbeat can react to completed [background tasks](/automation/tasks), but a heartbeat run itself does not create a task record.
 
-If you want a heartbeat to do something very specific (e.g. "check Gmail PubSub stats" or "verify gateway health"), set `agents.defaults.heartbeat.prompt` (or `agents.entries.*.heartbeat.prompt`) to a custom body (sent verbatim).
+If you want a heartbeat to do something very specific (e.g. "check Gmail PubSub stats" or "verify gateway health"), set `agents.defaults.heartbeat.prompt` (or `agents.entries.*.heartbeat.prompt`) to a custom body (sent verbatim). You can instead set `promptFile` to a UTF-8 file path; relative paths resolve from the owning agent's workspace. When `promptFile` is set, its contents supply the prompt, and a missing or unreadable file fails the heartbeat run.
 
 ## Response contract
 
