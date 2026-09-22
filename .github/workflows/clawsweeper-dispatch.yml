@@ -26,6 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       ${{
+        github.repository == 'openclaw/openclaw' &&
         (github.event_name != 'issue_comment' ||
           (github.actor != 'clawsweeper[bot]' && github.actor != 'openclaw-clawsweeper[bot]')) &&
         !(

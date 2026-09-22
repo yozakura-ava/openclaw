@@ -15,6 +15,7 @@ import type { SubagentRunOutcome } from "../subagent-run-outcome.types.js";
 import {
   SUBAGENT_ENDED_REASON_KILLED,
   SUBAGENT_ENDED_OUTCOME_ERROR,
+  SUBAGENT_ENDED_OUTCOME_EXITED_EARLY,
   SUBAGENT_ENDED_OUTCOME_OK,
   SUBAGENT_ENDED_OUTCOME_TIMEOUT,
   SUBAGENT_TARGET_KIND_SUBAGENT,
@@ -50,6 +51,16 @@ export function resolveFinalizedSubagentTaskState(
       endedAt,
       lastEventAt: endedAt,
       error: SUBAGENT_KILL_TASK_ERROR,
+      progressSummary,
+      terminalSummary: null,
+    };
+  }
+  if (outcome.status === "exited-early") {
+    return {
+      status: "failed",
+      endedAt,
+      lastEventAt: endedAt,
+      error: "subagent run exited before producing a final reply",
       progressSummary,
       terminalSummary: null,
     };
@@ -104,6 +115,9 @@ export function resolveLifecycleOutcomeFromRunOutcome(
   }
   if (outcome?.status === "timeout") {
     return SUBAGENT_ENDED_OUTCOME_TIMEOUT;
+  }
+  if (outcome?.status === "exited-early") {
+    return SUBAGENT_ENDED_OUTCOME_EXITED_EARLY;
   }
   return SUBAGENT_ENDED_OUTCOME_OK;
 }

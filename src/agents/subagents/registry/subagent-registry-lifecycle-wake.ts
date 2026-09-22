@@ -11,7 +11,10 @@ import { defaultRuntime } from "../../../runtime.js";
 import { retireSessionMcpRuntimeForSessionKey } from "../../agent-bundle-mcp-tools.js";
 import { removeInternalSessionEffectsSession } from "../../internal-session-effects.js";
 import type { SubagentAnnounceDeliveryResult } from "../announce/subagent-announce-dispatch.js";
-import { blockSubagentCompletionDelivery } from "../completion/subagent-completion-admission.store.js";
+import {
+  blockSubagentCompletionDelivery,
+  blockSubagentCompletionDeliveryBatch,
+} from "../completion/subagent-completion-admission.store.js";
 import { revokeRequesterCronAuthorityBatch } from "../requester-cron-authority.js";
 import {
   ensureDeliveryState,
@@ -116,6 +119,44 @@ const completeRequesterSettleWakeBatch = (
     retireAfterRequesterTurn: entry.retireAfterRequesterTurn,
     suppressCompletionDelivery: entry.suppressCompletionDelivery,
   }));
+  const atomicallyBlockedRunIds = new Set<string>();
+  if (outcome && !outcome.delivered) {
+    const error = outcome.error ?? outcome.reason ?? "requester settle wake failed";
+    const suspendedReason =
+      error === "requester settle wake deferred too many times"
+        ? ("permanent_failure" as const)
+        : undefined;
+    if (suspendedReason) {
+      const batchEntries = entries.flatMap((entry) => {
+        if (
+          entry.pauseReason === "sessions_yield" ||
+          entry.expectsCompletionMessage !== true ||
+          !["pending", "in_progress"].includes(entry.delivery?.status ?? "pending")
+        ) {
+          return [];
+        }
+        const resolution = params.resolveSubagentTask(entry);
+        if (resolution.lookup !== "available" || !resolution.task) {
+          throw new Error(`subagent completion owner changed before settlement: ${entry.runId}`);
+        }
+        atomicallyBlockedRunIds.add(entry.runId);
+        return [{ subagent: entry, taskId: resolution.task.taskId }];
+      });
+      if (batchEntries.length > 0) {
+        if (
+          !blockSubagentCompletionDeliveryBatch({
+            entries: batchEntries,
+            reason: error,
+            disposition: outcome.disposition,
+            ...(suspendedReason ? { suspendedReason } : {}),
+            clearRequesterSettleWake: suspendedReason !== undefined,
+          })
+        ) {
+          throw new Error("subagent completion owner changed before settlement");
+        }
+      }
+    }
+  }
   const settledDeliveries: SubagentRunRecord[] = [];
   for (const entry of entries) {
     const { runId } = entry;
@@ -148,6 +189,7 @@ const completeRequesterSettleWakeBatch = (
         const resolution = params.resolveSubagentTask(entry);
         if (
           resolution.lookup !== "available" ||
+          atomicallyBlockedRunIds.has(runId) ||
           !blockSubagentCompletionDelivery({
             subagent: entry,
             taskId: resolution.task?.taskId ?? "",
@@ -180,12 +222,17 @@ const completeRequesterSettleWakeBatch = (
       const { runId } = entry;
       const previous = previousStates[index];
       params.runs.set(runId, entry);
-      if (outcome?.delivered !== false || !settledDeliveries.includes(entry)) {
+      if (
+        !atomicallyBlockedRunIds.has(runId) &&
+        (outcome?.delivered !== false || !settledDeliveries.includes(entry))
+      ) {
         entry.delivery = previous?.delivery;
         entry.suppressCompletionDelivery = previous?.suppressCompletionDelivery;
       }
-      entry.requesterSettleWake = previous?.requesterSettleWake;
-      entry.retireAfterRequesterTurn = previous?.retireAfterRequesterTurn;
+      if (!atomicallyBlockedRunIds.has(runId)) {
+        entry.requesterSettleWake = previous?.requesterSettleWake;
+        entry.retireAfterRequesterTurn = previous?.retireAfterRequesterTurn;
+      }
     });
     throw error;
   }

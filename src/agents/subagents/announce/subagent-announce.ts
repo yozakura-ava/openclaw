@@ -518,7 +518,9 @@ async function runSubagentAnnounceFlowBound(
             : "timed out"
           : outcome.status === "error"
             ? `failed: ${outcome.error || "unknown error"}`
-            : "finished with unknown status";
+            : outcome.status === "exited-early"
+              ? "exited early: no visible final reply"
+              : "finished with unknown status";
 
     const taskLabel = params.label || params.task || "task";
     const announceSessionId = childSessionEffectsAllowed()

@@ -428,7 +428,8 @@ function rowToSubagentRunReadRecord(row: SubagentRunReadSqliteRow): SubagentRunR
     row.outcome_status === "ok" ||
     row.outcome_status === "error" ||
     row.outcome_status === "timeout" ||
-    row.outcome_status === "unknown"
+    row.outcome_status === "unknown" ||
+    row.outcome_status === "exited-early"
       ? row.outcome_status
       : undefined;
   const deliveryStatus = DELIVERY_STATUSES.has(row.delivery_status ?? "")

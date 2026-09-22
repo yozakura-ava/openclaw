@@ -10,17 +10,6 @@ name: OpenGrep — PR Diff
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - ".github/actions/ensure-base-commit/**"
-      - ".github/workflows/opengrep-precise.yml"
-      - ".github/workflows/opengrep-precise-full.yml"
-      - ".semgrepignore"
-      - "apps/**"
-      - "extensions/**"
-      - "packages/**"
-      - "scripts/**"
-      - "security/opengrep/**"
-      - "src/**"
 
 concurrency:
   # Admission precedes job skips: isolate passive drafts before they can cancel useful work.

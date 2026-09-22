@@ -901,7 +901,7 @@ type PluginHookSubagentProgressEvent =
       phase: "ended";
       runId: string;
       childSessionKey: string;
-      outcome: "ok" | "error" | "timeout" | "killed" | "unknown";
+      outcome: "ok" | "error" | "timeout" | "killed" | "unknown" | "exited-early";
       requester?: PluginHookSubagentRequester;
     };
 
@@ -913,7 +913,7 @@ type PluginHookSubagentEndedEvent = {
   accountId?: string;
   runId?: string;
   endedAt?: number;
-  outcome?: "ok" | "error" | "timeout" | "killed" | "reset" | "deleted";
+  outcome?: "ok" | "error" | "timeout" | "killed" | "reset" | "deleted" | "exited-early";
   error?: string;
 };
 
