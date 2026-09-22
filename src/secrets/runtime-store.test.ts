@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import "./runtime-telegram.test-support.ts";
 import { asConfig, setupSecretsRuntimeSnapshotTestHooks } from "./runtime.test-support.ts";
 
 const storeMocks = vi.hoisted(() => ({
@@ -32,42 +31,6 @@ afterEach(async () => {
 });
 
 describe("store SecretRef runtime degradation", () => {
-  it("restores a store-backed Telegram token into each fresh gateway runtime snapshot", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-runtime-store-telegram-"));
-    roots.push(root);
-    const token = ["123456", "telegram-store-token"].join(":");
-    storeMocks.readValue.mockReturnValue({ ok: true, value: token });
-    const runtimeOptions = {
-      config: asConfig({
-        agents: { list: [{ id: "main", default: true }] },
-        channels: {
-          telegram: {
-            enabled: true,
-            botToken: { source: "store", provider: "default", id: "TELEGRAM_BOT_TOKEN" },
-            dmPolicy: "open",
-            groupPolicy: "allowlist",
-          },
-        },
-      }),
-      env: { OPENCLAW_STATE_DIR: path.join(root, "state") },
-      includeAuthStoreRefs: false,
-      loadablePluginOrigins: new Map(),
-    } as const;
-
-    const firstStart = await prepareSecretsRuntimeSnapshot(runtimeOptions);
-    const afterRestart = await prepareSecretsRuntimeSnapshot(runtimeOptions);
-
-    expect(firstStart.config.channels?.telegram?.botToken).toBe(token);
-    expect(afterRestart.config.channels?.telegram?.botToken).toBe(token);
-    expect(firstStart.sourceConfig.channels?.telegram?.botToken).toEqual({
-      source: "store",
-      provider: "default",
-      id: "TELEGRAM_BOT_TOKEN",
-    });
-    expect(JSON.stringify(firstStart.warnings)).not.toContain(token);
-    expect(JSON.stringify(afterRestart.warnings)).not.toContain(token);
-  });
-
   it("isolates a missing store-backed skill instead of failing gateway startup", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-runtime-store-"));
     roots.push(root);

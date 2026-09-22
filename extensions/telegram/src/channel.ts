@@ -1032,7 +1032,12 @@ export const telegramPlugin = createChatChannelPlugin({
     }),
     gateway: {
       startAccount: async (ctx) => {
-        const account = ctx.account;
+        // Re-resolve credentials at the lifecycle boundary so a fresh Gateway
+        // runtime observes rotated file-backed credentials.
+        const account = resolveTelegramAccount({
+          cfg: ctx.cfg,
+          accountId: ctx.account.accountId,
+        });
         const ownerAgentId = resolveAgentRoute({
           cfg: ctx.cfg,
           channel: "telegram",
