@@ -159,7 +159,7 @@ export function readWorkboardBuildIdentity(artifactRoot: string): {
   };
 }
 
-export function collectWorkboardArtifactContractErrors(
+function collectWorkboardArtifactContractErrors(
   artifactRoot: string,
   options: { requireBuildStamp?: boolean } = {},
 ): string[] {
