@@ -3,4 +3,7 @@
 # Worker bundle installation no longer injects OPENCLAW_STATE_DIR into a remote npm process.
 # The internal Node-version check no longer contributes a false OPENCLAW_* name.
 # The next-turn runtime-context preface constant no longer exists as an OPENCLAW_* name.
-492
+# 2026-09-20: PR #116 (trackf/99-skills-timeouts) adds 4 SKILLS_*_TIMEOUT_MS vars
+# (SKILLS_APPLY_TIMEOUT_MS, SKILLS_EVALUATION_TIMEOUT_MS, SKILLS_OFFLINE_LOCK_TIMEOUT_MS,
+# SKILLS_STATUS_TIMEOUT_MS) — forward-port of issue #27 skills-cli gateway timeouts.
+496

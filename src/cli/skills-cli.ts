@@ -76,6 +76,7 @@ import { exitCliAfterOutput } from "./one-shot-exit.js";
 import { parseStrictPositiveIntOption } from "./program/helpers.js";
 import { setCommandJsonMode } from "./program/json-mode.js";
 import { applyParentDefaultHelpAction } from "./program/parent-default-help.js";
+import * as skillsCliTimeouts from "./skills-cli-timeouts.js";
 import { formatSkillInfo, formatSkillsCheck, formatSkillsList } from "./skills-cli.format.js";
 import { registerSkillsLibraryCli } from "./skills-library-cli.js";
 import { isSkillsMachineOutput } from "./skills-output-mode.js";
@@ -125,12 +126,6 @@ type SkillProposalDraftCliOptions = {
   evidence?: string;
 };
 
-const GATEWAY_SKILLS_STATUS_TIMEOUT_MS = 1_500;
-const GATEWAY_SKILLS_EVALUATION_TIMEOUT_MS = 650_000;
-const GATEWAY_SKILLS_OFFLINE_LOCK_TIMEOUT_MS = 250;
-// Apply can await evaluator, proposal-change, and skill-change hook phases.
-const GATEWAY_SKILLS_APPLY_TIMEOUT_MS = 1_850_000;
-
 async function callSkillsGateway<T>(params: {
   config: ResolvedSkillsWorkspace["config"];
   method: string;
@@ -140,7 +135,7 @@ async function callSkillsGateway<T>(params: {
 }): Promise<T> {
   const { callGateway } = await import("../gateway/call.js");
   return await callGateway<T>({
-    timeoutMs: GATEWAY_SKILLS_STATUS_TIMEOUT_MS,
+    timeoutMs: skillsCliTimeouts.resolveGatewaySkillsStatusTimeoutMs(),
     clientName: GATEWAY_CLIENT_NAMES.CLI,
     mode: GATEWAY_CLIENT_MODES.CLI,
     ...params,
@@ -415,7 +410,7 @@ async function withOfflineGatewayLock<T>(
     allowInTests: true,
     port: resolveGatewayPort(config, process.env),
     role: "skill-workshop-apply",
-    timeoutMs: GATEWAY_SKILLS_OFFLINE_LOCK_TIMEOUT_MS,
+    timeoutMs: skillsCliTimeouts.resolveGatewaySkillsOfflineLockTimeoutMs(),
   }).catch(() => undefined);
   if (!lock) {
     throw gatewayError;
@@ -516,7 +511,7 @@ async function runSkillProposalApply(
       proposalId,
       expectedRevisionHash: proposal.revisionHash,
     },
-    timeoutMs: GATEWAY_SKILLS_APPLY_TIMEOUT_MS,
+    timeoutMs: skillsCliTimeouts.resolveGatewaySkillsApplyTimeoutMs(),
   });
 }
 
@@ -539,7 +534,7 @@ async function runSkillProposalEvaluate(
       expectedRevisionHash: proposal.revisionHash,
       ...(correlationId ? { correlationId } : {}),
     },
-    timeoutMs: GATEWAY_SKILLS_EVALUATION_TIMEOUT_MS,
+    timeoutMs: skillsCliTimeouts.resolveGatewaySkillsEvaluationTimeoutMs(),
   });
 }
 
