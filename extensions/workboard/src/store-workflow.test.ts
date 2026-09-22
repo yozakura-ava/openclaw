@@ -17,31 +17,12 @@
 //     detail); we use a fresh store + clock advance instead.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import {
   CLAIM_CONFLICT_HISTORY_CAP,
   clearClaimConflictHistory,
   snapshotClaimConflictHistory,
 } from "./store-card-helpers.js";
-import { WorkboardStore } from "./store.js";
-
-function createMemoryStore(): WorkboardKeyedStore {
-  const entries = new Map<string, PersistedWorkboardCard>();
-  return {
-    async register(key, value) {
-      entries.set(key, value);
-    },
-    async lookup(key) {
-      return entries.get(key);
-    },
-    async delete(key) {
-      return entries.delete(key);
-    },
-    async entries() {
-      return [...entries].map(([key, value]) => ({ key, value }));
-    },
-  };
-}
+import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
   beforeEach(() => {
@@ -57,7 +38,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
   // AC1 — archived rejection (regression).
   it("rejects a claim on an archived card and records claim_on_archived", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Archived card",
       status: "ready",
@@ -79,7 +60,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
   // AC2 — foreign-claim rejection records a takeover event with prior owner.
   it("rejects a foreign live claim and records a takeover event with prior owner", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Live foreign claim",
       status: "ready",
@@ -111,7 +92,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
   //       original owner's claim is past expiresAt, the same owner may
   //       reclaim its own slot immediately. That is NOT a takeover.
   it("does not record a takeover event when the same owner reclaims its own expired slot", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Self-reclaim",
       status: "ready",
@@ -133,7 +114,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
   // AC4 — done-card rejection (NEW — closes the remaining gap).
   it("rejects a claim on a card with status === 'done' and records claim_on_done", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Completed card",
       status: "done",
@@ -160,7 +141,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
   // AC5 — bounded ring buffer enforces the FIFO cap.
   it("caps the takeover history at CLAIM_CONFLICT_HISTORY_CAP entries (FIFO drop)", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Cap test card",
       status: "ready",
@@ -190,7 +171,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
   // claimConflicts getter returns a defensive (snapshot) copy.
   it("claimConflicts getter exposes a stable snapshot that does not mutate with later writes", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Snapshot test",
       status: "done",
