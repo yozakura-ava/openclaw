@@ -1,4 +1,4 @@
-import type { WorkboardRunAttempt } from "@openclaw/workboard-contract";
+import type { WorkboardCard, WorkboardRunAttempt } from "@openclaw/workboard-contract";
 // Workboard pipeline auto-dispatch dedup tests (card ee4dda8f).
 //
 // Covers three independent gates that together stop the every-5-minute
@@ -16,26 +16,23 @@ import type { WorkboardRunAttempt } from "@openclaw/workboard-contract";
 //      orchestrator review.
 import { describe, expect, it } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import type { PersistedWorkboardCard, WorkboardKeyedStore } from "./persistence-types.js";
 import { DISPATCH_COOLDOWN_MS, MAX_PIPELINE_RETRY_STRIKES } from "./store-constants.js";
-import { WorkboardStore } from "./store.js";
+import { createWorkboardSqliteTestHarness } from "./test/sqlite-store.js";
 
-function createMemoryStore<T = PersistedWorkboardCard>(): WorkboardKeyedStore<T> {
-  const entries = new Map<string, T>();
-  return {
-    async register(key, value) {
-      entries.set(key, value);
-    },
-    async lookup(key) {
-      return entries.get(key);
-    },
-    async delete(key) {
-      return entries.delete(key);
-    },
-    async entries() {
-      return [...entries].flatMap(([key, value]) => (value ? [{ key, value }] : []));
-    },
-  };
+async function updateMetadata(
+  store: ReturnType<typeof createWorkboardSqliteTestHarness>["store"],
+  id: string,
+  mutate: (existing: WorkboardCard) => WorkboardCard["metadata"],
+): Promise<void> {
+  const current = await store.get(id);
+  if (!current) {
+    throw new Error(`card not found: ${id}`);
+  }
+  await store.update(id, { metadata: mutate(current) });
+}
+
+function createTestStore() {
+  return createWorkboardSqliteTestHarness().store;
 }
 
 function makeFailedAttempt(id: string, endedAt: number): WorkboardRunAttempt {
@@ -59,7 +56,7 @@ function makeBlockedAttempt(id: string, endedAt: number): WorkboardRunAttempt {
 describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
   describe("routing gate (no agentId)", () => {
     it("store.dispatch does not bump dispatchCount on unrouted cards", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({ title: "Unrouted", status: "ready" });
       expect(card.agentId).toBeUndefined();
 
@@ -72,7 +69,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("store.dispatch bumps dispatchCount on routed cards", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Routed",
         status: "ready",
@@ -91,7 +88,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       // store.dispatch() metadata bumps. selectStartableCards() can still
       // pick and launch an unrouted card through the normal auto-dispatch
       // path. Confirm the selection-layer gate is also in effect.
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Unrouted auto-dispatch candidate",
         status: "ready",
@@ -132,8 +129,9 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       // routed through `prepareStart({ cardId })` must still launch the card
       // regardless of agentId — the operator owns the lane assignment and
       // explicitly named the card to start.
-      const keyed = createMemoryStore();
-      const store = new WorkboardStore(keyed);
+      const harness = createWorkboardSqliteTestHarness();
+      const keyed = harness.stores.cards;
+      const store = harness.store;
       const card = await store.create({
         title: "Operator-launched blank-agent card",
         status: "ready",
@@ -174,7 +172,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
 
   describe("dedup gate (recent failed attempt)", () => {
     it("selectStartableCards silently skips a card with a recent failed attempt", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Recently failed",
         status: "ready",
@@ -182,7 +180,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
         workspaceAccess: { unrestricted: true },
       });
       const failedAt = 1_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
       }));
@@ -207,7 +205,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("selectStartableCards dispatches a card whose failed attempt is older than the cooldown", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Old failure",
         status: "ready",
@@ -216,7 +214,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       });
       const failedAt = 1_000_000;
       // Failed well outside the cooldown window.
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
       }));
@@ -241,7 +239,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("blocked attempt inside the cooldown is treated as recent failure", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Recently blocked",
         status: "ready",
@@ -249,7 +247,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
         workspaceAccess: { unrestricted: true },
       });
       const blockedAt = 2_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeBlockedAttempt("att-1", blockedAt)],
       }));
@@ -271,7 +269,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("succeeded attempt is not treated as recent failure", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Previously succeeded",
         status: "ready",
@@ -279,7 +277,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
         workspaceAccess: { unrestricted: true },
       });
       const succeededAt = 1_500_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [
           {
@@ -307,14 +305,14 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
 
   describe("strike counter / blocked-parking", () => {
     it("bumps pipelineStrikes on each dispatch pass while a recent failure persists", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Recurring failure",
         status: "ready",
         agentId: "riko",
       });
       const failedAt = 1_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
       }));
@@ -345,7 +343,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("resets pipelineStrikes to 0 when a card recovers (no recent failure)", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Recovering",
         status: "ready",
@@ -353,7 +351,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
       });
       // Seed two strikes + an OLD failed attempt (outside cooldown).
       const oldFailedAt = 1_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", oldFailedAt)],
         automation: {
@@ -372,14 +370,14 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("does not park a card with strikes below the ceiling on a single dispatch pass", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Below ceiling",
         status: "ready",
         agentId: "riko",
       });
       const failedAt = 1_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
         automation: {
@@ -397,14 +395,14 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     });
 
     it("records the saturation message verbatim (orchestrator-readable)", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Saturated message",
         status: "ready",
         agentId: "riko",
       });
       const failedAt = 5_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
       }));
@@ -435,7 +433,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     // reporting its own failure asynchronously — and let store.dispatch()
     // accumulate pipelineStrikes on the dedup path.
     it("flapping card dedups + parks at MAX strikes", async () => {
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Flapping card",
         status: "ready",
@@ -444,7 +442,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
 
       const t0 = 1_000_000;
       const seedFailedAttempt = async (endedAt: number) =>
-        await store.updateMetadata(card.id, (existing) => ({
+        await updateMetadata(store, card.id, (existing) => ({
           ...existing.metadata,
           attempts: [makeFailedAttempt("att-1", endedAt)],
         }));
@@ -487,7 +485,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
     it("dispatch dedups via the dispatcher path when a recent failed attempt is present", async () => {
       // Exercises the dispatcher.ts dedup gate (not just store.dispatch)
       // against a card whose worker already reported a recent failure.
-      const store = new WorkboardStore(createMemoryStore());
+      const store = createTestStore();
       const card = await store.create({
         title: "Worker reported failure",
         status: "ready",
@@ -495,7 +493,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
         workspaceAccess: { unrestricted: true },
       });
       const failedAt = 5_000_000;
-      await store.updateMetadata(card.id, (existing) => ({
+      await updateMetadata(store, card.id, (existing) => ({
         ...existing.metadata,
         attempts: [makeFailedAttempt("att-1", failedAt)],
       }));
