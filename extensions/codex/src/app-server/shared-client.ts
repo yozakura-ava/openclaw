@@ -62,6 +62,7 @@ import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import {
   getSharedClientPoolMetrics,
   recordSharedClientCreated,
+  releaseSharedClientEntry,
   resetSharedClientPoolMetrics,
   retainSharedClientEntryWithIdleReaper,
 } from "./shared-client-idle-reaper.js";
@@ -507,7 +508,9 @@ export function releaseLeasedSharedCodexAppServerClient(client: CodexAppServerCl
     return false;
   }
   entry.anonymousLeases -= 1;
-  releaseSharedClientEntry(entry, "activeLeases");
+  releaseSharedClientEntry(entry, getSharedCodexAppServerClientState(), "activeLeases", () =>
+    notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState()),
+  );
   return true;
 }
 
@@ -692,7 +695,7 @@ async function acquireSharedCodexAppServerClient(
       // pending callers should keep the startup client alive.
       stopStartedClientNotifications();
       releasePendingAcquire();
-      retirePendingSharedClientEntryIfUnclaimed(entry);
+      retirePendingSharedClientEntryIfUnclaimed(entry, state);
     };
     options.abandonSignal.addEventListener("abort", abandon, { once: true });
     cleanupAbandonSignal = () => options.abandonSignal?.removeEventListener("abort", abandon);
@@ -756,7 +759,7 @@ async function acquireSharedCodexAppServerClient(
     // This deadline belongs to one waiter, not the shared physical client.
     // Release first so only the final claimant can tear down stalled startup.
     releasePendingAcquire();
-    retirePendingSharedClientEntryIfUnclaimed(entry);
+    retirePendingSharedClientEntryIfUnclaimed(entry, state);
     throw error;
   } finally {
     cleanupAbandonSignal?.();

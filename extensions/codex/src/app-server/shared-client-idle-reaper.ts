@@ -3,7 +3,10 @@ import type {
   SharedCodexAppServerClientEntry,
   SharedCodexAppServerClientState,
 } from "./shared-client-lifecycle.js";
-import { closeRetiredSharedClientEntryIfIdle } from "./shared-client-lifecycle.js";
+import {
+  clearSharedClientIdleReaper,
+  closeRetiredSharedClientEntryIfIdle,
+} from "./shared-client-lifecycle.js";
 
 export const CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS = 5 * 60_000;
 
@@ -105,16 +108,25 @@ export function retainSharedClientEntryWithIdleReaper(
       return;
     }
     released = true;
-    entry[counter] -= 1;
-    closeRetiredSharedClientEntryIfIdle(entry);
-    scheduleSharedClientIdleReaper({
-      entry,
-      state,
-      onReaped: () => logSharedClientPoolMetrics(state, "idle_reaped"),
-    });
-    logSharedClientPoolMetrics(state, "released");
-    notify();
+    releaseSharedClientEntry(entry, state, counter, notify);
   };
+}
+
+export function releaseSharedClientEntry(
+  entry: SharedCodexAppServerClientEntry,
+  state: SharedCodexAppServerClientState,
+  counter: "activeLeases" | "pendingAcquires",
+  notify: () => void,
+): void {
+  entry[counter] = Math.max(0, entry[counter] - 1);
+  closeRetiredSharedClientEntryIfIdle(entry);
+  scheduleSharedClientIdleReaper({
+    entry,
+    state,
+    onReaped: () => logSharedClientPoolMetrics(state, "idle_reaped"),
+  });
+  logSharedClientPoolMetrics(state, "released");
+  notify();
 }
 
 export function getSharedClientPoolMetrics(state: SharedCodexAppServerClientState) {
