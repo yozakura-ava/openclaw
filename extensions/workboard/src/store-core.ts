@@ -3,7 +3,6 @@ import type {
   WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardDeleteResult,
-  WorkboardEvent,
   WorkboardLink,
   WorkboardMetadata,
   WorkboardStatus,
@@ -671,12 +670,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   async update(
     id: string,
     patch: WorkboardCardPatch,
-    options: { expectedUpdatedAt?: number } = {},
+    options: { expectedUpdatedAt?: number; allowGovernedCompletion?: boolean } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
       async () =>
         await this.updateCard(id, patch, {
           allowMetadataDependencyLinks: false,
+          allowGovernedCompletion: options.allowGovernedCompletion,
           enforceStatusHolds: true,
           expectedUpdatedAt: options.expectedUpdatedAt,
         }),

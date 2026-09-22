@@ -47,6 +47,7 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
     if (typeof input.verified !== "boolean") {
       throw new Error("review verdict must set verified to true or false.");
     }
+    const verified = input.verified;
     const summary = normalizeBoundedString(input.summary, undefined, 1000, "review summary");
     return await this.updateMetadata(
       id,
@@ -61,7 +62,7 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
         return {
           ...existing.metadata,
           reviewVerdict: {
-            verified: input.verified,
+            verified,
             reviewerId: normalizeBoundedString(scope?.ownerId, "operator", 120, "reviewer id")!,
             reviewedAt: Math.max(Date.now(), existing.updatedAt + 1),
             ...(summary ? { summary } : {}),
