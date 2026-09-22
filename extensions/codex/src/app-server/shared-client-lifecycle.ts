@@ -155,7 +155,7 @@ export function closeRetiredSharedClientEntryIfIdle(
   return closeRetiredSharedClientEntry(entry);
 }
 
-export function closeRetiredSharedClientEntry(entry: SharedCodexAppServerClientEntry): boolean {
+function closeRetiredSharedClientEntry(entry: SharedCodexAppServerClientEntry): boolean {
   clearSharedClientIdleReaper(entry);
   const client = entry.client;
   if (!client) {

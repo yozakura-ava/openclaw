@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  readSharedClientPoolMetrics,
-  scheduleSharedClientIdleReaper,
+  getSharedClientPoolMetrics,
+  releaseSharedClientEntry,
 } from "./shared-client-idle-reaper.js";
 import type {
   SharedCodexAppServerClientEntry,
@@ -46,9 +46,9 @@ describe("shared Codex app-server idle reaper", () => {
   it("reaps idle clients but leaves leased clients alone", async () => {
     vi.useFakeTimers();
     const { entry, state, close } = createState();
-    scheduleSharedClientIdleReaper({ entry, state, onReaped: vi.fn() });
+    releaseSharedClientEntry(entry, state, "activeLeases", vi.fn());
     await vi.advanceTimersByTimeAsync(5 * 60_000);
     expect(close).toHaveBeenCalledOnce();
-    expect(readSharedClientPoolMetrics(state)).toMatchObject({ active: 0, idle: 0, reaped: 1 });
+    expect(getSharedClientPoolMetrics(state)).toMatchObject({ active: 0, idle: 0, reaped: 1 });
   });
 });

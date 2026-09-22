@@ -8,9 +8,9 @@ import {
   closeRetiredSharedClientEntryIfIdle,
 } from "./shared-client-lifecycle.js";
 
-export const CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS = 5 * 60_000;
+const CODEX_APP_SERVER_IDLE_REAP_TIMEOUT_MS = 5 * 60_000;
 
-export function scheduleSharedClientIdleReaper(params: {
+function scheduleSharedClientIdleReaper(params: {
   entry: SharedCodexAppServerClientEntry;
   state: SharedCodexAppServerClientState;
   onReaped: () => void;
@@ -49,7 +49,7 @@ export function scheduleSharedClientIdleReaper(params: {
   entry.idleReaper.unref?.();
 }
 
-export function readSharedClientPoolMetrics(state: SharedCodexAppServerClientState): {
+function readSharedClientPoolMetrics(state: SharedCodexAppServerClientState): {
   created: number;
   active: number;
   idle: number;
@@ -70,10 +70,7 @@ export function readSharedClientPoolMetrics(state: SharedCodexAppServerClientSta
   return { created: state.createdCount, active, idle, reaped: state.reapedCount };
 }
 
-export function logSharedClientPoolMetrics(
-  state: SharedCodexAppServerClientState,
-  event: string,
-): void {
+function logSharedClientPoolMetrics(state: SharedCodexAppServerClientState, event: string): void {
   embeddedAgentLog.info("codex app-server process pool", {
     event,
     ...readSharedClientPoolMetrics(state),
