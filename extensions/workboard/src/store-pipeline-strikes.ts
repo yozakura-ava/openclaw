@@ -8,6 +8,34 @@
 // All callers continue to import from store-card-helpers.ts via the
 // re-export there — no call-site changes required.
 
+import type {
+  WorkboardAutomation,
+  WorkboardCard,
+  WorkboardRunAttempt,
+} from "@openclaw/workboard-contract";
+
+export function normalizePipelineStrikeFields(
+  record: Record<string, unknown>,
+  fallback: WorkboardAutomation,
+): Pick<WorkboardAutomation, "pipelineStrikes" | "pipelineStrikesUpdatedAt"> {
+  const pipelineStrikes = Object.hasOwn(record, "pipelineStrikes")
+    ? (normalizeStrikeTimestamp(record.pipelineStrikes) ?? 0)
+    : fallback.pipelineStrikes;
+  const pipelineStrikesUpdatedAt = Object.hasOwn(record, "pipelineStrikesUpdatedAt")
+    ? normalizeStrikeTimestamp(record.pipelineStrikesUpdatedAt) || undefined
+    : fallback.pipelineStrikesUpdatedAt;
+  return {
+    ...(pipelineStrikes !== undefined ? { pipelineStrikes } : {}),
+    ...(pipelineStrikesUpdatedAt ? { pipelineStrikesUpdatedAt } : {}),
+  };
+}
+
+function normalizeStrikeTimestamp(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.trunc(value)
+    : undefined;
+}
+
 /**
  * Most-recent run attempt on this card (any terminal status), used to detect
  * "just failed" within the dispatch cooldown window.

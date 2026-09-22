@@ -670,17 +670,6 @@ export function isActiveDependencyTarget(
   );
 }
 
-// Pipeline auto-dispatch dedup helpers (card ee4dda8f) were extracted to a
-// sibling module on 2026-09-20 to satisfy the line-cap ratchet on this file
-// (the prior inlined block pushed the file past its 700-line cap). Re-exported
-// here to preserve existing import paths in dispatcher.ts and store.ts.
-export {
-  hasRecentFailedAttempt,
-  latestRunAttempt,
-  pipelineStrikeCount,
-  pipelineStrikesExhausted,
-} from "./store-pipeline-strikes.js";
-
 export function closeRunningAttempts(
   attempts: WorkboardRunAttempt[] | undefined,
   now: number,

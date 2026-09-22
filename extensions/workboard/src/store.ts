@@ -20,11 +20,9 @@ import {
   cardSessionKey,
   closeRunningAttempts,
   computeCardDiagnostics,
-  hasRecentFailedAttempt,
   isDependencyPromotableStatus,
   latestRunningAttempt,
   mergeDiagnostics,
-  pipelineStrikeCount,
   retryBudgetExhausted,
   shouldSkipPersistedLifecycleStatusUpdate,
   shouldSyncWorkboardLifecycleStatus,
@@ -52,6 +50,7 @@ import {
   normalizeTimestamp,
 } from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
+import { hasRecentFailedAttempt, pipelineStrikeCount } from "./store-pipeline-strikes.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
 export { WorkboardCardConflictError } from "./store-core.js";

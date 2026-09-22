@@ -21,12 +21,13 @@ import {
   type ResolveAgentWorkspaceRuntime,
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
-import { cardBoardId, hasRecentFailedAttempt } from "./store-card-helpers.js";
+import { cardBoardId } from "./store-card-helpers.js";
 import {
   DISPATCH_COOLDOWN_MS,
   workboardCardConsumesOwnerSlot,
   workboardCardSlotOwner,
 } from "./store-constants.js";
+import { hasRecentFailedAttempt } from "./store-pipeline-strikes.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
