@@ -148,7 +148,7 @@ async function emitLifecycleEndAndFlush(params: {
       },
     });
 
-    await vi.runAllTimersAsync();
+    await vi.runOnlyPendingTimersAsync();
   } finally {
     vi.useRealTimers();
   }
