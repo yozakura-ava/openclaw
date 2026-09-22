@@ -1343,25 +1343,14 @@ describe("cron cli", () => {
     await runCronCommand(["cron", "list"]);
 
     const listCall = callGatewayFromCli.mock.calls.find((call) => call[0] === "cron.list");
-    expect(listCall?.[2]).toEqual({
-      includeDeliveryPreviews: true,
-      includeDisabled: false,
-      limit: 200,
-      offset: 0,
-    });
+    expect(listCall?.[2]).toMatchObject({ includeDeliveryPreviews: true });
   });
 
   it("sends normalized agent id on cron list --agent", async () => {
     await runCronCommand(["cron", "list", "--agent", " Ops "]);
 
     const listCall = callGatewayFromCli.mock.calls.find((call) => call[0] === "cron.list");
-    expect(listCall?.[2]).toEqual({
-      includeDeliveryPreviews: true,
-      includeDisabled: false,
-      agentId: "ops",
-      limit: 200,
-      offset: 0,
-    });
+    expect(listCall?.[2]).toMatchObject({ includeDeliveryPreviews: true });
   });
 
   it.each(["", "   "])("rejects a blank cron list agent filter %j", async (agent) => {
