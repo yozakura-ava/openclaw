@@ -1032,7 +1032,7 @@ export const telegramPlugin = createChatChannelPlugin({
     }),
     gateway: {
       startAccount: async (ctx) => {
-        const account = ctx.account;
+        const account = resolveTelegramAccount({ cfg: ctx.cfg, accountId: ctx.account.accountId });
         const ownerAgentId = resolveAgentRoute({
           cfg: ctx.cfg,
           channel: "telegram",

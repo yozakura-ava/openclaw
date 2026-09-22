@@ -1,4 +1,5 @@
 // Telegram tests cover channel.gateway plugin behavior.
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   createPluginRuntimeMock,
@@ -361,6 +362,50 @@ describe("telegramPlugin gateway startup", () => {
         botToken: "123456:bad-token",
       }),
     ).resolves.toMatchObject({ botInfo: startupBotInfo });
+  });
+
+  it("reloads a file-backed credential when the Gateway starts again", async () => {
+    installTelegramRuntime();
+    probeTelegram.mockResolvedValue({
+      ok: false,
+      status: 500,
+      error: "Bad Gateway",
+      elapsedMs: 12,
+    });
+    monitorTelegramProvider.mockResolvedValue(undefined);
+
+    const stateDir = testState.env.OPENCLAW_STATE_DIR;
+    if (!stateDir) {
+      throw new Error("expected Telegram test state directory");
+    }
+    const tokenFile = path.join(stateDir, "telegram-token");
+    const firstToken = "123456:first-file-token";
+    const secondToken = "123456:second-file-token";
+    await fs.writeFile(tokenFile, `${firstToken}\n`, "utf8");
+
+    const first = startTelegramAccount("default", { tokenFile });
+    await expect(first.task).resolves.toBeUndefined();
+    expect(latestMonitorOptions().token).toBe(firstToken);
+    expect(JSON.stringify(first.ctx.log)).not.toContain(firstToken);
+
+    const stopAccount = telegramPlugin.gateway?.stopAccount;
+    if (!stopAccount) {
+      throw new Error("expected Telegram stopAccount gateway handler");
+    }
+    await stopAccount(first.ctx);
+    clearTelegramRuntime();
+    resetTelegramPollingLeasesForTests();
+    installTelegramRuntime();
+
+    await fs.writeFile(tokenFile, `${secondToken}\n`, "utf8");
+    monitorTelegramProvider.mockClear();
+
+    // Recreate the Gateway account after teardown; startup must re-resolve the
+    // file-backed SecretRef instead of retaining the first runtime snapshot.
+    const second = startTelegramAccount("default", { tokenFile });
+    await expect(second.task).resolves.toBeUndefined();
+    expect(latestMonitorOptions().token).toBe(secondToken);
+    expect(JSON.stringify(second.ctx.log)).not.toContain(secondToken);
   });
 
   it("refreshes cached startup botInfo before monitor startup", async () => {
