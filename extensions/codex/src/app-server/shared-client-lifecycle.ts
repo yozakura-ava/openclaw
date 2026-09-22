@@ -172,3 +172,38 @@ export function clearSharedClientIdleReaper(entry: SharedCodexAppServerClientEnt
     entry.idleReaper = undefined;
   }
 }
+
+export function closeSharedClientEntryIfUnclaimed(
+  entry: SharedCodexAppServerClientEntry,
+  state: SharedCodexAppServerClientState,
+): boolean {
+  if (
+    entry.activeLeases > 0 ||
+    entry.pendingAcquires > 0 ||
+    state.clients.get(entry.key) !== entry
+  ) {
+    return false;
+  }
+  clearSharedClientIdleReaper(entry);
+  state.clients.delete(entry.key);
+  entry.client?.close();
+  return Boolean(entry.client);
+}
+
+export function retirePendingSharedClientEntryIfUnclaimed(
+  entry: SharedCodexAppServerClientEntry,
+  state: SharedCodexAppServerClientState,
+): void {
+  if (entry.activeLeases > 0 || entry.pendingAcquires > 0) {
+    return;
+  }
+  entry.startupAbort?.abort(new Error("Codex app-server startup was abandoned"));
+  clearSharedClientIdleReaper(entry);
+  entry.closeWhenIdle = true;
+  if (state.clients.get(entry.key) === entry) {
+    state.clients.delete(entry.key);
+  }
+  if (entry.client) {
+    closeRetiredSharedClientEntry(entry);
+  }
+}

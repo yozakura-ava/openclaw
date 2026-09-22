@@ -339,8 +339,6 @@ describe("shared Codex app-server client", () => {
     mocks.resolveManagedCodexNativeCommand.mockImplementation(
       (command: string) => `${command}.native`,
     );
-    mocks.embeddedAgentLog.debug.mockClear();
-    mocks.embeddedAgentLog.info.mockClear();
     mocks.embeddedAgentLog.warn.mockClear();
     mocks.resolveDefaultAgentDir.mockClear();
   });
