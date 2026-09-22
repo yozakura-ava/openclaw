@@ -40,7 +40,7 @@ function normalizeStrikeTimestamp(value: unknown): number | undefined {
  * Most-recent run attempt on this card (any terminal status), used to detect
  * "just failed" within the dispatch cooldown window.
  */
-export function latestRunAttempt(card: WorkboardCard): WorkboardRunAttempt | undefined {
+function latestRunAttempt(card: WorkboardCard): WorkboardRunAttempt | undefined {
   const attempts = card.metadata?.attempts;
   if (!attempts || attempts.length === 0) {
     return undefined;
