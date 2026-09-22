@@ -21,6 +21,7 @@ import {
   applySkillProposal as applySkillProposalImpl,
   inspectSkillProposal as inspectSkillProposalImpl,
   listSkillProposals as listSkillProposalsImpl,
+  purgeStaleSkillProposals as purgeStaleSkillProposalsImpl,
   proposeCreateSkill as proposeCreateSkillImpl,
   proposeUpdateSkill as proposeUpdateSkillImpl,
   quarantineSkillProposal as quarantineSkillProposalImpl,
@@ -77,6 +78,15 @@ const inspectSkillProposal = (
 ) => inspectSkillProposalImpl(proposalId, withWorkshopOwner(input ?? {}));
 const listSkillProposals = (input?: Partial<Parameters<typeof listSkillProposalsImpl>[0]>) =>
   listSkillProposalsImpl(withWorkshopOwner(input ?? {}));
+const purgeStaleSkillProposals = (
+  input: Omit<Parameters<typeof purgeStaleSkillProposalsImpl>[0], "config" | "agentId" | "env">,
+) =>
+  purgeStaleSkillProposalsImpl({
+    ...input,
+    config: workshopConfig,
+    agentId: "main",
+    env: testEnv,
+  });
 const proposeCreateSkill = (
   input: OptionalWorkshopConfig<Parameters<typeof proposeCreateSkillImpl>[0]>,
 ) => proposeCreateSkillImpl(withWorkshopOwner(input));
@@ -483,6 +493,49 @@ describe("skill workshop proposals", () => {
         workspaceDir,
       }),
     ).rejects.toThrow("No pending skill proposal matched");
+  });
+
+  it("dry-runs and purges only stale proposal records, events, and generation files", async () => {
+    const workspaceDir = await makeWorkspace();
+    const proposal = await proposeCreateSkill({
+      workspaceDir,
+      name: "Stale Purge Candidate",
+      description: "Candidate for stale cleanup.",
+      content: "# Stale Purge Candidate\n\nDraft.\n",
+    });
+    await fs.mkdir(proposal.record.target.skillDir, { recursive: true });
+    await fs.writeFile(
+      proposal.record.target.skillFile,
+      stripProposalFrontmatterForSkill(proposal.content),
+      "utf8",
+    );
+    await listSkillProposals();
+
+    const staleBefore = new Date(Date.now() + 1_000).toISOString();
+    await expect(purgeStaleSkillProposals({ staleBefore, dryRun: true })).resolves.toMatchObject({
+      dryRun: true,
+      candidates: [proposal.record.id],
+      purged: [],
+    });
+    await expect(inspectSkillProposal(proposal.record.id)).resolves.toMatchObject({
+      record: { id: proposal.record.id, status: "stale" },
+    });
+    await expect(purgeStaleSkillProposals({ staleBefore, dryRun: false })).rejects.toThrow(
+      "requires confirm=true",
+    );
+
+    await expect(
+      purgeStaleSkillProposals({ staleBefore, dryRun: false, confirm: true }),
+    ).resolves.toMatchObject({ purged: [proposal.record.id] });
+    await expect(inspectSkillProposal(proposal.record.id)).resolves.toBeNull();
+    expect(
+      openOpenClawStateDatabase({ env: testEnv })
+        .db.prepare("SELECT proposal_id FROM skill_workshop_proposal_events WHERE proposal_id = ?")
+        .all(proposal.record.id),
+    ).toEqual([]);
+    await expect(
+      fs.stat(path.join(stateDir, "skill-workshop", "proposals", proposal.record.id)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("revises pending proposals in place before approval", async () => {

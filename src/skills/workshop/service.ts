@@ -56,6 +56,7 @@ export {
 export {
   inspectSkillProposal,
   listSkillProposals,
+  purgeStaleSkillProposals,
   resolvePendingSkillProposal,
 } from "./service-query.js";
 export { evaluateSkillProposal, listSkillProposalEvents } from "./service-evaluation.js";
