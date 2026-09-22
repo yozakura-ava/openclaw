@@ -24,6 +24,7 @@ import {
 import {
   recordClaimConflict,
   snapshotClaimConflictHistory,
+  clearClaimConflictHistory,
   type WorkboardClaimConflictEvent,
 } from "./store-claim-conflict.js";
 import {
@@ -77,6 +78,10 @@ function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInp
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
+  static resetClaimConflictHistoryForTests(): void {
+    clearClaimConflictHistory();
+  }
+
   /**
    * Read-only snapshot of the bounded takeover / claim-conflict history
    * (issue #24). Records every archived/done rejection and every foreign

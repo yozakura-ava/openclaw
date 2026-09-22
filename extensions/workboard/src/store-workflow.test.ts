@@ -17,23 +17,21 @@
 //     detail); we use a fresh store + clock advance instead.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CLAIM_CONFLICT_HISTORY_CAP,
-  clearClaimConflictHistory,
-  snapshotClaimConflictHistory,
-} from "./store-claim-conflict.js";
+import { WorkboardWorkflowStore } from "./store-workflow.js";
 import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
+
+const CLAIM_CONFLICT_HISTORY_CAP = 64;
 
 describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
   beforeEach(() => {
-    clearClaimConflictHistory();
+    WorkboardWorkflowStore.resetClaimConflictHistoryForTests();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-07T20:00:00Z"));
   });
 
   afterEach(() => {
     vi.useRealTimers();
-    clearClaimConflictHistory();
+    WorkboardWorkflowStore.resetClaimConflictHistoryForTests();
   });
 
   // AC1 — archived rejection (regression).
@@ -48,7 +46,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
 
     await expect(store.claim(card.id, { ownerId: "owner-a" })).rejects.toThrow(/card is archived/i);
 
-    const events = snapshotClaimConflictHistory();
+    const events = store.claimConflicts;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       kind: "claim_on_archived",
@@ -68,14 +66,14 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
     });
     // First claim succeeds.
     await store.claim(card.id, { ownerId: "owner-a", ttlSeconds: 600 });
-    expect(snapshotClaimConflictHistory()).toHaveLength(0);
+    expect(store.claimConflicts).toHaveLength(0);
 
     // Second claim by a DIFFERENT owner hits the live-foreign-claim fence.
     await expect(store.claim(card.id, { ownerId: "owner-b" })).rejects.toThrow(
       /claimed by owner-a/i,
     );
 
-    const events = snapshotClaimConflictHistory();
+    const events = store.claimConflicts;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       kind: "takeover",
@@ -100,7 +98,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
     });
     // Claim with a 1-second TTL so we can advance past expiresAt quickly.
     await store.claim(card.id, { ownerId: "owner-a", ttlSeconds: 1 });
-    expect(snapshotClaimConflictHistory()).toHaveLength(0);
+    expect(store.claimConflicts).toHaveLength(0);
 
     // Advance past expiresAt + the 5-minute CLAIM_RECLAIM_MS grace so the
     // existingClaim is no longer "active" — PR #41 self-recovery path.
@@ -109,7 +107,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
     // Same owner reclaims — should succeed WITHOUT recording a takeover.
     const reclaimed = await store.claim(card.id, { ownerId: "owner-a" });
     expect(reclaimed.card.metadata?.claim?.ownerId).toBe("owner-a");
-    expect(snapshotClaimConflictHistory()).toHaveLength(0);
+    expect(store.claimConflicts).toHaveLength(0);
   });
 
   // AC4 — done-card rejection (NEW — closes the remaining gap).
@@ -125,7 +123,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
       /card is completed/i,
     );
 
-    const events = snapshotClaimConflictHistory();
+    const events = store.claimConflicts;
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       kind: "claim_on_done",
@@ -151,7 +149,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
     // claim stays LIVE throughout the test — every foreign claim attempt
     // hits the live-foreign-claim fence and is rejected.
     await store.claim(card.id, { ownerId: "owner-original", ttlSeconds: 3600 });
-    expect(snapshotClaimConflictHistory()).toHaveLength(0);
+    expect(store.claimConflicts).toHaveLength(0);
 
     // Every subsequent claim by a different owner must fail and record.
     const totalAttempts = CLAIM_CONFLICT_HISTORY_CAP + 5;
@@ -159,7 +157,7 @@ describe("WorkboardWorkflowStore claim guard (issue #24)", () => {
       await expect(store.claim(card.id, { ownerId: `foreign-owner-${i}` })).rejects.toThrow();
     }
 
-    const events = snapshotClaimConflictHistory();
+    const events = store.claimConflicts;
     expect(events.length).toBe(CLAIM_CONFLICT_HISTORY_CAP);
     // FIFO: the first events (foreign-owner-0 ... foreign-owner-4) were dropped.
     expect(events.find((e) => e.attemptedOwnerId === "foreign-owner-0")).toBeUndefined();

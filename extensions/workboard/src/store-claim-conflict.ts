@@ -15,9 +15,9 @@
 // line-cap ratchet on store-card-helpers.ts. Backward-compat re-exports
 // remain in store-card-helpers.ts so existing importers do not break.
 
-export const CLAIM_CONFLICT_HISTORY_CAP = 64;
+const CLAIM_CONFLICT_HISTORY_CAP = 64;
 
-export type WorkboardClaimConflictKind =
+type WorkboardClaimConflictKind =
   | "takeover" // foreign expired claim replaced (recorded just before rejection, prior owner kept in event)
   | "claim_on_done" // claim attempt on a card in "done" status (rejected)
   | "claim_on_archived"; // claim attempt on an archived card (rejected)
@@ -44,6 +44,8 @@ export function snapshotClaimConflictHistory(): readonly WorkboardClaimConflictE
   return claimConflictHistory.slice();
 }
 
-export function clearClaimConflictHistory(): void {
+function clearClaimConflictHistory(): void {
   claimConflictHistory.length = 0;
 }
+
+export { clearClaimConflictHistory };
