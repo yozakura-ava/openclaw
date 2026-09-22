@@ -199,6 +199,8 @@ const repositoryScriptEntries = [
   "scripts/update-clawtributors.ts!",
   // The candidate binder invokes this trusted producer-identity verifier by path.
   "scripts/verify-full-release-producer-job.mjs!",
+  // Deployment packaging invokes this Workboard contract verifier by path.
+  "scripts/verify-workboard-deployment.mts!",
   // Staging and signed-app packaging execute this verifier with each bundled Node.
   "scripts/verify-mac-node-worker.mjs!",
   "scripts/verify-stable-main-closeout.mjs!",
