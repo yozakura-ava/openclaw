@@ -384,10 +384,20 @@ describe("telegramPlugin gateway startup", () => {
     expect(latestMonitorOptions().token).toBe(firstToken);
     expect(JSON.stringify(first.ctx.log)).not.toContain(firstToken);
 
+    const stopAccount = telegramPlugin.gateway?.stopAccount;
+    if (!stopAccount) {
+      throw new Error("expected Telegram stopAccount gateway handler");
+    }
+    await stopAccount(first.ctx);
+    clearTelegramRuntime();
+    resetTelegramPollingLeasesForTests();
+    installTelegramRuntime();
+
     await fs.writeFile(tokenFile, `${secondToken}\n`, "utf8");
     monitorTelegramProvider.mockClear();
 
-    // A new start context models a fresh Gateway runtime after teardown.
+    // Recreate the Gateway account after teardown; startup must re-resolve the
+    // file-backed SecretRef instead of retaining the first runtime snapshot.
     const second = startTelegramAccount("default", { tokenFile });
     await expect(second.task).resolves.toBeUndefined();
     expect(latestMonitorOptions().token).toBe(secondToken);
