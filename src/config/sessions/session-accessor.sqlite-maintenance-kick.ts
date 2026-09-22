@@ -162,6 +162,7 @@ async function runPendingMaintenance(
         break;
       }
       owner.running = false;
+      const now = Date.now();
       owner.timer = setTimeout(
         () => {
           owner.timer = undefined;
@@ -169,10 +170,12 @@ async function runPendingMaintenance(
           void runPendingMaintenance(databasePath, owner);
         },
         // Bound relative delays too: Node clamps overflowed timeouts to 1 ms.
-        Math.max(
-          1,
-          Math.min(SESSION_ENTRY_MAINTENANCE_INTERVAL_MS, nextMaintenanceAt - Date.now()),
-        ),
+        // A completed plan owns the current snapshot. If its age fact still
+        // reports a due time, avoid a fake-timer/event-loop spin and let the
+        // periodic recheck refresh the fact before planning again.
+        nextMaintenanceAt > now
+          ? Math.min(SESSION_ENTRY_MAINTENANCE_INTERVAL_MS, nextMaintenanceAt - now)
+          : SESSION_ENTRY_MAINTENANCE_INTERVAL_MS,
       );
       owner.timer.unref();
       return;
