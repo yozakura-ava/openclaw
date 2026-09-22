@@ -470,6 +470,8 @@ function readMetadata(
   // SAFETY: insertCard serializes WorkboardMetadata.stale unchanged.
   const stale = parseJson(row.stale_json) as WorkboardMetadata["stale"] | undefined;
   const lifecycleStatusSourceUpdatedAt = numberValue(row, "lifecycle_status_source_updated_at");
+  const reviewRequired = numberValue(row, "review_required");
+  const reviewVerdict = parseJson(row.review_verdict_json) as WorkboardMetadata["reviewVerdict"];
   return optional({
     ...(attempts.length > 0 ? { attempts } : {}),
     ...(comments.length > 0 ? { comments } : {}),
@@ -508,6 +510,8 @@ function readMetadata(
     ...(numberValue(row, "failure_count") !== undefined
       ? { failureCount: numberValue(row, "failure_count") }
       : {}),
+    ...(reviewRequired !== undefined ? { reviewRequired: reviewRequired === 1 } : {}),
+    ...(reviewVerdict ? { reviewVerdict } : {}),
   });
 }
 

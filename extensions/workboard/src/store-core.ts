@@ -74,20 +74,10 @@ import {
   trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { addCommentWithChunking } from "./store-oversized-comment.js";
+import * as workboardReview from "./store-review.js";
 import { WorkboardStoreRuntime } from "./store-runtime.js";
 
-type WorkboardUpdateCardOptions = {
-  allowAutomationLaunch?: boolean;
-  allowGovernedCompletion?: boolean;
-  allowReviewVerdict?: boolean;
-  allowMetadataDependencyLinks?: boolean;
-  enforceStatusHolds?: boolean;
-  event?: Omit<WorkboardEvent, "id" | "at">;
-  eventAt?: number;
-  expectedUpdatedAt?: number;
-  ownerSlot?: { ownerId: string; now: number };
-  preserveProofId?: string;
-};
+type WorkboardUpdateCardOptions = workboardReview.WorkboardUpdateCardOptions;
 
 type WorkboardMutationJournalEntry = {
   before?: WorkboardCard;
@@ -272,11 +262,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   protected async updateMetadata(
     id: string,
     mutate: (existing: WorkboardCard) => WorkboardMetadata,
-    options: {
-      allowReviewVerdict?: boolean;
-      preserveProofId?: string;
-      expectedUpdatedAt?: number;
-    } = {},
+    options: workboardReview.WorkboardMetadataUpdateOptions = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const result = await this.updateLatestCard(
@@ -739,14 +725,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       }
     }
     const status = normalizeStatus(effectivePatch.status, existing.status);
-    if (
-      status === "done" &&
-      existing.metadata?.reviewRequired === true &&
-      !options.allowGovernedCompletion &&
-      (existing.status !== "review" || existing.metadata.reviewVerdict?.verified !== true)
-    ) {
-      throw new Error("card requires a verified review verdict before completion.");
-    }
+    workboardReview.assertGovernedCompletionAllowed(
+      existing,
+      status,
+      options.allowGovernedCompletion,
+    );
     const now = Math.max(Date.now(), existing.updatedAt + 1);
     const startedAt =
       effectivePatch.startedAt === undefined
@@ -776,9 +759,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       allowReviewVerdict: options.allowReviewVerdict,
       preserveProofId: options.preserveProofId,
     });
-    if (!options.allowReviewVerdict && metadata.reviewVerdict) {
-      metadata = { ...metadata, reviewVerdict: undefined };
-    }
+    metadata = workboardReview.stripUnprivilegedReviewVerdict(metadata, options.allowReviewVerdict);
     if (status !== existing.status && !hasFreshLifecycleStatusSource) {
       // Status patches often spread existing metadata. Only a newly supplied
       // lifecycle source is provenance; copied markers must not survive a manual transition.

@@ -17,7 +17,7 @@ function readPayload(result: unknown): Record<string, unknown> {
 
 describe("workboard tools", () => {
   it("records a claimed review verdict for a governed card", async () => {
-    const store = new WorkboardStore(createMemoryStore());
+    const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Reviewed", status: "review", reviewRequired: true });
     const claim = await store.claim(card.id, { ownerId: "reviewer", token: "review-token" });
     const tools = new Map(

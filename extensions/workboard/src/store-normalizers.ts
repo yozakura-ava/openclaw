@@ -35,7 +35,6 @@ import {
   type WorkboardOrchestrationSettings,
   type WorkboardPriority,
   type WorkboardProof,
-  type WorkboardReviewVerdict,
   type WorkboardRunAttempt,
   type WorkboardStatus,
   type WorkboardTemplateId,
@@ -67,6 +66,7 @@ import type {
   WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
 } from "./store-inputs.js";
+import * as workboardReview from "./store-review.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -1059,14 +1059,7 @@ function normalizeList<T>(
 export function normalizeMetadata(
   value: unknown,
   fallback: WorkboardMetadata = {},
-  options: {
-    allowDependencyLinks?: boolean;
-    allowArchivedAt?: boolean;
-    allowAutomationLaunch?: boolean;
-    allowReviewRequired?: boolean;
-    allowReviewVerdict?: boolean;
-    preserveProofId?: string;
-  } = {},
+  options: workboardReview.WorkboardMetadataNormalizationOptions = {},
 ): WorkboardMetadata {
   if (!isRecord(value)) {
     return trimMetadataToBudget(fallback, options);
@@ -1116,13 +1109,7 @@ export function normalizeMetadata(
     ),
     links: normalizedLinks,
     proof: normalizeList(record.proof, normalizeProof, MAX_CARD_PROOF, fallback.proof),
-    reviewRequired:
-      options.allowReviewRequired && typeof record.reviewRequired === "boolean"
-        ? record.reviewRequired
-        : fallback.reviewRequired,
-    reviewVerdict: options.allowReviewVerdict
-      ? normalizeReviewVerdict(record.reviewVerdict, fallback.reviewVerdict)
-      : fallback.reviewVerdict,
+    ...workboardReview.normalizeReviewMetadata(record, fallback, options),
     artifacts: normalizeList(
       record.artifacts,
       normalizeArtifact,
@@ -1193,26 +1180,6 @@ export function normalizeMetadata(
       : {}),
   };
   return trimMetadataToBudget(normalized, options);
-}
-
-function normalizeReviewVerdict(
-  value: unknown,
-  fallback?: WorkboardReviewVerdict,
-): WorkboardReviewVerdict | undefined {
-  if (!isRecord(value) || typeof value.verified !== "boolean") {
-    return fallback;
-  }
-  const reviewerId = normalizeBoundedString(value.reviewerId, undefined, 120, "reviewer id");
-  if (!reviewerId) {
-    return fallback;
-  }
-  const summary = normalizeBoundedString(value.summary, undefined, 1000, "review summary");
-  return {
-    verified: value.verified,
-    reviewerId,
-    reviewedAt: normalizeTimestamp(value.reviewedAt, Date.now()),
-    ...(summary ? { summary } : {}),
-  };
 }
 
 export function normalizeExecution(value: unknown): WorkboardExecution | undefined {
@@ -1303,7 +1270,7 @@ function removeUndefinedAutomationFields(automation: WorkboardAutomation): Workb
 }
 
 export function removeUndefinedMetadataFields(metadata: WorkboardMetadata): WorkboardMetadata {
-  const next = { ...metadata };
+  const next = workboardReview.removeUndefinedReviewMetadataFields(metadata);
   for (const key of [
     "attempts",
     "comments",
