@@ -3,7 +3,6 @@ import {
   WORKBOARD_STATUSES,
   type WorkboardAttemptStatus,
   type WorkboardCard,
-  type WorkboardDiagnostic,
   type WorkboardEvent,
   type WorkboardExecution,
   type WorkboardMetadata,
@@ -14,11 +13,8 @@ import {
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
-  BLOCKED_TOO_LONG_MS,
   MAX_CARD_ATTEMPTS,
   MAX_CARD_EVENTS,
-  READY_STRANDED_MS,
-  RUNNING_HEARTBEAT_STALE_MS,
   isWorkboardClaimReclaimable,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
