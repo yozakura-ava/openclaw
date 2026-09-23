@@ -438,6 +438,7 @@ describe("workboard gateway methods", () => {
     const card = await store.create({
       title: "Ready worker",
       status: "ready",
+      agentId: "main",
       priority: "urgent",
       workspaceAccess: { unrestricted: true },
     });
@@ -645,6 +646,7 @@ describe("workboard gateway methods", () => {
     const denied = await store.create({
       title: "Denied checkout",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo-denied" },
     });
     registerWorkboardGatewayMethods({ api, store });
@@ -682,6 +684,7 @@ describe("workboard gateway methods", () => {
     const allowed = await store.create({
       title: "Allowed checkout",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/workspace" },
     });
     const allowedRespond = vi.fn();

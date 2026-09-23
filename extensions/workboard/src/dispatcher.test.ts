@@ -9,6 +9,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Claude worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: true },
     });
     const run = vi.fn().mockResolvedValue({
@@ -41,6 +42,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Unknown runtime worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: true },
     });
 
@@ -64,6 +66,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Isolated worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo", branch: "main" },
       workspaceAccess: { unrestricted: true },
     });
@@ -123,6 +126,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Legacy worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo" },
     });
     const run = vi.fn();
@@ -154,7 +158,11 @@ describe("dispatchAndStartWorkboardCards", () => {
 
   it("adopts current authority for a legacy card without a host workspace path", async () => {
     const store = createWorkboardSqliteTestStore();
-    const card = await store.create({ title: "Legacy scratch worker", status: "ready" });
+    const card = await store.create({
+      title: "Legacy scratch worker",
+      status: "ready",
+      agentId: "main",
+    });
     const run = vi.fn().mockResolvedValue({ runId: "run-legacy-scratch" });
 
     const result = await dispatchAndStartWorkboardCards({
@@ -175,6 +183,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Racing authority update",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/workspace" },
       workspaceAccess: { unrestricted: true },
     });
@@ -212,6 +221,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Protected checkout",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo" },
     });
     const worktrees = {
@@ -247,6 +257,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Protected directory",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/outside" },
     });
     const run = vi.fn();
@@ -279,6 +290,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Mutable nested directory",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/workspace/repo" },
     });
     const run = vi.fn();
@@ -416,6 +428,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Read-only worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
     const run = vi.fn();
@@ -453,6 +466,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Persisted read-only worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: false },
     });
     const run = vi.fn();
@@ -478,6 +492,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Broader target worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/workspace/project" },
       workspaceAccess: {
         unrestricted: false,
@@ -519,6 +534,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Escaping worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
     const run = vi.fn();
@@ -557,6 +573,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Nested checkout worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/repo/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/repo/workspace"], writable: true },
     });
@@ -599,6 +616,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Persisted restricted worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
@@ -644,6 +662,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Workspace-bound worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo" },
     });
     const run = vi.fn().mockResolvedValue({ runId: "run-workspace" });
@@ -683,6 +702,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Linked worktree worker",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "dir", path: "/workspace" },
       workspaceAccess: { unrestricted: false, roots: ["/workspace"], writable: true },
     });
@@ -722,6 +742,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Branchless retry",
       status: "ready",
+      agentId: "main",
       workspace: {
         kind: "worktree",
         path: "/state/worktrees/fingerprint/wb-card",
@@ -1051,6 +1072,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     const card = await store.create({
       title: "Fail worker",
       status: "ready",
+      agentId: "main",
       workspaceAccess: { unrestricted: true },
     });
     const run = vi.fn().mockRejectedValue(new Error("model unavailable"));
