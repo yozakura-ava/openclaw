@@ -49,6 +49,7 @@ import {
   suspendSession,
   type SessionSuspensionParams,
 } from "./session-suspension.js";
+import { isSessionTranscriptDesyncError } from "./sessions/session-transcript-desync.js";
 
 type FailoverAttribution = {
   sessionId?: string;
@@ -196,9 +197,8 @@ function isTerminalAbortFromError(err: unknown): boolean {
   return isOpenClawAbortableWrapper(err) && causeCandidates.some(isTerminalAbortCandidate);
 }
 
-function isAgentRunTerminalTimeout(err: unknown): boolean {
-  return findAgentRunTerminalOutcome(err)?.status === "timeout";
-}
+// oxfmt-ignore
+const isAgentRunTerminalTimeout = (err: unknown) => findAgentRunTerminalOutcome(err)?.status === "timeout";
 
 /** Preserve stop precedence while naming the first matching condition. */
 function resolveChainStopReason(params: {
@@ -208,6 +208,9 @@ function resolveChainStopReason(params: {
   callerSignalAborted: boolean;
 }): ModelFallbackChainStopReason | undefined {
   const { err } = params;
+  if (isSessionTranscriptDesyncError(err)) {
+    return "session_transcript_desync";
+  }
   if (isAgentRunTerminalTimeout(err)) {
     return "agent_run_terminal_timeout";
   }

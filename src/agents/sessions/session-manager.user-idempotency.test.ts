@@ -10,6 +10,7 @@ import {
 } from "../../config/sessions/session-accessor.js";
 import { createZeroUsageFixture } from "../test-helpers/usage-fixtures.js";
 import { SessionManager } from "./session-manager.js";
+import { SessionTranscriptDesyncError } from "./session-transcript-desync.js";
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -100,6 +101,7 @@ describe("SessionManager user idempotency", () => {
         maxEvents: 100,
       });
 
+      expect(() => sessionManager.appendMessage(userMessage)).toThrow(SessionTranscriptDesyncError);
       expect(() => sessionManager.appendMessage(userMessage)).toThrow(
         "Session transcript keyed user is outside the current turn",
       );
