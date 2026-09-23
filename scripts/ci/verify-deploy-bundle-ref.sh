@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# verify-deploy-bundle-ref.sh — GitHub Releases provenance guard for
+# .github/workflows/deploy-bundle.yml inputs.ref.
+#
+# Context: deploy-bundle.yml is a privileged workflow that runs
+# `pnpm install` + `pnpm run build:package` and ships a deploy tarball
+# consumed by the staging server. A naming-convention check on the ref
+# (e.g. `^v<semver>$`) is not provenance — an attacker able to push a
+# matching tag can drive the privileged build against attacker-controlled
+# source. This script verifies that the ref corresponds to an actual
+# published GitHub Release via the REST API.
+#
+# Accepted inputs:
+#   1) v<major>.<minor>.<patch>[-suffix] tag that maps to a published,
+#      non-draft GitHub Release (prereleases allowed — the repo uses
+#      -rc suffixes). Verified via
+#      GET /repos/{repo}/releases/tags/{tag}: require HTTP 200 with a
+#      matching .tag_name and .draft == false.
+#   2) 40-character commit SHA that is the .target_commitish or the
+#      resolved commit of a published, non-draft GitHub Release.
+#      Verified by paginating GET /repos/{repo}/releases (filtered to
+#      non-draft) and cross-referencing each release's tag via
+#      GET /repos/{repo}/git/ref/tags/{tag_name}.
+#
+# Fail-closed: any API error (network, 5xx, 404, malformed JSON,
+# non-matching tag_name) rejects the ref. A transient GitHub outage
+# never silently widens the allowlist.
+#
+# Usage:
+#   verify-deploy-bundle-ref.sh --ref <ref> [--repo <owner/repo>]
+#                                [--api-base <url>]
+#                                [--github-output <file>]
+#
+# Exit codes:
+#   0 — ref accepted
+#   1 — ref rejected (::error:: message on stderr)
+#   2 — usage error
+#
+# Environment:
+#   GH_TOKEN — GitHub token (required for live API calls; tests override
+#              the gh_api_get function instead)
+#   GITHUB_REPOSITORY — fallback for --repo when not specified
+
+set -euo pipefail
+
+REF=""
+REPO="${GITHUB_REPOSITORY:-}"
+API_BASE="https://api.github.com"
+GITHUB_OUTPUT_FILE="${GITHUB_OUTPUT:-}"
+
+SEMVER_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'
+SHA_RE='^[0-9a-fA-F]{40}$'
+MAX_RELEASE_PAGES=20
+
+usage() {
+  cat >&2 <<'EOF'
+Usage: verify-deploy-bundle-ref.sh --ref <ref> [--repo <owner/repo>] [--api-base <url>] [--github-output <file>]
+
+Validates that <ref> corresponds to a published, non-draft GitHub Release.
+Accepts:
+  - v<semver>[-suffix] tag that maps to a published Release
+  - 40-char SHA that is the target_commitish or commit of a published Release
+
+Exits 0 on accept, 1 on reject (fail-closed on API errors).
+EOF
+}
+
+die_usage() {
+  echo "::error::$1" >&2
+  usage >&2
+  exit 2
+}
+
+reject_ref() {
+  echo "::error::$1" >&2
+  exit 1
+}
+
+# --- CLI parsing ---
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ref)            REF="${2:-}"; shift 2 ;;
+    --repo)           REPO="${2:-}"; shift 2 ;;
+    --api-base)       API_BASE="${2:-}"; shift 2 ;;
+    --github-output)  GITHUB_OUTPUT_FILE="${2:-}"; shift 2 ;;
+    -h|--help)        usage; exit 0 ;;
+    *)                die_usage "unknown argument: $1" ;;
+  esac
+done
+
+if [[ -z "${REF}" ]]; then
+  die_usage "--ref is required"
+fi
+if [[ -z "${REPO}" ]]; then
+  die_usage "--repo is required (or set GITHUB_REPOSITORY)"
+fi
+
+# --- API helper (overridable for tests) ---
+# Tests source this script and override gh_api_get to return canned
+# responses from fixture files. In production, this calls `gh api`
+# with the workflow's GITHUB_TOKEN.
+gh_api_get() {
+  local path="$1"
+  gh api \
+    -H "Accept: application/vnd.github+json" \
+    -H "X-GitHub-Api-Version: 2022-11-28" \
+    "${API_BASE%/}${path}"
+}
+
+ACCEPTED=0
+MATCHED_TAG=""
+MATCHED_REASON=""
+
+# --- Case 1: semver tag → must resolve to a published, non-draft Release ---
+if [[ "${REF}" =~ ${SEMVER_RE} ]]; then
+  RELEASE_JSON="$(gh_api_get "/repos/${REPO}/releases/tags/${REF}")" \
+    || reject_ref "failed to query GitHub Releases API for tag ${REF} (fail closed)"
+
+  TAG_NAME="$(echo "${RELEASE_JSON}" | jq -r '.tag_name // empty')"
+  # Fail closed: if .draft is missing or null, treat as draft.
+  # jq's // operator treats false as falsy, so we use explicit has() check.
+  IS_DRAFT="$(echo "${RELEASE_JSON}" | jq -r 'if has("draft") then .draft else true end | tostring')"
+
+  if [[ -z "${TAG_NAME}" ]]; then
+    reject_ref "tag ${REF} does not correspond to any GitHub Release (empty tag_name in API response)"
+  fi
+  if [[ "${TAG_NAME}" != "${REF}" ]]; then
+    reject_ref "release tag_name mismatch: requested=${REF} returned=${TAG_NAME}"
+  fi
+  if [[ "${IS_DRAFT}" == "true" ]]; then
+    reject_ref "tag ${REF} points to a draft release; draft releases are not trusted"
+  fi
+
+  ACCEPTED=1
+  MATCHED_TAG="${TAG_NAME}"
+  MATCHED_REASON="tag maps to published Release"
+fi
+
+# --- Case 2: 40-char SHA → must be target_commitish or commit of a published Release ---
+if [[ "${ACCEPTED}" -eq 0 ]] && [[ "${REF}" =~ ${SHA_RE} ]]; then
+  SHA="${REF}"
+  PAGE=1
+  while :; do
+    PAGE_JSON="$(gh_api_get "/repos/${REPO}/releases?per_page=100&page=${PAGE}")" \
+      || reject_ref "failed to enumerate GitHub Releases (page ${PAGE}) for SHA verification (fail closed)"
+
+    PAGE_LEN="$(echo "${PAGE_JSON}" | jq 'length // 0')"
+    if [[ "${PAGE_LEN}" -eq 0 ]]; then
+      break
+    fi
+
+    while IFS=$'\t' read -r TAG_NAME TARGET_COMMITTISH; do
+      [[ -z "${TAG_NAME}" ]] && continue
+
+      # Case A: target_commitish is the SHA directly
+      if [[ "${TARGET_COMMITTISH}" == "${SHA}" ]]; then
+        ACCEPTED=1
+        MATCHED_TAG="${TAG_NAME}"
+        MATCHED_REASON="SHA matches target_commitish of published Release"
+        break
+      fi
+
+      # Case B: resolve the tag to its commit SHA and compare.
+      # If the tag can't be resolved (transient API error, deleted tag,
+      # etc.), skip it and continue — the overall fail-closed verdict
+      # applies after exhausting all pages, not per-tag.
+      if ! TAG_REF_JSON="$(gh_api_get "/repos/${REPO}/git/ref/tags/${TAG_NAME}")"; then
+        echo "::warning::failed to resolve tag ${TAG_NAME} to commit SHA; skipping" >&2
+        continue
+      fi
+
+      TAG_COMMIT="$(echo "${TAG_REF_JSON}" | jq -r '
+        if .object.type == "commit" then .object.sha
+        elif .object.type == "tag" then .object.object.sha
+        else empty
+        end
+      ')"
+
+      if [[ "${TAG_COMMIT}" == "${SHA}" ]]; then
+        ACCEPTED=1
+        MATCHED_TAG="${TAG_NAME}"
+        MATCHED_REASON="SHA matches commit of tag ${TAG_NAME} on published Release"
+        break
+      fi
+    done < <(echo "${PAGE_JSON}" \
+              | jq -r '.[] | select(.draft == false) | [(.tag_name // ""), (.target_commitish // "")] | @tsv')
+
+    if [[ "${ACCEPTED}" -eq 1 ]]; then
+      break
+    fi
+
+    PAGE=$((PAGE + 1))
+    if [[ "${PAGE}" -gt ${MAX_RELEASE_PAGES} ]]; then
+      reject_ref "exceeded ${MAX_RELEASE_PAGES} pages of releases while searching for SHA ${SHA}"
+    fi
+  done
+fi
+
+if [[ "${ACCEPTED}" -ne 1 ]]; then
+  reject_ref "ref ${REF} is not a trusted release ref (must be a v<major>.<minor>.<patch> tag mapped to a published Release, or a 40-char SHA that is the target_commitish or commit of a published Release)"
+fi
+
+echo "::notice::trusted release ref accepted: ${REF} — ${MATCHED_REASON} (tag=${MATCHED_TAG})" >&2
+if [[ -n "${GITHUB_OUTPUT_FILE}" ]] && [[ -d "$(dirname "${GITHUB_OUTPUT_FILE}")" ]]; then
+  echo "matched_tag=${MATCHED_TAG}" >> "${GITHUB_OUTPUT_FILE}"
+fi
+exit 0
