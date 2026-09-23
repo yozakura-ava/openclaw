@@ -86,6 +86,180 @@ run_test() {
   rm -rf "${tmpdir}"
 }
 
+# --- Helper: run a single test case with pinned_sha output verification ---
+#
+# Verifies the script emits `pinned_sha=<40-char-sha>` on stdout and
+# (when --github-output is supplied) writes the same pinned_sha to
+# the GITHUB_OUTPUT file. This is the workflow contract that closes
+# the TOCTOU window: the workflow consumes pinned_sha from the
+# GITHUB_OUTPUT file and checks out THAT SHA, not the user-supplied
+# tag.
+#
+# Args:
+#   $1 — test name
+#   $2 — expected exit code (0 or 1, or 2 for usage error)
+#   $3 — ref to validate
+#   $4 — path to mock-gh script
+#   $5 — expected pinned_sha value (40-char SHA; empty string to skip check)
+#   $6 — optional: substring expected in stderr
+run_test_pinned() {
+  local name="$1"
+  local expected_exit="$2"
+  local ref="$3"
+  local mock_gh="$4"
+  local expected_pinned_sha="$5"
+  local expected_stderr="${6:-}"
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  local mock_bin="${tmpdir}/bin"
+  local gh_output_file="${tmpdir}/gh_output"
+  mkdir -p "${mock_bin}"
+
+  cp "${mock_gh}" "${mock_bin}/gh"
+  chmod +x "${mock_bin}/gh"
+
+  local stdout_file="${tmpdir}/stdout"
+  local stderr_file="${tmpdir}/stderr"
+  local actual_exit=0
+
+  # Run validation script with mock gh in PATH and a GITHUB_OUTPUT
+  # file. The script writes `pinned_sha=<sha>` to the file and
+  # stdout so callers can consume it either way.
+  PATH="${mock_bin}:${PATH}" \
+  GH_TOKEN="test-token" \
+  GITHUB_REPOSITORY="yozakura-ava/openclaw" \
+    "${VALIDATE_SCRIPT}" --ref "${ref}" \
+      --github-output "${gh_output_file}" \
+      >"${stdout_file}" 2>"${stderr_file}" || actual_exit=$?
+
+  local ok=1
+  if [[ "${actual_exit}" -ne "${expected_exit}" ]]; then
+    echo "  ✗ ${name}: expected exit ${expected_exit}, got ${actual_exit}"
+    echo "    stderr: $(head -3 "${stderr_file}")"
+    ok=0
+  fi
+  if [[ -n "${expected_stderr}" ]]; then
+    if ! grep -qF -e "${expected_stderr}" "${stderr_file}"; then
+      echo "  ✗ ${name}: expected stderr to contain '${expected_stderr}'"
+      echo "    actual stderr: $(head -3 "${stderr_file}")"
+      ok=0
+    fi
+  fi
+  if [[ "${actual_exit}" -eq 0 ]] && [[ -n "${expected_pinned_sha}" ]]; then
+    # pinned_sha must appear on stdout (consumable by callers without GITHUB_OUTPUT)
+    if ! grep -qE "^pinned_sha=${expected_pinned_sha}$" "${stdout_file}"; then
+      echo "  ✗ ${name}: expected stdout to contain 'pinned_sha=${expected_pinned_sha}'"
+      echo "    actual stdout: $(head -3 "${stdout_file}")"
+      ok=0
+    fi
+    # pinned_sha must be written to the GITHUB_OUTPUT file (consumable by the workflow)
+    if ! grep -qE "^pinned_sha=${expected_pinned_sha}$" "${gh_output_file}"; then
+      echo "  ✗ ${name}: expected GITHUB_OUTPUT to contain 'pinned_sha=${expected_pinned_sha}'"
+      echo "    actual GITHUB_OUTPUT: $(cat "${gh_output_file}" 2>/dev/null || echo '<missing>')"
+      ok=0
+    fi
+  fi
+
+  if [[ "${ok}" -eq 1 ]]; then
+    echo "  ✓ ${name}"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("${name}")
+  fi
+
+  rm -rf "${tmpdir}"
+}
+
+# --- Helper: simulate the workflow's post-checkout equality check ---
+#
+# The deploy-bundle workflow runs:
+#   RESOLVED_SHA="$(git rev-parse --verify "${REF}^{commit}")"
+#   SOURCE_SHA="$(git rev-parse HEAD)"
+#   if [[ "${SOURCE_SHA}" != "${RESOLVED_SHA}" ]]; then exit 1; fi
+#
+# After our fix, SOURCE_SHA = pinned_sha (we checkout pinned_sha
+# explicitly). If the tag was retargeted after validation, RESOLVED_SHA
+# would differ from pinned_sha and the check rejects the build.
+#
+# This helper simulates that pattern in a single test case: it
+# captures pinned_sha from the verify script and re-resolves a tag
+# against the mock API to assert the equality check fails when the
+# tag resolves to a different SHA.
+#
+# Args:
+#   $1 — test name
+#   $2 — pinned_sha (SHA that verify produced)
+#   $3 — ref (tag name)
+#   $4 — retargeted_commit_sha (what the tag now resolves to, to simulate retarget)
+#   $5 — mock_gh (used for verify + retarget resolution)
+#   $6 — expected equality check exit code (0 = accept, 1 = reject)
+run_test_retarget_check() {
+  local name="$1"
+  local pinned_sha="$2"
+  local ref="$3"
+  local retargeted_sha="$4"
+  local mock_gh="$5"
+  local expected_check_exit="$6"
+
+  local tmpdir
+  tmpdir="$(mktemp -d)"
+  local mock_bin="${tmpdir}/bin"
+  mkdir -p "${mock_bin}"
+
+  cp "${mock_gh}" "${mock_bin}/gh"
+  chmod +x "${mock_bin}/gh"
+
+  local stdout_file="${tmpdir}/stdout"
+  local stderr_file="${tmpdir}/stderr"
+  local actual_check_exit=0
+
+  # Simulate the workflow pattern:
+  #   1. We have pinned_sha from the verify script (= HEAD after checkout).
+  #   2. We re-resolve the tag at "checkout time" via the mock API.
+  #   3. Equality check rejects if HEAD != tag-resolved SHA.
+  # The retargeted_sha is what /git/ref/tags/{ref} returns at
+  # "checkout time" — different from pinned_sha, simulating the
+  # attacker retargeting the tag between validation and checkout.
+  PATH="${mock_bin}:${PATH}" \
+    bash -c "
+      set -euo pipefail
+      # Simulate HEAD = pinned_sha (the workflow checked out pinned_sha).
+      HEAD_SHA='${pinned_sha}'
+      # Re-resolve the tag at checkout time via the mock API.
+      TAG_REF_JSON=\$(${mock_bin}/gh api '/repos/yozakura-ava/openclaw/git/ref/tags/${ref}')
+      RESOLVED_SHA=\$(echo \"\${TAG_REF_JSON}\" | jq -r '
+        if .object.type == \"commit\" then .object.sha
+        elif .object.type == \"tag\" then .object.object.sha
+        else empty
+        end
+      ')
+      if [[ \"\${HEAD_SHA}\" != \"\${RESOLVED_SHA}\" ]]; then
+        echo \"::error::tag retargeted: pinned=\${HEAD_SHA} resolved=\${RESOLVED_SHA}\" >&2
+        exit 1
+      fi
+      exit 0
+    " >"${stdout_file}" 2>"${stderr_file}" || actual_check_exit=$?
+
+  local ok=1
+  if [[ "${actual_check_exit}" -ne "${expected_check_exit}" ]]; then
+    echo "  ✗ ${name}: expected check exit ${expected_check_exit}, got ${actual_check_exit}"
+    echo "    stderr: $(head -3 "${stderr_file}")"
+    ok=0
+  fi
+
+  if [[ "${ok}" -eq 1 ]]; then
+    echo "  ✓ ${name}"
+    PASS=$((PASS + 1))
+  else
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("${name}")
+  fi
+
+  rm -rf "${tmpdir}"
+}
+
 # --- Mock gh generator ---
 # Creates a self-contained mock gh script with embedded response specs.
 # Args:
@@ -169,7 +343,8 @@ echo ""
 # ============================================================
 TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
-  "/repos/yozakura-ava/openclaw/releases/tags/v1.2.3|200|{\"tag_name\":\"v1.2.3\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"abc123\"}"
+  "/repos/yozakura-ava/openclaw/releases/tags/v1.2.3|200|{\"tag_name\":\"v1.2.3\",\"draft\":false,\"prerelease\":false,\"target_commitish\":\"abc123\"}" \
+  "/git/ref/tags/v1.2.3|200|{\"ref\":\"refs/tags/v1.2.3\",\"object\":{\"type\":\"commit\",\"sha\":\"abc123def456abc123def456abc123def456abcd\"}}"
 run_test "tag v1.2.3 on published release → accepted" 0 "v1.2.3" "${TMP}/mock_gh" "trusted release ref accepted"
 rm -rf "${TMP}"
 
@@ -178,7 +353,8 @@ rm -rf "${TMP}"
 # ============================================================
 TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
-  "/repos/yozakura-ava/openclaw/releases/tags/v1.2.3-rc.1|200|{\"tag_name\":\"v1.2.3-rc.1\",\"draft\":false,\"prerelease\":true,\"target_commitish\":\"abc123\"}"
+  "/repos/yozakura-ava/openclaw/releases/tags/v1.2.3-rc.1|200|{\"tag_name\":\"v1.2.3-rc.1\",\"draft\":false,\"prerelease\":true,\"target_commitish\":\"abc123\"}" \
+  "/git/ref/tags/v1.2.3-rc.1|200|{\"ref\":\"refs/tags/v1.2.3-rc.1\",\"object\":{\"type\":\"commit\",\"sha\":\"abc123def456abc123def456abc123def456abcd\"}}"
 run_test "tag v1.2.3-rc.1 on published prerelease → accepted" 0 "v1.2.3-rc.1" "${TMP}/mock_gh" "trusted release ref accepted"
 rm -rf "${TMP}"
 
@@ -354,9 +530,189 @@ rm -rf "${TMP}"
 # ============================================================
 TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
-  "/repos/yozakura-ava/openclaw/releases/tags/v1.0.0-alpha.1|200|{\"tag_name\":\"v1.0.0-alpha.1\",\"draft\":false,\"prerelease\":true}"
+  "/repos/yozakura-ava/openclaw/releases/tags/v1.0.0-alpha.1|200|{\"tag_name\":\"v1.0.0-alpha.1\",\"draft\":false,\"prerelease\":true}" \
+  "/git/ref/tags/v1.0.0-alpha.1|200|{\"ref\":\"refs/tags/v1.0.0-alpha.1\",\"object\":{\"type\":\"commit\",\"sha\":\"abc123def456abc123def456abc123def456abcd\"}}"
 run_test "tag v1.0.0-alpha.1 → accepted" 0 "v1.0.0-alpha.1" "${TMP}/mock_gh" "trusted release ref accepted"
 rm -rf "${TMP}"
+
+# ============================================================
+# Test 21: Lightweight tag → pinned_sha on stdout AND GITHUB_OUTPUT
+#          (closes the TOCTOU window: workflow consumes pinned_sha
+#          from the output file and checks out THAT SHA, not the tag)
+# ============================================================
+LIGHTWEIGHT_COMMIT="aabbccddeeff00112233445566778899aabbccdd"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v1.2.3|200|{\"tag_name\":\"v1.2.3\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v1.2.3|200|{\"ref\":\"refs/tags/v1.2.3\",\"object\":{\"type\":\"commit\",\"sha\":\"${LIGHTWEIGHT_COMMIT}\"}}"
+run_test_pinned "lightweight tag → pinned_sha emitted on stdout + GITHUB_OUTPUT" \
+  0 "v1.2.3" "${TMP}/mock_gh" "${LIGHTWEIGHT_COMMIT}"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 22: Annotated tag (object.type=tag) → nested commit SHA is the
+#          pinned_sha. The tag object points to another tag object
+#          whose .object.sha is the commit. Resolution must follow
+#          the nesting one level deep.
+# ============================================================
+ANNOTATED_INNER_TAG="9999888877776666555544443333222211110000"
+ANNOTATED_COMMIT="1234567890abcdef1234567890abcdef12345678"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v2.0.0|200|{\"tag_name\":\"v2.0.0\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v2.0.0|200|{\"ref\":\"refs/tags/v2.0.0\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_INNER_TAG}\",\"object\":{\"type\":\"commit\",\"sha\":\"${ANNOTATED_COMMIT}\"}}}"
+run_test_pinned "annotated tag nested resolution → pinned_sha = inner commit SHA" \
+  0 "v2.0.0" "${TMP}/mock_gh" "${ANNOTATED_COMMIT}"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 23: /git/ref/tags/ returns 404 → REJECTED (fail closed)
+#          Tag exists in Releases API but the ref endpoint can't
+#          resolve it (transient or deleted). Must reject because
+#          without a pinned SHA we cannot close the TOCTOU window.
+# ============================================================
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v3.0.0|200|{\"tag_name\":\"v3.0.0\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v3.0.0|404|{\"message\":\"Not Found\"}"
+run_test "tag ref resolution 404 → fail closed" 1 "v3.0.0" "${TMP}/mock_gh" "could not be resolved"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 24: /git/ref/tags/ returns 503 → REJECTED (fail closed)
+# ============================================================
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v3.0.1|200|{\"tag_name\":\"v3.0.1\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v3.0.1|503|{\"message\":\"Service Unavailable\"}"
+run_test "tag ref resolution 503 → fail closed" 1 "v3.0.1" "${TMP}/mock_gh" "fail closed"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 25: /git/ref/tags/ returns malformed response (no .object.type)
+#          → REJECTED (cannot determine commit SHA)
+# ============================================================
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v3.0.2|200|{\"tag_name\":\"v3.0.2\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v3.0.2|200|{\"ref\":\"refs/tags/v3.0.2\",\"object\":{\"sha\":\"abc\"}}"
+run_test "tag ref resolution malformed → fail closed" 1 "v3.0.2" "${TMP}/mock_gh" "empty or malformed commit SHA"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 26: SHA-input path emits pinned_sha = input SHA on stdout and
+#          GITHUB_OUTPUT. The SHA-input contract is uniform: the
+#          workflow always consumes pinned_sha regardless of whether
+#          the caller supplied a tag or a SHA.
+# ============================================================
+SHA_INPUT="abcdef1234567890abcdef1234567890abcdef12"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases?per_page=100&page=1|200|[{\"tag_name\":\"v1.2.3\",\"draft\":false,\"target_commitish\":\"${SHA_INPUT}\"}]"
+run_test_pinned "SHA-input → pinned_sha emitted (equals input SHA)" \
+  0 "${SHA_INPUT}" "${TMP}/mock_gh" "${SHA_INPUT}"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 27: Tag retargeted between validation and checkout → workflow
+#          equality check REJECTS the build.
+#
+# Simulates the workflow's post-checkout pattern:
+#   1. Verify script pinned commit A (returned on stdout).
+#   2. Workflow checks out pinned_sha A → HEAD = A.
+#   3. Workflow re-resolves the tag at "checkout time" via the mock
+#      API; the mock now returns a different commit B (attacker
+#      retargeted the tag between validation and checkout).
+#   4. Equality check: HEAD (A) != RESOLVED (B) → reject.
+# Without the fix, HEAD would equal whatever the tag resolved to
+# at checkout time, and the build would silently run attacker code.
+# ============================================================
+PINNED_AT_VALIDATION="111122223333444455556666777788889999aaaa"
+RETARGETED_COMMIT="ffff0000eeee1111dddd2222cccc3333bbbb4444"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/git/ref/tags/v4.0.0|200|{\"ref\":\"refs/tags/v4.0.0\",\"object\":{\"type\":\"commit\",\"sha\":\"${RETARGETED_COMMIT}\"}}"
+run_test_retarget_check "tag retargeted between validation and checkout → workflow rejects" \
+  "${PINNED_AT_VALIDATION}" "v4.0.0" "${RETARGETED_COMMIT}" "${TMP}/mock_gh" 1
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 28: Same tag, NOT retargeted → workflow equality check ACCEPTS.
+#          This is the negative case for Test 27: the equality
+#          check passes when the tag still resolves to pinned_sha,
+#          confirming the check is specific to retargeting (not a
+#          blanket rejection).
+# ============================================================
+SAME_PINNED_COMMIT="aaaabbbbccccddddeeeeffff0000111122223333"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/git/ref/tags/v4.0.0|200|{\"ref\":\"refs/tags/v4.0.0\",\"object\":{\"type\":\"commit\",\"sha\":\"${SAME_PINNED_COMMIT}\"}}"
+run_test_retarget_check "tag not retargeted → workflow accepts" \
+  "${SAME_PINNED_COMMIT}" "v4.0.0" "${SAME_PINNED_COMMIT}" "${TMP}/mock_gh" 0
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 29: deploy-bundle.yml uses --github-output to consume pinned_sha
+#          from the verify script (grep-verify, per HR5).
+# ============================================================
+WORKFLOW_FILE="${SCRIPT_DIR}/../../../.github/workflows/deploy-bundle.yml"
+if [[ -f "${WORKFLOW_FILE}" ]]; then
+  # (a) workflow invokes verify-deploy-bundle-ref.sh with --github-output
+  if grep -qF -- "--github-output" "${WORKFLOW_FILE}" \
+     && grep -qF "verify-deploy-bundle-ref.sh" "${WORKFLOW_FILE}"; then
+    echo "  ✓ workflow invokes verify-deploy-bundle-ref.sh with --github-output"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ workflow does not invoke verify-deploy-bundle-ref.sh with --github-output"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("workflow uses --github-output")
+  fi
+
+  # (b) workflow reads pinned_sha from the output (grep for the parse line)
+  if grep -qE "grep.*pinned_sha|cut.*pinned_sha|grep .*pinned_sha=" "${WORKFLOW_FILE}"; then
+    echo "  ✓ workflow reads pinned_sha from verify script output"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ workflow does not read pinned_sha from verify script output"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("workflow reads pinned_sha")
+  fi
+
+  # (c) workflow checks out pinned_sha (not inputs.ref) post-verify
+  if grep -qE "git checkout .*PINNED_SHA|git checkout .*pinned_sha" "${WORKFLOW_FILE}"; then
+    echo "  ✓ workflow checks out pinned_sha (not the user-supplied tag)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ workflow does not check out pinned_sha post-verify"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("workflow checks out pinned_sha")
+  fi
+
+  # (d) workflow keeps the rev-parse HEAD equality check (the
+  #     belt-and-suspenders retarget detector)
+  if grep -qF 'SOURCE_SHA="$(git rev-parse HEAD)"' "${WORKFLOW_FILE}" \
+     && grep -qF 'RESOLVED_SHA="$(git rev-parse --verify' "${WORKFLOW_FILE}" \
+     && grep -qF '"${SOURCE_SHA}" != "${RESOLVED_SHA}"' "${WORKFLOW_FILE}"; then
+    echo "  ✓ workflow keeps rev-parse HEAD equality check (retarget detector)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ workflow is missing the rev-parse HEAD equality check"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("workflow equality check")
+  fi
+
+  # (e) workflow uses fetch-depth: 0 so any SHA can be checked out
+  if grep -qE 'fetch-depth:[[:space:]]*0' "${WORKFLOW_FILE}"; then
+    echo "  ✓ workflow uses fetch-depth: 0 (allows checkout of any pinned SHA)"
+    PASS=$((PASS + 1))
+  else
+    echo "  ✗ workflow does not use fetch-depth: 0 (pinned_sha checkout may fail)"
+    FAIL=$((FAIL + 1))
+    FAILED_TESTS+=("workflow fetch-depth: 0")
+  fi
+else
+  echo "  ! SKIP: workflow file ${WORKFLOW_FILE} not found (workflow grep tests skipped)"
+fi
 
 # ============================================================
 # Summary

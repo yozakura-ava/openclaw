@@ -110,6 +110,41 @@ gh_api_get() {
 ACCEPTED=0
 MATCHED_TAG=""
 MATCHED_REASON=""
+PINNED_SHA=""
+
+# --- Tag → commit SHA resolver (shared between Case 1 and Case 2) ---
+#
+# Resolves a tag name to its commit SHA via GET /repos/{repo}/git/ref/tags/{tag}.
+# Handles annotated tag nesting:
+#   - lightweight tag:  object.type == "commit" → object.sha is the commit
+#   - annotated tag:    object.type == "tag"   → object.object.sha is the commit
+#
+# On success: prints the 40-char SHA to stdout, returns 0.
+# On failure: prints an error message to stderr and returns non-zero (caller
+# must reject the ref — fail closed).
+resolve_tag_commit() {
+  local tag_name="$1"
+  local ref_json=""
+  if ! ref_json="$(gh_api_get "/repos/${REPO}/git/ref/tags/${tag_name}")"; then
+    echo "::error::failed to resolve tag ${tag_name} via /git/ref/tags/ API (fail closed)" >&2
+    return 1
+  fi
+
+  local commit_sha
+  commit_sha="$(echo "${ref_json}" | jq -r '
+    if .object.type == "commit" then .object.sha
+    elif .object.type == "tag" then .object.object.sha
+    else empty
+    end
+  ')"
+
+  if [[ -z "${commit_sha}" ]] || [[ ! "${commit_sha}" =~ ${SHA_RE} ]]; then
+    echo "::error::tag ${tag_name} resolved to empty or malformed commit SHA via /git/ref/tags/ API" >&2
+    return 1
+  fi
+
+  echo "${commit_sha}"
+}
 
 # --- Case 1: semver tag → must resolve to a published, non-draft Release ---
 if [[ "${REF}" =~ ${SEMVER_RE} ]]; then
@@ -130,6 +165,15 @@ if [[ "${REF}" =~ ${SEMVER_RE} ]]; then
   if [[ "${IS_DRAFT}" == "true" ]]; then
     reject_ref "tag ${REF} points to a draft release; draft releases are not trusted"
   fi
+
+  # Pin to the tag's resolved commit SHA INSIDE this script (not at
+  # checkout time) so a post-validation retarget cannot redirect the
+  # build. The workflow checks out this pinned SHA — the user-supplied
+  # tag is never checked out directly. If the tag is retargeted after
+  # this point, the equality check after checkout will see the
+  # mismatch and fail the build.
+  PINNED_SHA="$(resolve_tag_commit "${TAG_NAME}")" \
+    || reject_ref "tag ${REF} could not be resolved to a commit SHA via /git/ref/tags/ API (fail closed)"
 
   ACCEPTED=1
   MATCHED_TAG="${TAG_NAME}"
@@ -154,9 +198,13 @@ if [[ "${ACCEPTED}" -eq 0 ]] && [[ "${REF}" =~ ${SHA_RE} ]]; then
 
       # Case A: target_commitish is the SHA directly
       if [[ "${TARGET_COMMITTISH}" == "${SHA}" ]]; then
+        # Pin to the discovered commit SHA. For SHA-input paths the
+        # input is already the commit, so PINNED_SHA equals REF, but
+        # we still emit it for a uniform workflow contract.
         ACCEPTED=1
         MATCHED_TAG="${TAG_NAME}"
         MATCHED_REASON="SHA matches target_commitish of published Release"
+        PINNED_SHA="${SHA}"
         break
       fi
 
@@ -177,9 +225,13 @@ if [[ "${ACCEPTED}" -eq 0 ]] && [[ "${REF}" =~ ${SHA_RE} ]]; then
       ')"
 
       if [[ "${TAG_COMMIT}" == "${SHA}" ]]; then
+        # Pin to the discovered commit SHA. For SHA-input paths the
+        # input is already the commit, so PINNED_SHA equals REF, but
+        # we still emit it for a uniform workflow contract.
         ACCEPTED=1
         MATCHED_TAG="${TAG_NAME}"
         MATCHED_REASON="SHA matches commit of tag ${TAG_NAME} on published Release"
+        PINNED_SHA="${TAG_COMMIT}"
         break
       fi
     done < <(echo "${PAGE_JSON}" \
@@ -200,8 +252,15 @@ if [[ "${ACCEPTED}" -ne 1 ]]; then
   reject_ref "ref ${REF} is not a trusted release ref (must be a v<major>.<minor>.<patch> tag mapped to a published Release, or a 40-char SHA that is the target_commitish or commit of a published Release)"
 fi
 
-echo "::notice::trusted release ref accepted: ${REF} — ${MATCHED_REASON} (tag=${MATCHED_TAG})" >&2
+echo "::notice::trusted release ref accepted: ${REF} — ${MATCHED_REASON} (tag=${MATCHED_TAG} pinned_sha=${PINNED_SHA})" >&2
+# Emit pinned_sha to stdout so callers can consume it without a
+# GITHUB_OUTPUT file (tests, manual invocation). The workflow should
+# prefer the GITHUB_OUTPUT path below.
+echo "pinned_sha=${PINNED_SHA}"
 if [[ -n "${GITHUB_OUTPUT_FILE}" ]] && [[ -d "$(dirname "${GITHUB_OUTPUT_FILE}")" ]]; then
-  echo "matched_tag=${MATCHED_TAG}" >> "${GITHUB_OUTPUT_FILE}"
+  {
+    echo "matched_tag=${MATCHED_TAG}"
+    echo "pinned_sha=${PINNED_SHA}"
+  } >> "${GITHUB_OUTPUT_FILE}"
 fi
 exit 0

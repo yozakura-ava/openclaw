@@ -120,7 +120,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref }}
-          fetch-depth: 1
+          # fetch-depth: 0 keeps full history so the post-verify
+          # `git checkout <pinned_sha>` succeeds even if the tag is
+          # retargeted between the initial Checkout and the verify
+          # step. Without full history, `git checkout <pinned_sha>`
+          # would fail with "not a tree" if pinned_sha is not the
+          # commit currently pointed to by inputs.ref.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify trusted release ref (GitHub Releases provenance)
@@ -136,16 +142,25 @@ jobs:
         # build against attacker-controlled code. We verify against
         # the GitHub Releases API instead:
         #   1) For v<semver>[-suffix]: GET /releases/tags/{tag}
-        #      must return 200 with matching tag_name and draft=false.
+        #      must return 200 with matching tag_name and draft=false,
+        #      then GET /git/ref/tags/{tag} resolves the tag to its
+        #      commit SHA (annotated tag nesting handled).
         #   2) For 40-char SHA: enumerate /releases (paginated,
         #      non-draft) and accept only if the SHA is the
         #      target_commitish or the commit of a published Release.
         # Fail-closed on any API error (network, 5xx, 404, malformed
-        # JSON, non-matching tag_name).
+        # JSON, non-matching tag_name, unresolved tag ref).
         #
-        # The post-checkout SHA match below still pins the build to
-        # the exact commit the caller named, so a hostile caller
-        # cannot redirect between validation and checkout.
+        # The verify script emits `pinned_sha=<40-char-sha>` via
+        # GITHUB_OUTPUT. The workflow then checks out THAT pinned
+        # SHA (not the user-supplied tag) and re-resolves the tag to
+        # confirm it still points to the same commit. This closes
+        # the TOCTOU window: a tag retargeted between validation and
+        # checkout no longer affects the build because the build is
+        # pinned to the commit the tag resolved to at validation
+        # time. The post-checkout re-resolution is a belt-and-suspenders
+        # check that rejects the build if the tag was retargeted
+        # after validation (the HEAD vs tag-resolved SHA would diverge).
         id: source
         shell: bash
         env:
@@ -154,23 +169,43 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Provenance check via GitHub Releases API (scripts/ci/verify-deploy-bundle-ref.sh)
+          # Provenance check via GitHub Releases API. The script
+          # resolves the tag (or matching SHA) to its commit SHA
+          # INSIDE the script via /git/ref/tags/{tag}, so the build
+          # target is pinned at validation time. Outputs pinned_sha
+          # via $GITHUB_OUTPUT.
+          VERIFY_OUTPUT="$(mktemp)"
           "${GITHUB_WORKSPACE}/scripts/ci/verify-deploy-bundle-ref.sh" \
             --ref "${REQUESTED_REF}" \
-            --repo "${GITHUB_REPOSITORY}"
+            --repo "${GITHUB_REPOSITORY}" \
+            --github-output "${VERIFY_OUTPUT}"
 
-          # Resolve REQUESTED_REF to its commit SHA. For tags this
-          # dereferences the tag; for SHAs this is a no-op. The
-          # resulting value must equal the SHA actually checked out
-          # so a hostile caller cannot redirect the build between
-          # validation and checkout.
+          PINNED_SHA="$(grep -E '^pinned_sha=' "${VERIFY_OUTPUT}" | head -1 | cut -d= -f2-)"
+          if [[ -z "${PINNED_SHA}" ]] || [[ ! "${PINNED_SHA}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "::error::verify-deploy-bundle-ref.sh did not emit a valid pinned_sha"
+            exit 1
+          fi
+
+          # Checkout the pinned SHA, NOT the user-supplied tag. Even
+          # if the tag is retargeted after validation, the build is
+          # pinned to the commit the tag resolved to at validation
+          # time. fetch-depth: 0 above gives us the history needed
+          # to checkout any SHA from the upstream repo.
+          git checkout --quiet "${PINNED_SHA}"
+
+          # Belt-and-suspenders: re-resolve the tag and confirm it
+          # still resolves to PINNED_SHA. If the tag was retargeted
+          # between validation and checkout, this catches it: HEAD
+          # (= PINNED_SHA) would diverge from the tag's current
+          # resolution and we reject the build.
           RESOLVED_SHA="$(git rev-parse --verify "${REQUESTED_REF}^{commit}")"
           SOURCE_SHA="$(git rev-parse HEAD)"
           if [[ "${SOURCE_SHA}" != "${RESOLVED_SHA}" ]]; then
-            echo "::error::checked out SHA ${SOURCE_SHA} does not match resolved SHA ${RESOLVED_SHA} from ref ${REQUESTED_REF}"
+            echo "::error::tag retargeted between validation and checkout: pinned_sha=${PINNED_SHA} but ${REQUESTED_REF}^{commit} now resolves to ${RESOLVED_SHA}"
             exit 1
           fi
           echo "sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "pinned_sha=${PINNED_SHA}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
