@@ -1,3 +1,4 @@
+import { setImmediate as yieldToEventLoop } from "node:timers/promises";
 import {
   executeSqliteQuerySync,
   iterateSqliteQuerySync,
@@ -543,6 +544,11 @@ async function enforceSessionHistoryMaintenanceForDatabase(
     if (usage.totalBytes <= highWaterBytes) {
       break;
     }
+    // Bound the longest single-tick hold while evicting historical sessions.
+    // Each candidate runs a SQLite write transaction plus archive I/O; on a
+    // large store the unbounded loop blocked the gateway event loop for tens
+    // of minutes while a `sessions.cleanup` invocation was in flight (#20).
+    await yieldToEventLoop();
     const eviction = await runExclusiveSessionLifecycleMutation({
       scope: params.storePath,
       identities: [sessionId],
@@ -683,6 +689,10 @@ async function enforceSessionHistoryMaintenanceForDatabase(
         if (usage.totalBytes <= highWaterBytes) {
           break;
         }
+        // Mirror the outer candidate loop: keep the gateway event loop free
+        // to handle health checks and broadcast traffic while the secondary
+        // archive-eviction pass deletes archived entries (#20).
+        await yieldToEventLoop();
         const deletion = await runExclusiveSessionLifecycleMutation({
           scope: params.storePath,
           identities: [candidate.sessionKey, candidate.entry.sessionId],
