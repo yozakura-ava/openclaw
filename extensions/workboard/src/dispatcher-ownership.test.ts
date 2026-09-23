@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
 import {
   createWorkboardSqliteTestHarness,
-  createWorkboardSqliteTestStore,
+  createRoutedWorkboardSqliteTestStore,
 } from "./test/sqlite-store.js";
 
 const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 
 describe("Workboard dispatcher ownership", () => {
   it("dispatches a card whose create input tried to inject archivedAt", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const now = 10;
     const card = await store.create({
       title: "Injected archive",
@@ -31,7 +31,7 @@ describe("Workboard dispatcher ownership", () => {
     });
   });
 
-  it("falls back to one default owner for persisted blank and unassigned agents", async () => {
+  it("skips persisted blank and unassigned agents on scheduled dispatch", async () => {
     const { store, stores } = createWorkboardSqliteTestHarness();
     const keyed = stores.cards;
     const blankAgent = await store.create({
@@ -57,13 +57,11 @@ describe("Workboard dispatcher ownership", () => {
       options: { now: 10, maxStarts: 3 },
     });
 
-    expect(result.started).toEqual([
-      expect.objectContaining({ cardId: blankAgent.id, runId: "run-default-owner" }),
-    ]);
-    expect(run).toHaveBeenCalledOnce();
+    expect(result.started).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
     await expect(store.get(blankAgent.id)).resolves.toMatchObject({
-      status: "running",
-      metadata: { claim: { ownerId: "workboard-dispatcher" } },
+      status: "ready",
+      metadata: { claim: undefined },
     });
     await expect(store.get(unassigned.id)).resolves.toMatchObject({ status: "ready" });
   });
@@ -99,7 +97,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("bounds failed worker attempts without draining the ready queue", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const cards = [];
     for (let index = 0; index < 5; index += 1) {
       cards.push(
@@ -142,7 +140,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("does not spend worker attempts on cards that fail workspace preflight", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const inaccessible = [];
     for (const [index, priority] of (["urgent", "high"] as const).entries()) {
       inaccessible.push(
@@ -182,7 +180,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("tries a healthy owner before retrying a failed owner's queued cards", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const failed = await store.create({
       title: "Failing urgent worker",
       status: "ready",
@@ -227,7 +225,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("preserves priority order among available owners when workers start successfully", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const urgent = await store.create({
       title: "Urgent primary worker",
       status: "ready",
@@ -281,7 +279,7 @@ describe("Workboard dispatcher ownership", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(10_000);
-        const store = createWorkboardSqliteTestStore();
+        const store = createRoutedWorkboardSqliteTestStore();
         const stale = await store.create({
           title: "Abandoned product worker",
           status: "running",
@@ -356,7 +354,7 @@ describe("Workboard dispatcher ownership", () => {
   );
 
   it("does not let an expired review claim consume worker capacity", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const now = Date.now();
     await store.create({
       title: "Expired review claim",
@@ -401,7 +399,7 @@ describe("Workboard dispatcher ownership", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(wallClock);
-        const store = createWorkboardSqliteTestStore();
+        const store = createRoutedWorkboardSqliteTestStore();
         const review = await store.create({
           title: "Review claim with a deterministic expiry",
           status: "review",
@@ -459,13 +457,10 @@ describe("Workboard dispatcher ownership", () => {
     },
   );
 
-  it.each([
-    { agentId: "shared-worker", ownerId: "shared-worker" },
-    { agentId: undefined, ownerId: "workboard-dispatcher" },
-  ])(
+  it.each([{ agentId: "shared-worker", ownerId: "shared-worker" }])(
     "replaces an expired ready-card claim with the $ownerId slot",
     async ({ agentId, ownerId }) => {
-      const store = createWorkboardSqliteTestStore();
+      const store = createRoutedWorkboardSqliteTestStore();
       const now = Date.now();
       const card = await store.create({
         title: "Ready with an expired lease",
@@ -504,7 +499,7 @@ describe("Workboard dispatcher ownership", () => {
   );
 
   it("serializes concurrent board dispatches for the same worker", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const ops = await store.create({
       title: "Ops shared worker",
       status: "ready",
@@ -569,7 +564,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("keeps one worker slot across 25 concurrent board dispatches", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const cards = await Promise.all(
       Array.from({ length: 25 }, (_, index) =>
         store.create({
@@ -603,7 +598,7 @@ describe("Workboard dispatcher ownership", () => {
   it.each(["scheduled dispatch", "dashboard exact-card start"] as const)(
     "persists launch association before %s and keeps accepted runs visible",
     async (origin) => {
-      const store = createWorkboardSqliteTestStore();
+      const store = createRoutedWorkboardSqliteTestStore();
       const card = await store.create({
         title: "Worker with unavailable execution persistence",
         status: "ready",
@@ -671,15 +666,13 @@ describe("Workboard dispatcher ownership", () => {
         execution: { status: "running", runId: provisionalRunId },
         metadata: {
           automation: { launch: { phase: "prepared", provisionalRunId } },
-          claim: { ownerId: "workboard-dispatcher" },
+          claim: { ownerId: "main" },
           workerLogs: [expect.objectContaining({ runId: "accepted-run" })],
         },
       });
-      await expect(
-        store.heartbeat(card.id, { ownerId: "workboard-dispatcher" }),
-      ).resolves.toMatchObject({
+      await expect(store.heartbeat(card.id, { ownerId: "main" })).resolves.toMatchObject({
         status: "running",
-        metadata: { claim: { ownerId: "workboard-dispatcher" } },
+        metadata: { claim: { ownerId: "main" } },
       });
 
       const retry = await dispatchAndStartWorkboardCards({
@@ -695,7 +688,7 @@ describe("Workboard dispatcher ownership", () => {
   );
 
   it("marks a prepared launch accepted after Gateway acceptance", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Worker with durable acceptance",
       status: "ready",
@@ -747,7 +740,7 @@ describe("Workboard dispatcher ownership", () => {
   it.each(["backlog", "todo", "ready"] as const)(
     "starts an exact dashboard card from %s",
     async (status) => {
-      const store = createWorkboardSqliteTestStore();
+      const store = createRoutedWorkboardSqliteTestStore();
       const card = await store.create({
         title: `Exact ${status}`,
         status,
@@ -771,7 +764,7 @@ describe("Workboard dispatcher ownership", () => {
   it.each(["review", "blocked", "done"] as const)(
     "rejects an exact dashboard card in %s",
     async (status) => {
-      const store = createWorkboardSqliteTestStore();
+      const store = createRoutedWorkboardSqliteTestStore();
       const card = await store.create({
         title: `Invalid exact ${status}`,
         status,
@@ -805,7 +798,7 @@ describe("Workboard dispatcher ownership", () => {
     { label: "due", offsetMs: -1_000, starts: true },
     { label: "future", offsetMs: 60_000, starts: false },
   ])("handles a $label scheduled exact dashboard card", async ({ offsetMs, starts }) => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const now = Date.now();
     const card = await store.create({
       title: "Scheduled exact",
@@ -831,7 +824,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("keeps global owner capacity for exact dashboard starts across boards", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const active = await store.create({
       title: "Active owner",
       status: "ready",
@@ -863,7 +856,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("starts the exact lower-priority card without selecting a sibling", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const urgent = await store.create({
       title: "Urgent sibling",
       status: "ready",
@@ -891,7 +884,7 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it("keeps an accepted worker running when its worker log cannot be recorded", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Worker with unavailable logging",
       status: "ready",
@@ -915,7 +908,7 @@ describe("Workboard dispatcher ownership", () => {
       status: "running",
       runId: "run-without-log",
       execution: { status: "running", runId: "run-without-log" },
-      metadata: { claim: { ownerId: "workboard-dispatcher" } },
+      metadata: { claim: { ownerId: "main" } },
     });
   });
 });

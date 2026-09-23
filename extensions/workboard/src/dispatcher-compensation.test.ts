@@ -46,6 +46,7 @@ describe("Workboard dispatcher compensation", () => {
       const card = await store.create({
         title: "Isolated worker",
         status: "ready",
+        agentId: "main",
         workspace: { kind: "worktree", path: "/repo", branch: "main" },
         workspaceAccess: { unrestricted: true },
       });

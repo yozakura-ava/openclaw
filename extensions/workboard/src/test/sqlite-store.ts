@@ -112,6 +112,14 @@ export function createWorkboardSqliteTestStore(options: WorkboardSqliteTestOptio
   return createWorkboardSqliteTestHarness(options).store;
 }
 
+export function createRoutedWorkboardSqliteTestStore(options: WorkboardSqliteTestOptions = {}) {
+  const store = createWorkboardSqliteTestStore(options);
+  const create = store.create.bind(store);
+  store.create = (input) =>
+    create(Object.hasOwn(input, "agentId") ? input : { ...input, agentId: "main" });
+  return store;
+}
+
 export function sqliteTestAuxStores(stores: ReturnType<typeof createWorkboardSqliteStores>) {
   const { boards, subscriptions, attachments, ready } = stores;
   return { boards, subscriptions, attachments, ready };

@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
 import { registerWorkboardCommand } from "./command.js";
 import type { WorkboardStore } from "./store.js";
-import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
+import { createRoutedWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 import {
   resolveAgentWorkboardWorkspaceRuntime,
   resolveCommandWorkboardWorkspaceAccess,
@@ -144,7 +144,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("attests the default agent for an unassigned slash-command card", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     await store.create({
       title: "Unassigned slash card",
       status: "ready",
@@ -209,7 +209,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("creates, lists, and dispatches workboard cards", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
 
     await expect(
@@ -242,7 +242,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("requires write access for slash mutations", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
     const card = await store.create({ title: "Ready worker", status: "ready" });
 
@@ -274,7 +274,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("shows when an archived card is excluded from dispatch", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
     const card = await store.create({ title: "Archived slash card", status: "ready" });
     await store.archive(card.id, true);
@@ -287,7 +287,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("moves claimed cards for operators on slash-command surfaces", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
     const card = await store.create({ title: "Claimed slash card", status: "todo" });
     await store.claim(card.id, { ownerId: "worker", token: "secret-token" });
@@ -307,7 +307,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("rejects invalid slash-command move statuses", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
     const card = await store.create({ title: "Invalid slash move" });
 
@@ -324,7 +324,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("uses the slash caller's workspace access for worktree materialization", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const run = vi.fn(async (input: { idempotencyKey: string }) => ({
       runId: `accepted:${input.idempotencyKey}`,
     }));
@@ -449,7 +449,7 @@ describe("handleWorkboardCommand", () => {
   });
 
   it("rejects ambiguous card id prefixes", async () => {
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = createApi();
     const prefix = await createAmbiguousPrefix(store);
 

@@ -3,7 +3,7 @@ import { createTestPluginApi } from "openclaw/plugin-sdk/plugin-test-api";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
 import { registerWorkboardGatewayMethods } from "./gateway.js";
-import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
+import { createRoutedWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 function createGatewayMethodCapture() {
   type RegisteredMethod = {
@@ -32,7 +32,7 @@ describe("workboard gateway methods", () => {
     async (action) => {
       type Handler = Parameters<OpenClawPluginApi["registerGatewayMethod"]>[1];
       const methods = new Map<string, Handler>();
-      const store = createWorkboardSqliteTestStore();
+      const store = createRoutedWorkboardSqliteTestStore();
       const api = createTestPluginApi({
         registerGatewayMethod: (name, handler) => {
           methods.set(name, handler);
@@ -86,7 +86,7 @@ describe("workboard gateway methods", () => {
   it("registers CRUD methods with read/write scopes", async () => {
     const { api, methods } = createGatewayMethodCapture();
 
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     registerWorkboardGatewayMethods({ api, store });
 
     expect([...methods.keys()]).toEqual([
@@ -237,7 +237,7 @@ describe("workboard gateway methods", () => {
       opts: Parameters<OpenClawPluginApi["registerGatewayMethod"]>[2];
     };
     const methods = new Map<string, RegisteredMethod>();
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const api = {
       runtime: {
         agent: {
@@ -353,7 +353,7 @@ describe("workboard gateway methods", () => {
   it("stores metadata updates through dedicated card methods", async () => {
     const { api, methods } = createGatewayMethodCapture();
 
-    registerWorkboardGatewayMethods({ api, store: createWorkboardSqliteTestStore() });
+    registerWorkboardGatewayMethods({ api, store: createRoutedWorkboardSqliteTestStore() });
 
     const createRespond = vi.fn();
     await methods.get("workboard.cards.create")?.handler({
@@ -399,7 +399,7 @@ describe("workboard gateway methods", () => {
   it("validates labels from comma-separated gateway input", async () => {
     const { api, methods } = createGatewayMethodCapture();
 
-    registerWorkboardGatewayMethods({ api, store: createWorkboardSqliteTestStore() });
+    registerWorkboardGatewayMethods({ api, store: createRoutedWorkboardSqliteTestStore() });
 
     const createHandler = methods.get("workboard.cards.create")?.handler;
     const respond = vi.fn();
@@ -434,10 +434,11 @@ describe("workboard gateway methods", () => {
         },
       ),
     } as unknown as OpenClawPluginApi;
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Ready worker",
       status: "ready",
+      agentId: "main",
       priority: "urgent",
       workspaceAccess: { unrestricted: true },
     });
@@ -453,7 +454,7 @@ describe("workboard gateway methods", () => {
     });
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
-        sessionKey: `subagent:workboard-default-${card.id}`,
+        sessionKey: expect.stringContaining(`workboard-default-${card.id}`),
       }),
     );
   });
@@ -476,7 +477,7 @@ describe("workboard gateway methods", () => {
         },
       ),
     } as unknown as OpenClawPluginApi;
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const card = await store.create({
       title: "Blocked exact start",
       status: "blocked",
@@ -522,7 +523,7 @@ describe("workboard gateway methods", () => {
         },
       ),
     } as unknown as OpenClawPluginApi;
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     await Promise.all(
       Array.from({ length: 5 }, (_, index) =>
         store.create({
@@ -641,10 +642,11 @@ describe("workboard gateway methods", () => {
         },
       ),
     } as unknown as OpenClawPluginApi;
-    const store = createWorkboardSqliteTestStore();
+    const store = createRoutedWorkboardSqliteTestStore();
     const denied = await store.create({
       title: "Denied checkout",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/repo-denied" },
     });
     registerWorkboardGatewayMethods({ api, store });
@@ -682,6 +684,7 @@ describe("workboard gateway methods", () => {
     const allowed = await store.create({
       title: "Allowed checkout",
       status: "ready",
+      agentId: "main",
       workspace: { kind: "worktree", path: "/workspace" },
     });
     const allowedRespond = vi.fn();
@@ -719,7 +722,7 @@ describe("workboard gateway methods", () => {
   it("claims, heartbeats, and bulk-updates cards through gateway methods", async () => {
     const { api, methods } = createGatewayMethodCapture();
 
-    registerWorkboardGatewayMethods({ api, store: createWorkboardSqliteTestStore() });
+    registerWorkboardGatewayMethods({ api, store: createRoutedWorkboardSqliteTestStore() });
 
     const createRespond = vi.fn();
     await methods.get("workboard.cards.create")?.handler({

@@ -45,6 +45,7 @@ import {
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
+import { removeUndefinedAutomationFields } from "./store-automation-fields.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -66,6 +67,7 @@ import type {
   WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
 } from "./store-inputs.js";
+import { normalizePipelineStrikeFields } from "./store-pipeline-strikes.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -473,16 +475,15 @@ export function normalizeAutomation(
     ? normalizePositiveInteger(record.maxRetries, "max retries")
     : fallback.maxRetries;
   const dispatchCount = Object.hasOwn(record, "dispatchCount")
-    ? normalizeTimestamp(record.dispatchCount, 0) || undefined
-    : fallback.dispatchCount;
-  const lastDispatchAt = Object.hasOwn(record, "lastDispatchAt")
-    ? normalizeTimestamp(record.lastDispatchAt, 0) || undefined
-    : fallback.lastDispatchAt;
+      ? normalizeTimestamp(record.dispatchCount, 0) || undefined
+      : fallback.dispatchCount,
+    lastDispatchAt = Object.hasOwn(record, "lastDispatchAt")
+      ? normalizeTimestamp(record.lastDispatchAt, 0) || undefined
+      : fallback.lastDispatchAt;
   const workspace = Object.hasOwn(record, "workspace")
     ? normalizeWorkspace(record.workspace, fallback.workspace)
     : fallback.workspace;
   // Raw metadata preserves host-issued authority/state but cannot mint or widen either.
-  const workspaceAccess = fallback.workspaceAccess;
   const launch = normalizeLaunchState(
     options.allowLaunchState && Object.hasOwn(record, "launch") ? record.launch : fallback.launch,
   );
@@ -493,7 +494,7 @@ export function normalizeAutomation(
     ...(idempotencyKey ? { idempotencyKey } : {}),
     ...(skills?.length ? { skills } : {}),
     ...(workspace ? { workspace } : {}),
-    ...(workspaceAccess ? { workspaceAccess } : {}),
+    ...(fallback.workspaceAccess ? { workspaceAccess: fallback.workspaceAccess } : {}),
     ...(maxRuntimeSeconds ? { maxRuntimeSeconds } : {}),
     ...(maxRetries ? { maxRetries } : {}),
     ...(scheduledAt ? { scheduledAt } : {}),
@@ -501,6 +502,7 @@ export function normalizeAutomation(
     ...(createdCardIds?.length ? { createdCardIds } : {}),
     ...(dispatchCount ? { dispatchCount } : {}),
     ...(lastDispatchAt ? { lastDispatchAt } : {}),
+    ...normalizePipelineStrikeFields(record, fallback),
     ...(launch ? { launch } : {}),
   });
   return Object.keys(next).length ? next : undefined;
@@ -1235,37 +1237,6 @@ function removeUndefinedExecutionFields(execution: WorkboardExecution): Workboar
   const next = { ...execution };
   for (const key of ["engine", "model", "sessionKey", "runId"] as const) {
     if (next[key] === undefined) {
-      delete next[key];
-    }
-  }
-  return next;
-}
-
-function removeUndefinedAutomationFields(automation: WorkboardAutomation): WorkboardAutomation {
-  const next = { ...automation };
-  for (const key of [
-    "tenant",
-    "boardId",
-    "createdByCardId",
-    "idempotencyKey",
-    "skills",
-    "workspace",
-    "workspaceAccess",
-    "maxRuntimeSeconds",
-    "maxRetries",
-    "scheduledAt",
-    "summary",
-    "createdCardIds",
-    "dispatchCount",
-    "lastDispatchAt",
-    "launch",
-  ] as const) {
-    const value = next[key];
-    if (
-      value === undefined ||
-      (Array.isArray(value) && value.length === 0) ||
-      (typeof value === "object" && value !== null && Object.keys(value).length === 0)
-    ) {
       delete next[key];
     }
   }

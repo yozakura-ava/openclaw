@@ -2,7 +2,6 @@
 import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
-  WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardDiagnostic,
   WorkboardExecution,
@@ -43,6 +42,7 @@ import type {
 } from "./store-inputs.js";
 import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
+import { applyPipelineAutoDispatch } from "./store-pipeline-dispatch.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
 export { WorkboardCardConflictError } from "./store-core.js";
@@ -423,20 +423,16 @@ export class WorkboardStore extends WorkboardNotificationStore {
     return await this.enqueueMutation(async () => await this.promoteDependencyReady(id, now));
   }
 
-  private async getAutoOrchestrationBoard(
-    card: WorkboardCard,
-  ): Promise<WorkboardBoardMetadata | undefined> {
+  private async shouldAutoOrchestrate(card: WorkboardCard): Promise<boolean> {
     if (
       card.status !== "triage" ||
       card.metadata?.archivedAt ||
       card.metadata?.workerProtocol?.state === "idle"
     ) {
-      return undefined;
+      return false;
     }
     const board = await this.boardStore.lookup(cardBoardId(card));
-    return board?.version === 1 && board.board.orchestration?.autoDecompose === true
-      ? board.board
-      : undefined;
+    return board?.version === 1 && board.board.orchestration?.autoDecompose === true;
   }
 
   async dispatch(
@@ -524,10 +520,20 @@ export class WorkboardStore extends WorkboardNotificationStore {
           });
           blocked.push(latest);
         }
-        const orchestrationBoard = await this.getAutoOrchestrationBoard(latest);
-        if (orchestrationBoard) {
+        const pipelineDispatch = await applyPipelineAutoDispatch({
+          card: latest,
+          now,
+          updateCard: (id, patch) => this.updateCard(id, patch),
+          nextNotificationSequence: (timestamp) => this.nextNotificationSequence(timestamp),
+        });
+        latest = pipelineDispatch.card;
+        if (pipelineDispatch.blocked) {
+          blocked.push(latest);
+        }
+        if (await this.shouldAutoOrchestrate(latest)) {
           const latestBoardId = cardBoardId(latest);
-          const cap = orchestrationBoard.orchestration?.autoDecomposePerDispatch ?? 3;
+          const board = await this.boardStore.lookup(latestBoardId);
+          const cap = board?.board.orchestration?.autoDecomposePerDispatch ?? 3;
           const boardCount = orchestratedByBoard.get(latestBoardId) ?? 0;
           if (boardCount < cap) {
             latest = await this.recordOrchestrationCandidate(latest, now);
