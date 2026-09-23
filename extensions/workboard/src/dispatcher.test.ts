@@ -813,6 +813,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     });
     expect(run.mock.calls[0]?.[0]?.toolsAlsoAllow).toEqual([
       "workboard_heartbeat",
+      "workboard_review",
       "workboard_complete",
       "workboard_block",
     ]);
