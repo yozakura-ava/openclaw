@@ -19,6 +19,7 @@ async function beginPreparedDispatch() {
   const card = await dispatchStore.create({
     title: "Prepared across restart",
     status: "ready",
+    agentId: "main",
     workspaceAccess: { unrestricted: true },
   });
   const reachedRun = createDeferred<{ sessionKey: string; provisionalRunId: string }>();
@@ -113,7 +114,7 @@ describe("Workboard prepared launch restart recovery", () => {
         runId: interrupted.prepared.provisionalRunId,
         execution: { status: "running", runId: interrupted.prepared.provisionalRunId },
         metadata: {
-          claim: { ownerId: "workboard-dispatcher" },
+          claim: { ownerId: "main" },
           attempts: [{ status: "running", runId: interrupted.prepared.provisionalRunId }],
           automation: { launch: { phase: "prepared" } },
         },
@@ -231,7 +232,7 @@ describe("Workboard prepared launch restart recovery", () => {
         sessionKey: canonicalSessionKey,
         runId: interrupted.prepared.provisionalRunId,
         metadata: {
-          claim: { ownerId: "workboard-dispatcher" },
+          claim: { ownerId: "main" },
           attempts: [
             expect.objectContaining({
               status: "running",
@@ -389,7 +390,7 @@ describe("Workboard prepared launch restart recovery", () => {
         sessionKey: interrupted.prepared.sessionKey,
         runId: interrupted.prepared.provisionalRunId,
         metadata: {
-          claim: { ownerId: "workboard-dispatcher" },
+          claim: { ownerId: "main" },
           automation: { launch: { phase: "prepared" } },
         },
       });

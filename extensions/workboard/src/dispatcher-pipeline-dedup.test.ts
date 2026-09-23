@@ -143,7 +143,7 @@ describe("pipeline auto-dispatch dedup (ee4dda8f)", () => {
         version: 1,
         card: { ...card, agentId: "" },
       });
-      expect((await store.get(card.id))?.agentId).toBe("");
+      expect((await store.get(card.id))?.agentId).toBeUndefined();
 
       let runInvocations = 0;
       const subagent = {

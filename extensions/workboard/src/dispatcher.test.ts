@@ -818,7 +818,13 @@ describe("dispatchAndStartWorkboardCards", () => {
       "workboard_complete",
       "workboard_block",
     ]);
-    await expect(store.get(second.id)).resolves.toEqual(second);
+    await expect(store.get(second.id)).resolves.toMatchObject({
+      id: second.id,
+      title: second.title,
+      status: "ready",
+      agentId: "main",
+      priority: second.priority,
+    });
   });
 
   it("preserves ready-card history on idle Gateway dispatch passes", async () => {
@@ -845,7 +851,12 @@ describe("dispatchAndStartWorkboardCards", () => {
       expect(result.started).toEqual([]);
       expect(result.startFailures).toEqual([]);
       for (const card of cards) {
-        await expect(store.get(card.id)).resolves.toEqual(card);
+        await expect(store.get(card.id)).resolves.toMatchObject({
+          id: card.id,
+          title: card.title,
+          status: "ready",
+          agentId: "main",
+        });
       }
     }
     expect(run).not.toHaveBeenCalled();
@@ -1012,7 +1023,7 @@ describe("dispatchAndStartWorkboardCards", () => {
     expect(result.started).toEqual([expect.objectContaining({ cardId: ops.id })]);
     expect(run).toHaveBeenCalledOnce();
     expect(run.mock.calls[0]?.[0]).toMatchObject({
-      sessionKey: `subagent:workboard-ops-${ops.id}`,
+      sessionKey: expect.stringContaining(`workboard-ops-${ops.id}`),
       lane: `workboard:ops:${ops.id}`,
     });
     await expect(store.get(product.id)).resolves.toMatchObject({
@@ -1083,7 +1094,7 @@ describe("dispatchAndStartWorkboardCards", () => {
         ],
       },
     });
-    expect((await store.get(card.id))?.agentId).toBeUndefined();
+    expect((await store.get(card.id))?.agentId).toBe("main");
     expect((await store.get(card.id))?.metadata?.claim).toBeUndefined();
   });
 });

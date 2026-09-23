@@ -31,7 +31,7 @@ describe("Workboard dispatcher ownership", () => {
     });
   });
 
-  it("falls back to one default owner for persisted blank and unassigned agents", async () => {
+  it("skips persisted blank and unassigned agents on scheduled dispatch", async () => {
     const { store, stores } = createWorkboardSqliteTestHarness();
     const keyed = stores.cards;
     const blankAgent = await store.create({
@@ -57,13 +57,11 @@ describe("Workboard dispatcher ownership", () => {
       options: { now: 10, maxStarts: 3 },
     });
 
-    expect(result.started).toEqual([
-      expect.objectContaining({ cardId: blankAgent.id, runId: "run-default-owner" }),
-    ]);
-    expect(run).toHaveBeenCalledOnce();
+    expect(result.started).toEqual([]);
+    expect(run).not.toHaveBeenCalled();
     await expect(store.get(blankAgent.id)).resolves.toMatchObject({
-      status: "running",
-      metadata: { claim: { ownerId: "workboard-dispatcher" } },
+      status: "ready",
+      metadata: { claim: undefined },
     });
     await expect(store.get(unassigned.id)).resolves.toMatchObject({ status: "ready" });
   });
@@ -668,15 +666,13 @@ describe("Workboard dispatcher ownership", () => {
         execution: { status: "running", runId: provisionalRunId },
         metadata: {
           automation: { launch: { phase: "prepared", provisionalRunId } },
-          claim: { ownerId: "workboard-dispatcher" },
+          claim: { ownerId: "main" },
           workerLogs: [expect.objectContaining({ runId: "accepted-run" })],
         },
       });
-      await expect(
-        store.heartbeat(card.id, { ownerId: "workboard-dispatcher" }),
-      ).resolves.toMatchObject({
+      await expect(store.heartbeat(card.id, { ownerId: "main" })).resolves.toMatchObject({
         status: "running",
-        metadata: { claim: { ownerId: "workboard-dispatcher" } },
+        metadata: { claim: { ownerId: "main" } },
       });
 
       const retry = await dispatchAndStartWorkboardCards({
@@ -912,7 +908,7 @@ describe("Workboard dispatcher ownership", () => {
       status: "running",
       runId: "run-without-log",
       execution: { status: "running", runId: "run-without-log" },
-      metadata: { claim: { ownerId: "workboard-dispatcher" } },
+      metadata: { claim: { ownerId: "main" } },
     });
   });
 });
