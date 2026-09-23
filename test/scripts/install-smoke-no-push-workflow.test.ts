@@ -232,9 +232,7 @@ describe("install smoke no-push root image transport", () => {
     expect(malformedSha.stderr).toContain("job.workflow_sha must be a full lowercase commit SHA");
     const wrongRepository = runResolver("attacker/openclaw", "b".repeat(40));
     expect(wrongRepository.status).not.toBe(0);
-    expect(wrongRepository.stderr).toContain(
-      "job.workflow_repository must exactly match github.repository",
-    );
+    expect(wrongRepository.stderr).toContain("job.workflow_repository must match a trusted repo");
     const manifest = step(preflight, "Build install-smoke CI manifest");
     expect(manifest.env).toEqual({
       OPENCLAW_CI_WORKFLOW_BUN_GLOBAL_INSTALL_SMOKE:
