@@ -226,51 +226,7 @@ export function createInMemoryTaskRegistryStore(
           input: TaskInitialWorkerOperations[Key]["input"],
         ) => TaskInitialWorkerOperations[Key]["output"];
       } = {
-        "tasks.maintainCron": (input) => {
-          const result = prepareCronTaskMaintenance(
-            state.tasks.get(input.taskId),
-            [...state.tasks.values()]
-              .filter(
-                (task) =>
-                  task.runtime === "cron" && task.sourceId === input.selected.sourceId?.trim(),
-              )
-              .toSorted(
-                (a, b) =>
-                  a.createdAt - b.createdAt ||
-                  Buffer.compare(Buffer.from(a.taskId), Buffer.from(b.taskId)),
-              ),
-            input,
-          );
-          assertCurrent();
-          if (result?.persisted) {
-            this.upsertTaskWithDeliveryState({
-              task: result.task,
-              deliveryState: state.deliveryStates.get(input.taskId),
-            });
-          }
-          return result;
-        },
-        "tasks.applyRetention": (input) => {
-          const stored = state.tasks.get(input.taskId);
-          const current = stored && normalizeTaskTimestamps(stored);
-          if (!current || captureTaskRetentionSource(current).version !== input.sourceVersion) {
-            return { kind: "unchanged" };
-          }
-          const result = prepareTaskRetention(current, input);
-          assertCurrent();
-          if (result.kind === "pruned") {
-            state.tasks.delete(input.taskId);
-            state.deliveryStates.delete(input.taskId);
-          } else if (result.kind === "stamped") {
-            this.upsertTaskWithDeliveryState({
-              task: result.task,
-              deliveryState: state.deliveryStates.get(input.taskId),
-            });
-          }
-          return result.kind === "unchanged" ? result : captureTaskRetentionCommit(input, result);
-        },
-        "tasks.transitionRunRow": (input) => transitionRecord(input),
-        "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input } as never),
+        "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input }),
         "tasks.acknowledgeStateChange": (input) =>
           acknowledgeTaskStateNotification(input, {
             readCurrent: () => ({

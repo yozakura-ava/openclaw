@@ -30,8 +30,6 @@ export async function settleTaskRecordTransitionAsync(
     {
       type:
         | "tasks.bindRunOwner"
-        | "tasks.maintainCron"
-        | "tasks.transitionRunRow"
         | "tasks.settleUnstarted"
         | "tasks.finalizeActive"
         | "tasks.acknowledgeStateChange"

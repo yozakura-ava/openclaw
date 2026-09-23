@@ -27,7 +27,6 @@ import { retainCommittedTaskFlowEffects } from "./task-registry-flow-sync.js";
 import { publishTaskRecordAfterAtomicStore } from "./task-registry-publication.js";
 import { markTaskRunningByRunId } from "./task-registry-record-api.js";
 import { taskFlowSyncOwner } from "./task-registry-state.js";
-import { runTaskRegistryMaintenance } from "./task-registry.maintenance.js";
 import { configureTaskRegistryRuntime } from "./task-registry.store.js";
 import type { TaskRecord } from "./task-registry.types.js";
 import { bindTaskRunOwner, getTaskRunOwner } from "./task-run-owner.js";

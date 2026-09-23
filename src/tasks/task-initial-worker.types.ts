@@ -17,12 +17,7 @@ import type {
   TaskNotificationDeliveryUpdate,
 } from "./task-notification.operation.js";
 import type { TaskCreateInput, TaskCreateResult } from "./task-registry-create.kernel.js";
-import type { TaskRetentionWriteResult } from "./task-registry-retention-receipt.js";
-import type { TaskRetentionInput } from "./task-registry-retention.operation.js";
-import type {
-  TaskRecordTransitionReceipt,
-  TaskWorkerTransitionInput,
-} from "./task-registry-transition.kernel.js";
+import type { TaskRecordTransitionReceipt } from "./task-registry-transition.kernel.js";
 import type {
   TaskExecutionOwner,
   TaskPersistenceReceipt,
@@ -30,20 +25,11 @@ import type {
 } from "./task-registry.types.js";
 
 export type TaskInitialWorkerOperations = {
-  "tasks.maintainCron": {
-    input: CronTaskMaintenanceInput;
-    output: TaskRecordTransitionReceipt | null;
-  };
-  "tasks.applyRetention": { input: TaskRetentionInput; output: TaskRetentionWriteResult };
-  "tasks.transitionRunRow": {
-    input: Extract<TaskWorkerTransitionInput, { kind: "state" | "delivery" }>;
-    output: TaskRecordTransitionReceipt | null;
-  };
   "tasks.bindRunOwner": {
     input: {
       taskId: string;
       expectedTask: TaskPersistenceReceipt;
-      params: { runId: string; executionOwner?: TaskExecutionOwner; clearLastToolName?: true };
+      params: { runId: string; executionOwner?: TaskExecutionOwner };
       now: number;
     };
     output: TaskRecordTransitionReceipt | null;
