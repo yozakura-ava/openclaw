@@ -46,7 +46,7 @@ import {
 import { prepareOwnedPluginLoadContext } from "./prepared-model-runtime.plugin-context.js";
 import {
   discardPreparedPluginGeneration,
-  retainPreparedPluginGeneration,
+  ownPreparedPluginGeneration,
 } from "./prepared-model-runtime.plugin-lifetime.js";
 import { scopeSyntheticAuthProviderRefs } from "./prepared-model-runtime.synthetic-auth.js";
 import { loadAgentRuntimePluginRegistryHandle } from "./runtime-plugins.js";
@@ -347,7 +347,12 @@ export async function runPreparedModelCatalogWorkerRequest(
       ...credentials,
     };
     const runtimeModels = new Map<string, Model[]>();
-    for (const model of facts.templateModelRegistry.getAll()) {
+    // Lazy normalization must keep provider hooks on the selected catalog generation;
+    // running getAll() outside the scope lets stale metadata seed the runtime map.
+    const catalogModels = withPluginRuntimeGenerationScope(pluginGenerationScope, () =>
+      facts.templateModelRegistry.getAll(),
+    );
+    for (const model of catalogModels) {
       const provider = normalizeProviderId(model.provider);
       const models = runtimeModels.get(provider) ?? [];
       models.push(model);
@@ -415,14 +420,27 @@ function isWorkerRequest(value: unknown): value is PreparedModelWorkerRequest {
   );
 }
 
+type WorkerGeneration = Awaited<ReturnType<typeof prepareWorkerGeneration>>;
+
 if (parentPort) {
   const data = workerData as PreparedModelCatalogWorkerData;
-  let preparedGeneration: ReturnType<typeof prepareWorkerGeneration> | undefined;
-  // Registrations and captured modules are inventory-owned. Agent/auth facts only live for
-  // their task; retaining one generation per registry prevents disposal between borrowers.
-  const retainedRegistries = new Set<
-    Awaited<ReturnType<typeof prepareWorkerGeneration>>["pluginGeneration"]["pluginRegistry"]
-  >();
+  // Bound plugin capture retention to one successful generation at a time. A replacement
+  // acquisition is held in `attempted` until the run commits; then `current` is swapped and
+  // the previous generation is released only after the swap holds. Failed acquisitions never
+  // enter the retained slot, so request floods cannot pile scratch-tree captures under
+  // data.sourceCaptureDirectory. Mirrors upstream openclaw/openclaw#153038 (adapted — the
+  // upstream WorkerGeneration also tracks an acquired discovery slot, which our fork keeps
+  // inside the request scope via loadAgentRuntimePluginRegistryHandle).
+  let current:
+    | {
+        fingerprint: string;
+        prepared: WorkerGeneration;
+        // .retain() returns a function whose return is Promise<void> | undefined — the
+        // undefined branch fires when the reference was already deleted before the
+        // final close. Awaiting the result is still safe.
+        release: () => Promise<void> | undefined;
+      }
+    | undefined;
   serveWorkerTasks(async (input) => {
     // SAFETY: The Gateway pool is the sole producer of this private task envelope.
     const task = data.kind === "gateway" ? (input as PreparedModelCatalogWorkerTask) : undefined;
@@ -432,25 +450,46 @@ if (parentPort) {
       throw new Error("invalid prepared model catalog worker request");
     }
     return withPluginSourceCaptureDirectory(data.sourceCaptureDirectory, async () => {
-      let taskGeneration: Awaited<ReturnType<typeof prepareWorkerGeneration>> | undefined;
+      const previous = current;
+      let attempted: WorkerGeneration | undefined;
+      let release: (() => Promise<void> | undefined) | undefined;
       try {
-        return await runPreparedModelCatalogWorkerRequest(value, request, () => {
-          if (!task) {
-            return (preparedGeneration ??= prepareWorkerGeneration(value));
+        const result = await runPreparedModelCatalogWorkerRequest(value, request, async () => {
+          if (previous?.fingerprint === value.generationFingerprint) {
+            return previous.prepared;
           }
-          return prepareWorkerGeneration(value).then((prepared) => {
-            taskGeneration = prepared;
-            const registry = prepared.pluginGeneration.pluginRegistry;
-            if (!retainedRegistries.has(registry)) {
-              retainedRegistries.add(registry);
-              retainPreparedPluginGeneration(prepared.pluginGeneration);
-            }
-            return prepared;
-          });
+          const prepared = (attempted = await prepareWorkerGeneration(value));
+          if (prepared.reconstructedFingerprint === value.generationFingerprint) {
+            const releaseGeneration = ownPreparedPluginGeneration(
+              prepared.pluginGeneration,
+            ).retain();
+            release = releaseGeneration;
+          }
+          return prepared;
         });
+        if (attempted && release && result.status === "ok") {
+          current = {
+            fingerprint: value.generationFingerprint,
+            prepared: attempted,
+            release,
+          };
+          attempted = undefined;
+          release = undefined;
+          // Release the previous generation only after the swap holds, so a concurrent
+          // task can never observe a window with no retained generation.
+          try {
+            await previous?.release();
+          } catch {
+            // The previous generation is already replaced; cleanup failures must not
+            // surface as task failures because the new generation has committed.
+          }
+        }
+        return result;
       } finally {
-        if (taskGeneration) {
-          await discardPreparedPluginGeneration(taskGeneration.pluginGeneration);
+        if (release) {
+          await release();
+        } else if (attempted) {
+          await discardPreparedPluginGeneration(attempted.pluginGeneration);
         }
       }
     });
