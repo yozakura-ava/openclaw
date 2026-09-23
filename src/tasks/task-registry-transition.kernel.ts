@@ -20,7 +20,14 @@ import type { TaskPersistenceReceipt, TaskRecord } from "./task-registry.types.j
 
 export type { TaskRecordTransitionReceipt } from "./task-registry-transition.operation.js";
 
+<<<<<<< HEAD
 export type TaskWorkerTransitionInput = Extract<TaskRecordTransitionInput, { kind: "state" }> & {
+=======
+type TaskWorkerTransitionInput = Extract<
+  TaskRecordTransitionInput,
+  { kind: "state" | "run-owner" }
+> & {
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
   expectedTask: TaskPersistenceReceipt;
   selection?: never;
 };

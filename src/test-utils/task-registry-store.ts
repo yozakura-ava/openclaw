@@ -226,6 +226,7 @@ export function createInMemoryTaskRegistryStore(
           input: TaskInitialWorkerOperations[Key]["input"],
         ) => TaskInitialWorkerOperations[Key]["output"];
       } = {
+<<<<<<< HEAD
         "tasks.maintainCron": (input) => {
           const result = prepareCronTaskMaintenance(
             state.tasks.get(input.taskId),
@@ -271,6 +272,9 @@ export function createInMemoryTaskRegistryStore(
         },
         "tasks.transitionRunRow": (input) => transitionRecord(input),
         "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input } as never),
+=======
+        "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input }),
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
         "tasks.acknowledgeStateChange": (input) =>
           acknowledgeTaskStateNotification(input, {
             readCurrent: () => ({

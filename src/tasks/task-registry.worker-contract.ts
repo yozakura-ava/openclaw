@@ -114,10 +114,14 @@ export function isTaskRegistryWorkerCommand(command: {
   input: unknown;
 }): command is SqliteWorkerCommand<TaskRegistryWorkerOperations> {
   switch (command.type) {
+<<<<<<< HEAD
     case "tasks.maintainCron":
     case "tasks.applyRetention":
     case "tasks.bindRunOwner":
     case "tasks.transitionRunRow":
+=======
+    case "tasks.bindRunOwner":
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
     case "tasks.updateNotificationDelivery":
     case "tasks.acknowledgeStateChange":
     case "tasks.bindExecution":

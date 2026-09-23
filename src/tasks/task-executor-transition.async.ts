@@ -30,8 +30,11 @@ export async function settleTaskRecordTransitionAsync(
     {
       type:
         | "tasks.bindRunOwner"
+<<<<<<< HEAD
         | "tasks.maintainCron"
         | "tasks.transitionRunRow"
+=======
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
         | "tasks.settleUnstarted"
         | "tasks.finalizeActive"
         | "tasks.acknowledgeStateChange"

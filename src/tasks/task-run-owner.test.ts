@@ -1,13 +1,17 @@
 import { err } from "@openclaw/normalization-core/result";
 import { afterEach, expect, it, vi } from "vitest";
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
+<<<<<<< HEAD
 import type { SubagentRunRecord } from "../agents/subagents/registry/subagent-registry.types.js";
+=======
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
 import { emitAgentEvent } from "../infra/agent-events.js";
 import { SqliteWorkerError } from "../infra/sqlite-worker-contract.js";
 import { closeOpenClawStateDatabaseAsync } from "../state/openclaw-state-db-cache.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { createRunningTaskRunCoreWithReceiptAsync } from "./task-executor-create.async.js";
+<<<<<<< HEAD
 import { TaskFollowupCompletion, getFollowupForCohort } from "./task-followup-completion.js";
 import { captureTaskRegistryReadFence } from "./task-registry-listener-state.js";
 import { applyTaskRegistryMaintenanceRetention } from "./task-registry-maintenance-retention.js";
@@ -20,6 +24,15 @@ import {
   loadTaskRegistryStateFromSqlite,
   loadTaskRegistryStateFromSqliteReadOnly,
 } from "./task-registry.store.sqlite.js";
+=======
+import { captureTaskRegistryReadFence } from "./task-registry-listener-state.js";
+import { publishTaskRecordAfterAtomicStore } from "./task-registry-publication.js";
+import { deleteTaskRecordById } from "./task-registry-query.js";
+import * as taskRegistryState from "./task-registry-state.js";
+import { getTaskById } from "./task-registry.js";
+import { getTaskRegistryStore } from "./task-registry.store.js";
+import { loadTaskRegistryStateFromSqlite } from "./task-registry.store.sqlite.js";
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
 import type { TaskRecord } from "./task-registry.types.js";
 import { bindTaskRunOwner, getTaskRunOwner } from "./task-run-owner.js";
 import {
@@ -210,6 +223,7 @@ it.each(["deletion", "replacement", "run owner", "authority", "publication"] as 
         await withTestTimeout(committed.promise, 5_000, "Run-owner worker did not commit");
         expect(getTaskRunOwner(task)).toBeUndefined();
         if (change === "deletion") {
+<<<<<<< HEAD
           const expired = updateTask(task.taskId, { status: "succeeded", cleanupAfter: 0 });
           if (!expired) {
             throw new Error("Expected the terminal task before retention");
@@ -217,6 +231,9 @@ it.each(["deletion", "replacement", "run owner", "authority", "publication"] as 
           expect(
             await applyTaskRegistryMaintenanceRetention(expired, Date.now(), new Set(), () => {}),
           ).toBe("pruned");
+=======
+          deleteTaskRecordById(task.taskId);
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
         } else if (change === "replacement") {
           const replacement = { ...task, createdAt: task.createdAt - 1 };
           store.upsertTaskWithDeliveryState({ task: replacement });
@@ -435,6 +452,7 @@ it.each(["normalization", "replacement", "authority", "unknown result"] as const
   },
 );
 import { setImmediate } from "node:timers/promises";
+<<<<<<< HEAD
 
 it("clears only an accepted successor's retained clue through its original task receipt", async () => {
   await withOpenClawTestState({ layout: "state-only" }, async () => {
@@ -597,3 +615,5 @@ it("clears only an accepted successor's retained clue through its original task 
     }
   });
 });
+=======
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))

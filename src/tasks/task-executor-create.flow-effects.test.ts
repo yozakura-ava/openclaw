@@ -27,7 +27,10 @@ import { retainCommittedTaskFlowEffects } from "./task-registry-flow-sync.js";
 import { publishTaskRecordAfterAtomicStore } from "./task-registry-publication.js";
 import { markTaskRunningByRunId } from "./task-registry-record-api.js";
 import { taskFlowSyncOwner } from "./task-registry-state.js";
+<<<<<<< HEAD
 import { runTaskRegistryMaintenance } from "./task-registry.maintenance.js";
+=======
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
 import { configureTaskRegistryRuntime } from "./task-registry.store.js";
 import type { TaskRecord } from "./task-registry.types.js";
 import { bindTaskRunOwner, getTaskRunOwner } from "./task-run-owner.js";

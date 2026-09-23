@@ -94,10 +94,14 @@ export function executeTaskRegistryCommand(
     return observeTaskAgentEventInDatabase(open(), command.input);
   }
   if (
+<<<<<<< HEAD
     command.type === "tasks.applyRetention" ||
     command.type === "tasks.maintainCron" ||
     command.type === "tasks.bindRunOwner" ||
     command.type === "tasks.transitionRunRow" ||
+=======
+    command.type === "tasks.bindRunOwner" ||
+>>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
     command.type === "tasks.updateNotificationDelivery" ||
     command.type === "tasks.acknowledgeStateChange" ||
     command.type === "tasks.createRecord" ||
