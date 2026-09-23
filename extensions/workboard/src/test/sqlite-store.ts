@@ -115,7 +115,8 @@ export function createWorkboardSqliteTestStore(options: WorkboardSqliteTestOptio
 export function createRoutedWorkboardSqliteTestStore(options: WorkboardSqliteTestOptions = {}) {
   const store = createWorkboardSqliteTestStore(options);
   const create = store.create.bind(store);
-  store.create = (input) => create({ ...input, agentId: input.agentId ?? "main" });
+  store.create = (input) =>
+    create(Object.hasOwn(input, "agentId") ? input : { ...input, agentId: "main" });
   return store;
 }
 
