@@ -114,10 +114,16 @@ PINNED_SHA=""
 
 # --- Tag → commit SHA resolver (shared between Case 1 and Case 2) ---
 #
-# Resolves a tag name to its commit SHA via GET /repos/{repo}/git/ref/tags/{tag}.
-# Handles annotated tag nesting:
-#   - lightweight tag:  object.type == "commit" → object.sha is the commit
-#   - annotated tag:    object.type == "tag"   → object.object.sha is the commit
+# Resolves a tag name to its commit SHA. Two-step lookup that mirrors
+# GitHub's actual REST API shape:
+#   1) GET /repos/{repo}/git/ref/tags/{tag}
+#      - lightweight tag:  object.type == "commit" → object.sha IS the commit
+#      - annotated tag:    object.type == "tag"   → object.sha is the tag-object SHA
+#        (NOT a commit SHA — this endpoint does NOT nest object.object.sha
+#        for annotated tags; that nested shape was a fabricated test
+#        fixture and is not what GitHub returns.)
+#   2) For annotated tags only: GET /repos/{repo}/git/tags/{tag-object-sha}
+#      whose response has object.type == "commit" and object.sha = commit SHA.
 #
 # On success: prints the 40-char SHA to stdout, returns 0.
 # On failure: prints an error message to stderr and returns non-zero (caller
@@ -130,20 +136,57 @@ resolve_tag_commit() {
     return 1
   fi
 
-  local commit_sha
-  commit_sha="$(echo "${ref_json}" | jq -r '
-    if .object.type == "commit" then .object.sha
-    elif .object.type == "tag" then .object.object.sha
-    else empty
-    end
-  ')"
+  # Validate the ref response is well-formed (has .object.type and .object.sha).
+  # Any unexpected object.type fails closed.
+  local object_type object_sha
+  object_type="$(echo "${ref_json}" | jq -r '.object.type // empty')"
+  object_sha="$(echo "${ref_json}" | jq -r '.object.sha // empty')"
 
-  if [[ -z "${commit_sha}" ]] || [[ ! "${commit_sha}" =~ ${SHA_RE} ]]; then
-    echo "::error::tag ${tag_name} resolved to empty or malformed commit SHA via /git/ref/tags/ API" >&2
+  if [[ -z "${object_type}" ]] || [[ -z "${object_sha}" ]]; then
+    echo "::error::tag ${tag_name} /git/ref/tags/ response missing .object.type or .object.sha (fail closed)" >&2
     return 1
   fi
 
-  echo "${commit_sha}"
+  case "${object_type}" in
+    commit)
+      # Lightweight tag: object.sha IS the commit SHA directly.
+      if [[ ! "${object_sha}" =~ ${SHA_RE} ]]; then
+        echo "::error::tag ${tag_name} lightweight ref SHA is malformed (fail closed)" >&2
+        return 1
+      fi
+      echo "${object_sha}"
+      ;;
+    tag)
+      # Annotated tag: object.sha is the tag-object SHA. Follow up with
+      # /git/tags/{tag-object-sha} to get the commit SHA from that
+      # response's .object.sha. GitHub's actual API shape, verified
+      # against https://docs.github.com/en/rest/git/tags — the nested
+      # object.object.sha form on /git/ref/tags/ does NOT exist.
+      local tag_obj_json=""
+      if ! tag_obj_json="$(gh_api_get "/repos/${REPO}/git/tags/${object_sha}")"; then
+        echo "::error::failed to resolve annotated tag ${tag_name} via /git/tags/${object_sha} (fail closed)" >&2
+        return 1
+      fi
+
+      local inner_type inner_commit_sha
+      inner_type="$(echo "${tag_obj_json}" | jq -r '.object.type // empty')"
+      inner_commit_sha="$(echo "${tag_obj_json}" | jq -r '.object.sha // empty')"
+
+      if [[ "${inner_type}" != "commit" ]]; then
+        echo "::error::tag ${tag_name} /git/tags/${object_sha} response object.type=${inner_type:-<missing>} (expected 'commit', fail closed)" >&2
+        return 1
+      fi
+      if [[ -z "${inner_commit_sha}" ]] || [[ ! "${inner_commit_sha}" =~ ${SHA_RE} ]]; then
+        echo "::error::tag ${tag_name} /git/tags/${object_sha} response missing or malformed commit SHA (fail closed)" >&2
+        return 1
+      fi
+      echo "${inner_commit_sha}"
+      ;;
+    *)
+      echo "::error::tag ${tag_name} /git/ref/tags/ response object.type=${object_type} (expected 'commit' or 'tag', fail closed)" >&2
+      return 1
+      ;;
+  esac
 }
 
 # --- Case 1: semver tag → must resolve to a published, non-draft Release ---
@@ -217,12 +260,10 @@ if [[ "${ACCEPTED}" -eq 0 ]] && [[ "${REF}" =~ ${SHA_RE} ]]; then
         continue
       fi
 
-      TAG_COMMIT="$(echo "${TAG_REF_JSON}" | jq -r '
-        if .object.type == "commit" then .object.sha
-        elif .object.type == "tag" then .object.object.sha
-        else empty
-        end
-      ')"
+      TAG_COMMIT="$(resolve_tag_commit "${TAG_NAME}" 2>/dev/null)" || {
+        echo "::warning::failed to resolve tag ${TAG_NAME} to commit SHA via /git/ref/tags/ API; skipping (will fail closed if no match)" >&2
+        continue
+      }
 
       if [[ "${TAG_COMMIT}" == "${SHA}" ]]; then
         # Pin to the discovered commit SHA. For SHA-input paths the

@@ -227,14 +227,24 @@ run_test_retarget_check() {
       set -euo pipefail
       # Simulate HEAD = pinned_sha (the workflow checked out pinned_sha).
       HEAD_SHA='${pinned_sha}'
-      # Re-resolve the tag at checkout time via the mock API.
+      # Re-resolve the tag at checkout time via the mock API, mirroring
+      # GitHub's actual two-step shape: /git/ref/tags/{ref} for the
+      # ref, then /git/tags/{tag-object-sha} for annotated tags.
       TAG_REF_JSON=\$(${mock_bin}/gh api '/repos/yozakura-ava/openclaw/git/ref/tags/${ref}')
-      RESOLVED_SHA=\$(echo \"\${TAG_REF_JSON}\" | jq -r '
-        if .object.type == \"commit\" then .object.sha
-        elif .object.type == \"tag\" then .object.object.sha
-        else empty
-        end
-      ')
+      REF_OBJECT_TYPE=\$(echo \"\${TAG_REF_JSON}\" | jq -r '.object.type // empty')
+      REF_OBJECT_SHA=\$(echo \"\${TAG_REF_JSON}\" | jq -r '.object.sha // empty')
+      case \"\${REF_OBJECT_TYPE}\" in
+        commit)
+          RESOLVED_SHA=\"\${REF_OBJECT_SHA}\"
+          ;;
+        tag)
+          TAG_OBJ_JSON=\$(${mock_bin}/gh api \"/repos/yozakura-ava/openclaw/git/tags/\${REF_OBJECT_SHA}\")
+          RESOLVED_SHA=\$(echo \"\${TAG_OBJ_JSON}\" | jq -r '.object.sha // empty')
+          ;;
+        *)
+          RESOLVED_SHA=\"\"
+          ;;
+      esac
       if [[ \"\${HEAD_SHA}\" != \"\${RESOLVED_SHA}\" ]]; then
         echo \"::error::tag retargeted: pinned=\${HEAD_SHA} resolved=\${RESOLVED_SHA}\" >&2
         exit 1
@@ -430,12 +440,20 @@ rm -rf "${TMP}"
 
 # ============================================================
 # Test 10: SHA matches annotated tag (object.type=tag) → ACCEPTED
+#          Uses GitHub's actual two-step API shape: /git/ref/tags/
+#          returns the tag-object SHA (NOT the commit), and the
+#          commit SHA lives behind a second /git/tags/{tag-object-sha}
+#          lookup. The fixture must NOT nest object.object.sha on the
+#          /git/ref/tags/ response — that shape does not exist on
+#          GitHub's API.
 # ============================================================
 SHA_OK="1111222233334444555566667777888899990000"
+ANNOTATED_INNER_TAG_FOR_SHA_PATH="aaaa1111bbbb2222cccc3333dddd4444eeee5555"
 TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
   "/releases?per_page=100&page=1|200|[{\"tag_name\":\"v1.2.3\",\"draft\":false,\"target_commitish\":\"main\"}]" \
-  "/git/ref/tags/v1.2.3|200|{\"ref\":\"refs/tags/v1.2.3\",\"object\":{\"type\":\"tag\",\"sha\":\"aaaa\",\"object\":{\"type\":\"commit\",\"sha\":\"${SHA_OK}\"}}}"
+  "/git/ref/tags/v1.2.3|200|{\"ref\":\"refs/tags/v1.2.3\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_INNER_TAG_FOR_SHA_PATH}\"}}" \
+  "/git/tags/${ANNOTATED_INNER_TAG_FOR_SHA_PATH}|200|{\"tag\":\"v1.2.3\",\"sha\":\"${ANNOTATED_INNER_TAG_FOR_SHA_PATH}\",\"object\":{\"type\":\"commit\",\"sha\":\"${SHA_OK}\"}}"
 run_test "SHA matches annotated tag's commit → accepted" 0 "${SHA_OK}" "${TMP}/mock_gh" "matches commit of tag"
 rm -rf "${TMP}"
 
@@ -550,19 +568,77 @@ run_test_pinned "lightweight tag → pinned_sha emitted on stdout + GITHUB_OUTPU
 rm -rf "${TMP}"
 
 # ============================================================
-# Test 22: Annotated tag (object.type=tag) → nested commit SHA is the
-#          pinned_sha. The tag object points to another tag object
-#          whose .object.sha is the commit. Resolution must follow
-#          the nesting one level deep.
+# Test 22: Annotated tag (object.type=tag) → resolved via two-step
+#          lookup to the correct pinned_sha. /git/ref/tags/{tag}
+#          returns object.type="tag" with object.sha = tag-object SHA
+#          (NOT a commit SHA — the nested object.object.sha shape
+#          does not exist on GitHub's actual API). The commit SHA
+#          lives behind a second /git/tags/{tag-object-sha} call
+#          whose response has object.type="commit" and object.sha =
+#          commit SHA. The test pins the inner-tag SHA explicitly so
+#          an implementation that skips the second call (or calls it
+#          with the wrong SHA) fails: the mock would return "no
+#          response matched" and the verify script would fail closed.
 # ============================================================
 ANNOTATED_INNER_TAG="9999888877776666555544443333222211110000"
 ANNOTATED_COMMIT="1234567890abcdef1234567890abcdef12345678"
 TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
   "/repos/yozakura-ava/openclaw/releases/tags/v2.0.0|200|{\"tag_name\":\"v2.0.0\",\"draft\":false,\"prerelease\":false}" \
-  "/git/ref/tags/v2.0.0|200|{\"ref\":\"refs/tags/v2.0.0\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_INNER_TAG}\",\"object\":{\"type\":\"commit\",\"sha\":\"${ANNOTATED_COMMIT}\"}}}"
-run_test_pinned "annotated tag nested resolution → pinned_sha = inner commit SHA" \
+  "/git/ref/tags/v2.0.0|200|{\"ref\":\"refs/tags/v2.0.0\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_INNER_TAG}\"}}" \
+  "/git/tags/${ANNOTATED_INNER_TAG}|200|{\"tag\":\"v2.0.0\",\"sha\":\"${ANNOTATED_INNER_TAG}\",\"object\":{\"type\":\"commit\",\"sha\":\"${ANNOTATED_COMMIT}\"}}"
+run_test_pinned "annotated tag resolved via two-step lookup → pinned_sha = inner commit SHA" \
   0 "v2.0.0" "${TMP}/mock_gh" "${ANNOTATED_COMMIT}"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 22a: Annotated tag, second lookup /git/tags/{sha} returns 404
+#           → fail closed. The ref endpoint resolves the tag to its
+#           tag-object SHA, but the tag-object endpoint can't resolve
+#           that SHA to a commit (transient or deleted). Without a
+#           pinned commit SHA we cannot close the TOCTOU window, so
+#           the ref must be rejected.
+# ============================================================
+ANNOTATED_TAG_FOR_404="55556666777788889999000011112222aaaa3333"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v2.0.1|200|{\"tag_name\":\"v2.0.1\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v2.0.1|200|{\"ref\":\"refs/tags/v2.0.1\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_TAG_FOR_404}\"}}" \
+  "/git/tags/${ANNOTATED_TAG_FOR_404}|404|{\"message\":\"Not Found\"}"
+run_test "annotated tag, second lookup /git/tags/ 404 → fail closed" \
+  1 "v2.0.1" "${TMP}/mock_gh" "fail closed"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 22b: Annotated tag, second lookup /git/tags/{sha} returns 500
+#           → fail closed. Same TOCTOU concern as 22a: a transient
+#           5xx on the second-step lookup must not be silently
+#           swallowed. Reject the ref.
+# ============================================================
+ANNOTATED_TAG_FOR_500="66667777888899990000111122223333aaaa4444"
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v2.0.2|200|{\"tag_name\":\"v2.0.2\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v2.0.2|200|{\"ref\":\"refs/tags/v2.0.2\",\"object\":{\"type\":\"tag\",\"sha\":\"${ANNOTATED_TAG_FOR_500}\"}}" \
+  "/git/tags/${ANNOTATED_TAG_FOR_500}|500|{\"message\":\"Internal Server Error\"}"
+run_test "annotated tag, second lookup /git/tags/ 500 → fail closed" \
+  1 "v2.0.2" "${TMP}/mock_gh" "fail closed"
+rm -rf "${TMP}"
+
+# ============================================================
+# Test 22c: Unexpected object.type on /git/ref/tags/ response
+#           (e.g. "tree", "blob") → fail closed. GitHub's API only
+#           emits object.type == "commit" (lightweight tag) or
+#           object.type == "tag" (annotated tag). Anything else is
+#           either a protocol drift or a malicious response —
+#           neither should silently widen the allowlist.
+# ============================================================
+TMP="$(mktemp -d)"
+make_mock_gh "${TMP}" \
+  "/repos/yozakura-ava/openclaw/releases/tags/v2.0.3|200|{\"tag_name\":\"v2.0.3\",\"draft\":false,\"prerelease\":false}" \
+  "/git/ref/tags/v2.0.3|200|{\"ref\":\"refs/tags/v2.0.3\",\"object\":{\"type\":\"tree\",\"sha\":\"7777888899990000111122223333444455556666\"}}"
+run_test "unexpected object.type on /git/ref/tags/ → fail closed" \
+  1 "v2.0.3" "${TMP}/mock_gh" "expected 'commit' or 'tag'"
 rm -rf "${TMP}"
 
 # ============================================================
@@ -596,7 +672,7 @@ TMP="$(mktemp -d)"
 make_mock_gh "${TMP}" \
   "/repos/yozakura-ava/openclaw/releases/tags/v3.0.2|200|{\"tag_name\":\"v3.0.2\",\"draft\":false,\"prerelease\":false}" \
   "/git/ref/tags/v3.0.2|200|{\"ref\":\"refs/tags/v3.0.2\",\"object\":{\"sha\":\"abc\"}}"
-run_test "tag ref resolution malformed → fail closed" 1 "v3.0.2" "${TMP}/mock_gh" "empty or malformed commit SHA"
+run_test "tag ref resolution malformed → fail closed" 1 "v3.0.2" "${TMP}/mock_gh" "missing .object.type"
 rm -rf "${TMP}"
 
 # ============================================================
