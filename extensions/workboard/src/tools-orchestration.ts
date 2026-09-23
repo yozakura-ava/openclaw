@@ -71,6 +71,7 @@ export function createWorkboardOrchestrationTools(params: {
     token?: string,
   ) => Promise<WorkboardCard>;
   readScopedCardToolParams: (rawParams: unknown) => Promise<ScopedCardParams>;
+  readRecoveryCardToolParams: (rawParams: unknown) => Promise<ScopedCardParams>;
   readClaimedCardToolParams: (rawParams: unknown) => Promise<ScopedCardParams>;
   runScopedCardMutation: (
     rawParams: unknown,
@@ -82,7 +83,7 @@ export function createWorkboardOrchestrationTools(params: {
     store,
     ownerId,
     requireScopedCard,
-    readScopedCardToolParams,
+    readRecoveryCardToolParams,
     readClaimedCardToolParams,
     runScopedCardMutation,
     redactedCardResult,
@@ -418,9 +419,10 @@ export function createWorkboardOrchestrationTools(params: {
         reason: OptionalOperatorNoteField,
       }),
       execute: async (_toolCallId, rawParams) => {
-        return runScopedCardMutation(rawParams, (id, record, scope) =>
-          store.reclaim(id, record, scope),
-        );
+        // Reclaim is the documented token-free recovery operation: admitted
+        // past an expired claim so another agent can take over stalled work.
+        const { record, id, scope } = await readRecoveryCardToolParams(rawParams);
+        return redactedCardResult(await store.reclaim(id, record, scope));
       },
     },
     {
@@ -456,7 +458,7 @@ export function createWorkboardOrchestrationTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: async (_toolCallId, rawParams) => {
-        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const { record, id, scope } = await readRecoveryCardToolParams(rawParams);
         return redactedCardResult(await store.addWorkerLog(id, record, scope));
       },
     },
