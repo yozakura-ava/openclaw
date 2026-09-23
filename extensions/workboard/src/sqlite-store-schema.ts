@@ -80,7 +80,9 @@ const WORKBOARD_SCHEMA_SQL = `
       archived_at INTEGER,
       stale_json TEXT,
       lifecycle_status_source_updated_at INTEGER,
-      failure_count INTEGER
+      failure_count INTEGER,
+      review_required INTEGER,
+      review_verdict_json TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_cards_board_status_idx
       ON workboard_cards(board_id, status, position);
@@ -268,6 +270,8 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
     "lifecycle_status_source_updated_at",
     "lifecycle_status_source_updated_at INTEGER",
   );
+  ensureColumn(db, "workboard_cards", "review_required", "review_required INTEGER");
+  ensureColumn(db, "workboard_cards", "review_verdict_json", "review_verdict_json TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")

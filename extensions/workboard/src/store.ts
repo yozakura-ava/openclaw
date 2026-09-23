@@ -582,18 +582,22 @@ export class WorkboardStore extends WorkboardNotificationStore {
       throw new Error(`card is already done: ${id}`);
     }
     const now = Date.now();
-    return await this.update(id, {
-      status: "done",
-      metadata: {
-        ...existing.metadata,
-        claim: undefined,
-        closureType: "force_close",
-        comments: [
-          ...(existing.metadata?.comments ?? []),
-          { id: randomUUID(), body: `[${String(reasonCode)}] ${explanation}`, createdAt: now },
-        ].slice(-50),
+    return await this.update(
+      id,
+      {
+        status: "done",
+        metadata: {
+          ...existing.metadata,
+          claim: undefined,
+          closureType: "force_close",
+          comments: [
+            ...(existing.metadata?.comments ?? []),
+            { id: randomUUID(), body: `[${String(reasonCode)}] ${explanation}`, createdAt: now },
+          ].slice(-50),
+        },
       },
-    });
+      { allowGovernedCompletion: true },
+    );
   }
 
   async bulkUpdate(input: WorkboardBulkInput): Promise<{ cards: WorkboardCard[] }> {

@@ -66,6 +66,7 @@ import type {
   WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
 } from "./store-inputs.js";
+import * as workboardReview from "./store-review.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -1058,12 +1059,7 @@ function normalizeList<T>(
 export function normalizeMetadata(
   value: unknown,
   fallback: WorkboardMetadata = {},
-  options: {
-    allowDependencyLinks?: boolean;
-    allowArchivedAt?: boolean;
-    allowAutomationLaunch?: boolean;
-    preserveProofId?: string;
-  } = {},
+  options: workboardReview.WorkboardMetadataNormalizationOptions = {},
 ): WorkboardMetadata {
   if (!isRecord(value)) {
     return trimMetadataToBudget(fallback, options);
@@ -1113,6 +1109,7 @@ export function normalizeMetadata(
     ),
     links: normalizedLinks,
     proof: normalizeList(record.proof, normalizeProof, MAX_CARD_PROOF, fallback.proof),
+    ...workboardReview.normalizeReviewMetadata(record, fallback, options),
     artifacts: normalizeList(
       record.artifacts,
       normalizeArtifact,
@@ -1273,7 +1270,7 @@ function removeUndefinedAutomationFields(automation: WorkboardAutomation): Workb
 }
 
 export function removeUndefinedMetadataFields(metadata: WorkboardMetadata): WorkboardMetadata {
-  const next = { ...metadata };
+  const next = workboardReview.removeUndefinedReviewMetadataFields(metadata);
   for (const key of [
     "attempts",
     "comments",

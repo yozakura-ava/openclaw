@@ -145,6 +145,7 @@ function summarizeCard(card: WorkboardCard) {
     title: card.title,
     status: card.status,
     priority: card.priority,
+    reviewRequired: card.metadata?.reviewRequired === true,
     agentId: card.agentId,
     tenant: card.metadata?.automation?.tenant,
     boardId: card.metadata?.automation?.boardId ?? "default",
@@ -352,6 +353,9 @@ export function createWorkboardTools(params: {
         maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
         maxRetries: Type.Optional(Type.Number({ description: "Retry budget." })),
         scheduledAt: Type.Optional(Type.Number({ description: "Unix epoch milliseconds." })),
+        reviewRequired: Type.Optional(
+          Type.Boolean({ description: "Require a verified review verdict before completion." }),
+        ),
       }),
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
@@ -527,10 +531,27 @@ export function createWorkboardTools(params: {
       },
     },
     {
+      name: "workboard_review",
+      label: "Workboard Review",
+      description:
+        "Record a verified or unverified review verdict on a governed card that is in review. Required before completing cards created with reviewRequired=true.",
+      parameters: strictObject({
+        id: cardIdField(),
+        token: claimTokenField(),
+        verified: Type.Boolean({ description: "Whether the review verified the card's work." }),
+        summary: Type.Optional(Type.String({ description: "Review findings or reason." })),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        return runClaimedCardMutation(rawParams, (id, record, scope) =>
+          store.recordReviewVerdict(id, record, scope),
+        );
+      },
+    },
+    {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
+        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. Cards marked reviewRequired must first receive a verified workboard_review verdict.",
       parameters: strictObject({
         id: cardIdField(),
         token: claimTokenField(),

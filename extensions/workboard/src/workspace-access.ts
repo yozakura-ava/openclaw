@@ -32,6 +32,7 @@ export const WORKBOARD_TOOL_NAMES = [
   "workboard_read",
   "workboard_claim",
   "workboard_heartbeat",
+  "workboard_review",
   "workboard_complete",
   "workboard_force_close",
   "workboard_attachment_add",
@@ -66,6 +67,7 @@ export const WORKBOARD_TOOL_NAMES = [
 
 export const WORKBOARD_REQUIRED_WORKER_TOOLS = [
   "workboard_heartbeat",
+  "workboard_review",
   "workboard_complete",
   "workboard_block",
 ] as const;

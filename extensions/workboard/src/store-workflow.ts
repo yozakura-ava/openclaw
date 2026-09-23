@@ -250,6 +250,12 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       throw new Error(`card not found: ${id}`);
     }
     assertCanMutateClaimedCard(existing, scope === null ? undefined : scope);
+    if (
+      existing.metadata?.reviewRequired === true &&
+      (existing.status !== "review" || existing.metadata.reviewVerdict?.verified !== true)
+    ) {
+      throw new Error("card requires a verified review verdict before completion.");
+    }
     const now = Date.now();
     const createdCardIds = normalizeStringList(input.createdCardIds, "created card ids", 120);
     const childIds = cardChildIds(existing);
@@ -328,6 +334,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         },
       },
       {
+        allowGovernedCompletion: true,
+        allowReviewVerdict: true,
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
       },

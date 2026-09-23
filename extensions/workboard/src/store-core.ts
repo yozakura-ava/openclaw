@@ -3,7 +3,6 @@ import type {
   WorkboardBoardMetadata,
   WorkboardCard,
   WorkboardDeleteResult,
-  WorkboardEvent,
   WorkboardLink,
   WorkboardMetadata,
   WorkboardStatus,
@@ -74,18 +73,10 @@ import {
   trimMetadataToBudget,
 } from "./store-normalizers.js";
 import { addCommentWithChunking } from "./store-oversized-comment.js";
+import * as workboardReview from "./store-review.js";
 import { WorkboardStoreRuntime } from "./store-runtime.js";
 
-type WorkboardUpdateCardOptions = {
-  allowAutomationLaunch?: boolean;
-  allowMetadataDependencyLinks?: boolean;
-  enforceStatusHolds?: boolean;
-  event?: Omit<WorkboardEvent, "id" | "at">;
-  eventAt?: number;
-  expectedUpdatedAt?: number;
-  ownerSlot?: { ownerId: string; now: number };
-  preserveProofId?: string;
-};
+type WorkboardUpdateCardOptions = workboardReview.WorkboardUpdateCardOptions;
 
 type WorkboardMutationJournalEntry = {
   before?: WorkboardCard;
@@ -270,7 +261,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   protected async updateMetadata(
     id: string,
     mutate: (existing: WorkboardCard) => WorkboardMetadata,
-    options: { preserveProofId?: string; expectedUpdatedAt?: number } = {},
+    options: workboardReview.WorkboardMetadataUpdateOptions = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const result = await this.updateLatestCard(
@@ -558,9 +549,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       input.metadata,
       {
         templateId: normalizeTemplateId(input.templateId),
+        ...(input.reviewRequired === true ? { reviewRequired: true } : {}),
         ...(childAutomation ? { automation: childAutomation } : {}),
       },
-      { allowDependencyLinks: false, allowArchivedAt: false },
+      { allowDependencyLinks: false, allowArchivedAt: false, allowReviewRequired: true },
     );
     const syncedMetadata = trimMetadataToBudget(
       syncExecutionAttemptMetadata(metadata, execution, now),
@@ -678,12 +670,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
   async update(
     id: string,
     patch: WorkboardCardPatch,
-    options: { expectedUpdatedAt?: number } = {},
+    options: { expectedUpdatedAt?: number; allowGovernedCompletion?: boolean } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
       async () =>
         await this.updateCard(id, patch, {
           allowMetadataDependencyLinks: false,
+          allowGovernedCompletion: options.allowGovernedCompletion,
           enforceStatusHolds: true,
           expectedUpdatedAt: options.expectedUpdatedAt,
         }),
@@ -732,6 +725,11 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       }
     }
     const status = normalizeStatus(effectivePatch.status, existing.status);
+    workboardReview.assertGovernedCompletionAllowed(
+      existing,
+      status,
+      options.allowGovernedCompletion,
+    );
     const now = Math.max(Date.now(), existing.updatedAt + 1);
     const startedAt =
       effectivePatch.startedAt === undefined
@@ -758,8 +756,10 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     let metadata = normalizeMetadata(effectivePatch.metadata, existing.metadata, {
       allowAutomationLaunch: options.allowAutomationLaunch,
       allowDependencyLinks: options.allowMetadataDependencyLinks !== false,
+      allowReviewVerdict: options.allowReviewVerdict,
       preserveProofId: options.preserveProofId,
     });
+    metadata = workboardReview.stripUnprivilegedReviewVerdict(metadata, options.allowReviewVerdict);
     if (status !== existing.status && !hasFreshLifecycleStatusSource) {
       // Status patches often spread existing metadata. Only a newly supplied
       // lifecycle source is provenance; copied markers must not survive a manual transition.

@@ -7,6 +7,7 @@ const TASK_ROOT = path.resolve(import.meta.dirname);
 const TASK_BOUNDARY_SRC_ROOT = path.resolve(TASK_ROOT, "..");
 const TEST_ONLY_SOURCE_SUFFIXES = [
   ".test.ts",
+  ".test-helpers.ts",
   ".test-harness.ts",
   ".test-utils.ts",
   ".e2e-harness.ts",
