@@ -69,7 +69,7 @@ const mocks = vi.hoisted(() => ({
   resolveManagedCodexAppServerStartOptions: vi.fn(async (startOptions) => startOptions),
   resolveManagedCodexNativeCommand: vi.fn((command: string) => `${command}.native`),
   isManagedCodexDesktopCommand: vi.fn((command: string) => command.startsWith("/Applications/")),
-  embeddedAgentLog: { debug: vi.fn(), warn: vi.fn() },
+  embeddedAgentLog: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
   resolveDefaultAgentDir: vi.fn(() => "/tmp/openclaw-agent"),
   desktopGeneration: undefined as { epoch: number; fingerprint: string } | undefined,
   desktopGenerationCurrent: true,
@@ -271,6 +271,7 @@ function configureManagedDesktopFallback(): CodexAppServerStartOptions {
 describe("shared Codex app-server client", () => {
   beforeEach(() => {
     vi.spyOn(embeddedAgentLog, "debug").mockImplementation(mocks.embeddedAgentLog.debug);
+    vi.spyOn(embeddedAgentLog, "info").mockImplementation(mocks.embeddedAgentLog.info);
     vi.spyOn(embeddedAgentLog, "warn").mockImplementation(mocks.embeddedAgentLog.warn);
   });
 
@@ -338,7 +339,6 @@ describe("shared Codex app-server client", () => {
     mocks.resolveManagedCodexNativeCommand.mockImplementation(
       (command: string) => `${command}.native`,
     );
-    mocks.embeddedAgentLog.debug.mockClear();
     mocks.embeddedAgentLog.warn.mockClear();
     mocks.resolveDefaultAgentDir.mockClear();
   });

@@ -60,11 +60,19 @@ import {
 import { acquireCodexNativeConfigFence } from "./native-config-fence.js";
 import { nativeHookRelayUnregisterQueue } from "./native-hook-relay-state.js";
 import {
-  closeRetiredSharedClientEntry,
-  closeRetiredSharedClientEntryIfIdle,
+  getSharedClientPoolMetrics,
+  recordSharedClientCreated,
+  releaseSharedClientEntry,
+  resetSharedClientPoolMetrics,
+  retainSharedClientEntryWithIdleReaper,
+} from "./shared-client-idle-reaper.js";
+import {
+  closeSharedClientEntryIfUnclaimed,
+  clearSharedClientIdleReaper,
   createCodexAppServerStartupLifetime,
   getCurrentSharedClientEntry,
   getSharedCodexAppServerClientState,
+  retirePendingSharedClientEntryIfUnclaimed,
   retireSharedCodexAppServerClientIfCurrent,
   type CodexAppServerStartupLifetime,
   type SharedCodexAppServerClientEntry,
@@ -500,7 +508,9 @@ export function releaseLeasedSharedCodexAppServerClient(client: CodexAppServerCl
     return false;
   }
   entry.anonymousLeases -= 1;
-  releaseSharedClientEntry(entry, "activeLeases");
+  releaseSharedClientEntry(entry, getSharedCodexAppServerClientState(), "activeLeases", () =>
+    notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState()),
+  );
   return true;
 }
 
@@ -685,7 +695,7 @@ async function acquireSharedCodexAppServerClient(
       // pending callers should keep the startup client alive.
       stopStartedClientNotifications();
       releasePendingAcquire();
-      retirePendingSharedClientEntryIfUnclaimed(entry);
+      retirePendingSharedClientEntryIfUnclaimed(entry, state);
     };
     options.abandonSignal.addEventListener("abort", abandon, { once: true });
     cleanupAbandonSignal = () => options.abandonSignal?.removeEventListener("abort", abandon);
@@ -749,7 +759,7 @@ async function acquireSharedCodexAppServerClient(
     // This deadline belongs to one waiter, not the shared physical client.
     // Release first so only the final claimant can tear down stalled startup.
     releasePendingAcquire();
-    retirePendingSharedClientEntryIfUnclaimed(entry);
+    retirePendingSharedClientEntryIfUnclaimed(entry, state);
     throw error;
   } finally {
     cleanupAbandonSignal?.();
@@ -820,6 +830,7 @@ function createSharedCodexAppServerClientStartup(
       ...params,
       onStartedClient: (startedClient) => {
         const state = getSharedCodexAppServerClientState();
+        recordSharedClientCreated(state);
         // Rejected candidates must never retain a reverse path to their replacement.
         if (params.entry.client) {
           state.entriesByClient.delete(params.entry.client);
@@ -836,7 +847,7 @@ function createSharedCodexAppServerClientStartup(
         for (const callback of params.entry.onStartedClientCallbacks) {
           callback(startedClient);
         }
-        retirePendingSharedClientEntryIfUnclaimed(params.entry);
+        retirePendingSharedClientEntryIfUnclaimed(params.entry, state);
       },
       onInitializedClient: () => initialized.resolve(),
     }).then(
@@ -1226,6 +1237,7 @@ export function resetSharedCodexAppServerClientForTests(): void {
   const state = getSharedCodexAppServerClientState();
   state.startup.controller.abort();
   state.startup = createCodexAppServerStartupLifetime();
+  resetSharedClientPoolMetrics(state);
   const clients = [...state.liveClients];
   const isolatedClients = [...state.isolatedClients];
   state.clients.clear();
@@ -1253,6 +1265,7 @@ export function clearSharedCodexAppServerClientIfCurrent(
   if (!entry) {
     return false;
   }
+  clearSharedClientIdleReaper(entry);
   state.clients.delete(entry.key);
   client.close();
   return true;
@@ -1287,7 +1300,14 @@ export function retainSharedCodexAppServerClientIfCurrent(
   client: CodexAppServerClient | undefined,
 ): (() => void) | undefined {
   const entry = getCurrentSharedClientEntry(client);
-  return entry ? retainSharedClientEntry(entry) : undefined;
+  return entry
+    ? retainSharedClientEntryWithIdleReaper(
+        entry,
+        getSharedCodexAppServerClientState(),
+        "activeLeases",
+        () => notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState()),
+      )
+    : undefined;
 }
 
 /** Retains the live shared client whose initialized instance id matches a thread binding. */
@@ -1303,7 +1323,15 @@ export function retainSharedCodexAppServerClientByInstanceId(
     if (client?.getInstanceId() !== normalizedClientId || entry.closeWhenIdle || entry.closeError) {
       continue;
     }
-    return { client, release: retainSharedClientEntry(entry) };
+    return {
+      client,
+      release: retainSharedClientEntryWithIdleReaper(
+        entry,
+        getSharedCodexAppServerClientState(),
+        "activeLeases",
+        () => notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState()),
+      ),
+    };
   }
   return undefined;
 }
@@ -1501,7 +1529,9 @@ export function clearSharedCodexAppServerClientIfCurrentAndUnclaimed(
   const entry = getCurrentSharedClientEntry(client);
   return {
     found: entry !== undefined,
-    closed: entry ? closeSharedClientEntryIfUnclaimed(entry) : false,
+    closed: entry
+      ? closeSharedClientEntryIfUnclaimed(entry, getSharedCodexAppServerClientState())
+      : false,
     activeLeases: entry?.activeLeases ?? 0,
     pendingAcquires: entry?.pendingAcquires ?? 0,
   };
@@ -1511,53 +1541,16 @@ function retainSharedClientEntry(
   entry: SharedCodexAppServerClientEntry,
   counter: "activeLeases" | "pendingAcquires" = "activeLeases",
 ): () => void {
-  let released = false;
-  entry[counter] += 1;
-  return () => {
-    if (released) {
-      return;
-    }
-    released = true;
-    releaseSharedClientEntry(entry, counter);
-  };
+  return retainSharedClientEntryWithIdleReaper(
+    entry,
+    getSharedCodexAppServerClientState(),
+    counter,
+    () => notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState()),
+  );
 }
 
-function releaseSharedClientEntry(
-  entry: SharedCodexAppServerClientEntry,
-  counter: "activeLeases" | "pendingAcquires",
-): void {
-  entry[counter] -= 1;
-  closeRetiredSharedClientEntryIfIdle(entry);
-  notifyDesktopGenerationDrainChecks(getSharedCodexAppServerClientState());
-}
-
-function closeSharedClientEntryIfUnclaimed(entry: SharedCodexAppServerClientEntry): boolean {
-  if (entry.activeLeases > 0 || entry.pendingAcquires > 0) {
-    return false;
-  }
-  const state = getSharedCodexAppServerClientState();
-  if (state.clients.get(entry.key) !== entry) {
-    return false;
-  }
-  state.clients.delete(entry.key);
-  entry.client?.close();
-  return Boolean(entry.client);
-}
-
-function retirePendingSharedClientEntryIfUnclaimed(entry: SharedCodexAppServerClientEntry): void {
-  if (entry.activeLeases > 0 || entry.pendingAcquires > 0) {
-    return;
-  }
-  entry.startupAbort?.abort(new Error("Codex app-server startup was abandoned"));
-  entry.closeWhenIdle = true;
-  const state = getSharedCodexAppServerClientState();
-  if (state.clients.get(entry.key) === entry) {
-    state.clients.delete(entry.key);
-  }
-  if (!entry.client) {
-    return;
-  }
-  closeRetiredSharedClientEntry(entry);
-}
+/** Returns bounded process-pool gauges for diagnostics and monitoring. */
+export const getCodexAppServerClientPoolMetrics = () =>
+  getSharedClientPoolMetrics(getSharedCodexAppServerClientState());
 
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
