@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import {
   link,
   mkdir,
@@ -45,7 +45,7 @@ vi.mock("node:os", async (importOriginal) => ({
   availableParallelism: () => 32,
 }));
 
-const { stores, tempDirs, databasePath, open, openWithGateway } = useSqliteWorkerStoreFixture(
+const { stores, tempDirs, databasePath, open, openOwned } = useSqliteWorkerStoreFixture(
   "openclaw-sqlite-worker-store-",
 );
 
@@ -733,7 +733,7 @@ describe("SQLite worker store", () => {
     "preserves $owner close diagnostics and committed data (aggregate: $aggregate)",
     async ({ owner, aggregate }) => {
       const file = databasePath();
-      const { store, gateway } = await openWithGateway(file, owner);
+      const store = await openOwned(file, owner);
       try {
         const receipt = await append(store, "preserved");
         await store.execute({ type: "failClose", input: { aggregate } });
@@ -767,11 +767,7 @@ describe("SQLite worker store", () => {
         expect(recoveredReceipt.writes).toBe(1);
         expect(await read(recovered)).toEqual(["preserved", "after recovery"]);
       } finally {
-        try {
-          await store.close();
-        } finally {
-          gateway.release();
-        }
+        await store.close();
       }
     },
   );

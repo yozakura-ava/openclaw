@@ -75,7 +75,7 @@ type ExecutionOwner = {
   readonly agentId: string;
   readonly sharedDatabaseKey: string;
   readonly stateDatabasePath: string;
-  getCleanupFailure(): { error: unknown } | undefined;
+  getCleanupFailure(): { error: unknown; retryable: boolean } | undefined;
   assertCurrent(): void;
   borrow(
     pathname: string,
@@ -107,8 +107,9 @@ export function getOpenClawAgentDatabaseCleanupFailures(
           {
             agentId: owner.agentId,
             reason: formatErrorMessageWithCode(failure.error),
-            repairHint:
-              "Idle cleanup retries on this agent's next request. If cleanup remains blocked, restart the Gateway; do not delete its database or lease.",
+            repairHint: failure.retryable
+              ? "Idle cleanup retries on this agent's next request. If cleanup remains blocked, restart the Gateway; do not delete its database or lease."
+              : "Cleanup failed after this agent was explicitly revoked and cannot retry on a request. Restart the Gateway; do not delete its database or lease.",
           },
         ]
       : [];
@@ -425,7 +426,8 @@ function createAgentDatabaseExecution(
       return context.admission.identity.key;
     },
     stateDatabasePath: context.admission.databasePath,
-    getCleanupFailure: () => cleanupFailure,
+    getCleanupFailure: () =>
+      cleanupFailure ? { ...cleanupFailure, retryable: !revoked } : undefined,
     assertCurrent,
     borrow(borrowedPath, expected, creating) {
       const expectedIdentity = expected ? Object.freeze({ ...expected }) : undefined;

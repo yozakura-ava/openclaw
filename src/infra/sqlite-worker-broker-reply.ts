@@ -260,24 +260,22 @@ function decodeSqliteWorkerReplyError(
     name: error.name,
     ...(error.code === undefined ? {} : { code: error.code }),
   });
-  if (job.request.stateContext && error.code !== "outcome-unknown" && error.sharedState) {
+  if (
+    (job.request.stateContext || job.request.type === "close") &&
+    error.code !== "outcome-unknown" &&
+    error.sharedState
+  ) {
     retainOpenClawStateWorkerErrorPayload(failure, error.sharedState);
   }
   return failure;
 }
 
-function decodeSqliteWorkerCleanupError(
-  job: Job,
-  payload: OpenClawStateWorkerErrorPayload,
-): Error {
-  return hydrateOpenClawStateWorkerError(
-    decodeSqliteWorkerReplyError(job, {
-      name: "SqliteCoordinatorError",
-      message: "SQLite coordinator cleanup failed",
-      sharedState: payload,
-    }),
-    { includeOrdinary: true },
-  );
+function decodeSqliteWorkerCleanupError(payload: OpenClawStateWorkerErrorPayload): Error {
+  const failure = Object.assign(new Error("SQLite coordinator cleanup failed"), {
+    name: "SqliteCoordinatorError",
+  });
+  retainOpenClawStateWorkerErrorPayload(failure, payload);
+  return hydrateOpenClawStateWorkerError(failure, { includeOrdinary: true });
 }
 
 export type CompletedSqliteWorkerOutcome = { value: unknown } | { error: unknown };
@@ -317,7 +315,7 @@ export function receiveSqliteWorkerReply(
           ? undefined
           : admission?.failure;
       const original = failure ?? decodeSqliteWorkerReplyError(job, reply.error);
-      owner.fail(decodeSqliteWorkerCleanupError(job, reply.cleanupFailure), undefined, undefined, {
+      owner.fail(decodeSqliteWorkerCleanupError(reply.cleanupFailure), undefined, undefined, {
         error: original,
       });
       return;
@@ -369,7 +367,7 @@ export function receiveSqliteWorkerReply(
     const admission = job.operationAdmission?.admission;
     const failure = admission?.failureSource === "domain" ? undefined : admission?.failure;
     owner.fail(
-      decodeSqliteWorkerCleanupError(job, reply.cleanupFailure),
+      decodeSqliteWorkerCleanupError(reply.cleanupFailure),
       undefined,
       undefined,
       failure === undefined ? { value } : { error: failure },
