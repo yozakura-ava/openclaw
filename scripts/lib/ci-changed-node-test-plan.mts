@@ -133,6 +133,12 @@ const MAX_LINES_BASELINE_RATCHET_TEST_TARGETS = [
 ];
 const MAX_LINES_BASELINE_PATH = "config/max-lines-baseline.txt";
 const PLANNER_PATH = "scripts/lib/ci-changed-node-test-plan.mts";
+const WORKFLOW_CI_PATH = ".github/workflows/ci.yml";
+const CI_WORKFLOW_OWNER_TESTS = [
+  "test/scripts/check-workflows.test.ts",
+  "test/scripts/ci-workflow-guards.test.ts",
+  "test/scripts/ci-changed-node-test-plan.test.ts",
+];
 const SUBAGENT_COMPLETION_TEST_TARGETS = [
   "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
   "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
@@ -870,7 +876,10 @@ export function createChangedNodeTestShards(
           changedPath !== MAX_LINES_BASELINE_PATH &&
           changedPath !== PLANNER_PATH,
       ))
-      ? MAX_LINES_BASELINE_RATCHET_TEST_TARGETS
+      ? [
+          ...MAX_LINES_BASELINE_RATCHET_TEST_TARGETS,
+          ...(resolutionPaths.includes(WORKFLOW_CI_PATH) ? CI_WORKFLOW_OWNER_TESTS : []),
+        ]
       : []),
     ...(embeddedScopeHasNonTest ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS : []),
     ...(resolutionPaths.some((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))
