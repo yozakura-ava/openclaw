@@ -430,6 +430,11 @@ function createChangedTargetShards(
     const shard: ChangedNodeTestShard = {
       checkName: `${names.checkName}${suffix}`,
       configs: [],
+      // Additive: mirror `targets` under the canonical `includePatterns`
+      // key so fallbackGroups consumers can resolve planned test files
+      // without depending on `groups[].includePatterns` (which 9.6 does
+      // not materialise for target shards).
+      includePatterns: chunk,
       requiresDist: false,
       runner: DEFAULT_NODE_TEST_RUNNER,
       shardName: `${names.shardName}${suffix}`,

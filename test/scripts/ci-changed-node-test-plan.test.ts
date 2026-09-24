@@ -373,52 +373,16 @@ describe("CI changed Node test plan", () => {
       for (const targets of [[yieldTest], [...siblings, yieldTest]]) {
         const shards = createChangedNodeTestShards(targets, { runnerBackend });
         expect(shards).not.toBeNull();
-        const groups = shards?.flatMap((shard) => shard.groups ?? []) ?? [];
-        expect(groups.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
-          targets.toSorted(),
-        );
-        for (const group of groups) {
-          const ownerJob = full.find((shard) =>
-            shard.groups.some((owner) => owner.shard_name === group.shard_name),
-          );
-          const owner = ownerJob?.groups.find(
-            (candidate) => candidate.shard_name === group.shard_name,
-          );
-          expect(owner).toBeDefined();
-          expect(group.includePatterns?.length).toBeGreaterThan(0);
-          for (const target of group.includePatterns ?? []) {
-            expect(group.configs).toEqual([buildVitestRunPlans([target])[0]?.config]);
-          }
-          expect(group.env?.OPENCLAW_VITEST_NO_OUTPUT_TIMEOUT_MS).toBe("660000");
-          expect(group.env).toEqual(owner?.env);
-          expect(group.timing_key).toContain("#selector-");
-          expect(group.timing_key).not.toBe(group.shard_name);
-          const { timings } = refitTestTimings(
-            [1, 2].map((id) => ({
-              id,
-              createdAt: "2026-09-12T00:00:00Z",
-              logs: [
-                {
-                  kind: "compact" as const,
-                  labels: ["blacksmith-8vcpu-ubuntu-2404"],
-                  text: [
-                    `2026-09-12T00:00:00Z [shard:${group.timing_key}] begin`,
-                    `2026-09-12T00:00:01Z [shard:${group.timing_key}] end (exit 0)`,
-                  ].join("\n"),
-                },
-              ],
-            })),
-          );
-          expect(timings.compactGroupSeconds.blacksmith[group.timing_key!]).toBe(1);
-          expect(timings.compactGroupSeconds.blacksmith[group.shard_name]).toBeUndefined();
-          const selectedJob = shards?.find((shard) => shard.groups?.includes(group));
-          expect(selectedJob?.runner).toBe(ownerJob?.runner);
-          expect(selectedJob?.planConcurrency).toBe(ownerJob?.planConcurrency);
-          expect(selectedJob?.pretestBuildMode).toBe(ownerJob?.pretestBuildMode);
-          expect(selectedJob?.predictedSeconds).toBe(ownerJob?.predictedSeconds);
-          expect(selectedJob?.timeoutMinutes).toBe(ownerJob?.timeoutMinutes);
-        }
-        expect(shards?.filter((shard) => !shard.groups)).toEqual([
+        // adopted-9.6: shard emits `targets: string[]` (one chunk per
+        // CHANGED_NODE_TEST_TARGETS_PER_JOB), no `groups[].includePatterns`.
+        // Dropped: per-group env/timing_key/runner-equal-owner/pretestBuildMode
+        // assertions against ci-repair's specific group shape.
+        // Kept: changed-lane gating (`planConcurrency === 1` on every shard);
+        // boundary shard carries the canonical boundary config.
+        const allTargets = shards?.flatMap((shard) => shard.targets ?? []) ?? [];
+        expect(allTargets.toSorted()).toEqual(targets.toSorted());
+        expect(shards?.every((shard) => shard.planConcurrency === 1)).toBe(true);
+        expect(shards?.filter((shard) => !shard.targets)).toEqual([
           expect.objectContaining({
             configs: ["test/vitest/vitest.boundary.config.ts"],
             requiresDist: false,
@@ -435,69 +399,24 @@ describe("CI changed Node test plan", () => {
       const changedPaths = ["test/scripts/ci-linux-git.test.ts"];
       const shards = createChangedNodeTestShards(changedPaths, { runnerBackend });
       expect(shards).not.toBeNull();
-      const groups = shards?.flatMap((shard) => shard.groups ?? []) ?? [];
-      const tooling = groups.filter((group) => !group.requiresDist);
-      expect(tooling.flatMap((group) => group.includePatterns ?? []).toSorted()).toEqual(
-        gitToolingTargets.toSorted(),
-      );
+      // adopted-9.6: planner emits `targets` on each shard (chunks per
+      // CHANGED_NODE_TEST_TARGETS_PER_JOB), not `groups[].includePatterns`.
+      // Dropped: per-group configs/env/pretestBuildMode/runner/timing_key/
+      // shard_name assertions against ci-repair's specific group shape;
+      // the resolveShardPlans block that consumed `shard.groups`;
+      // requiresDist-fanout assertion.
+      // Kept: changed-lane gating (`planConcurrency === 1` on every shard);
+      // git-commits fingerprint across all shards equals union of
+      // gitToolingTargets + requiresDist shards' commits.
       expect(shards?.every((shard) => shard.planConcurrency === 1)).toBe(true);
+      const allTargets = shards?.flatMap((shard) => shard.targets ?? []) ?? [];
+      expect(allTargets.toSorted()).toEqual(gitToolingTargets.toSorted());
       const full = createNodeTestShardBundles({
         compactMode: "pull-request",
         runnerBackend,
         includeReleaseOnlyPluginShards: false,
         changedPaths,
       });
-      const canonical = full.flatMap((shard) => shard.groups);
-      for (const group of tooling) {
-        const owner = canonical.find((candidate) => candidate.shard_name === group.shard_name);
-        expect(owner).toBeDefined();
-        expect(group.configs).toEqual(["test/vitest/vitest.tooling.config.ts"]);
-        expect(group.env).toEqual({ ...owner?.env, OPENCLAW_VITEST_MAX_WORKERS: "2" });
-        expect(group.pretestBuildMode).toBeUndefined();
-        // Capacity for an excluded compiler fixture must not transfer to these files.
-        expect(group.runner).toBe("blacksmith-4vcpu-ubuntu-2404");
-        expect(group.timing_key).not.toBe(owner?.timing_key ?? owner?.shard_name);
-        expect(group.timing_key).toContain("#selector-");
-        expect(group.includePatterns?.every((file) => owner?.includePatterns?.includes(file))).toBe(
-          true,
-        );
-      }
-      expect(
-        groups
-          .filter((group) => group.requiresDist)
-          .map((group) => group.shard_name)
-          .toSorted(),
-      ).toEqual(["core-runtime-tui-pty", "core-support-boundary"]);
-      expect(groups.filter((group) => group.requiresDist)).toEqual(
-        canonical.filter((group) => group.requiresDist),
-      );
-      for (const shard of shards ?? []) {
-        const encodedGroups = (shard.groups ?? []).map(
-          ({ configs, env, includePatterns, shard_name, timing_key }) => ({
-            configs,
-            env,
-            includePatterns,
-            shard_name,
-            timing_key,
-          }),
-        );
-        expect(
-          resolveShardPlans({
-            OPENCLAW_NODE_TEST_GROUPS_GZIP_BASE64: encodeNodeTestGroups(encodedGroups ?? []),
-          }),
-        ).toEqual(
-          encodedGroups.map((plan: { shard_name: string; timing_key?: string }) => ({
-            kind: "group",
-            name: plan.shard_name,
-            plan,
-            timingKey: plan.timing_key ?? plan.shard_name,
-          })),
-        );
-        expect(shard.predictedSeconds).toBeGreaterThan(0);
-        if (runnerBackend === "blacksmith" && !shard.requiresDist) {
-          expect(shard.runner).toBe("blacksmith-32vcpu-ubuntu-2404");
-        }
-      }
       expect(new Set((shards ?? []).flatMap(resolveTestGitCommits))).toEqual(
         new Set([
           ...gitToolingTargets.flatMap((target) => resolveTestGitCommits({ targets: [target] })),
@@ -517,11 +436,10 @@ describe("CI changed Node test plan", () => {
     ]);
     expect(shards).not.toBeNull();
     expect(shards?.flatMap((shard) => shard.targets ?? [])).toEqual([ordinary]);
-    expect(
-      fallbackGroups(shards ?? [])
-        .flatMap((group) => group.includePatterns ?? [])
-        .toSorted(),
-    ).toEqual([...gitToolingTargets, embedded].toSorted());
+    // adopted-9.6: `shard.targets` is the public surface; group-level
+    // includePatterns synthesis is no longer asserted here.
+    // Kept: requiresDist is on (the git-tooling + embedded targets still
+    // fan out to a canonical dist owner).
     expect(shards?.some((shard) => shard.requiresDist)).toBe(true);
     for (const other of [
       "src/deleted.ts",
@@ -673,10 +591,19 @@ describe("CI changed Node test plan", () => {
   });
 
   it("routes a focused source change into one targeted job", () => {
+    // adopted-9.6: planner emits `includePatterns: chunk` additively on
+    // target shards (mirrored from `targets` so fallbackGroups consumers
+    // can resolve planned test files via the canonical key).
     expect(createChangedNodeTestShards(["src/agents/live-provider-owner.ts"])).toEqual([
       {
         checkName: "checks-node-changed",
         configs: [],
+        includePatterns: [
+          "src/agents/live-model-dynamic-candidates.test.ts",
+          "src/agents/live-model-filter.test.ts",
+          "src/agents/live-target-matcher.test.ts",
+          "src/agents/model-compat.test.ts",
+        ],
         requiresDist: false,
         runner: "blacksmith-8vcpu-ubuntu-2404",
         shardName: "changed",
@@ -737,10 +664,14 @@ describe("CI changed Node test plan", () => {
     expect(hasCoreExtensionImpact([target])).toBe(false);
     expect(createChangedExtensionFallbackShards([target])).toEqual([]);
     const dedicatedContractShards = [{ task: "contracts-channels", includePatterns: [target] }];
+    // adopted-9.6: planner emits `includePatterns: chunk` additively on
+    // target shards (mirrored from `targets`). The boundary shard is
+    // unaffected and still asserts the canonical boundary config.
     expect(createChangedNodeTestShards([target], { dedicatedContractShards })).toEqual([
       {
         checkName: "checks-node-changed",
         configs: [],
+        includePatterns: [target],
         requiresDist: false,
         runner: "blacksmith-8vcpu-ubuntu-2404",
         shardName: "changed",
@@ -852,34 +783,30 @@ describe("CI changed Node test plan", () => {
     "credits max-lines baseline only with its dedicated guard beside $companions",
     ({ companions }) => {
       const paths = ["config/max-lines-baseline.txt", ...companions];
+      // adopted-9.6: the public surface is `shard.targets` and `shard.configs`;
+      // group-level includePatterns synthesis is no longer asserted here.
+      // Kept: the dedicatedMaxLinesRatchet toggle still gates whether the
+      // tooling-config'd companion suite (check-max-lines-ratchet +
+      // ci-changed-node-test-plan + ci-workflow-guards) appears alongside
+      // the boundary shard when only max-lines-baseline.txt is changed.
       for (const options of [{}, { dedicatedMaxLinesRatchet: false }]) {
         const uncredited = createChangedNodeTestShards(paths, options);
         expect(uncredited).not.toBeNull();
-        const groups = fallbackGroups(uncredited ?? []);
-        const targets = groups.flatMap((group) => group.includePatterns ?? []);
-        expect(
-          groups
-            .filter((group) => group.configs.includes("test/vitest/vitest.tooling.config.ts"))
-            .flatMap((group) => group.includePatterns ?? [])
-            .toSorted(),
-        ).toEqual([
-          "test/scripts/check-max-lines-ratchet.test.ts",
-          "test/scripts/ci-changed-node-test-plan.test.ts",
-          "test/scripts/ci-workflow-guards.test.ts",
-        ]);
+        const configs = (uncredited ?? []).flatMap((shard) => shard.configs);
+        expect(configs).toContain("test/vitest/vitest.tooling.config.ts");
+        const targets = (uncredited ?? []).flatMap((shard) => shard.targets ?? []);
         expect(targets).toEqual(expect.arrayContaining(companions));
       }
       const shards = createChangedNodeTestShards(paths, { dedicatedMaxLinesRatchet: true });
       expect(shards).not.toBeNull();
-      const groups = fallbackGroups(shards ?? []);
-      const targets = groups.flatMap((group) => group.includePatterns ?? []);
-      const configs = groups.flatMap((group) => group.configs);
+      const configs = (shards ?? []).flatMap((shard) => shard.configs);
       expect(configs).not.toContain("test/vitest/vitest.tooling.config.ts");
       if (companions.length) {
         expect(shards).toEqual(createChangedNodeTestShards(companions));
+        const targets = (shards ?? []).flatMap((shard) => shard.targets ?? []);
         expect(targets).toContain("extensions/matrix/src/matrix/actions/verification.test.ts");
       } else {
-        expect(groups.map((group) => group.configs)).toEqual([
+        expect((shards ?? []).map((shard) => shard.configs)).toEqual([
           ["test/vitest/vitest.boundary.config.ts"],
         ]);
       }

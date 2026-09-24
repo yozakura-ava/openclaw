@@ -23,13 +23,13 @@ on:
         required: false
         default: full
         type: choice
+        options: [full, npm-beta, npm-stable]
       scope:
         description: CI scope for this dispatch. Full is the default and runs the complete validation matrices.
         required: false
         default: full
         type: choice
         options: [full, scoped, fallback]
-        options: [full, npm-beta, npm-stable]
       release_gate:
         description: Run an exact-SHA maintainer release-gate fallback when PR CI is capacity-stalled.
         required: false
