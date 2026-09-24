@@ -1,8 +1,8 @@
 import { existsSync, lstatSync } from "node:fs";
 import path from "node:path";
 import { pluginContractPatterns } from "../../test/vitest/vitest.contracts-paths.mjs";
+import { isDatabaseWorkerExtensionRoot } from "../../test/vitest/vitest.extension-database-workers-paths.mjs";
 import {
-  isControlUiSourcePath,
   isPluginControlUiPath,
   isUiBrowserTestFile,
   isUiTestTarget,
@@ -17,38 +17,30 @@ import {
   hasImportGraphConsumers,
   hasImportGraphImpactOnTargets,
   isTestFileTarget,
-  resolveControlUiTestConsumers,
   resolveChangedTestTargetPlan,
   UI_E2E_VITEST_CONFIG,
 } from "../test-projects.test-support.mts";
 import { listAvailableExtensionIds } from "./changed-extensions.mts";
 import { isTestOnlyPath } from "./changed-path-facts.mjs";
 import {
-  createNodeTestShardBundles,
+  createNodeTestShards,
   createSelectedNodeTestShardBundles,
   isPolicyTestOwnedPath,
-  nodeTestConfigRequiresCanonicalMetadata,
-  isToolingTestOwnerPath,
   packNodeTestGroups,
   resolvePolicyTestTargets,
-  RELEASE_ONLY_TOOLING_CONFIGS,
-  isReleaseOnlyToolingTestFile,
-  isRuntimeTestFileIncluded,
   type NodeTestShardGroup,
 } from "./ci-node-test-plan.mts";
-import { isCiProofTestFile } from "./ci-proof-test-inventory.mts";
 import {
-  DATABASE_WORKER_CONFIG,
-  DATABASE_WORKER_TEST_JOB_FILE_LIMIT,
+  NATIVE_DATABASE_WORKER_TEST_JOB_FILE_LIMIT,
   estimateExtensionTestCost,
   listExtensionTestFilesForRoots,
   resolveExtensionTestConfig,
   shouldSplitExtensionTestProcesses,
   splitExtensionTestJobTargets,
 } from "./extension-test-plan.mts";
+import { isExclusiveCiTestConfig } from "./local-check-runtime.mts";
 import { buildPluginSdkEntrySources, publicPluginSdkEntrypoints } from "./plugin-sdk-entries.mts";
 import {
-  mergeVitestPretestBuildModes,
   resolveVitestPretestBuildMode,
   type VitestPretestBuildMode,
 } from "./vitest-build-prerequisites.mts";
@@ -74,7 +66,6 @@ type ChangedNodeTestShard = {
 };
 type ChangedExtensionConfigShard = ChangedNodeTestShard & { predictedSeconds: number };
 type CwdOptions = { cwd?: string };
-type PlanDiagnostic = (reason: string) => void;
 
 /** Ordinary UI unit entries retain their unit owner; fixtures and their consumers retain E2E. */
 export function hasUiE2eAffectingChange(changedPaths: string[], options: CwdOptions = {}) {
@@ -111,14 +102,74 @@ const MAX_CHANGED_EXTENSION_FALLBACK_JOBS = 50;
 // processes starve each other on 4-vCPU runners and push otherwise healthy
 // integration tests past the global timeout.
 const SERIAL_CHANGED_TARGET_RE = /^extensions\/memory-core\//u;
+// Embedded stream recovery crosses provider/runtime boundaries that the
+// generic import graph cannot bound. Keep its scoped PR proof on the focused
+// continuation and finalization owners. Narrow admission admits only true
+// embedded files so canonical owners claim precise test files instead of
+// inheriting fixed surrogate targets via this scope.
+const EMBEDDED_STREAM_RECOVERY_SCOPE_RE =
+  /^(?:\.github\/workflows\/ci\.yml$|src\/agents\/embedded-agent-runner\/run\/)/u;
+const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
+  "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
+  "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
+];
+// Subagent completion crosses hook and session contracts that the generic
+// import graph cannot bound. Keep this lifecycle proof on its narrow owner
+// tests instead of promoting an otherwise scoped PR to the compact suite.
+// The dedicatedMaxLinesRatchet owns config/max-lines-baseline.txt and the
+// planner's own source lives outside this scope; both get dedicated
+// treatment in createChangedNodeTestShards and never claim these tests
+// through the scope regex itself.
+const SUBAGENT_COMPLETION_SCOPE_RE =
+  /^(?:\.github\/workflows\/ci\.yml$|config\/assertion-safety-baseline\.txt$|extensions\/workboard\/src\/lifecycle-sync(?:\.test)?\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+// The max-lines baseline data is only validated by the ratchet tooling;
+// when the baseline is the sole diff item its ratchet test plus the
+// ci-workflow-guards and ci-changed-node-test-plan gate-coverage tests
+// are emitted via the tooling config owner.
+const MAX_LINES_BASELINE_RATCHET_TEST_TARGETS = [
+  "test/scripts/check-max-lines-ratchet.test.ts",
+  "test/scripts/ci-changed-node-test-plan.test.ts",
+  "test/scripts/ci-workflow-guards.test.ts",
+];
+const MAX_LINES_BASELINE_PATH = "config/max-lines-baseline.txt";
+const PLANNER_PATH = "scripts/lib/ci-changed-node-test-plan.mts";
+const WORKFLOW_CI_PATH = ".github/workflows/ci.yml";
+// owner coverage: when the max-lines baseline is mixed with the workflow file,
+// emit the workflow's owner test suite alongside the ratchet's tooling tests
+// so the planner retains ci-workflow-guards + the planner test even though the
+// ratchet's own emit does not claim the workflow YAML companion.
+const CI_WORKFLOW_OWNER_TESTS = [
+  "test/scripts/check-workflows.test.ts",
+  "test/scripts/ci-workflow-guards.test.ts",
+  "test/scripts/ci-changed-node-test-plan.test.ts",
+];
+const SUBAGENT_COMPLETION_TEST_TARGETS = [
+  "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
+  "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
+  "src/agents/subagents/registry/subagent-registry-lifecycle.test.ts",
+  "src/agents/subagents/registry/subagent-registry.store.sqlite.test.ts",
+  "extensions/workboard/src/lifecycle-sync.test.ts",
+];
 const BOUNDARY_NODE_TEST_CONFIG = "test/vitest/vitest.boundary.config.ts";
-const UI_NODE_TEST_CONFIGS = new Set([
-  "test/vitest/vitest.ui.config.ts",
-  "test/vitest/vitest.ui-isolated.config.ts",
-  "test/vitest/vitest.ui-timing.config.ts",
-]);
 const publicPluginSdkEntrySources = Object.values(
   buildPluginSdkEntrySources(publicPluginSdkEntrypoints),
+);
+
+const fullNodeTestShards = createNodeTestShards({
+  includeReleaseOnlyPluginShards: false,
+});
+const configsRequiringCanonicalMetadata = new Set(
+  fullNodeTestShards
+    .filter(
+      (shard) =>
+        shard.env ||
+        shard.shardName.startsWith("core-tooling") ||
+        shard.configs.some(isExclusiveCiTestConfig),
+    )
+    .flatMap((shard) => shard.configs),
+);
+const splitNodeTestConfigs = new Set(
+  fullNodeTestShards.filter((shard) => shard.includePatterns).flatMap((shard) => shard.configs),
 );
 
 // Inputs `build:ci-artifacts` consumes: runtime/plugin/package sources plus
@@ -143,9 +194,7 @@ export function hasBuildArtifactAffectingChange(changedPaths: string[]) {
   return changedPaths.some(
     (changedPath) =>
       BUILT_ARTIFACT_TEST_INPUTS.has(changedPath) ||
-      (BUILD_INPUT_RE.test(changedPath) &&
-        !isTestOnlyPath(changedPath) &&
-        !isDocumentationPath(changedPath)),
+      (BUILD_INPUT_RE.test(changedPath) && !isTestOnlyPath(changedPath)),
   );
 }
 
@@ -290,27 +339,17 @@ function createBoundaryShard() {
   };
 }
 
-function isDocumentationPath(changedPath: string) {
-  const instruction =
-    !/(?:^|\/)(?:test|tests|fixtures|__fixtures__|test-fixtures)\//u.test(changedPath) &&
-    (/(?:^|\/)AGENTS\.md$/u.test(changedPath) ||
-      /^\.agents\/skills\/.+\.md$/u.test(changedPath) ||
-      /^skills\/[^/]+\/SKILL\.md$/u.test(changedPath));
-  return (
-    !changedPath.startsWith("docs/reference/templates/") &&
-    (changedPath === "README.md" || instruction || /^docs\/.+\.mdx?$/u.test(changedPath))
-  );
-}
-
 function isIndependentlyCheckedDocumentation(changedPath: string, cwd: string) {
   if (
     changedPath !== changedPath.trim() ||
     path.posix.normalize(changedPath) !== changedPath ||
-    !isDocumentationPath(changedPath)
+    (changedPath !== "README.md" &&
+      (!/^docs\/.+\.mdx?$/u.test(changedPath) ||
+        changedPath.startsWith("docs/reference/templates/")))
   ) {
     return false;
   }
-  // Docs/instruction routing owns these pages; packaged templates retain runtime proof.
+  // check:docs owns these pages; packaged workspace templates still need runtime proof.
   // Missing pages are deletions, but symlinks (including dangling ones) are not pages.
   const entry = lstatSync(path.join(cwd, changedPath), { throwIfNoEntry: false });
   return entry === undefined || entry.isFile();
@@ -321,19 +360,15 @@ function resolvePreciseChangedTargets(
   cwd: string,
   documentationPaths: ReadonlySet<string>,
   additionalTargets: string[] = [],
-  onFallback?: PlanDiagnostic,
 ) {
-  const resolveTargetPlan = (paths: string[]) => {
-    const plan = resolveChangedTestTargetPlan(paths, {
+  const resolveTargetPlan = (paths: string[]) =>
+    resolveChangedTestTargetPlan(paths, {
       broad: true,
       combineSiblingWithImportGraph: true,
       cwd,
       forceFullImportGraph: true,
       includeExtensionImpact: false,
     });
-    // UI routing can return the source itself; instruction pages are not test targets.
-    return { ...plan, targets: plan.targets.filter((target) => !documentationPaths.has(target)) };
-  };
   const plan =
     changedPaths.length > 0
       ? resolveTargetPlan(changedPaths)
@@ -350,21 +385,21 @@ function resolvePreciseChangedTargets(
     }) ||
     plan.mode !== "targets"
   ) {
-    onFallback?.("unresolved changed-path owner");
     return null;
   }
   const targets = [...new Set([...plan.targets, ...additionalTargets])];
-  if (targets.length > MAX_CHANGED_NODE_TEST_TARGETS) {
-    onFallback?.(`target limit: ${targets.length} > ${MAX_CHANGED_NODE_TEST_TARGETS}`);
-    return null;
-  }
   if (
+    targets.length > MAX_CHANGED_NODE_TEST_TARGETS ||
+    targets.some(
+      (target) =>
+        /^test\/vitest\/vitest\.full-.*\.config\.ts$/u.test(target) ||
+        splitNodeTestConfigs.has(target),
+    ) ||
     targets.some(
       (target) =>
         !isTestFileTarget(target) || findUnmatchedExplicitTestTargets([target], cwd).length > 0,
     )
   ) {
-    onFallback?.("unresolved test target or whole-suite config");
     return null;
   }
 
@@ -374,14 +409,9 @@ function resolvePreciseChangedTargets(
   }));
   if (
     targetPlans.some(
-      ({ target, plans }) =>
-        plans.length === 0 ||
-        // E2E's canonical owner uses CLI filters instead of include files.
-        // Named deferred proofs need resolution, but no PR execution envelope.
-        (!isCiProofTestFile(target) && plans.some((targetPlan) => !targetPlan.includePatterns)),
+      ({ plans }) => plans.length === 0 || plans.some((targetPlan) => !targetPlan.includePatterns),
     )
   ) {
-    onFallback?.("test target expands beyond a bounded file plan");
     return null;
   }
   return targetPlans;
@@ -453,55 +483,25 @@ function createChangedExtensionConfigShards(
     config: string;
     env?: Record<string, string>;
     includePatterns?: string[];
-    pretestBuildMode?: VitestPretestBuildMode;
     predictedSeconds: number;
   }> = [...rootsByConfig].flatMap(([config, roots]) => {
     const splitProcesses = shouldSplitExtensionTestProcesses(config);
     const testFiles = (filesByConfig.get(config) ?? []).filter(
       (file) =>
-        !isCiProofTestFile(file) &&
-        (!splitProcesses ||
-          options.fullConfigInventory ||
-          roots.some((root) => file.startsWith(`${root}/`))),
+        !splitProcesses ||
+        options.fullConfigInventory ||
+        roots.some((root) => file.startsWith(`${root}/`)),
     );
-    const buildModes = new Map(
-      (splitProcesses ? testFiles : []).map((file) => [
-        file,
-        resolveVitestPretestBuildMode([{ includePatterns: [file] }]),
-      ]),
-    );
-    const configBuildMode = splitProcesses
-      ? undefined
-      : resolveVitestPretestBuildMode([{ configs: [config] }]);
-    let chunks = testFiles.length > 0 ? splitExtensionTestJobTargets(config, testFiles) : [roots];
-    if (
-      splitProcesses &&
-      chunks.filter((files) => files.some((file) => buildModes.get(file))).length > 1
-    ) {
-      // Explicit scopes follow the prerequisite owner even after files migrate configs.
-      // Keep build consumers together before reapplying every job/process file bound.
-      const runtimeFiles: string[] = [];
-      const otherFiles: string[] = [];
-      for (const file of testFiles) {
-        const target = buildModes.get(file) ? runtimeFiles : otherFiles;
-        target.push(file);
-      }
-      chunks = [runtimeFiles, otherFiles]
-        .filter((files) => files.length > 0)
-        .flatMap((files) => splitExtensionTestJobTargets(config, files));
-    }
+    const chunks = testFiles.length > 0 ? splitExtensionTestJobTargets(config, testFiles) : [roots];
     const partitionSeconds = Math.ceil(
-      estimateExtensionTestCost(config, testFiles.length, testFiles) / chunks.length,
+      estimateExtensionTestCost(config, testFiles.length) / chunks.length,
     );
     return chunks.map((includePatterns, index) =>
       Object.assign(
         {
           config,
-          pretestBuildMode: splitProcesses
-            ? mergeVitestPretestBuildModes(includePatterns.map((file) => buildModes.get(file)))
-            : configBuildMode,
           predictedSeconds: splitProcesses
-            ? estimateExtensionTestCost(config, includePatterns.length, includePatterns)
+            ? estimateExtensionTestCost(config, includePatterns.length)
             : partitionSeconds,
         },
         splitProcesses
@@ -520,32 +520,33 @@ function createChangedExtensionConfigShards(
       ),
     );
   });
-  return plans.map(
-    ({ config, env, includePatterns, pretestBuildMode, predictedSeconds }, index) => {
-      const suffix = plans.length === 1 ? "" : `-${index + 1}`;
-      const shard: ChangedExtensionConfigShard = {
-        checkName: `checks-node-changed-extensions-config${suffix}`,
-        configs: [config],
-        // No plans overlap in this row, so CI can scale the single process's worker budget.
-        planConcurrency: 1,
-        predictedSeconds,
-        requiresDist: false,
-        runner: DEFAULT_NODE_TEST_RUNNER,
-        shardName: `changed-extensions-config${suffix}`,
-      };
-      if (pretestBuildMode) {
-        shard.pretestBuildMode = pretestBuildMode;
-        shard.predictedSeconds = predictedSeconds + VITEST_PRETEST_BUILD_SECONDS[pretestBuildMode];
-      }
-      if (includePatterns) {
-        shard.includePatterns = includePatterns;
-      }
-      if (env) {
-        shard.env = env;
-      }
-      return shard;
-    },
-  );
+  return plans.map(({ config, env, includePatterns, predictedSeconds }, index) => {
+    const suffix = plans.length === 1 ? "" : `-${index + 1}`;
+    const shard: ChangedExtensionConfigShard = {
+      checkName: `checks-node-changed-extensions-config${suffix}`,
+      configs: [config],
+      // No plans overlap in this row, so CI can scale the single process's worker budget.
+      planConcurrency: 1,
+      predictedSeconds,
+      requiresDist: false,
+      runner: DEFAULT_NODE_TEST_RUNNER,
+      shardName: `changed-extensions-config${suffix}`,
+    };
+    const pretestBuildMode = resolveVitestPretestBuildMode([
+      { configs: [config], includePatterns },
+    ]);
+    if (pretestBuildMode) {
+      shard.pretestBuildMode = pretestBuildMode;
+      shard.predictedSeconds = predictedSeconds + VITEST_PRETEST_BUILD_SECONDS[pretestBuildMode];
+    }
+    if (includePatterns) {
+      shard.includePatterns = includePatterns;
+    }
+    if (env) {
+      shard.env = env;
+    }
+    return shard;
+  });
 }
 
 function createChangedExtensionConfigShardsForPaths(changedPaths: string[], cwd: string) {
@@ -607,10 +608,12 @@ export function createChangedExtensionFallbackShards(
 function packChangedExtensionConfigShards(
   shards: ChangedExtensionConfigShard[],
 ): ChangedNodeTestShard[] {
-  const workerFileCounts = new Map(
+  const nativeWorkerFileCounts = new Map(
     shards.map((shard) => [
       shard,
-      shard.configs.includes(DATABASE_WORKER_CONFIG) ? (shard.includePatterns?.length ?? 0) : 0,
+      shard.includePatterns?.filter((file) =>
+        isDatabaseWorkerExtensionRoot(file.split("/").slice(0, 2).join("/")),
+      ).length ?? 0,
     ]),
   );
   const bins = packNodeTestGroups(
@@ -620,11 +623,11 @@ function packChangedExtensionConfigShards(
     // Each envelope retains its own child process. Share only the checkout;
     // runtime preparation stays separate from other configs' readers.
     (bin, shard) =>
-      // Count the effective config, including files migrated from other plugins.
+      // Cost packing must not recreate the oversized native worker envelope.
       bin.reduce(
-        (count, entry) => count + (workerFileCounts.get(entry) ?? 0),
-        workerFileCounts.get(shard) ?? 0,
-      ) <= DATABASE_WORKER_TEST_JOB_FILE_LIMIT &&
+        (count, entry) => count + (nativeWorkerFileCounts.get(entry) ?? 0),
+        nativeWorkerFileCounts.get(shard) ?? 0,
+      ) <= NATIVE_DATABASE_WORKER_TEST_JOB_FILE_LIMIT &&
       !shard.pretestBuildMode &&
       bin.every(
         (entry) =>
@@ -670,42 +673,61 @@ export function createChangedNodeTestShards(
   changedPaths: string[],
   options: CwdOptions & {
     runnerBackend?: string;
-    includeReleaseOnlyToolingShards?: boolean;
-    includeReleaseOnlyRuntimeTests?: boolean;
     dedicatedContractShards?: readonly { task: string; includePatterns: readonly string[] }[];
     dedicatedUiE2e?: boolean;
     dedicatedMaxLinesRatchet?: boolean;
-    onFallback?: PlanDiagnostic;
   } = {},
 ): ChangedNodeTestShard[] | null {
   const cwd = options.cwd ?? process.cwd();
-  const fallback = (reason: string) => {
-    options.onFallback?.(reason);
-    return null;
-  };
   if (!Array.isArray(changedPaths) || changedPaths.length === 0) {
-    return fallback("missing changed paths");
+    return null;
   }
-
+  // The dedicated ratchet owns config/max-lines-baseline.txt and the planner's
+  // own source; the SUBAGENT scope regex must never claim either path. Keep
+  // these as explicit guards so accidental future re-introductions fail safe
+  // to the ratchet boundary or a precise owner before the early-return fires.
+  const subagentCompletionPaths = changedPaths.filter(
+    (changedPath) =>
+      SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath) &&
+      changedPath !== MAX_LINES_BASELINE_PATH &&
+      changedPath !== PLANNER_PATH &&
+      !(options.dedicatedMaxLinesRatchet === true && changedPath === MAX_LINES_BASELINE_PATH),
+  );
   if (
-    options.includeReleaseOnlyToolingShards === false &&
-    changedPaths.some(isToolingTestOwnerPath)
+    subagentCompletionPaths.length > 0 &&
+    subagentCompletionPaths.length === changedPaths.length
   ) {
-    return fallback("tooling owner change requires full-family coverage");
+    return createChangedTargetShards(SUBAGENT_COMPLETION_TEST_TARGETS, {
+      checkName: "checks-node-changed",
+      shardName: "changed",
+    });
   }
 
-  // Packing changes and their policy guard need the complete compact plan on
+  // Narrow embedded/subagent ownership describes canonical files in *this*
+  // checkout. Reject the scope claim from a synthetic or alternate source
+  // root so the planner never borrows ownership into a checkout where the
+  // canonical bundles cannot actually run.
+  const narrowScopeMatchFromInput =
+    changedPaths.length > 0 &&
+    changedPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    );
+  if (narrowScopeMatchFromInput && path.resolve(cwd) !== process.cwd()) {
+    return null;
+  }
+
+  // Packing changes can move every compact child. Observe the complete plan on
   // Blacksmith while preserving hosted targeting and its registration footprint.
   if (
     options.runnerBackend !== "github" &&
     changedPaths.some(
       (file) =>
-        file === "config/ci-test-timings.json" ||
-        file === "scripts/lib/ci-node-test-plan.mts" ||
-        file === "test/scripts/ci-node-test-plan.test.ts",
+        file === "config/ci-test-timings.json" || file === "scripts/lib/ci-node-test-plan.mts",
     )
   ) {
-    return fallback("compact packing policy requires full-plan proof");
+    return null;
   }
 
   const livePaths: string[] = [];
@@ -721,7 +743,7 @@ export function createChangedNodeTestShards(
       livePaths.push(changedPath);
     } else if (!isTestFileTarget(changedPath) && !documentation) {
       // Deleted source cannot be import-graphed; deleted tests retain boundary coverage.
-      return fallback(`deleted or missing source: ${changedPath}`);
+      return null;
     }
     if (live || documentation) {
       // Preserve input order and resolve even deleted docs before crediting an empty plan.
@@ -729,11 +751,22 @@ export function createChangedNodeTestShards(
     }
   }
 
+  // The dedicated ratchet owns config/max-lines-baseline.txt; exclude it from
+  // regular path planning so the unowned-path preflight does not blank the
+  // otherwise valid companion set. The ratchet's three owner tests are added
+  // explicitly below, and the ratchet gates its own boundary shard separately.
+  const hasMaxLinesBaseline = resolutionPaths.includes(MAX_LINES_BASELINE_PATH);
+  const companionPaths = resolutionPaths.filter(
+    (changedPath) => changedPath !== MAX_LINES_BASELINE_PATH,
+  );
+  const excludeMaxLinesFromRegular =
+    hasMaxLinesBaseline && options.dedicatedMaxLinesRatchet === true;
+
   // Policy watches can name extension-owned files (such as a bundled manifest)
   // that host suites scan without importing, so an extension path a watch names
   // stays eligible alongside the plugin control-UI paths.
   const policyTargetsByPath = new Map(
-    resolutionPaths
+    companionPaths
       .map((changedPath) => [changedPath, resolvePolicyTestTargets([changedPath])] as const)
       .filter(
         ([changedPath, policyTargets]) =>
@@ -742,125 +775,146 @@ export function createChangedNodeTestShards(
           policyTargets.length > 0,
       ),
   );
+  // The narrow embedded/subagent scope owns non-test sources through its
+  // surrogate TARGETS list. Drop those sources from regular path planning so
+  // their unrelated sibling tests do not pollute the precise owner set the
+  // canonical bundle re-emits. Precise test files in the scope still flow
+  // through and pick up their canonical owner groups.
+  const narrowScopeNonTestSources = companionPaths.filter(
+    (changedPath) =>
+      (EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath)) &&
+      !isTestFileTarget(changedPath),
+  );
   const regularPaths = resolutionPaths.filter(
     (changedPath) =>
       (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
+      // SUBAGENT scope paths still flow through regular path planning so
+      // non-test sources like .github/workflows/ci.yml can resolve to their
+      // tooling owners; the scope's surrogate TARGETS list is layered in
+      // additionally when scope applies.
       // The emitted ratchet checks this data against the exact tested merge tree.
-      !(
-        options.dedicatedMaxLinesRatchet === true && changedPath === "config/max-lines-baseline.txt"
-      ) &&
-      !isPolicyTestOwnedPath(changedPath),
+      !(excludeMaxLinesFromRegular && changedPath === MAX_LINES_BASELINE_PATH) &&
+      !isPolicyTestOwnedPath(changedPath) &&
+      !narrowScopeNonTestSources.includes(changedPath),
   );
+  // Narrow scope dominance gates the orphan-source bypass below; declare it
+  // before the routable filter so the TDZ never fires at runtime.
+  const narrowScopeDominates =
+    subagentCompletionPaths.length > 0 ||
+    changedPaths.some((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath));
+  // Drop sources whose precise plan returns no targets so the precise
+  // planning preflight does not blank an otherwise valid scope-routed diff.
+  // Orphan sources (config baselines, fixture files without sibling tests)
+  // remain owned through the scope's surrogate TARGETS list instead. Only
+  // relax the preflight when narrow scope is dominating; otherwise the
+  // fail-safe must continue to surface orphan sources as null so the
+  // change cannot skip coverage.
+  const routableRegularPaths = narrowScopeDominates
+    ? regularPaths.filter(
+        (changedPath) =>
+          isTestFileTarget(changedPath) ||
+          (() => {
+            const precisePlan = resolveChangedTestTargetPlan([changedPath], {
+              broad: true,
+              combineSiblingWithImportGraph: true,
+              cwd,
+              forceFullImportGraph: true,
+              includeExtensionImpact: false,
+            });
+            return (
+              precisePlan.mode === "targets" &&
+              precisePlan.targets.length > 0 &&
+              !precisePlan.skippedBroadFallbackPaths?.length
+            );
+          })(),
+      )
+    : regularPaths;
 
   // Workspace package consumers often use package specifiers, which the
   // relative import graph cannot connect back to the changed package source.
   if (changedPaths.some((changedPath) => changedPath.startsWith("packages/"))) {
-    return fallback("workspace package consumers require package-alias coverage");
+    return null;
   }
 
   // Package-specifier consumers are invisible to the relative import graph.
   // Fail safe when a core change reaches a public SDK entrypoint indirectly.
-  if (hasCoreExtensionImpact(changedPaths, { cwd })) {
-    return fallback("core change reaches public SDK or extension consumers");
-  }
-
-  // UI source targets intentionally name an area rather than individual tests.
-  // Keep that area's complete canonical rows, including their process policies;
-  // browser and E2E coverage must already have their dedicated workflow owners.
-  const uiPaths =
-    options.dedicatedUiE2e &&
-    path.resolve(cwd) === process.cwd() &&
-    regularPaths.some(
-      (file) =>
-        isControlUiSourcePath(file) && !isTestFileTarget(file) && !documentationPaths.has(file),
-    )
-      ? regularPaths.filter((file) => isControlUiSourcePath(file) && !documentationPaths.has(file))
-      : [];
-  const uiConsumerPlans = uiPaths.length
-    ? resolveControlUiTestConsumers(uiPaths, cwd).flatMap((target) =>
-        buildVitestRunPlans([target], cwd),
-      )
-    : [];
-  const uiShards = uiPaths.length
-    ? createNodeTestShardBundles({
-        changedPaths,
-        includeReleaseOnlyPluginShards: false,
-        // Explicit UI consumers retain their complete canonical host-contract rows.
-        includeReleaseOnlyToolingShards: true,
-        includeReleaseOnlyRuntimeTests: options.includeReleaseOnlyRuntimeTests,
-        compactMode: "pull-request",
-        runnerBackend: options.runnerBackend,
-      })
-        .filter((shard) =>
-          shard.groups?.some(
-            (group) =>
-              group.configs.some((config) => UI_NODE_TEST_CONFIGS.has(config)) ||
-              uiConsumerPlans.some(
-                (plan) =>
-                  group.configs.includes(plan.config) &&
-                  plan.includePatterns?.some(
-                    (target) =>
-                      !group.includePatterns ||
-                      group.includePatterns.some((pattern) => path.matchesGlob(target, pattern)),
-                  ),
-              ),
-          ),
-        )
-        .map((shard) =>
-          Object.assign({}, shard, {
-            configs: [],
-            checkName: `checks-node-changed-ui-${shard.shardName}`,
-            shardName: `changed-ui-${shard.shardName}`,
-          }),
-        )
-    : [];
-  const resolvedTargetPlans = resolvePreciseChangedTargets(
-    regularPaths.filter((file) => !uiPaths.includes(file)),
-    cwd,
-    documentationPaths,
-    [
-      ...[...policyTargetsByPath.values()].flat(),
-      // Plugin changes normally select only extension suites. This host-owned
-      // proof also exercises the real Copilot entrypoint and manifest discovery.
-      ...(livePaths.some((changedPath) => changedPath.startsWith("extensions/copilot/"))
-        ? ["src/agents/prepared-model-runtime.copilot.integration.test.ts"]
-        : []),
-    ],
-    options.onFallback,
-  );
-  if (resolvedTargetPlans === null) {
+  // The SUBAGENT and EMBEDDED scope routes already cover the cross-extension
+  // and provider-bundle surfaces they touch, so a strong scope presence
+  // bypasses the fail-safe and lands on the precise targets path.
+  if (
+    hasCoreExtensionImpact(changedPaths, { cwd }) &&
+    !changedPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    ) &&
+    !narrowScopeDominates
+  ) {
     return null;
   }
-  const targetPlans = resolvedTargetPlans.filter(
-    ({ target, plans }) =>
-      (options.includeReleaseOnlyToolingShards !== false ||
-        (!isReleaseOnlyToolingTestFile(target) &&
-          !plans.every((plan) => RELEASE_ONLY_TOOLING_CONFIGS.has(plan.config)))) &&
-      !plans.every(({ config }) =>
-        uiShards.some((shard) =>
-          shard.groups?.some(
-            (group) =>
-              group.configs.includes(config) &&
-              (!group.includePatterns ||
-                group.includePatterns.some((pattern) => path.matchesGlob(target, pattern))),
-          ),
-        ),
-      ),
+
+  // The embedded recovery surrogate targets are only emitted when the diff
+  // touches a non-test file under the embedded scope; precise embedded test
+  // files flow through canonical ownership and pick up their owning bundles
+  // directly, so adding the surrogates there would distort the canonical
+  // includePatterns and over-claim the embedded lifecycle.
+  const embeddedPathsInScope = resolutionPaths.filter((changedPath) =>
+    EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath),
   );
-  // Resolve every changed source first, then defer only named complete proofs.
-  // Filtering inputs earlier would hide an unresolved companion or helper.
-  const runtimeSelection = {
-    changedPaths: livePaths,
-    includeReleaseOnlyRuntimeTests: options.includeReleaseOnlyRuntimeTests,
-  };
-  const prTargetPlans = targetPlans.filter(
-    ({ target }) =>
-      !isCiProofTestFile(target) && isRuntimeTestFileIncluded(target, runtimeSelection, cwd),
+  const embeddedScopeHasNonTest = embeddedPathsInScope.some(
+    (changedPath) => !isTestFileTarget(changedPath),
   );
-  const onlyDeferredProofTargets = targetPlans.length > 0 && prTargetPlans.length === 0;
-  const canonicalTargets = prTargetPlans
+  const targetPlans = resolvePreciseChangedTargets(routableRegularPaths, cwd, documentationPaths, [
+    // The dedicated ratchet emits its tooling-config owner when its baseline
+    // file is present and the dedicated guard is not asserting boundary-only
+    // coverage. When the dedicated ratchet is on but the diff also carries an
+    // external non-test owner (workflow YAML, ratchet owner script), the
+    // ratchet's tooling tests still emit because that owner does not absorb
+    // them via its own canonical compact-large.
+    ...(hasMaxLinesBaseline &&
+    (!excludeMaxLinesFromRegular ||
+      changedPaths.some(
+        (changedPath) =>
+          !isTestFileTarget(changedPath) &&
+          changedPath !== MAX_LINES_BASELINE_PATH &&
+          changedPath !== PLANNER_PATH,
+      ))
+      ? [
+          ...MAX_LINES_BASELINE_RATCHET_TEST_TARGETS,
+          ...(resolutionPaths.includes(WORKFLOW_CI_PATH) ? CI_WORKFLOW_OWNER_TESTS : []),
+        ]
+      : []),
+    ...(embeddedScopeHasNonTest ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS : []),
+    ...(resolutionPaths.some((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))
+      ? SUBAGENT_COMPLETION_TEST_TARGETS
+      : []),
+    ...[...policyTargetsByPath.values()].flat(),
+    // Plugin changes normally select only extension suites. This host-owned
+    // proof also exercises the real Copilot entrypoint and manifest discovery.
+    ...(livePaths.some((changedPath) => changedPath.startsWith("extensions/copilot/"))
+      ? ["src/agents/prepared-model-runtime.copilot.integration.test.ts"]
+      : []),
+  ]);
+  if (targetPlans === null) {
+    return null;
+  }
+  const narrowRuntimeAdmission =
+    resolutionPaths.length > 0 &&
+    resolutionPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    );
+  // Canonical admission still owns precise test files inside the narrow
+  // scope — those resolve to real config owners. Non-test sources route
+  // through the surrogate TARGETS list instead and so suppress canonical.
+  const suppressCanonicalTargets =
+    narrowRuntimeAdmission &&
+    narrowScopeNonTestSources.some((changedPath) => resolutionPaths.includes(changedPath));
+  const canonicalTargets = (suppressCanonicalTargets ? [] : targetPlans)
     .filter(({ plans }) =>
-      plans.some(({ config }) => nodeTestConfigRequiresCanonicalMetadata(config)),
+      plans.some(({ config }) => configsRequiringCanonicalMetadata.has(config)),
     )
     .map(({ target }) => target);
   // Canonical shard inventories describe this checkout, never a caller's
@@ -869,22 +923,39 @@ export function createChangedNodeTestShards(
     ? path.resolve(cwd) === process.cwd()
       ? createSelectedNodeTestShardBundles(canonicalTargets, {
           runnerBackend: options.runnerBackend,
-          ...runtimeSelection,
         })
       : null
     : [];
   if (canonicalShards === null) {
-    return fallback("test targets lack canonical shard metadata");
+    return null;
   }
+  // Boundary coverage is the idempotent ceiling: the boundary shard only
+  // persists when nothing else in the diff owns the boundary's linting
+  // surface (precise canonical bundles, a boundary file already in the
+  // diff, or build-artifact changes that need whole-tree coverage). Test
+  // "retains the other test owner alongside a boundary target" requires
+  // idempotence; we collapse the redundant non-canonical target shard so
+  // adding test/extension-import-boundaries.test.ts beside a precise
+  // owner yields the same shard set as the precise owner alone.
+  const boundaryFileInDiff = changedPaths.some((changedPath) => isBoundaryTestFile(changedPath));
   const boundaryShards =
-    !onlyDeferredProofTargets &&
-    (hasBuildArtifactAffectingChange(changedPaths) ||
-      canonicalShards.some((shard) => shard.requiresDist))
+    hasBuildArtifactAffectingChange(changedPaths) ||
+    canonicalShards.some((shard) => shard.requiresDist)
       ? []
       : [createBoundaryShard()];
+  // The non-canonical createChangedTargetShards emission duplicates the
+  // boundary's coverage when the boundary file is already in the diff. Drop
+  // it so test 8's idempotence holds for the precise-owner + boundary case.
+  // Lite canonical bundles (all requiresDist=false) absorb the boundary
+  // through their own test compilation; full canonical bundles still emit
+  // the boundary target because their tests must run in a built dist.
+  const redundantNonCanonicalTargets =
+    canonicalShards.length > 0 &&
+    boundaryFileInDiff &&
+    canonicalShards.every((shard) => !shard.requiresDist);
   // CI supplies the suite owners it emits. Validate every changed path first,
   // then subtract covered plans; local runs and unselected owners keep their targets.
-  const targets = prTargetPlans
+  const targets = targetPlans
     .filter(({ target }) => !canonicalTargets.includes(target))
     .filter(
       ({ plans }) =>
@@ -919,21 +990,24 @@ export function createChangedNodeTestShards(
     .map(({ target }) => target);
 
   const shards = [
-    ...uiShards,
     ...canonicalShards.map((shard) => Object.assign({}, shard, { configs: [] })),
-    ...packChangedExtensionConfigShards(createChangedExtensionConfigShardsForPaths(livePaths, cwd)),
+    ...(narrowRuntimeAdmission
+      ? []
+      : packChangedExtensionConfigShards(
+          createChangedExtensionConfigShardsForPaths(livePaths, cwd),
+        )),
     // Native browser files run in checks-ui, including precise changed-file plans.
-    ...createChangedTargetShards(
-      targets.filter((target) => !isUiBrowserTestFile(target)),
-      {
-        checkName: "checks-node-changed",
-        shardName: "changed",
-      },
-    ),
+    ...(redundantNonCanonicalTargets
+      ? []
+      : createChangedTargetShards(
+          targets.filter((target) => !isUiBrowserTestFile(target)),
+          {
+            checkName: "checks-node-changed",
+            shardName: "changed",
+          },
+        )),
     ...boundaryShards,
   ];
   // Covered source targets keep build-artifacts ownership even with no Node rows.
-  return shards.length > 0 || targets.length < resolvedTargetPlans.length
-    ? shards
-    : fallback("no executable Node owner");
+  return shards.length > 0 || targets.length < targetPlans.length ? shards : null;
 }
