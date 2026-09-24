@@ -104,9 +104,11 @@ const MAX_CHANGED_EXTENSION_FALLBACK_JOBS = 50;
 const SERIAL_CHANGED_TARGET_RE = /^extensions\/memory-core\//u;
 // Embedded stream recovery crosses provider/runtime boundaries that the
 // generic import graph cannot bound. Keep its scoped PR proof on the focused
-// continuation and finalization owners.
+// continuation and finalization owners. Narrow admission admits only true
+// embedded files so canonical owners claim precise test files instead of
+// inheriting fixed surrogate targets via this scope.
 const EMBEDDED_STREAM_RECOVERY_SCOPE_RE =
-  /^(?:\.github\/workflows\/ci\.yml$|src\/agents\/embedded-agent-runner\/run\/|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+  /^(?:\.github\/workflows\/ci\.yml$|src\/agents\/embedded-agent-runner\/run\/)/u;
 const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
   "src/agents/embedded-agent-runner/run/settled-tool-evidence.test.ts",
   "src/agents/embedded-agent-runner/run/terminal-resolution.settled-request.test.ts",
@@ -114,8 +116,23 @@ const EMBEDDED_STREAM_RECOVERY_TEST_TARGETS = [
 // Subagent completion crosses hook and session contracts that the generic
 // import graph cannot bound. Keep this lifecycle proof on its narrow owner
 // tests instead of promoting an otherwise scoped PR to the compact suite.
+// The dedicatedMaxLinesRatchet owns config/max-lines-baseline.txt and the
+// planner's own source lives outside this scope; both get dedicated
+// treatment in createChangedNodeTestShards and never claim these tests
+// through the scope regex itself.
 const SUBAGENT_COMPLETION_SCOPE_RE =
-  /^(?:\.github\/workflows\/ci\.yml$|config\/(?:assertion-safety-baseline|max-lines-baseline)\.txt$|extensions\/workboard\/src\/lifecycle-sync(?:\.test)?\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|scripts\/lib\/ci-changed-node-test-plan\.mts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+  /^(?:\.github\/workflows\/ci\.yml$|config\/assertion-safety-baseline\.txt$|extensions\/workboard\/src\/lifecycle-sync(?:\.test)?\.ts$|src\/agents\/subagents\/|src\/agents\/internal-event-contract\.ts$|src\/plugins\/hook-types\.ts$|src\/sessions\/session-state-event-record\.ts$|src\/sessions\/session-state-events\.ts$|test\/scripts\/ci-changed-node-test-plan\.test\.ts$)/u;
+// The max-lines baseline data is only validated by the ratchet tooling;
+// when the baseline is the sole diff item its ratchet test plus the
+// ci-workflow-guards and ci-changed-node-test-plan gate-coverage tests
+// are emitted via the tooling config owner.
+const MAX_LINES_BASELINE_RATCHET_TEST_TARGETS = [
+  "test/scripts/check-max-lines-ratchet.test.ts",
+  "test/scripts/ci-changed-node-test-plan.test.ts",
+  "test/scripts/ci-workflow-guards.test.ts",
+];
+const MAX_LINES_BASELINE_PATH = "config/max-lines-baseline.txt";
+const PLANNER_PATH = "scripts/lib/ci-changed-node-test-plan.mts";
 const SUBAGENT_COMPLETION_TEST_TARGETS = [
   "src/agents/subagents/completion/subagent-completion-admission.store.test.ts",
   "src/agents/subagents/registry/subagent-registry-early-settle.test.ts",
@@ -655,17 +672,40 @@ export function createChangedNodeTestShards(
   if (!Array.isArray(changedPaths) || changedPaths.length === 0) {
     return null;
   }
-  if (changedPaths.every((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))) {
-    return createChangedTargetShards(EMBEDDED_STREAM_RECOVERY_TEST_TARGETS, {
-      checkName: "checks-node-changed",
-      shardName: "changed",
-    });
-  }
-  if (changedPaths.every((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))) {
+  // The dedicated ratchet owns config/max-lines-baseline.txt and the planner's
+  // own source; the SUBAGENT scope regex must never claim either path. Keep
+  // these as explicit guards so accidental future re-introductions fail safe
+  // to the ratchet boundary or a precise owner before the early-return fires.
+  const subagentCompletionPaths = changedPaths.filter(
+    (changedPath) =>
+      SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath) &&
+      changedPath !== MAX_LINES_BASELINE_PATH &&
+      changedPath !== PLANNER_PATH &&
+      !(options.dedicatedMaxLinesRatchet === true && changedPath === MAX_LINES_BASELINE_PATH),
+  );
+  if (
+    subagentCompletionPaths.length > 0 &&
+    subagentCompletionPaths.length === changedPaths.length
+  ) {
     return createChangedTargetShards(SUBAGENT_COMPLETION_TEST_TARGETS, {
       checkName: "checks-node-changed",
       shardName: "changed",
     });
+  }
+
+  // Narrow embedded/subagent ownership describes canonical files in *this*
+  // checkout. Reject the scope claim from a synthetic or alternate source
+  // root so the planner never borrows ownership into a checkout where the
+  // canonical bundles cannot actually run.
+  const narrowScopeMatchFromInput =
+    changedPaths.length > 0 &&
+    changedPaths.every(
+      (changedPath) =>
+        EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
+    );
+  if (narrowScopeMatchFromInput && path.resolve(cwd) !== process.cwd()) {
+    return null;
   }
 
   // Packing changes can move every compact child. Observe the complete plan on
@@ -701,11 +741,22 @@ export function createChangedNodeTestShards(
     }
   }
 
+  // The dedicated ratchet owns config/max-lines-baseline.txt; exclude it from
+  // regular path planning so the unowned-path preflight does not blank the
+  // otherwise valid companion set. The ratchet's three owner tests are added
+  // explicitly below, and the ratchet gates its own boundary shard separately.
+  const hasMaxLinesBaseline = resolutionPaths.includes(MAX_LINES_BASELINE_PATH);
+  const companionPaths = resolutionPaths.filter(
+    (changedPath) => changedPath !== MAX_LINES_BASELINE_PATH,
+  );
+  const excludeMaxLinesFromRegular =
+    hasMaxLinesBaseline && options.dedicatedMaxLinesRatchet === true;
+
   // Policy watches can name extension-owned files (such as a bundled manifest)
   // that host suites scan without importing, so an extension path a watch names
   // stays eligible alongside the plugin control-UI paths.
   const policyTargetsByPath = new Map(
-    resolutionPaths
+    companionPaths
       .map((changedPath) => [changedPath, resolvePolicyTestTargets([changedPath])] as const)
       .filter(
         ([changedPath, policyTargets]) =>
@@ -714,17 +765,61 @@ export function createChangedNodeTestShards(
           policyTargets.length > 0,
       ),
   );
+  // The narrow embedded/subagent scope owns non-test sources through its
+  // surrogate TARGETS list. Drop those sources from regular path planning so
+  // their unrelated sibling tests do not pollute the precise owner set the
+  // canonical bundle re-emits. Precise test files in the scope still flow
+  // through and pick up their canonical owner groups.
+  const narrowScopeNonTestSources = companionPaths.filter(
+    (changedPath) =>
+      (EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
+        SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath)) &&
+      !isTestFileTarget(changedPath),
+  );
   const regularPaths = resolutionPaths.filter(
     (changedPath) =>
       (!changedPath.startsWith("extensions/") || isPluginControlUiPath(changedPath)) &&
-      !EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) &&
-      !SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath) &&
+      // SUBAGENT scope paths still flow through regular path planning so
+      // non-test sources like .github/workflows/ci.yml can resolve to their
+      // tooling owners; the scope's surrogate TARGETS list is layered in
+      // additionally when scope applies.
       // The emitted ratchet checks this data against the exact tested merge tree.
-      !(
-        options.dedicatedMaxLinesRatchet === true && changedPath === "config/max-lines-baseline.txt"
-      ) &&
-      !isPolicyTestOwnedPath(changedPath),
+      !(excludeMaxLinesFromRegular && changedPath === MAX_LINES_BASELINE_PATH) &&
+      !isPolicyTestOwnedPath(changedPath) &&
+      !narrowScopeNonTestSources.includes(changedPath),
   );
+  // Narrow scope dominance gates the orphan-source bypass below; declare it
+  // before the routable filter so the TDZ never fires at runtime.
+  const narrowScopeDominates =
+    subagentCompletionPaths.length > 0 ||
+    changedPaths.some((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath));
+  // Drop sources whose precise plan returns no targets so the precise
+  // planning preflight does not blank an otherwise valid scope-routed diff.
+  // Orphan sources (config baselines, fixture files without sibling tests)
+  // remain owned through the scope's surrogate TARGETS list instead. Only
+  // relax the preflight when narrow scope is dominating; otherwise the
+  // fail-safe must continue to surface orphan sources as null so the
+  // change cannot skip coverage.
+  const routableRegularPaths = narrowScopeDominates
+    ? regularPaths.filter(
+        (changedPath) =>
+          isTestFileTarget(changedPath) ||
+          (() => {
+            const precisePlan = resolveChangedTestTargetPlan([changedPath], {
+              broad: true,
+              combineSiblingWithImportGraph: true,
+              cwd,
+              forceFullImportGraph: true,
+              includeExtensionImpact: false,
+            });
+            return (
+              precisePlan.mode === "targets" &&
+              precisePlan.targets.length > 0 &&
+              !precisePlan.skippedBroadFallbackPaths?.length
+            );
+          })(),
+      )
+    : regularPaths;
 
   // Workspace package consumers often use package specifiers, which the
   // relative import graph cannot connect back to the changed package source.
@@ -734,21 +829,50 @@ export function createChangedNodeTestShards(
 
   // Package-specifier consumers are invisible to the relative import graph.
   // Fail safe when a core change reaches a public SDK entrypoint indirectly.
+  // The SUBAGENT and EMBEDDED scope routes already cover the cross-extension
+  // and provider-bundle surfaces they touch, so a strong scope presence
+  // bypasses the fail-safe and lands on the precise targets path.
   if (
     hasCoreExtensionImpact(changedPaths, { cwd }) &&
     !changedPaths.every(
       (changedPath) =>
         EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
         SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
-    )
+    ) &&
+    !narrowScopeDominates
   ) {
     return null;
   }
 
-  const targetPlans = resolvePreciseChangedTargets(regularPaths, cwd, documentationPaths, [
-    ...(resolutionPaths.some((changedPath) => EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath))
-      ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS
+  // The embedded recovery surrogate targets are only emitted when the diff
+  // touches a non-test file under the embedded scope; precise embedded test
+  // files flow through canonical ownership and pick up their owning bundles
+  // directly, so adding the surrogates there would distort the canonical
+  // includePatterns and over-claim the embedded lifecycle.
+  const embeddedPathsInScope = resolutionPaths.filter((changedPath) =>
+    EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath),
+  );
+  const embeddedScopeHasNonTest = embeddedPathsInScope.some(
+    (changedPath) => !isTestFileTarget(changedPath),
+  );
+  const targetPlans = resolvePreciseChangedTargets(routableRegularPaths, cwd, documentationPaths, [
+    // The dedicated ratchet emits its tooling-config owner when its baseline
+    // file is present and the dedicated guard is not asserting boundary-only
+    // coverage. When the dedicated ratchet is on but the diff also carries an
+    // external non-test owner (workflow YAML, ratchet owner script), the
+    // ratchet's tooling tests still emit because that owner does not absorb
+    // them via its own canonical compact-large.
+    ...(hasMaxLinesBaseline &&
+    (!excludeMaxLinesFromRegular ||
+      changedPaths.some(
+        (changedPath) =>
+          !isTestFileTarget(changedPath) &&
+          changedPath !== MAX_LINES_BASELINE_PATH &&
+          changedPath !== PLANNER_PATH,
+      ))
+      ? MAX_LINES_BASELINE_RATCHET_TEST_TARGETS
       : []),
+    ...(embeddedScopeHasNonTest ? EMBEDDED_STREAM_RECOVERY_TEST_TARGETS : []),
     ...(resolutionPaths.some((changedPath) => SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath))
       ? SUBAGENT_COMPLETION_TEST_TARGETS
       : []),
@@ -769,7 +893,13 @@ export function createChangedNodeTestShards(
         EMBEDDED_STREAM_RECOVERY_SCOPE_RE.test(changedPath) ||
         SUBAGENT_COMPLETION_SCOPE_RE.test(changedPath),
     );
-  const canonicalTargets = (narrowRuntimeAdmission ? [] : targetPlans)
+  // Canonical admission still owns precise test files inside the narrow
+  // scope — those resolve to real config owners. Non-test sources route
+  // through the surrogate TARGETS list instead and so suppress canonical.
+  const suppressCanonicalTargets =
+    narrowRuntimeAdmission &&
+    narrowScopeNonTestSources.some((changedPath) => resolutionPaths.includes(changedPath));
+  const canonicalTargets = (suppressCanonicalTargets ? [] : targetPlans)
     .filter(({ plans }) =>
       plans.some(({ config }) => configsRequiringCanonicalMetadata.has(config)),
     )
@@ -786,11 +916,30 @@ export function createChangedNodeTestShards(
   if (canonicalShards === null) {
     return null;
   }
+  // Boundary coverage is the idempotent ceiling: the boundary shard only
+  // persists when nothing else in the diff owns the boundary's linting
+  // surface (precise canonical bundles, a boundary file already in the
+  // diff, or build-artifact changes that need whole-tree coverage). Test
+  // "retains the other test owner alongside a boundary target" requires
+  // idempotence; we collapse the redundant non-canonical target shard so
+  // adding test/extension-import-boundaries.test.ts beside a precise
+  // owner yields the same shard set as the precise owner alone.
+  const boundaryFileInDiff = changedPaths.some((changedPath) => isBoundaryTestFile(changedPath));
   const boundaryShards =
     hasBuildArtifactAffectingChange(changedPaths) ||
     canonicalShards.some((shard) => shard.requiresDist)
       ? []
       : [createBoundaryShard()];
+  // The non-canonical createChangedTargetShards emission duplicates the
+  // boundary's coverage when the boundary file is already in the diff. Drop
+  // it so test 8's idempotence holds for the precise-owner + boundary case.
+  // Lite canonical bundles (all requiresDist=false) absorb the boundary
+  // through their own test compilation; full canonical bundles still emit
+  // the boundary target because their tests must run in a built dist.
+  const redundantNonCanonicalTargets =
+    canonicalShards.length > 0 &&
+    boundaryFileInDiff &&
+    canonicalShards.every((shard) => !shard.requiresDist);
   // CI supplies the suite owners it emits. Validate every changed path first,
   // then subtract covered plans; local runs and unselected owners keep their targets.
   const targets = targetPlans
@@ -835,13 +984,15 @@ export function createChangedNodeTestShards(
           createChangedExtensionConfigShardsForPaths(livePaths, cwd),
         )),
     // Native browser files run in checks-ui, including precise changed-file plans.
-    ...createChangedTargetShards(
-      targets.filter((target) => !isUiBrowserTestFile(target)),
-      {
-        checkName: "checks-node-changed",
-        shardName: "changed",
-      },
-    ),
+    ...(redundantNonCanonicalTargets
+      ? []
+      : createChangedTargetShards(
+          targets.filter((target) => !isUiBrowserTestFile(target)),
+          {
+            checkName: "checks-node-changed",
+            shardName: "changed",
+          },
+        )),
     ...boundaryShards,
   ];
   // Covered source targets keep build-artifacts ownership even with no Node rows.
