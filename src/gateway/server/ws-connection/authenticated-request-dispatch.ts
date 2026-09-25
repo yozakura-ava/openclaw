@@ -97,8 +97,15 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
     if (coalescer) {
       return coalescer;
     }
-    const clientAsUnknown = client as unknown;
-    const identityClient = clientAsUnknown as Parameters<typeof extractClientIdentity>[0]["client"] & {
+    // SAFETY: GatewayWsClient is structurally compatible with `extractClientIdentity`'s
+    // client parameter; the `{ connect?: unknown }` intersection surfaces the optional
+    // connect payload from the WS handshake. The previous `const clientAsUnknown = client
+    // as unknown; const identityClient = clientAsUnknown as …` form was flagged by
+    // lint:no-chained-type-assertions because it bound `as unknown` and then re-asserted
+    // through it; the inline form keeps the parse-boundary cast to a single expression.
+    const identityClient = client as unknown as Parameters<
+      typeof extractClientIdentity
+    >[0]["client"] & {
       connect?: unknown;
     };
     const identity = extractClientIdentity({
