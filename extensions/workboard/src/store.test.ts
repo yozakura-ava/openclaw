@@ -3388,11 +3388,7 @@ describe("WorkboardStore", () => {
       // throw "claimed by main"; with recovery=true the split sequence lands
       // and the comment shows up as two labeled rows.
       await expect(
-        store.addComment(
-          card.id,
-          { body: "x".repeat(4097) },
-          { ownerId: "other" },
-        ),
+        store.addComment(card.id, { body: "x".repeat(4097) }, { ownerId: "other" }),
       ).resolves.toMatchObject({
         metadata: {
           comments: expect.arrayContaining([
@@ -5243,4 +5239,3 @@ describe("WorkboardStore", () => {
     );
   });
 });
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

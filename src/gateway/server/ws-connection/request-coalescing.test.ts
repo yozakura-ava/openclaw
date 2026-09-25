@@ -772,9 +772,7 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     for (let i = 0; i < 5; i += 1) {
-
       await Promise.resolve();
-
     }
 
     const subscriberDone = dispatchWithCoalescing({
@@ -789,9 +787,7 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     for (let i = 0; i < 5; i += 1) {
-
       await Promise.resolve();
-
     }
 
     release();
@@ -835,9 +831,7 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     }).catch(() => undefined);
 
     for (let i = 0; i < 5; i += 1) {
-
       await Promise.resolve();
-
     }
 
     const subscriberDone = dispatchWithCoalescing({
@@ -852,9 +846,7 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     for (let i = 0; i < 5; i += 1) {
-
       await Promise.resolve();
-
     }
 
     release();
