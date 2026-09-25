@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalParamsKey,
+  captureRespond,
   DEFAULT_BREAKER_OPEN_MS,
   DEFAULT_COALESCED_METHODS,
   DEFAULT_RATE_LIMIT_PER_SEC,
   DEFAULT_RATE_WINDOW_MS,
   DEFAULT_SWR_TTL_MS,
+  dispatchWithCoalescing,
   extractClientIdentity,
   RequestCoalescer,
   RunHandle,
@@ -529,8 +531,6 @@ describe("request-coalescing: deterministic stableStringify", () => {
  * on the actual captured payload reaching respond() — not on internal
  * coalescer state that could pass while the wire response is broken.
  * ==========================================================================*/
-
-import { dispatchWithCoalescing, captureRespond } from "./request-coalescing.js";
 
 /** Build a fake request-coalescer + handshake to drive dispatchWithCoalescing. */
 function makeIntegration(
