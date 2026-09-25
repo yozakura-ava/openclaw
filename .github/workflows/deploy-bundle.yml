@@ -90,7 +90,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          # Do NOT pin 'version:' — the repo's package.json declares
+          # "packageManager": "pnpm@12.4.0+..." and pnpm/action-setup@v4
+          # ERR_PNPM_BAD_PM_VERSION errors when the explicit version and the
+          # packageManager field disagree. Reading from packageManager keeps
+          # the install consistent with the rest of the repo's CI.
           run_install: false
 
       - name: Cache pnpm store by lockfile hash
