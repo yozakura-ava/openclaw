@@ -27,7 +27,7 @@ const CONTROL_UI_STARTUP_CSS_GZIP_TARGET_BYTES = 45 * KIB;
 // 2026-09-25: cumulative boot CSS growth (worktree chip, side panel, lobsters)
 // pushed the per-change ratchet past 1.5 KiB; bumped to 3.0 KiB with the 50 KiB
 // absolute ceiling still in force. Reassess when the absolute budget approaches.
-const CONTROL_UI_CSS_GZIP_GROWTH_BYTES = 3.0 * KIB;
+const CONTROL_UI_CSS_GZIP_GROWTH_BYTES = 3 * KIB;
 // The opaque Mermaid sandbox loads one self-contained classic script only when
 // a diagram is viewed. Keep its size visible without relaxing ordinary chunks.
 const MERMAID_RENDERER_ASSET = /^assets\/mermaid\.min-[\w-]+\.js$/u;
