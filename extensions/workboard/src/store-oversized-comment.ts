@@ -11,13 +11,15 @@
  * deadlock the serial queue.
  */
 import { randomUUID } from "node:crypto";
+import type { WorkboardCard } from "@openclaw/workboard-contract";
+import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { assertCanMutateClaimedCard, splitCommentBody } from "./store-card-helpers.js";
 import {
   MAX_CARD_COMMENTS,
   MAX_CARD_METADATA_BYTES,
   MAX_COMMENT_BODY_LENGTH,
 } from "./store-constants.js";
-import type { WorkboardCard, WorkboardMutationScope } from "./store-inputs.js";
+import type { WorkboardMutationScope } from "./store-inputs.js";
 
 type CardUpdater = (current: WorkboardCard) => { metadata?: WorkboardCard["metadata"] };
 
@@ -32,6 +34,28 @@ interface AddCommentHost extends OversizedCommentHost {
     id: string,
     updater: (existing: WorkboardCard) => WorkboardCard,
   ): Promise<WorkboardCard>;
+}
+
+/**
+ * Normalize a comment body to the active {@link MAX_COMMENT_BODY_LENGTH} cap.
+ *
+ * Lives here (not in `store-normalizers.ts`) so that the cap lives next to the
+ * chunking module that actually enforces it on the write path, and so that
+ * store-normalizers.ts stays under its line-cap ratchet. The body-cap logic is
+ * inlined to avoid a circular import: store-normalizers.ts delegates here, so
+ * this module must not import from store-normalizers.ts in return.
+ */
+export function normalizeCommentBody(value: unknown): string | undefined {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized.length > MAX_COMMENT_BODY_LENGTH) {
+    throw new Error(
+      `comment body must be ${MAX_COMMENT_BODY_LENGTH} characters or fewer (got ${normalized.length}).`,
+    );
+  }
+  return normalized;
 }
 
 /**

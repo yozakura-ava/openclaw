@@ -58,7 +58,6 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
-  MAX_COMMENT_BODY_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -66,6 +65,8 @@ import type {
   WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
 } from "./store-inputs.js";
+// Body-cap lives in store-oversized-comment.ts; import the helper here so the read-side cap matches the write-side cap.
+import { normalizeCommentBody } from "./store-oversized-comment.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
 export function normalizeBoardId(value: unknown, fallback?: string): string | undefined {
@@ -663,12 +664,8 @@ function normalizeComment(value: unknown): WorkboardComment | null {
   }
   const record = value;
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(
-    record.body,
-    undefined,
-    MAX_COMMENT_BODY_LENGTH,
-    "comment body",
-  );
+  // Body cap delegated to store-oversized-comment.ts so the read-side cap stays in lockstep with the write-side cap.
+  const body = normalizeCommentBody(record.body);
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
