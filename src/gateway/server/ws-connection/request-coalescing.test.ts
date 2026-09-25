@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   canonicalParamsKey,
   captureRespond,
@@ -95,11 +95,15 @@ describe("request-coalescing: single-flight in-flight dedup", () => {
     const params = { sessionKey: "s1", agentId: "a1" };
     const first = c.decide("models.list", params);
     expect(first.kind).toBe("fresh");
-    if (first.kind !== "fresh") throw new Error("expected fresh");
+    if (first.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const run = c.startRun(first.key);
     const second = c.decide("models.list", params);
     expect(second.kind).toBe("coalesced");
-    if (second.kind !== "coalesced") throw new Error("expected coalesced");
+    if (second.kind !== "coalesced") {
+      throw new Error("expected coalesced");
+    }
     expect(second.subscriberCount).toBe(2);
     expect(second.key).toBe(first.key);
 
@@ -124,10 +128,14 @@ describe("request-coalescing: single-flight in-flight dedup", () => {
       now: clock.now.bind(clock),
     });
     const dA = c.decide("models.list", { sessionKey: "a" });
-    if (dA.kind !== "fresh") throw new Error("expected fresh");
+    if (dA.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     c.startRun(dA.key);
     const dB = c.decide("models.list", { sessionKey: "b" });
-    if (dB.kind !== "fresh") throw new Error("expected fresh");
+    if (dB.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     c.startRun(dB.key);
     const dA2 = c.decide("models.list", { sessionKey: "a" });
     expect(dA2.kind).toBe("coalesced");
@@ -141,10 +149,14 @@ describe("request-coalescing: single-flight in-flight dedup", () => {
     });
     const a = c.decide("models.list", { a: 1 });
     const b = c.decide("models.list", { a: 1 });
-    if (a.kind !== "fresh" || b.kind !== "fresh") throw new Error("expected fresh");
+    if (a.kind !== "fresh" || b.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     expect(a.key).toBe(b.key);
     const off = c.decide("models.authStatus", { a: 1 });
-    if (off.kind !== "fresh") throw new Error("expected fresh");
+    if (off.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     expect(off.key).not.toBe(a.key);
   });
 });
@@ -163,7 +175,9 @@ describe("request-coalescing: stale-while-revalidate cache", () => {
     });
     const params = { provider: "openai" };
     const first = c.decide("models.authStatus", params);
-    if (first.kind !== "fresh") throw new Error("expected fresh");
+    if (first.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const run = c.startRun(first.key);
     const payload = { authed: ["openai"] };
     run.resolve(payload);
@@ -172,7 +186,9 @@ describe("request-coalescing: stale-while-revalidate cache", () => {
     clock.advance(500);
     const second = c.decide("models.authStatus", params);
     expect(second.kind).toBe("served-cache");
-    if (second.kind !== "served-cache") throw new Error("expected served-cache");
+    if (second.kind !== "served-cache") {
+      throw new Error("expected served-cache");
+    }
     expect(second.ageMs).toBe(500);
     expect(c.snapshot().counters.cacheHits).toBe(1);
     expect(c.readCache(second.key)?.payload).toEqual(payload);
@@ -189,7 +205,9 @@ describe("request-coalescing: stale-while-revalidate cache", () => {
     });
     const params = { sid: "s" };
     const d1 = c.decide("chat.metadata", params);
-    if (d1.kind !== "fresh") throw new Error("expected fresh");
+    if (d1.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const r1 = c.startRun(d1.key);
     r1.resolve({ meta: 1 });
     c.recordOutcome(d1.key, true, { meta: 1 });
@@ -209,7 +227,9 @@ describe("request-coalescing: stale-while-revalidate cache", () => {
       now: clock.now.bind(clock),
     });
     const d1 = c.decide("models.list", { p: 1 });
-    if (d1.kind !== "fresh") throw new Error("expected fresh");
+    if (d1.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const r = c.startRun(d1.key);
     r.resolve({ err: true });
     c.recordOutcome(d1.key, false);
@@ -232,14 +252,18 @@ describe("request-coalescing: rate-limit + circuit breaker", () => {
     });
     for (let i = 0; i < 3; i += 1) {
       const d = c.decide("models.list", { i });
-      if (d.kind !== "fresh") throw new Error("expected fresh");
+      if (d.kind !== "fresh") {
+        throw new Error("expected fresh");
+      }
       const run = c.startRun(d.key);
       run.resolve({ ok: true });
       c.recordOutcome(d.key, true, { ok: true });
     }
     const fourth = c.decide("models.list", { i: 99 });
     expect(fourth.kind).toBe("rate-limited");
-    if (fourth.kind !== "rate-limited") throw new Error("expected rate-limited");
+    if (fourth.kind !== "rate-limited") {
+      throw new Error("expected rate-limited");
+    }
     expect(fourth.reason).toBe("repeated-identical");
     expect(c.isBreakerOpen()).toBe(true);
     expect(c.snapshot().counters.rateLimited).toBe(1);
@@ -257,7 +281,9 @@ describe("request-coalescing: rate-limit + circuit breaker", () => {
       now: clock.now.bind(clock),
     });
     const d1 = c.decide("models.list", { p: "x" });
-    if (d1.kind !== "fresh") throw new Error("expected fresh");
+    if (d1.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const r = c.startRun(d1.key);
     r.resolve({ ok: true });
     c.recordOutcome(d1.key, true, { ok: true });
@@ -280,7 +306,9 @@ describe("request-coalescing: rate-limit + circuit breaker", () => {
       now: clock.now.bind(clock),
     });
     const d1 = c.decide("models.list", { p: 1 });
-    if (d1.kind !== "fresh") throw new Error("expected fresh");
+    if (d1.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const r = c.startRun(d1.key);
     r.resolve({ ok: true });
     c.recordOutcome(d1.key, true, { ok: true });
@@ -288,7 +316,9 @@ describe("request-coalescing: rate-limit + circuit breaker", () => {
 
     const whileOpen = c.decide("models.list", { p: 3 });
     expect(whileOpen.kind).toBe("rate-limited");
-    if (whileOpen.kind !== "rate-limited") throw new Error("expected rate-limited");
+    if (whileOpen.kind !== "rate-limited") {
+      throw new Error("expected rate-limited");
+    }
     expect(whileOpen.reason).toBe("circuit-open");
   });
 
@@ -303,7 +333,9 @@ describe("request-coalescing: rate-limit + circuit breaker", () => {
       now: clock.now.bind(clock),
     });
     const d1 = c.decide("models.list", { p: 1 });
-    if (d1.kind !== "fresh") throw new Error("expected fresh");
+    if (d1.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     const r = c.startRun(d1.key);
     r.resolve({ ok: true });
     c.recordOutcome(d1.key, true, { ok: true });
@@ -462,7 +494,9 @@ describe("request-coalescing: RunHandle and dispose semantics", () => {
       now: clock.now.bind(clock),
     });
     const d = c.decide("models.list", { a: 1 });
-    if (d.kind !== "fresh") throw new Error("expected fresh");
+    if (d.kind !== "fresh") {
+      throw new Error("expected fresh");
+    }
     c.startRun(d.key);
     c.dispose();
     const snap = c.snapshot();
@@ -648,7 +682,9 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     // Yield enough microtasks for the producer to reach `await producerGate`.
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
 
     // Start subscriber — DO NOT await yet; subscriber's dispatch will
     // suspend on the upstream in-flight promise, and awaiting would block
@@ -665,7 +701,9 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     // Yield enough microtasks for the subscriber to attach to the in-flight record.
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
 
     release();
     await Promise.allSettled([producerDone, subscriberDone]);
@@ -680,7 +718,7 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
   });
 
   it("wire-up populates the SWR cache (recordOutcome called via dispatch) — Rin finding [1]", async () => {
-    const { clock, coalescer } = makeIntegration();
+    const { coalescer } = makeIntegration();
     const { calls, respond } = makeRecorder();
     const payload = { meta: { id: "x", revision: 5 } };
 
@@ -700,7 +738,9 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     // Verify by looking up via the public canonical key.
     const decision = coalescer.decide("chat.metadata", { sessionKey: "x" });
     expect(decision.kind).toBe("served-cache");
-    if (decision.kind !== "served-cache") throw new Error("expected served-cache");
+    if (decision.kind !== "served-cache") {
+      throw new Error("expected served-cache");
+    }
     const cached = coalescer.readCache(decision.key);
     expect(cached?.payload).toEqual(payload);
     // And the dispatch actually published the response.
@@ -731,7 +771,11 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
       diagnostics: { response: () => {} },
     });
 
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+
+      await Promise.resolve();
+
+    }
 
     const subscriberDone = dispatchWithCoalescing({
       coalescer,
@@ -744,7 +788,11 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
       diagnostics: { response: () => {} },
     });
 
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+
+      await Promise.resolve();
+
+    }
 
     release();
     await Promise.allSettled([producerDone, subscriberDone]);
@@ -786,7 +834,11 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
       diagnostics: { response: () => {} },
     }).catch(() => undefined);
 
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+
+      await Promise.resolve();
+
+    }
 
     const subscriberDone = dispatchWithCoalescing({
       coalescer,
@@ -799,7 +851,11 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
       diagnostics: { response: () => {} },
     });
 
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+
+      await Promise.resolve();
+
+    }
 
     release();
     await Promise.allSettled([producerDone, subscriberDone]);
@@ -942,7 +998,9 @@ describe("dispatchWithCoalescing — wire-up integration", () => {
     });
 
     // Yield enough microtasks for startRun + runFresh to reach `await gate`.
-    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
     observed.push({ phase: "after-decide", inFlight: coalescer.snapshot().inFlight });
 
     release();
