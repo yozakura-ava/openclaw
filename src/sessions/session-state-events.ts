@@ -56,7 +56,11 @@ function rowToSessionStateEvent(row: SessionStateEventRow): SessionStateEventRec
     sessionKey: row.session_key,
     ...(row.session_id ? { sessionId: row.session_id } : {}),
     agentId: row.agent_id,
+    // SAFETY: row.kind is constrained at write sites by SessionStateEventRow.kind
+    // enum payload validation; rows are stored by trusted producers only.
     kind: row.kind as SessionStateEventKind,
+    // SAFETY: row.actor_type is constrained at write sites by SessionStateEventRow.actor_type
+    // enum payload validation; rows are stored by trusted producers only.
     actorType: row.actor_type as SessionStateActorType,
     ...(row.actor_id ? { actorId: row.actor_id } : {}),
     ...(row.run_id ? { runId: row.run_id } : {}),
