@@ -94,12 +94,16 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
    */
   const getOrCreateCoalescer = (client: GatewayWsClient): RequestCoalescer => {
     let coalescer = perClientCoalescers.get(client);
-    if (coalescer) return coalescer;
+    if (coalescer) {
+      return coalescer;
+    }
+    const clientAsUnknown = client as unknown;
+    const identityClient = clientAsUnknown as Parameters<typeof extractClientIdentity>[0]["client"] & {
+      connect?: unknown;
+    };
     const identity = extractClientIdentity({
       connId,
-      client: client as unknown as Parameters<typeof extractClientIdentity>[0]["client"] & {
-        connect?: unknown;
-      },
+      client: identityClient,
     });
     coalescer = new RequestCoalescer({
       connId,
@@ -358,9 +362,9 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
         }
         return true;
       };
-      const respondWithAuthority: typeof respond = (ok, payload, error, meta) => {
+      const respondWithAuthority: RespondFn = (ok, payload, error, meta) => {
         if (hasCurrentRuntimeAuthority()) {
-          respond(ok, payload, error, meta);
+          respond(ok, payload, error as ErrorShape | undefined, meta);
         }
       };
       const policyResponse = registerGatewayPolicyResponse(
