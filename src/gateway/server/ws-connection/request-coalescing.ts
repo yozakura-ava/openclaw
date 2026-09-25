@@ -199,8 +199,9 @@ export class RequestCoalescer {
           // diagnostic kind scoped to this module). The runtime payload is
           // structurally identical to the trusted-diagnostic base shape; cast
           // through unknown to the trusted channel's parameter type.
+          const eventAsUnknown = event as unknown;
           emitTrustedDiagnosticEvent(
-            event as unknown as Parameters<typeof emitTrustedDiagnosticEvent>[0],
+            eventAsUnknown as Parameters<typeof emitTrustedDiagnosticEvent>[0],
           );
         }),
     };
@@ -517,7 +518,9 @@ export class RunHandle {
   }
 
   resolve(value: unknown): void {
-    if (this.settled) return;
+    if (this.settled) {
+      return;
+    }
     this.settled = true;
     const callbacks = this.settleCallbacks;
     this.settleCallbacks = [];
@@ -532,7 +535,9 @@ export class RunHandle {
   }
 
   reject(err: unknown): void {
-    if (this.settled) return;
+    if (this.settled) {
+      return;
+    }
     this.settled = true;
     const callbacks = this.settleCallbacks;
     this.settleCallbacks = [];
@@ -571,16 +576,22 @@ export function canonicalParamsKey(method: string | undefined, params: unknown):
 
 /** Deterministic JSON stringify with sorted keys. */
 export function stableStringify(value: unknown): string {
-  if (value === null || value === undefined) return "null";
-  if (typeof value !== "object") return JSON.stringify(value);
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  if (typeof value !== "object") {
+    return JSON.stringify(value);
+  }
   if (Array.isArray(value)) {
     return `[${value.map((v) => stableStringify(v)).join(",")}]`;
   }
-  const keys = Object.keys(value as Record<string, unknown>).sort();
+  const keys = Object.keys(value as Record<string, unknown>).toSorted();
   const parts: string[] = [];
   for (const k of keys) {
     const v = (value as Record<string, unknown>)[k];
-    if (v === undefined) continue; // Drop undefined to match JSON semantics.
+    if (v === undefined) {
+      continue;
+    } // Drop undefined to match JSON semantics.
     parts.push(`${JSON.stringify(k)}:${stableStringify(v)}`);
   }
   return `{${parts.join(",")}}`;
