@@ -15,6 +15,7 @@ import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
   BLOCKED_TOO_LONG_MS,
+  isWorkboardClaimReclaimable,
   MAX_CARD_ATTEMPTS,
   MAX_CARD_COMMENTS,
   MAX_CARD_EVENTS,
@@ -347,6 +348,7 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
+  recovery = false,
 ) {
   if (!scope) {
     return;
@@ -357,7 +359,16 @@ export function assertCanMutateClaimedCard(
   }
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
-  if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
+  // Recovery callers (e.g. addComment evidence writes during reclaim-then-handoff)
+  // may proceed against an EXPIRED claim whose grace window has elapsed. The
+  // heartbeat grace in store-workflow.ts still blocks OTHER owners from stealing
+  // a live token; recovery only lets the operator past a claim whose owner has
+  // already walked away.
+  if (
+    claim.ownerId !== ownerId &&
+    !safeEqualSecret(token, claim.token) &&
+    !(recovery && isWorkboardClaimReclaimable(claim, Date.now()))
+  ) {
     throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }
