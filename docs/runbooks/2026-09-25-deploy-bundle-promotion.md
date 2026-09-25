@@ -13,9 +13,17 @@
 
 This runbook covers **Phase 3 (promotion to live)** of the deploy-bundle pipeline. It assumes:
 
-- Phase 0 (preflight provenance + private-contract + dependency check) ran and recorded the provenance tuple on the staging art card.
+- Phase 0 (preflight provenance + import-closure runtime resolvability check) ran and recorded the provenance tuple on the staging art card.
 - Phase 1 (GitHub Actions build) produced a bundle artifact whose import-closure gate passed.
 - Phase 2 (local staging on port 18800) ran `scripts/health/staging_smoke.py` live and exited 0 within the last 60 minutes.
+
+## Postmortem RC traceability
+
+The 2026-09-24 rollout postmortem surfaced four runtime hazards; this runbook and the bundle pipeline map each one to the mechanism that prevents recurrence:
+
+- **RC#1 — private contract runtime resolvability.** `@openclaw/workboard-contract` is a legitimate bundled runtime dependency on this base (Tsubaki STOP finding, card `44909d8c`: imported as runtime values in 10 non-test files — `src/cli.ts`, `command.ts`, `store-card-helpers.ts`, `tools-card-mutations.ts`, `gateway-helpers.ts`, plus five browser files). The postmortem's actual lesson is "no runtime import may fail to resolve." The **import-closure gate** (Phase 1) walks every generated `.setup/.mjs` and rejects bare-package imports absent from the staged production `node_modules` — that is RC#1 enforcement. A separate devDependencies-boundary assertion is intentionally NOT used: keeping the contract in `dependencies` is correct on this base, and the import-closure gate catches the actual failure mode (an unresolved import at runtime).
+- **RC#5 — long graceful drain.** Reproduced when the live service holds a half-stopped gateway while draining. Mitigated by the bounded `MemoryHigh=768M` / `MemoryMax=1G` / `TimeoutStopSec=20` on `openclaw-staging.service` so staging cannot recreate the pattern, and by Phase 3 step 6 (restart under `TimeoutStopSec=330` cap; explicit cgroup kill if exceeded).
+- **RC#6 — stale dashboard build id.** Mitigated by `scripts/health/staging_smoke.py::check_build_id_freshness` capturing the served `gatewayBuild` and asserting it carries the staged artifact's `artifact_sha` prefix. Operator comms in this runbook remind operators to hard-refresh on any UI stamp change.
 
 **No step below is permitted to run without explicit, verbatim Craig approval quote in the chat (HR2).** Operator bypass keywords ("overnight", "small", "low risk") do NOT satisfy HR2.
 

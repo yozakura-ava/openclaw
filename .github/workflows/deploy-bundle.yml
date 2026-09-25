@@ -8,9 +8,16 @@ name: Deploy Bundle
 # Postmortem-driven: docs/postmortems/2026-09-24-openclaw-9-6-rollout.md
 #
 # RC addresses:
-#   RC#1 (private contract packaged as runtime-external) — extensions/workboard
-#         must have @openclaw/workboard-contract in devDependencies; pre-bundle
-#         gate fails the build if it slipped back into dependencies.
+#   RC#1 (private contract runtime resolvability) — @openclaw/workboard-contract
+#         is a legitimate bundled runtime dependency on this base (Tsubaki STOP
+#         finding, card 44909d8c: imported as runtime values in 10 non-test
+#         files — src/cli.ts, command.ts, store-card-helpers.ts,
+#         tools-card-mutations.ts, gateway-helpers.ts, and 5 browser files).
+#         The postmortem lesson is "no runtime import may fail to resolve";
+#         that is exactly what the import-closure gate (step below) enforces.
+#         A separate devDependencies-boundary assertion is intentionally NOT
+#         used here — keeping the contract in dependencies is correct on this
+#         base, and the import-closure gate catches the actual failure mode.
 #   RC#2 (ESM race fallback) — Node 24.20.0 pinned; ESM signal handling is
 #         considered an upstream concern, not re-fixed here.
 #   RC#3 (production dependency tree mismatch) — import-closure gate scans
@@ -110,11 +117,6 @@ jobs:
 
       - name: Build full host + extensions
         run: pnpm -r build
-
-      - name: Confirm Workboard private contract stays in devDependencies (RC#1)
-        run: |
-          set -euo pipefail
-          node ./scripts/ci/check-workboard-private-contract.mjs
 
       - name: Capture provenance tuple
         id: provenance
