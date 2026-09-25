@@ -271,7 +271,7 @@ console.log('{"status":"identical"}');
         const env: Record<string, string> = {
           PATH: [bin, dirname(nodeExecutable), process.env.PATH ?? ""].join(delimiter),
           HOME: root,
-          GITHUB_REPOSITORY: "openclaw/openclaw",
+          GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
           GITHUB_OUTPUT: output,
         };
         const context = {
@@ -1027,7 +1027,7 @@ process.stdout.write(${JSON.stringify(
       GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_NO_LAZY_FETCH: "1",
-      GITHUB_REPOSITORY: "openclaw/openclaw",
+      GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
       GITHUB_RUN_ID: "123",
       GITHUB_RUN_ATTEMPT: "1",
       GITHUB_SHA: toolingSha,
@@ -2357,7 +2357,7 @@ describe("publication source intent and durable binding", () => {
       }),
       PUBLICATION_TOOLING_JSON: JSON.stringify({ fullRef: "refs/heads/main", sha: "a".repeat(40) }),
       PUBLICATION_TARGET_SHA: "b".repeat(40),
-      GITHUB_REPOSITORY: "openclaw/openclaw",
+      GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
       GITHUB_REF: "refs/heads/main",
       GITHUB_SHA: "a".repeat(40),
       GITHUB_RUN_ID: "123",
