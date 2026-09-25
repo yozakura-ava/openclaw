@@ -3,6 +3,7 @@ import { captureClawInstallSchemaVersionFacts } from "../claws/provenance-runtim
 import { captureRuntimeConfig } from "../config/runtime-source-projection.js";
 import * as cryptoDigest from "../infra/crypto-digest.js";
 import { createPluginMetadataSnapshotFixture } from "../plugins/plugin-metadata.test-support.js";
+import { getPreparedModelCatalogProcessHeapFlags } from "./prepared-model-catalog-heap.js";
 import {
   createPreparedModelCatalogWorkerInput,
   fingerprintPreparedModelCatalogGeneration,
@@ -10,6 +11,17 @@ import {
 } from "./prepared-model-catalog-worker.js";
 import type { PreparedModelRuntimeAgentFacts } from "./prepared-model-runtime.catalog-contract.js";
 import { AuthStorage } from "./sessions/auth-storage.js";
+
+describe("prepared model catalog worker heap boundary", () => {
+  it("detects process-wide old-space flags from service environment and argv", () => {
+    expect(
+      getPreparedModelCatalogProcessHeapFlags({ NODE_OPTIONS: "--max-old-space-size=8192" }),
+    ).toEqual(["--max-old-space-size=8192"]);
+    expect(
+      getPreparedModelCatalogProcessHeapFlags({ NODE_OPTIONS: "--max-heap-size 6144" }),
+    ).toEqual(["--max-heap-size 6144"]);
+  });
+});
 
 describe("prepared model catalog worker input", () => {
   it("reuses captured config digests while workers independently reconstruct them", () => {

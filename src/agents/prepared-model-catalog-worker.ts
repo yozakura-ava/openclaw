@@ -46,6 +46,7 @@ import { registerPreparedModelRuntimeClose } from "./prepared-model-runtime.life
 import { scopeSyntheticAuthProviderRefs } from "./prepared-model-runtime.synthetic-auth.js";
 import type { PreparedModelRuntimeInput } from "./prepared-model-runtime.types.js";
 import type { AuthStorageData } from "./sessions/auth-storage.js";
+import "./prepared-model-catalog-heap.js";
 
 export type PreparedModelCatalogWorkerInput = Readonly<{
   kind: "catalog";
@@ -123,6 +124,7 @@ export const PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS = 180_000;
 const GATEWAY_CATALOG_WORKERS = 1;
 // Leave room for source loaders and overlapping generations without inheriting the host heap budget.
 const CATALOG_WORKER_HEAP_LIMIT_MB = 512;
+
 type CatalogPoolInput = PreparedModelWorkerRequest | PreparedModelCatalogWorkerTask;
 type CatalogPool = WorkerTaskPool<CatalogPoolInput, PreparedModelWorkerResult>;
 type CatalogPoolBorrower = {
