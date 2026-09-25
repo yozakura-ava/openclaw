@@ -109,9 +109,15 @@ for (const exactOptionalPropertyTypes of [true, false]) {
     return true;
   });
   if (unexpected.length || observedReadonly.size !== expectedReadonly) {
+    const formatted = ts.formatDiagnosticsWithColorAndContext(unexpected, {
+      getCanonicalFileName: (fileName) => fileName,
+      getCurrentDirectory: () => packageRoot,
+      getNewLine: () => "\n",
+    });
     throw new Error(
       `Registry mutability mismatch (exactOptionalPropertyTypes=${exactOptionalPropertyTypes}): ` +
-        `${observedReadonly.size}/${expectedReadonly} readonly assignments rejected; ${unexpected.length} unexpected diagnostics`,
+        `${observedReadonly.size}/${expectedReadonly} readonly assignments rejected; ${unexpected.length} unexpected diagnostics\n` +
+        formatted,
     );
   }
 }
