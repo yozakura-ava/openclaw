@@ -30,7 +30,7 @@ interface OversizedCommentHost {
 interface AddCommentHost extends OversizedCommentHost {
   updateMetadata(
     id: string,
-    updater: (existing: WorkboardCard) => WorkboardCard,
+    updater: (existing: WorkboardCard) => WorkboardCard["metadata"] | undefined,
   ): Promise<WorkboardCard>;
 }
 
