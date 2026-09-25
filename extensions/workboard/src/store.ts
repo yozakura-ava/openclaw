@@ -31,6 +31,7 @@ import {
 } from "./store-card-helpers.js";
 import {
   isWorkboardClaimReclaimable,
+  MAX_CARD_COMMENTS,
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
 } from "./store-constants.js";
@@ -560,6 +561,57 @@ export class WorkboardStore extends WorkboardNotificationStore {
         orchestrated,
         count: promoted.length + reclaimed.length + blocked.length + orchestrated.length,
       };
+    });
+  }
+
+  /**
+   * Force-close a card. Orchestrator-side terminal close for superseded,
+   * duplicate, cancelled, or invalid cards. Writes a labeled `[reasonCode]`
+   * comment alongside the status flip.
+   *
+   * Authorization is NOT enforced here — it is the caller's responsibility
+   * (openclaw tool policy allow/deny list) to gate which agents may invoke
+   * `workboard_force_close`. The store trusts the caller.
+   */
+  async forceClose(
+    id: string,
+    input: { reasonCode?: unknown; explanation?: unknown; referenceCardId?: unknown },
+  ): Promise<WorkboardCard> {
+    const reasonCode = input.reasonCode;
+    if (!["superseded", "duplicate", "cancelled", "invalid"].includes(String(reasonCode))) {
+      throw new Error("force-close reason_code is invalid");
+    }
+    const explanation = typeof input.explanation === "string" ? input.explanation.trim() : "";
+    if (explanation.length < 20 || explanation.length > 4000) {
+      throw new Error("force-close explanation must be between 20 and 4000 characters");
+    }
+    const referenceCardId =
+      typeof input.referenceCardId === "string" ? input.referenceCardId.trim() : "";
+    if ((reasonCode === "superseded" || reasonCode === "duplicate") && !referenceCardId) {
+      throw new Error(`force-close reason ${reasonCode} requires reference_card_id`);
+    }
+    if (referenceCardId && !(await this.get(referenceCardId))) {
+      throw new Error(`reference card not found: ${referenceCardId}`);
+    }
+    const existing = await this.get(id);
+    if (!existing) {
+      throw new Error(`card not found: ${id}`);
+    }
+    if (existing.status === "done") {
+      throw new Error(`card is already done: ${id}`);
+    }
+    const now = Date.now();
+    return await this.update(id, {
+      status: "done",
+      metadata: {
+        ...existing.metadata,
+        claim: undefined,
+        closureType: "force_close",
+        comments: [
+          ...(existing.metadata?.comments ?? []),
+          { id: randomUUID(), body: `[${String(reasonCode)}] ${explanation}`, createdAt: now },
+        ].slice(-MAX_CARD_COMMENTS),
+      },
     });
   }
 
