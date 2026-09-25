@@ -66,7 +66,13 @@ export async function addCommentWithChunking(
   });
 }
 
-export async function addOversizedComment(
+/**
+ * Internal oversized-comment write primitive. Not exported — only invoked
+ * from {@link addCommentWithChunking} when a body exceeds
+ * {@link MAX_COMMENT_BODY_LENGTH}. Kept as a top-level function so the
+ * mutation-queue section is self-contained.
+ */
+async function addOversizedComment(
   host: OversizedCommentHost,
   id: string,
   body: string,
