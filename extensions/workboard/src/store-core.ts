@@ -953,7 +953,13 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     if (!body) {
       throw new Error("comment body is required.");
     }
-    return await addCommentWithChunking(this as never, id, body, scope);
+    // Comments are recovery-safe evidence: allow them past an expired claim so
+    // reclaim-then-handoff flows can record context before re-claiming. The
+    // single-row path and the chunked split path both pass `recovery=true`
+    // through to `assertCanMutateClaimedCard`, which honors expired claims
+    // whose grace window has elapsed while still rejecting live claims from
+    // other owners.
+    return await addCommentWithChunking(this as never, id, body, scope, true);
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
