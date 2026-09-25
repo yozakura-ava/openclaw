@@ -251,7 +251,6 @@ function main(): number {
     );
   }
 
-  // eslint-disable-next-line no-console
   console.log(reportLines.join("\n"));
 
   try {

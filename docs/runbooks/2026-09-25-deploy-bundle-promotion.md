@@ -2,6 +2,7 @@
 
 **Owners:** Ava (orchestration), Tomoe (infra/build), Rin (independent review), Craig (HR2 final cutover approval)
 **Anchors:**
+
 - Pipeline design: [`gateway-ci-staging-pipeline.md`](../plans/gateway-ci-staging-pipeline.md) (Craig-endorsed 2026-09-24)
 - Postmortem driver: [`2026-09-24-openclaw-9-6-rollout.md`](../postmortems/2026-09-24-openclaw-9-6-rollout.md)
 - Build card: workboard card `7e196d76-03b1-4571-9727-0d5aea52299d` (PR-K)
@@ -35,7 +36,7 @@ Every item below MUST be true and recorded on the art card. If any fails, STOP a
 
 Every box below is a **Craig-gated step**. Wait for an explicit, verbatim Craig approval quote. Do not infer consent from silence, schedule, or Ava-side discretion.
 
-1. **State the request in chat.** Paste this block and ask Craig to issue one HR2 token (for example: *"HR2 approve promote build <commit-short> with provenance sha <artifact-sha>"*):
+1. **State the request in chat.** Paste this block and ask Craig to issue one HR2 token (for example: _"HR2 approve promote build <commit-short> with provenance sha <artifact-sha>"_):
    ```
    Promote deploy-bundle build <commit-short>
      provenance.commit = <commit>

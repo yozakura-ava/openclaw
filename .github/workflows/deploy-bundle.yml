@@ -102,7 +102,7 @@ jobs:
             pnpm-${{ runner.os }}-
 
       - name: Install dependencies (frozen lockfile)
-        run: pnpm install --frozen-lockfile --no-frozen-lockfile=false
+        run: pnpm install --frozen-lockfile
 
       - name: Build full host + extensions
         run: pnpm -r build
@@ -110,7 +110,7 @@ jobs:
       - name: Confirm Workboard private contract stays in devDependencies (RC#1)
         run: |
           set -euo pipefail
-          if ! node -e 'const p=JSON.parse(require("fs").readFileSync("extensions/workboard/package.json","utf8")); const d={...(p.dependencies||{}),...(p.optionalDependencies||{})}; if (d["@openclaw/workboard-contract"]) {console.error("[RC#1] @openclaw/workboard-contract must be in devDependencies, not dependencies"); process.exit(1)} const dd=p.devDependencies?.["@openclaw/workboard-contract"]; if (!dd) {console.error("[RC#1] @openclaw/workboard-contract missing from devDependencies entirely"); process.exit(1)} console.log("OK: @openclaw/workboard-contract pinned to devDependencies")'
+          node ./scripts/ci/check-workboard-private-contract.mjs
 
       - name: Capture provenance tuple
         id: provenance
@@ -130,10 +130,12 @@ jobs:
             "artifact_sha": ""
           }
           JSON
-          echo "COMMIT=${COMMIT}" >> "$GITHUB_OUTPUT"
-          echo "MANIFEST_SHA=${MANIFEST_SHA}" >> "$GITHUB_OUTPUT"
-          echo "LOCKFILE_SHA=${LOCKFILE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "NODE_VERSION=${NODE_VERSION}" >> "$GITHUB_OUTPUT"
+          {
+            echo "COMMIT=${COMMIT}"
+            echo "MANIFEST_SHA=${MANIFEST_SHA}"
+            echo "LOCKFILE_SHA=${LOCKFILE_SHA}"
+            echo "NODE_VERSION=${NODE_VERSION}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build production node_modules tree (pnpm deploy, prod only)
         id: stage_deps
@@ -153,11 +155,10 @@ jobs:
             echo "[import-closure-gate] FAIL: dist/extensions or dist/runtime must exist after build"
             exit 1
           fi
-          node --import ./scripts/tsx.mjs ./scripts/ci/import-closure-gate.mts \
+          if ! node --import ./scripts/tsx.mjs ./scripts/ci/import-closure-gate.mts \
             --dist dist \
             --node-modules staging-tmp/node_modules \
-            --out staging-tmp/import-closure-report.txt
-          if [ $? -ne 0 ]; then
+            --out staging-tmp/import-closure-report.txt; then
             echo "[import-closure-gate] FAIL — see import-closure-report.txt for unresolved imports"
             cat staging-tmp/import-closure-report.txt || true
             exit 1
@@ -183,9 +184,11 @@ jobs:
             --transform 's,^staging-tmp,openclaw,' \
             -C staging-tmp .
           BUNDLE_SIZE="$(stat -c%s deploy-bundle.tar.gz)"
-          echo "ARTIFACT_SHA=${ARTIFACT_SHA}" >> "$GITHUB_OUTPUT"
-          echo "BUNDLE_SIZE=${BUNDLE_SIZE}" >> "$GITHUB_OUTPUT"
-          echo "PROVENANCE_SHA256=${ARTIFACT_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "ARTIFACT_SHA=${ARTIFACT_SHA}"
+            echo "BUNDLE_SIZE=${BUNDLE_SIZE}"
+            echo "PROVENANCE_SHA256=${ARTIFACT_SHA}"
+          } >> "$GITHUB_OUTPUT"
           # Embed provenance into the bundle so consumers always have it locally.
           tar -czf deploy-bundle-with-provenance.tar.gz deploy-bundle.tar.gz provenance/provenance.json
 
@@ -196,19 +199,16 @@ jobs:
           path: |
             deploy-bundle.tar.gz
             deploy-bundle-with-provenance.tar.gz
-            provenance/provenance.json
           if-no-files-found: error
           retention-days: 14
-          # Provide the provenance tuple as artifact metadata so the consumer
-          # can verify against the GH-Actions-side record.
-          metadata:
-            commit: ${{ steps.provenance.outputs.COMMIT }}
-            manifest_sha: ${{ steps.provenance.outputs.MANIFEST_SHA }}
-            lockfile_sha: ${{ steps.provenance.outputs.LOCKFILE_SHA }}
-            node_version: ${{ steps.provenance.outputs.NODE_VERSION }}
-            artifact_sha: ${{ steps.package.outputs.ARTIFACT_SHA }}
-            bundle_size: ${{ steps.package.outputs.BUNDLE_SIZE }}
-            workflow_sha: ${{ env.DEPLOY_BUNDLE_WORKFLOW_SHA }}
+
+      - name: Upload provenance tuple as a dedicated artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploy-bundle-provenance-${{ github.sha }}
+          path: provenance/provenance.json
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Upload import-closure report
         if: always()
@@ -222,11 +222,13 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Deploy bundle build" >> "$GITHUB_STEP_SUMMARY"
-          echo "- commit: ${{ steps.provenance.outputs.COMMIT }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- manifest_sha: ${{ steps.provenance.outputs.MANIFEST_SHA }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- lockfile_sha: ${{ steps.provenance.outputs.LOCKFILE_SHA }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- node_version: ${{ steps.provenance.outputs.NODE_VERSION }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- artifact_sha: ${{ steps.package.outputs.ARTIFACT_SHA }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- bundle_size: ${{ steps.package.outputs.BUNDLE_SIZE }} bytes" >> "$GITHUB_STEP_SUMMARY"
-          echo "- import-closure: ${{ steps.import_closure.outcome }}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Deploy bundle build"
+            echo "- commit: ${{ steps.provenance.outputs.COMMIT }}"
+            echo "- manifest_sha: ${{ steps.provenance.outputs.MANIFEST_SHA }}"
+            echo "- lockfile_sha: ${{ steps.provenance.outputs.LOCKFILE_SHA }}"
+            echo "- node_version: ${{ steps.provenance.outputs.NODE_VERSION }}"
+            echo "- artifact_sha: ${{ steps.package.outputs.ARTIFACT_SHA }}"
+            echo "- bundle_size: ${{ steps.package.outputs.BUNDLE_SIZE }} bytes"
+            echo "- import-closure: ${{ steps.import_closure.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
