@@ -30,7 +30,7 @@ import {
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import { MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
 import type {
   WorkboardCardPatch,
   WorkboardCommentInput,
@@ -62,6 +62,7 @@ import {
   syncExecutionSessionKey,
   trimMetadataToBudget,
 } from "./store-normalizers.js";
+import { addCommentWithChunking } from "./store-oversized-comment.js";
 import { readCards } from "./store-read.js";
 
 type WorkboardMutationJournalEntry = {
@@ -812,19 +813,11 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     input: WorkboardCommentInput,
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
-    const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeOptionalString(input.body);
     if (!body) {
       throw new Error("comment body is required.");
     }
-    const comment = { id: randomUUID(), body, createdAt: now };
-    return await this.updateMetadata(id, (existing) => {
-      assertCanMutateClaimedCard(existing, scope);
-      return {
-        ...existing.metadata,
-        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
-      };
-    });
+    return await addCommentWithChunking(this as never, id, body, scope);
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
