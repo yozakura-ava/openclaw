@@ -575,6 +575,13 @@ const config = {
     "extensions/signal/src/setup-core.ts": ["exports"],
     // Focused CLI tests exercise plan construction through this explicit test seam.
     "extensions/onepassword/src/secret-ref-cli.ts": ["exports"],
+    // request-coalescing constants + helpers are referenced by the focused
+    // test surface; production wires them through the dispatch helper only.
+    "src/gateway/server/ws-connection/request-coalescing.ts": ["exports", "types"],
+    // Workboard store-inputs.ts defines the plugin-boundary contract surface
+    // (diagnostics, events, workspace types); consumers in bundled plugins
+    // import through the workboard package boundary, not via prod src/.
+    "extensions/workboard/src/store-inputs.ts": ["exports", "types"],
     // Mirror config parsing, redaction mapping, cap fitting, and the runner are
     // asserted by the focused Beam mirror tests; production wires only the service.
     "extensions/beam/src/mirror.ts": ["exports", "types"],
