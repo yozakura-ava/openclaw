@@ -397,7 +397,7 @@ export function createWorkboardOrchestrationTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: async (_toolCallId, rawParams) => {
-        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const { record, id, scope } = await readClaimedCardToolParams(rawParams);
         return redactedCardResult(await store.addWorkerLog(id, record, scope));
       },
     },
