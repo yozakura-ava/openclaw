@@ -208,6 +208,73 @@ configuration reads also use their asynchronous owner. Process-held incognito
 stores retain their existing native reader and remain separate migration work.
 Schemas, stored bytes, retention, public APIs, and update behavior are unchanged.
 
+Revocation removes only pending writer
+admissions from the existing FIFO. A worker waiting for its first or next permit
+receives a refusal and settles cleanup without waiting behind the foreground
+callback that requested close. Already admitted write-capable work retains its
+permit through native settlement; cancellation never releases it early.
+
+Reclamation commit acceptance checks the live parent authority and atomically
+accepts the pending commit before returning to the event loop. Revocation before
+acceptance refuses the commit; an accepted commit drains through its settled
+result or native worker exit before releasing writer admission, publishing facts,
+or releasing request custody. The parent does not open SQLite or synchronously
+wait for the worker's commit. This changes no schema, retention, or update behavior.
+
+Physical page reclamation releases the session writer permit between vacuum units,
+so queued foreground writers receive their FIFO turn before the next unit. Each
+connection starts with eight-page units and adjusts toward a 25 ms hold target,
+capped at 512 pages. Periodic and cold reclamation retain their existing total
+page budgets. Archive selection, file
+removal, and row deletion retain their existing shared permit, with disk pressure
+rechecked after admission. Page limits do not bound checkpoint copying or storage
+latency. Slow transaction diagnostics include commit and rollback time on both
+the main thread and workers, naming the database and operation when supplied.
+
+Watched human-turn signals and upstream observations use the shared-state writer,
+including their watcher probe and pruning. Producers await settlement and recheck
+current session authority; upstream observations compare the captured source in
+the committing transaction. Goal events and normalized child-run terminal outcomes
+share that recording command. Child completion joins recording and rechecks its
+current lifecycle or ACP actor authority at transaction and commit admission.
+Synchronous creation, compaction, watch, reset, and deletion callbacks remain
+separate migration work.
+
+Durable session entry replacement reads its detached snapshot in the history
+worker and commits through the existing agent database executor. The transaction
+rereads comparison bytes and current rows, and the host rechecks caller authority
+at admission and commit. Exact database locators reserve their existing writer
+FIFO before asynchronous schema-owner discovery; unresolved logical stores first
+select their physical target without borrowing another store's queue. Committed
+receipts invalidate retained entry projections and publish sharing facts before
+observers. Missing databases are prepared by the same worker owner. Incognito
+stores, already executing workers, Doctor maintenance,
+and prepared native deletion rollback closures retain their synchronous kernels.
+Schemas, retained bytes, configuration, and update behavior are unchanged.
+
+Durable trajectory flushes use the same agent database executor for sequence
+allocation, event insertion, and retention. The recorder captures its pending
+prefix inside the physical store's writer FIFO and retains the host metadata
+handle while its live source authority is checked at transaction admission and
+commit. It joins native settlement before releasing that FIFO turn: a retained
+commit receipt retires the prefix even if the reply is lost, a proven rollback
+leaves it retryable, and an unknown outcome fences replay. Events recorded during
+the write remain queued for the next flush. Incognito and maintenance scopes and
+already executing workers keep their native kernel. Event bytes, ordering,
+retention limits, schemas, and update behavior are unchanged.
+
+Disk-budget historical discovery reads reference, recent-history, and admitted-key
+protection in the existing maintenance read worker. It returns candidate IDs;
+the host captures live admission identities and rechecks their protection before
+archive preparation and deletion. Node references are rechecked in the reclamation
+worker transaction before archive persistence or deletion, without a redundant
+host reference scan per candidate. A newly referenced candidate may undergo archive
+preparation, but the transaction preserves its history and publishes no archive.
+A deferred WAL checkpoint still blocks another discovery
+pass until a newer completed checkpoint. Exact lifecycle removal and logical
+maintenance planning limit reference results to the generations they might
+delete. No new cache, index, schema, retention policy, or update step is required.
+
 ## Migrate a caller
 
 1. Trace the registered request, event, or timer through the store owner. Check
