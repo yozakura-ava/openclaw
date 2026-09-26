@@ -1,5 +1,6 @@
 /** Enforces the task-ledger retention bound for terminal cron history. */
-import { cronTaskRecordStoreKey, resolveCronTaskRecordTimestamp } from "../cron/task-run-detail.js";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { cronTaskRecordStoreKey, resolveCronRunRecordTimestamp } from "../cron/task-run-detail.js";
 import type { TaskRecord } from "./task-registry.types.js";
 import { resolveEffectiveTaskCleanupAfter } from "./task-retention.js";
 
@@ -14,6 +15,21 @@ type CronHistoryRetentionPartition = {
   history: TaskRecord[];
   quiet: TaskRecord[];
 };
+
+export function hasCronRunHistory(task: Pick<TaskRecord, "detail">): boolean {
+  return isRecord(task.detail) && task.detail.kind === "cron-run";
+}
+
+export function compareCronHistoryRetentionOrder(
+  left: Pick<TaskRecord, "taskId" | "createdAt" | "endedAt" | "lastEventAt">,
+  right: Pick<TaskRecord, "taskId" | "createdAt" | "endedAt" | "lastEventAt">,
+): number {
+  return (
+    resolveCronRunRecordTimestamp(right) - resolveCronRunRecordTimestamp(left) ||
+    right.createdAt - left.createdAt ||
+    right.taskId.localeCompare(left.taskId)
+  );
+}
 
 export function collectCronHistoryOverflowTaskIds(tasks: readonly TaskRecord[]): Set<string> {
   // Cron job ids are unique only within a configured store. Retention must
@@ -31,15 +47,9 @@ export function collectCronHistoryOverflowTaskIds(tasks: readonly TaskRecord[]):
     const storeKey = cronTaskRecordStoreKey(task);
     const bySource = byStore.get(storeKey) ?? new Map<string, CronHistoryRetentionPartition>();
     const partition = bySource.get(task.sourceId) ?? { history: [], quiet: [] };
-    const detail = task.detail;
-    const hasHistory =
-      typeof detail === "object" &&
-      detail !== null &&
-      !Array.isArray(detail) &&
-      detail.kind === "cron-run";
     // Quiet watcher ticks have no history entry. Bound them separately so
     // ordinary non-firing evaluations cannot evict actual run history.
-    const rows = hasHistory ? partition.history : partition.quiet;
+    const rows = hasCronRunHistory(task) ? partition.history : partition.quiet;
     rows.push(task);
     bySource.set(task.sourceId, partition);
     byStore.set(storeKey, bySource);
@@ -48,13 +58,7 @@ export function collectCronHistoryOverflowTaskIds(tasks: readonly TaskRecord[]):
   for (const bySource of byStore.values()) {
     for (const partition of bySource.values()) {
       for (const rows of [partition.history, partition.quiet]) {
-        rows.sort((left, right) => {
-          return (
-            resolveCronTaskRecordTimestamp(right) - resolveCronTaskRecordTimestamp(left) ||
-            right.createdAt - left.createdAt ||
-            right.taskId.localeCompare(left.taskId)
-          );
-        });
+        rows.sort(compareCronHistoryRetentionOrder);
         for (const task of rows.slice(CRON_HISTORY_KEEP_PER_JOB)) {
           overflow.add(task.taskId);
         }
@@ -67,7 +71,7 @@ export function collectCronHistoryOverflowTaskIds(tasks: readonly TaskRecord[]):
 export function shouldPruneTerminalTask(
   task: TaskRecord,
   now: number,
-  cronHistoryOverflowTaskIds: ReadonlySet<string>,
+  cronHistoryOverflowTaskIds: Pick<ReadonlySet<string>, "has">,
 ): boolean {
   if (!isTerminalTask(task)) {
     return false;

@@ -1,12 +1,10 @@
 import { serializeAgentSchemaInspectionError } from "../state/openclaw-agent-schema-inspection-response.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
+import { collectCronHistoryOverflowTaskIds } from "../tasks/cron-history-retention.js";
 import {
   hasAuthoritativeTaskBackingFromRecords,
-  readManagedTaskBacking,
-  sameTaskBackingInstance,
   selectCurrentCanonicalTaskBacking,
 } from "../tasks/task-backing-records.js";
-import type { TaskBackingInstance } from "../tasks/task-backing-records.js";
 import { prepareCronTaskMaintenance } from "../tasks/task-cron-maintenance-policy.js";
 import { restoreTaskExecutionSnapshot } from "../tasks/task-execution-owner.js";
 import {
@@ -55,7 +53,7 @@ import type { TaskWorkerTransitionInput } from "../tasks/task-registry-transitio
 import { runTaskRecordTransitionOperation } from "../tasks/task-registry-transition.operation.js";
 import type { TaskRegistryStore, TaskRegistryStoreSnapshot } from "../tasks/task-registry.store.js";
 import type { TaskRegistryMutationScope } from "../tasks/task-registry.store.types.js";
-import type { TaskRecord } from "../tasks/task-registry.types.js";
+import { resolveEffectiveTaskCleanupAfter } from "../tasks/task-retention.js";
 
 type TaskFlowRegistryStore = ReturnType<typeof getTaskFlowRegistryStore>;
 
@@ -177,24 +175,6 @@ export function createInMemoryTaskRegistryStore(
         runTaskRecordTransitionOperation(transition, {
           readCurrent: () => {
             const task = this.loadSnapshot().tasks.get(transition.taskId);
-            const selected = (
-              transition as typeof transition & {
-                selectedTask?: TaskRecord & { backing?: TaskBackingInstance };
-              }
-            ).selectedTask;
-            if (task && selected && task.taskId !== selected.taskId) {
-              const managed = readManagedTaskBacking(task.detail);
-              if (
-                !selected.backing ||
-                !managed ||
-                managed.taskId !== selected.taskId ||
-                !sameTaskBackingInstance(managed.instance, selected.backing) ||
-                !task.parentFlowId ||
-                flowStore?.loadSnapshot().flows.get(task.parentFlowId)?.syncMode !== "managed"
-              ) {
-                return undefined;
-              }
-            }
             return task;
           },
           hasAuthoritativeBacking: (task) =>
@@ -254,9 +234,19 @@ export function createInMemoryTaskRegistryStore(
           const stored = state.tasks.get(input.taskId);
           const current = stored && normalizeTaskTimestamps(stored);
           if (!current || captureTaskRetentionSource(current).version !== input.sourceVersion) {
-            return { kind: "unchanged" as const };
+            return { kind: "unchanged" };
           }
           const result = prepareTaskRetention(current, input);
+          if (
+            result.kind === "pruned" &&
+            input.cronHistoryOverflow &&
+            input.now < resolveEffectiveTaskCleanupAfter(current) &&
+            !collectCronHistoryOverflowTaskIds(
+              [...state.tasks.values()].map(normalizeTaskTimestamps),
+            ).has(input.taskId)
+          ) {
+            return { kind: "unchanged" };
+          }
           assertCurrent();
           if (result.kind === "pruned") {
             state.tasks.delete(input.taskId);

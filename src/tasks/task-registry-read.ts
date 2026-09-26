@@ -138,7 +138,7 @@ function isTaskRegistryReadCurrent(taskId: string, mode: "identity" | "settled")
 }
 
 /** Inspect resident settlement inside an already admitted synchronous read batch. */
-function isTaskRegistryTaskSettled(taskId: string): boolean {
+export function isTaskRegistryTaskSettled(taskId: string): boolean {
   return !hasPendingTaskRegistryEvents(taskId) && isTaskRegistryReadCurrent(taskId, "settled");
 }
 

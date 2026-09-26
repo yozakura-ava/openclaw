@@ -5,6 +5,7 @@ import {
   retainTaskMutationFlowEffects,
 } from "./task-executor-mutation-effects.async.js";
 import { ensureTaskFlowRegistryReadyAsync } from "./task-flow-runtime-internal.js";
+import type { TaskRetentionOverflowSelections } from "./task-registry-maintenance-snapshot.js";
 import { readTaskRetentionCommit } from "./task-registry-retention-receipt.js";
 import {
   captureTaskRetentionSelection,
@@ -21,16 +22,19 @@ import type { TaskRecord } from "./task-registry.types.js";
 export async function applyTaskRegistryMaintenanceRetention(
   selected: TaskRecord,
   now: number,
-  cronHistoryOverflowTaskIds: ReadonlySet<string>,
+  cronHistoryOverflowSelections: TaskRetentionOverflowSelections,
   assertOwnerCurrent: () => void,
 ): Promise<"pruned" | "stamped" | undefined> {
   assertOwnerCurrent();
   const { context, store, flowStore, assertStores } = captureTaskMutationContext();
   const selection = {
     taskId: selected.taskId,
-    selection: captureTaskRetentionSelection(selected),
+    selection:
+      (cronHistoryOverflowSelections instanceof Map
+        ? cronHistoryOverflowSelections.get(selected.taskId)
+        : undefined) ?? captureTaskRetentionSelection(selected),
     now,
-    cronHistoryOverflow: cronHistoryOverflowTaskIds.has(selected.taskId),
+    cronHistoryOverflow: cronHistoryOverflowSelections.has(selected.taskId),
   };
   const assertCurrent = () => {
     assertOwnerCurrent();
@@ -40,7 +44,7 @@ export async function applyTaskRegistryMaintenanceRetention(
   let committed: TaskRetentionResult | undefined;
   let nativeOwner: SqliteWorkerNativeSettlementOwner | undefined;
   let outcomeKnown = true;
-  let flowEffectsSettled = false;
+  let flowHookEntered = false;
   try {
     await ensureTaskRegistryReadyAsync(context);
     assertCurrent();
@@ -69,21 +73,14 @@ export async function applyTaskRegistryMaintenanceRetention(
         taskRowsWritten: () => committed !== undefined && committed.kind !== "unchanged",
         beforeObservers: async (assertPublicationCurrent) => {
           if (committed?.kind === "stamped") {
-            flowEffectsSettled = await finishTaskMutation(
-              context,
-              store,
-              flowStore,
-              selected.taskId,
-              {
-                operation: "update",
-                assertCurrent: () => {
-                  assertPublicationCurrent();
-                  assertStores();
-                },
+            flowHookEntered = true;
+            await finishTaskMutation(context, store, flowStore, selected.taskId, {
+              operation: "update",
+              assertCurrent: () => {
+                assertPublicationCurrent();
+                assertStores();
               },
-            );
-          } else {
-            flowEffectsSettled = true;
+            });
           }
         },
       },
@@ -137,7 +134,7 @@ export async function applyTaskRegistryMaintenanceRetention(
     taskRegistryLog.warn("Failed to apply task retention", { taskId: selected.taskId, error });
     return undefined;
   } finally {
-    if (!flowEffectsSettled && committed?.kind === "stamped") {
+    if (!flowHookEntered && committed?.kind === "stamped") {
       retainTaskMutationFlowEffects(context, store, flowStore, committed.task, "update");
     }
   }
