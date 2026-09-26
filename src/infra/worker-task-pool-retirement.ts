@@ -1,17 +1,14 @@
 import type { Worker } from "node:worker_threads";
 import { toErrorObject } from "@openclaw/normalization-core/error-coercion";
 import { runBestEffortCleanup } from "./non-fatal-cleanup.js";
-import { markWorkerRetirement, type WorkerRetirementReason } from "./worker-cpu.js";
 import {
   cancelWorkerNativeSections,
   waitForWorkerNativeSections,
 } from "./worker-task-native-sections.js";
 import type { Slot, WorkerTaskPoolOptions } from "./worker-task-pool.types.js";
 
-const WORKER_WARM_WINDOW_MS = 5 * 60_000;
-
 export type WorkerTaskPoolRetirement<Input, Output> = {
-  retire(slot: Slot<Input, Output>, reason?: WorkerRetirementReason): Promise<void>;
+  retire(slot: Slot<Input, Output>): Promise<void>;
   idle(slot: Slot<Input, Output>): void;
   clearIdle(slot: Slot<Input, Output>): void;
   retireIdle(resourceClosures: WeakMap<Worker, { pending: number }>): void;
@@ -31,29 +28,11 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
   dispatch: () => void;
 }): WorkerTaskPoolRetirement<Input, Output> {
   const artifactCleanups = new Set<Promise<void>>();
-  let lastIdleRetirementAt = -Infinity;
-  let warmSlot: Slot<Input, Output> | undefined;
-  // Worker replies can arrive under an unrelated fake clock; use the owner's clock.
   const setTimeoutFn = setTimeout;
   const clearTimeoutFn = clearTimeout;
-  const now = performance.now.bind(performance);
   const clearIdle = (slot: Slot<Input, Output>) => clearTimeoutFn(slot.idleTimer);
 
-  function retire(
-    slot: Slot<Input, Output>,
-    reason: WorkerRetirementReason = "closed",
-  ): Promise<void> {
-    if (reason === "idle_timeout") {
-      lastIdleRetirementAt = now();
-    } else if (reason === "rotation") {
-      lastIdleRetirementAt = -Infinity;
-    }
-    if (warmSlot === slot) {
-      warmSlot = undefined;
-    }
-    if (slot.worker) {
-      markWorkerRetirement(slot.worker, reason);
-    }
+  function retire(slot: Slot<Input, Output>): Promise<void> {
     clearIdle(slot);
     cancelWorkerNativeSections(slot.nativeSections);
     // Retain error listeners until exit: termination can race a worker startup error.
@@ -61,7 +40,6 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
     return (slot.retiring ??= Promise.resolve()
       .then(async () => {
         if (slot.worker) {
-          markWorkerRetirement(slot.worker, reason);
           // Node can abort if termination interrupts zlib between allocation and initialization.
           // Keep custody until the current bounded native operation settles, including on timeout.
           const settlement = waitForWorkerNativeSections(slot.nativeSections);
@@ -137,15 +115,8 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
       if (idleMs <= 0) {
         return;
       }
-      // A promptly reused pool retains one isolate; excess slots keep their normal timeout.
-      if (!warmSlot && now() - lastIdleRetirementAt < WORKER_WARM_WINDOW_MS) {
-        warmSlot = slot;
-      }
       slot.idleTimer = runInContext(() =>
-        setTimeoutFn(
-          () => void retire(slot, "idle_timeout").catch(() => undefined),
-          warmSlot === slot ? Math.max(idleMs, WORKER_WARM_WINDOW_MS) : idleMs,
-        ),
+        setTimeoutFn(() => void retire(slot).catch(() => undefined), idleMs),
       );
       slot.idleTimer.unref();
     },
@@ -158,7 +129,7 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
           slot.worker &&
           !resourceClosures.get(slot.worker)?.pending
         ) {
-          void retire(slot, "memory_pressure").catch(() => undefined);
+          void retire(slot).catch(() => undefined);
         }
       }
     },
