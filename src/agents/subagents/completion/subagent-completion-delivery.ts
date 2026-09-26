@@ -33,6 +33,58 @@ import {
 } from "./subagent-completion-admission.store.js";
 import { SUBAGENT_COMPLETION_OUTCOME_INSTRUCTION } from "./subagent-completion-instructions.js";
 import { resolveSubagentCompletionResultText } from "./subagent-completion-result.js";
+import { logCouncilHandoffBlock, scanEnvelope } from "./subagent-completion-sanitizer.js";
+
+/**
+ * Council-handoff sanitizer rejection: refused admission because the
+ * subagent's terminal reply carried private-namespace content, a
+ * ``privacy_tier`` marker, or a REL-OS canary string. Closes red-team
+ * Path 13 (privacy-redteam-report-2026-10.md §9) at the
+ * subagent-completion delivery boundary.
+ */
+export class CouncilHandoffSanitizationError extends Error {
+  readonly envelopeId: string;
+  readonly hitCount: number;
+  constructor(envelopeId: string, hitCount: number) {
+    super(
+      `council-handoff sanitizer blocked delivery for ${envelopeId}: ${hitCount} hit${hitCount === 1 ? "" : "s"}`,
+    );
+    this.name = "CouncilHandoffSanitizationError";
+    this.envelopeId = envelopeId;
+    this.hitCount = hitCount;
+  }
+}
+
+/** Build the sanitization envelope from the subagent's terminal-reply state. */
+function buildSanitizationEnvelope(subagent: SubagentRunRecord): Record<string, unknown> {
+  const completion = subagent.completion;
+  return {
+    terminalReply:
+      completion?.terminalReply?.disposition === "visible"
+        ? completion.terminalReply.text
+        : undefined,
+    resultText: completion?.resultText ?? undefined,
+    fallbackResultText: completion?.fallbackResultText ?? undefined,
+    task: subagent.task,
+  };
+}
+
+/**
+ * Run the council-handoff sanitizer against a subagent's terminal-reply
+ * state. On contamination: log to ``data/ops/dispatch_sanitizer_blocks.jsonl``
+ * with ``surface = "council_handoff"`` and throw
+ * :class:`CouncilHandoffSanitizationError`.
+ *
+ * Returns silently when the envelope is clean. Mirrors
+ * ``scripts/dispatch/dispatch_sanitizer.assert_envelope_clean``.
+ */
+export function assertCouncilHandoffClean(subagent: SubagentRunRecord): void {
+  const envelope = buildSanitizationEnvelope(subagent);
+  const result = scanEnvelope(envelope);
+  if (result.clean) return;
+  logCouncilHandoffBlock(subagent.runId, result.hits);
+  throw new CouncilHandoffSanitizationError(subagent.runId, result.hits.length);
+}
 
 const CLAIM_LEASE_MS = 125_000;
 const MAX_DELIVERY_GENERATION = 10;
@@ -88,6 +140,13 @@ export function admitCorrelatedSubagentSessionDelivery(params: {
   }
   const now = Date.now();
   const subagent = structuredClone(current);
+  // Council-handoff sanitizer: refuse admission when the subagent's
+  // terminal-reply envelope carries private-namespace content,
+  // privacy_tier markers, or REL-OS canary strings. Closes red-team
+  // Path 13 (privacy-redteam-report-2026-10.md §9) at the
+  // subagent-completion delivery boundary. Mirrors
+  // scripts/dispatch/dispatch_sanitizer.assert_envelope_clean.
+  assertCouncilHandoffClean(subagent);
   const delivery = ensureDeliveryState(subagent);
   const generation = delivery.generation ?? 1;
   const windowStartedAt = delivery.windowStartedAt ?? subagent.execution.endedAt ?? now;
