@@ -104,6 +104,11 @@ overrides:
   tar: 7.5.22
   tough-cookie: 6.0.2
   "tsdown>rolldown-plugin-dts": 0.28.5
+  # Pin rolldown to 1.2.7 to restore deploy-bundle green; 1.2.8 introduced a
+  # dts regression that surfaces as TS5097 (theme.ts:12) + TS2375 (theme.ts:104)
+  # under scripts/check-protocol-registry-types.mts. Remove when upstream fixes
+  # the dts regression (none in 1.2.9 / 1.2.10 / 1.2.11 as of 2026-09-25).
+  rolldown: 1.2.7
   "zca-js@2.1.2>tough-cookie": 6.0.2
   yauzl: 3.4.0
   protobufjs: 8.8.0
