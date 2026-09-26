@@ -236,10 +236,16 @@ describe("cron CLI with the real Gateway pagination contract", () => {
         expect(result.jobs[0]).toMatchObject({ effectiveAgentId: null });
         expect(result.jobs[0]?.agentId).toBeUndefined();
         expect(result.jobs[1]).toMatchObject({ agentId: "main", effectiveAgentId: "main" });
-        expect(result.deliveryPreviews["job-000"]).toMatchObject({
-          detail: expect.stringContaining("Agent-less cron job has no resolvable owner"),
-        });
+        expect(result.deliveryPreviews).toBeUndefined();
       }
+      expect(
+        mocks.callGatewayFromCli.mock.calls
+          .filter(([method]) => method === "cron.list")
+          .every((call) => {
+            const params = call[2] as { includeDeliveryPreviews?: boolean };
+            return params.includeDeliveryPreviews === false;
+          }),
+      ).toBe(true);
     } else {
       const output = mocks.runtime.log.mock.calls.map(([line]) => line).join("\n");
       for (const id of ids) {
@@ -249,20 +255,40 @@ describe("cron CLI with the real Gateway pagination contract", () => {
     }
   });
 
-  it("lists all 201 jobs returned across actual bounded Gateway pages", async () => {
-    installRealCronGateway(Array.from({ length: 201 }, (_, index) => createJob(index)));
+  it("lists all 289 jobs returned across actual bounded Gateway pages", async () => {
+    installRealCronGateway(Array.from({ length: 289 }, (_, index) => createJob(index)));
 
     await runCron(["list", "--json"]);
 
     const result = mocks.runtime.writeJson.mock.calls.at(-1)?.[0] as { jobs: CronJob[] };
-    expect(result.jobs).toHaveLength(201);
-    expect(result.jobs.some((job) => job.id === "job-200")).toBe(true);
+    expect(result.jobs).toHaveLength(289);
+    expect(result.jobs.some((job) => job.id === "job-288")).toBe(true);
     expect(
-      (result as { deliveryPreviews?: Record<string, unknown> }).deliveryPreviews?.["job-200"],
-    ).toEqual(expect.objectContaining({ label: "not requested" }));
+      (result as { deliveryPreviews?: Record<string, unknown> }).deliveryPreviews,
+    ).toBeUndefined();
     expect(
       mocks.callGatewayFromCli.mock.calls.filter(([method]) => method === "cron.list"),
     ).toHaveLength(2);
+    expect(
+      mocks.callGatewayFromCli.mock.calls
+        .filter(([method]) => method === "cron.list")
+        .map((call) => {
+          const params = call[2] as { includeDeliveryPreviews?: boolean };
+          return params.includeDeliveryPreviews;
+        }),
+    ).toEqual([false, false]);
+  });
+
+  it("requests delivery previews for human-readable listings", async () => {
+    installRealCronGateway([createJob(0)]);
+
+    await runCron(["list"]);
+
+    expect(mocks.callGatewayFromCli).toHaveBeenCalledWith(
+      "cron.list",
+      expect.anything(),
+      expect.objectContaining({ includeDeliveryPreviews: true }),
+    );
   });
 
   it("never combines Gateway pages from different cron snapshots", async () => {

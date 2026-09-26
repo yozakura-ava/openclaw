@@ -27,6 +27,11 @@ const mocks = vi.hoisted(() => {
 });
 
 const { defaultRuntime, callGatewayFromCli } = mocks;
+const expectedCronListParams = Object.assign(
+  { includeDisabled: false },
+  { limit: 200, offset: 0 },
+  { includeDeliveryPreviews: true },
+);
 
 const defaultGatewayMock = async (
   method: string,
@@ -1343,19 +1348,14 @@ describe("cron cli", () => {
     await runCronCommand(["cron", "list"]);
 
     const listCall = callGatewayFromCli.mock.calls.find((call) => call[0] === "cron.list");
-    expect(listCall?.[2]).toEqual({ includeDisabled: false, limit: 200, offset: 0 });
+    expect(listCall?.[2]).toEqual(expectedCronListParams);
   });
 
   it("sends normalized agent id on cron list --agent", async () => {
     await runCronCommand(["cron", "list", "--agent", " Ops "]);
 
     const listCall = callGatewayFromCli.mock.calls.find((call) => call[0] === "cron.list");
-    expect(listCall?.[2]).toEqual({
-      includeDisabled: false,
-      agentId: "ops",
-      limit: 200,
-      offset: 0,
-    });
+    expect(listCall?.[2]).toEqual({ ...expectedCronListParams, agentId: "ops" });
   });
 
   it.each(["", "   "])("rejects a blank cron list agent filter %j", async (agent) => {
