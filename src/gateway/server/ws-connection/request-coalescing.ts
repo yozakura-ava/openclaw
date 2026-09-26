@@ -199,7 +199,7 @@ export class RequestCoalescer {
           // diagnostic kind scoped to this module). The runtime payload is
           // structurally identical to the trusted-diagnostic base shape; cast
           // through unknown to the trusted channel's parameter type.
-          emitTrustedDiagnosticEvent(event as Parameters<typeof emitTrustedDiagnosticEvent>[0]);
+          emitTrustedDiagnosticEvent(event as unknown as Parameters<typeof emitTrustedDiagnosticEvent>[0]);
         }),
     };
   }
