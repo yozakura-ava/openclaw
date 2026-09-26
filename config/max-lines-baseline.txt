@@ -242,8 +242,6 @@ extensions/whatsapp/src/connection-controller.ts
 extensions/workboard/browser/lib/workboard/index.test.ts
 extensions/workboard/browser/pages/workboard/view.test.ts
 extensions/workboard/src/store-core.ts
-extensions/workboard/src/store-normalizers.ts
-extensions/workboard/src/store.test.ts
 extensions/xai/realtime-voice-provider.test.ts
 extensions/zalo/src/monitor.ts
 extensions/zalouser/src/monitor.ts

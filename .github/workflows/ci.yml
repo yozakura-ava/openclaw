@@ -1674,15 +1674,11 @@ jobs:
               eventName === "workflow_dispatch" || (ownerPathEvent && changedPaths === null))) {
             dockerSeedLanes.push("published-upgrade-survivor");
           }
-          // Canonical pushes also use compact bins: 80+ single-group jobs
-          // drain the runner pool for minutes, and per-shard check names on
-          // main have no branch-protection consumers. Dispatch (release
-          // validation) keeps the full named matrix.
+          // Fork pull requests use compact bins. Main pushes retain the full
+          // coverage contract; dispatch remains the explicit release owner.
           const compactPlanMode = eventName === "pull_request"
               ? "pull-request"
-              : eventName === "push"
-                ? "push"
-                : undefined;
+              : undefined;
           let changedNodeTestShards = null;
           let changedExtensionFallbackShards = [];
           if (compactPullRequest && runNodeFull) {

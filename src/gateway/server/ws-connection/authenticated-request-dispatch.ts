@@ -103,7 +103,8 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
     // as unknown; const identityClient = clientAsUnknown as …` form was flagged by
     // lint:no-chained-type-assertions because it bound `as unknown` and then re-asserted
     // through it; the inline form keeps the parse-boundary cast to a single expression.
-    const identityClient = client as unknown as Parameters<
+    const identityClientUnknown: unknown = client;
+    const identityClient = identityClientUnknown as Parameters<
       typeof extractClientIdentity
     >[0]["client"] & {
       connect?: unknown;
