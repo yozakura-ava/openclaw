@@ -103,9 +103,9 @@ export function resolveThemeBranding(
 ): ThemeBranding {
   return {
     mascot: source?.mascot ?? "claw",
-    workingPhrases: source?.workingPhrases,
     critters: source?.critters ?? DEFAULT_THEME_CRITTERS,
-    avatarHat: source?.avatarHat,
+    ...(source?.workingPhrases ? { workingPhrases: source.workingPhrases } : {}),
+    ...(source?.avatarHat ? { avatarHat: source.avatarHat } : {}),
     ...(source?.artwork ? { artwork: source.artwork } : {}),
   };
 }
