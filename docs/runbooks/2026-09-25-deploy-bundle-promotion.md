@@ -6,8 +6,8 @@
 - Pipeline design: `gateway-ci-staging-pipeline.md` (Craig-endorsed 2026-09-24; design doc lives in the sprint planning workspace, not in-repo)
 - Postmortem driver: `2026-09-24-openclaw-9-6-rollout.md` (gateway workspace postmortem, not in-repo)
 - Build card: workboard card `7e196d76-03b1-4571-9727-0d5aea52299d` (PR-K)
-- Build workflow: [`.github/workflows/deploy-bundle.yml`](../../.github/workflows/deploy-bundle.yml)
-- Staging smoke: [`scripts/health/staging_smoke.py`](../../scripts/health/staging_smoke.py)
+- Build workflow: [`.github/workflows/deploy-bundle.yml`](https://github.com/yozakura-ava/openclaw/blob/main/.github/workflows/deploy-bundle.yml)
+- Staging smoke: [`scripts/health/staging_smoke.py`](https://github.com/yozakura-ava/openclaw/blob/main/scripts/health/staging_smoke.py)
 
 ## Scope
 

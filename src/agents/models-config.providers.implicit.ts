@@ -12,7 +12,10 @@ import { isUnresolvedSecretInputError } from "../config/types.secrets.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
-import { withProviderCatalogExpiry } from "../plugins/provider-catalog-expiry.js";
+import {
+  recordProviderCatalogModels,
+  withProviderCatalogExpiry,
+} from "../plugins/provider-catalog-expiry.js";
 import type { ProviderCatalogOutcome } from "../plugins/provider-catalog.types.js";
 import { isProviderCatalogSourceAllowed } from "../plugins/provider-config-owner.js";
 import {
@@ -293,6 +296,7 @@ async function resolvePluginImplicitProviders(
     // Static catalogs are preferred for entries-only discovery and as a fallback
     // when runtime discovery produces no usable provider config.
     const hasPreparedStaticResult = preparedStaticResults?.has(provider) === true;
+    let acceptedRuntimeCatalog = false;
     const normalizedResult = await withProviderCatalogExpiry(
       async () => {
         let result;
@@ -316,6 +320,7 @@ async function resolvePluginImplicitProviders(
             timeoutMs:
               ctx.providerDiscoveryTimeoutMs ?? resolveLiveProviderCatalogTimeoutMs(ctx.env),
           });
+          acceptedRuntimeCatalog = Boolean(result);
         }
         if (!result && !useStaticCatalog && provider.staticCatalog) {
           result = await runProviderStaticCatalog({ provider });
@@ -333,6 +338,12 @@ async function resolvePluginImplicitProviders(
         (selectedProviderIds && !selectedProviderIds.has(normalizeProviderId(providerId)))
       ) {
         continue;
+      }
+      if (acceptedRuntimeCatalog) {
+        recordProviderCatalogModels(
+          providerId,
+          implicitProvider.models.map(({ id }) => id),
+        );
       }
       const mergedProvider = mergeImplicitProviderConfig({
         providerId,
