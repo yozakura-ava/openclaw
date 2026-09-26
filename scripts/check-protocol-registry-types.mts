@@ -25,14 +25,10 @@ const writable = new Set([
   "ProgressCardPutResult",
   "ProgressCardChangedEvent",
 ]);
-// Import the public schema barrel via the package's compiled entry so TypeScript's
-// NodeNext resolution resolves the type from `dist/schema.d.mts` directly from this
-// fixture's directory. The bare specifier `@openclaw/gateway-protocol/schema` is
-// resolved correctly by Node at runtime (see the createRequire check above), but
-// TypeScript's module walker does not always locate the workspace package from a
-// fixture located inside `packages/gateway-protocol/` when pnpm's strict layout
-// omits the self-link at the workspace root.
-const prelude = 'import { ProtocolSchemas } from "./dist/schema.mjs";';
+// Pin the bare specifier resolution to the package SOURCE via compiler `paths` —
+// build-order-proof (no dist dependency) and pnpm-layout-proof. The runtime
+// createRequire check above still verifies the real public subpath emit.
+const prelude = 'import { ProtocolSchemas } from "@openclaw/gateway-protocol/schema"';
 
 for (const exactOptionalPropertyTypes of [true, false]) {
   const options: ts.CompilerOptions = {
@@ -41,6 +37,9 @@ for (const exactOptionalPropertyTypes of [true, false]) {
     exactOptionalPropertyTypes,
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.NodeNext,
+    paths: {
+      "@openclaw/gateway-protocol/schema": [path.join(packageRoot, "src", "schema.ts")],
+    },
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
     skipLibCheck: false,
