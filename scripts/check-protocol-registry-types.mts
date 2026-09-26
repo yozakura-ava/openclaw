@@ -43,6 +43,12 @@ for (const exactOptionalPropertyTypes of [true, false]) {
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
     skipLibCheck: false,
+    // The schema barrel re-exports theme.ts, which uses an explicit
+    // `.ts`-suffixed type-only import (a repo-wide convention also enabled in
+    // the root tsconfig.json). `noEmit: true` above satisfies the option's
+    // requirement; without this flag, tsc rejects the .ts-extension import
+    // with TS5097 even though the path resolves cleanly.
+    allowImportingTsExtensions: true,
     types: [],
   };
   let fixture = `${prelude}\ntype Registry = typeof ProtocolSchemas;\n`;
