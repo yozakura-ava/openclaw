@@ -43,6 +43,12 @@ import {
 } from "../ws-policy-close.js";
 import type { GatewayWsClient } from "../ws-types.js";
 import type { GatewayWsMessageHandlerParams } from "./message-handler-types.js";
+import {
+  dispatchWithCoalescing,
+  extractClientIdentity,
+  RequestCoalescer,
+  type RespondFn,
+} from "./request-coalescing.js";
 import { createGatewayRpcDiagnostics } from "./request-diagnostics.js";
 import { scheduleGatewayRequestStart } from "./request-start.js";
 import { isUnauthorizedRoleError, UnauthorizedFloodGuard } from "./unauthorized-flood-guard.js";
@@ -77,6 +83,51 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
   } = params.handler;
   const unauthorizedFloodGuard = new UnauthorizedFloodGuard();
   let deviceCredentialMutationBarrier: Promise<void> | undefined;
+  // Per-client request coalescers (issue #184 server-side fold-in).
+  // WeakMap so connection teardown releases state without an explicit hook.
+  const perClientCoalescers = new WeakMap<GatewayWsClient, RequestCoalescer>();
+
+  /**
+   * Issue #184 fold-in: lazy-create the per-connection coalescer on first use.
+   * Builds client identity from the connect payload; teardown fires when the
+   * WeakMap entry is GC'd or when the socket emits `close`.
+   */
+  const getOrCreateCoalescer = (client: GatewayWsClient): RequestCoalescer => {
+    let coalescer = perClientCoalescers.get(client);
+    if (coalescer) {
+      return coalescer;
+    }
+    // SAFETY: GatewayWsClient is structurally compatible with `extractClientIdentity`'s
+    // client parameter; the `{ connect?: unknown }` intersection surfaces the optional
+    // connect payload from the WS handshake. The previous `const clientAsUnknown = client
+    // as unknown; const identityClient = clientAsUnknown as …` form was flagged by
+    // lint:no-chained-type-assertions because it bound `as unknown` and then re-asserted
+    // through it; the inline form keeps the parse-boundary cast to a single expression.
+    const identityClient = client as unknown as Parameters<
+      typeof extractClientIdentity
+    >[0]["client"] & {
+      connect?: unknown;
+    };
+    const identity = extractClientIdentity({
+      connId,
+      client: identityClient,
+    });
+    coalescer = new RequestCoalescer({
+      connId,
+      identity,
+      connectionAcceptedAt: Date.now(),
+    });
+    perClientCoalescers.set(client, coalescer);
+    // Best-effort teardown when the socket closes. WeakMap handles GC, but
+    // explicit dispose flushes pending in-flight entries so subscribers
+    // never await a handle that nobody will resolve.
+    try {
+      client.socket?.once?.("close", () => coalescer?.dispose());
+    } catch {
+      // `socket` is an opaque shape; defensive about runtime-only access.
+    }
+    return coalescer;
+  };
 
   const closeInvalidatedClient = (client: GatewayWsClient, method: string): boolean => {
     const policyChanged = !isGatewayAuthPolicyCurrent(client.authPolicyGeneration);
@@ -318,9 +369,9 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
         }
         return true;
       };
-      const respondWithAuthority: typeof respond = (ok, payload, error, meta) => {
+      const respondWithAuthority: RespondFn = (ok, payload, error, meta) => {
         if (hasCurrentRuntimeAuthority()) {
-          respond(ok, payload, error, meta);
+          respond(ok, payload, error as ErrorShape | undefined, meta);
         }
       };
       const policyResponse = registerGatewayPolicyResponse(
@@ -407,29 +458,57 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
           if (signal?.aborted || !hasCurrentClientAuthority() || !hasCurrentRuntimeAuthority()) {
             return;
           }
-          await runOutsideGatewayRootWorkAdmission(() =>
-            handleGatewayRequest(
-              bindWebSocketRequestMutationAuthority(
-                {
-                  req,
-                  respond: respondWithAuthority,
-                  client,
-                  isWebchatConnect: params.isWebchatConnect,
-                  hasCurrentClientAuthority,
-                  expectedProfileBinding,
-                  extraHandlers,
-                  methodRegistry: getMethodRegistry?.(),
-                  context,
-                  ...(admission ? { admission } : {}),
-                  requestEntry: entry,
-                  ...(signal ? { signal } : {}),
-                },
-                client,
-                getRequiredSharedGatewaySessionGeneration,
+          // Issue #184 server-side fold-in: single-flight + SWR + rate-limit/breaker.
+          // Only the four catalog/metadata methods in DEFAULT_COALESCED_METHODS are
+          // gated here; everything else (mutations, chat streams, etc.) keeps the
+          // existing dispatch path. The coalescer lives on the dispatcher closure as
+          // a WeakMap keyed by client so per-connection state auto-clears.
+          // Issue #184 server-side fold-in: single-flight + SWR + rate-limit/breaker.
+          // Default-coalesced methods (models.list / models.authStatus / chat.metadata
+          // / sessions.describe) are gated through dispatchWithCoalescing. Everything
+          // else (mutations, chat streams, etc.) keeps the existing dispatch path
+          // unchanged because dispatchWithCoalescing short-circuits to a pass-through
+          // run when the method is not in the coalesced set.
+          //
+          // The handler must use the `capturingRespond` provided by
+          // dispatchWithCoalescing — that respond shim captures the
+          // (ok, payload, error, meta) tuple so we can:
+          //   - populate the SWR cache via recordOutcome
+          //   - resolve the RunHandle with {ok, payload, error} so coalesced
+          //     subscribers replay the producer's actual data instead of
+          //     the previous `{ok:true}` empty success.
+          await dispatchWithCoalescing({
+            coalescer: getOrCreateCoalescer(client),
+            method: req.method,
+            params: req.params,
+            respond: respondWithAuthority,
+            runFresh: (capturingRespond: RespondFn) =>
+              runOutsideGatewayRootWorkAdmission(() =>
+                handleGatewayRequest(
+                  bindWebSocketRequestMutationAuthority(
+                    {
+                      req,
+                      respond: capturingRespond,
+                      client,
+                      isWebchatConnect: params.isWebchatConnect,
+                      hasCurrentClientAuthority,
+                      expectedProfileBinding,
+                      extraHandlers,
+                      methodRegistry: getMethodRegistry?.(),
+                      context,
+                      ...(admission ? { admission } : {}),
+                      requestEntry: entry,
+                      ...(signal ? { signal } : {}),
+                    },
+                    client,
+                    getRequiredSharedGatewaySessionGeneration,
+                  ),
+                  diagnostics,
+                ),
               ),
-              diagnostics,
-            ),
-          );
+            diagnostics,
+            errorShape: (err: unknown) => errorShape(ErrorCodes.UNAVAILABLE, formatForLog(err)),
+          });
         } catch (err) {
           dispatchOutcome = "threw";
           // Failure diagnostics and responses belong to the same request trace as the handler.

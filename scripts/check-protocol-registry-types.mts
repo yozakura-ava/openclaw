@@ -25,7 +25,10 @@ const writable = new Set([
   "ProgressCardPutResult",
   "ProgressCardChangedEvent",
 ]);
-const prelude = 'import { ProtocolSchemas } from "@openclaw/gateway-protocol/schema";';
+// Pin the bare specifier resolution to the package SOURCE via compiler `paths` —
+// build-order-proof (no dist dependency) and pnpm-layout-proof. The runtime
+// createRequire check above still verifies the real public subpath emit.
+const prelude = 'import { ProtocolSchemas } from "@openclaw/gateway-protocol/schema"';
 
 for (const exactOptionalPropertyTypes of [true, false]) {
   const options: ts.CompilerOptions = {
@@ -34,9 +37,18 @@ for (const exactOptionalPropertyTypes of [true, false]) {
     exactOptionalPropertyTypes,
     target: ts.ScriptTarget.ESNext,
     module: ts.ModuleKind.NodeNext,
+    paths: {
+      "@openclaw/gateway-protocol/schema": [path.join(packageRoot, "src", "schema.ts")],
+    },
     moduleResolution: ts.ModuleResolutionKind.NodeNext,
     noEmit: true,
     skipLibCheck: false,
+    // The schema barrel re-exports theme.ts, which uses an explicit
+    // `.ts`-suffixed type-only import (a repo-wide convention also enabled in
+    // the root tsconfig.json). `noEmit: true` above satisfies the option's
+    // requirement; without this flag, tsc rejects the .ts-extension import
+    // with TS5097 even though the path resolves cleanly.
+    allowImportingTsExtensions: true,
     types: [],
   };
   let fixture = `${prelude}\ntype Registry = typeof ProtocolSchemas;\n`;
@@ -109,9 +121,15 @@ for (const exactOptionalPropertyTypes of [true, false]) {
     return true;
   });
   if (unexpected.length || observedReadonly.size !== expectedReadonly) {
+    const formatted = ts.formatDiagnosticsWithColorAndContext(unexpected, {
+      getCanonicalFileName: (fileName) => fileName,
+      getCurrentDirectory: () => packageRoot,
+      getNewLine: () => "\n",
+    });
     throw new Error(
       `Registry mutability mismatch (exactOptionalPropertyTypes=${exactOptionalPropertyTypes}): ` +
-        `${observedReadonly.size}/${expectedReadonly} readonly assignments rejected; ${unexpected.length} unexpected diagnostics`,
+        `${observedReadonly.size}/${expectedReadonly} readonly assignments rejected; ${unexpected.length} unexpected diagnostics\n` +
+        formatted,
     );
   }
 }

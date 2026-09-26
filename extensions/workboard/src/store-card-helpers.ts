@@ -13,6 +13,7 @@ import {
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import {
+  isWorkboardClaimReclaimable,
   MAX_CARD_ATTEMPTS,
   MAX_CARD_EVENTS,
   MAX_WORKER_CONTEXT_PARENTS,
@@ -339,6 +340,7 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
+  recovery = false,
 ) {
   if (!scope) {
     return;
@@ -349,7 +351,16 @@ export function assertCanMutateClaimedCard(
   }
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
-  if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
+  // Recovery callers (e.g. addComment evidence writes during reclaim-then-handoff)
+  // may proceed against an EXPIRED claim whose grace window has elapsed. The
+  // heartbeat grace in store-workflow.ts still blocks OTHER owners from stealing
+  // a live token; recovery only lets the operator past a claim whose owner has
+  // already walked away.
+  if (
+    claim.ownerId !== ownerId &&
+    !safeEqualSecret(token, claim.token) &&
+    !(recovery && isWorkboardClaimReclaimable(claim, Date.now()))
+  ) {
     throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }
@@ -597,4 +608,26 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
     return 1;
   }
   return a.id.localeCompare(b.id);
+}
+
+/**
+ * Split an oversized comment body into sequential chunks of at most
+ * `maxLength` characters, preferring whitespace boundaries so words are not
+ * cut mid-token. Pure function; callers own persistence and labeling.
+ */
+export function splitCommentBody(body: string, maxLength: number): string[] {
+  const chunks: string[] = [];
+  let remaining = body;
+  while (remaining.length > maxLength) {
+    let cut = remaining.lastIndexOf(" ", maxLength);
+    if (cut <= 0) {
+      cut = maxLength;
+    }
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+  }
+  if (remaining.length > 0 || chunks.length === 0) {
+    chunks.push(remaining);
+  }
+  return chunks;
 }

@@ -188,6 +188,8 @@ const config = {
       "enumMembers",
       "namespaceMembers",
     ],
+    "src/gateway/server/ws-connection/request-coalescing.ts": ["exports", "types"],
+    "extensions/workboard/src/store-inputs.ts": ["types"],
   },
   workspaces,
 };

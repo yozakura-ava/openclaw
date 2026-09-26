@@ -1233,7 +1233,7 @@ printf '%s\\n' \
           ...process.env,
           PATH: `${bin}:${process.env.PATH ?? ""}`,
           GITHUB_OUTPUT: output,
-          GITHUB_REPOSITORY: "openclaw/openclaw",
+          GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
           GITHUB_RUN_ATTEMPT: "2",
           GITHUB_RUN_ID: "9001",
           LANE_ID: "mock-provider",

@@ -2138,7 +2138,7 @@ describe("release validation no-push transport", () => {
               CALLS: calls,
               FINALIZER_EXIT: String(finalizerExit),
               RUNNER_TEMP: root,
-              GITHUB_REPOSITORY: "openclaw/openclaw",
+              GITHUB_REPOSITORY: process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw",
               RELEASE_TAG: tag,
               RELEASE_NPM_DIST_TAG: distTag,
               SOURCE_SHA: "a".repeat(40),

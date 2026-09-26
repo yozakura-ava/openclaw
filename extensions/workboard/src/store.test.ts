@@ -3365,6 +3365,43 @@ describe("WorkboardStore", () => {
     });
   });
 
+  it("admits chunked comments past an expired claim via the recovery path", async () => {
+    // Pair with the live-claim scope test above. addComment now passes
+    // recovery=true through addCommentWithChunking → assertCanMutateClaimedCard,
+    // so the chunking module honors a claim whose grace window has elapsed.
+    // The 4096-byte cap (eb0bd09636a) is preserved end-to-end on the recovery
+    // path: both the single-row and the chunked split branches call
+    // assertCanMutateClaimedCard with recovery=true.
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Recovery admission" });
+    await store.claim(card.id, { ownerId: "main", token: "token-1" });
+
+    // Advance Date.now() past DEFAULT_CLAIM_TTL_MS (30 min) AND CLAIM_RECLAIM_MS
+    // (5 min grace) so isWorkboardClaimReclaimable returns true. The spy is set
+    // up AFTER claim/create, so the persisted timestamps stay on real time.
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      nowSpy.mockReturnValue(Date.now() + 36 * 60 * 1000);
+
+      // Other owner's oversized (4097-byte) comment must split AND pass the
+      // expired-claim guard. Without recovery=true in addComment this would
+      // throw "claimed by main"; with recovery=true the split sequence lands
+      // and the comment shows up as two labeled rows.
+      await expect(
+        store.addComment(card.id, { body: "x".repeat(4097) }, { ownerId: "other" }),
+      ).resolves.toMatchObject({
+        metadata: {
+          comments: expect.arrayContaining([
+            expect.objectContaining({ body: "x".repeat(4097 - 20).slice(0, 4076) }),
+            expect.objectContaining({ body: expect.stringMatching(/ \(2\/2\)$/) }),
+          ]),
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   it("lets operators override claims while enforcing agent-scoped moves", async () => {
     const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Scoped move", status: "todo" });
@@ -5202,4 +5239,3 @@ describe("WorkboardStore", () => {
     );
   });
 });
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

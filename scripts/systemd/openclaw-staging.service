@@ -1,0 +1,47 @@
+# OpenClaw staging service (PR-K, pre96-rework).
+#
+# In-repo unit file. Do NOT install or enable on host directly — installation
+# is a Craig-approved ops step (HR2). Setup script must render the path
+# placeholders before install.
+#
+# Distinct from live `openclaw.service`:
+#   - OPENCLAW_HOME -> ~/.openclaw-staging (isolated state; never touches live DB)
+#   - listen on 127.0.0.1:18800 (loopback; registered in data/state/port_registry.json)
+#   - one throwaway agent + scratch workboard card; no channel credentials
+#   - bounded memory (MemoryHigh + MemoryMax) so we do not reproduce the live
+#     long graceful-drain RSS blowup reported in 2026-09-24 postmortem RC #5.
+#   - aggressive TimeoutStopSec so staging restarts do not block the operator.
+#   - identical ExecStart pattern as live so smoke checks against the same code path.
+[Unit]
+Description=OpenClaw Staging Gateway (PR-K, port 18800)
+# Refuse to start before the user-session bus is ready; mirror live ordering.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# staging-app-dir.sh renders this placeholder to the staged tree.
+ExecStart=@OPENCLAW_STAGING_BIN_PATH@
+# Confined staging runtime; nothing in OPENCLAW_STAGING_HOME is readable by
+# other users. Bounded memory to avoid the long graceful-drain blowup.
+Environment=OPENCLAW_HOME=@OPENCLAW_STAGING_HOME@
+Environment=OPENCLAW_GATEWAY_PORT=18800
+Environment=OPENCLAW_GATEWAY_BIND=127.0.0.1
+Environment=OPENCLAW_LOG_NAMESPACE=openclaw-staging
+# Bounded RSS. Staging must NEVER exceed the live unit's normal RSS band.
+MemoryHigh=768M
+MemoryMax=1G
+# Stage does not have or need upstream download — fail-fast if gateway cannot
+# boot inside the staging window. Long graceful drain is what bit us in the
+# live rollout — keep the staging drain short so smoke can rerun promptly.
+TimeoutStopSec=20
+# Restart policy: only restart on success-after-failure pattern. Do not loop.
+Restart=on-failure
+RestartSec=5
+# Staging runs as the same user as the live service to mirror capability/shell
+# constraints, but state is confined to OPENCLAW_STAGING_HOME.
+User=@OPENCLAW_SERVICE_USER@
+WorkingDirectory=@OPENCLAW_STAGING_HOME@
+
+[Install]
+WantedBy=default.target
