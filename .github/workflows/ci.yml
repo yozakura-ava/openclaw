@@ -1691,7 +1691,14 @@ jobs:
                 throw new Error(`Current PR CI target does not export ${name}`);
               }
             }
-            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
+            // Fork-only workflow/harness edits must not be interpreted as a
+            // broad product change by the upstream shard planner.
+            const plannerChangedPaths = isCanonicalRepository
+              ? changedPaths
+              : changedPaths.filter(
+                  (path) => !path.startsWith(".github/") && !path.startsWith(".ci-harness/"),
+                );
+            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(plannerChangedPaths, {
               includeReleaseOnlyToolingShards: false,
               includeReleaseOnlyRuntimeTests,
               runnerBackend: runnerProfile,
@@ -1702,7 +1709,7 @@ jobs:
             });
             if (changedNodeTestShards === null) {
               changedExtensionFallbackShards =
-                changedNodeTestPlan.createChangedExtensionFallbackShards(changedPaths);
+                changedNodeTestPlan.createChangedExtensionFallbackShards(plannerChangedPaths);
             } else {
               console.log(`Node test plan changed-set: ${changedNodeTestShards.filter((shard) => !shard.requiresDist).length} rows`);
             }
