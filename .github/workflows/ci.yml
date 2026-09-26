@@ -70,14 +70,16 @@ run-name: ${{ github.event_name == 'workflow_dispatch' && inputs.dispatch_id != 
 concurrency:
   # Canonical main uses run-number parity for two non-canceling slots. Each
   # slot keeps GitHub's single coalesced pending tip while its active run finishes.
-  # Passive draft events must not replace runnable CI before job gates: pending
-  # replacement happens even with cancel-in-progress false. Keep converted_to_draft
-  # in the PR group so it still cancels earlier work.
+  # Draft and ready PR events intentionally share the PR-number group so every
+  # PR head supersedes older work, including converted_to_draft events.
+  # Fork main pushes use one ref group so a newer push cancels an incomplete run.
   group: >-
-    ${{ github.event_name == 'pull_request' && github.event.pull_request.draft &&
-        github.event.action != 'converted_to_draft' && format('{0}-draft-v1-{1}', github.workflow, github.run_id) ||
-        github.event_name == 'workflow_dispatch' && format('{0}-manual-v1-{1}', github.workflow, github.run_id) || (github.event_name == 'pull_request' && format('{0}-v7-{1}', github.workflow, github.event.pull_request.number) || (github.repository == 'openclaw/openclaw' && github.event_name == 'push' && github.ref == 'refs/heads/main' && format('{0}-v8-{1}-{2}', github.workflow, github.ref, (endsWith(format('{0}', github.run_number), '0') || endsWith(format('{0}', github.run_number), '2') || endsWith(format('{0}', github.run_number), '4') || endsWith(format('{0}', github.run_number), '6') || endsWith(format('{0}', github.run_number), '8')) && 'a' || 'b') || (github.repository == 'openclaw/openclaw' && format('{0}-v7-{1}', github.workflow, github.ref) || format('{0}-v7-{1}-{2}', github.workflow, github.ref, github.sha)))) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    ${{ github.event_name == 'pull_request' && format('{0}-v9-pr-{1}', github.workflow, github.event.pull_request.number) ||
+        github.event_name == 'workflow_dispatch' && format('{0}-v9-manual-{1}', github.workflow, github.run_id) ||
+        github.repository == 'openclaw/openclaw' && github.event_name == 'push' && github.ref == 'refs/heads/main' && format('{0}-v8-{1}-{2}', github.workflow, github.ref, (endsWith(format('{0}', github.run_number), '0') || endsWith(format('{0}', github.run_number), '2') || endsWith(format('{0}', github.run_number), '4') || endsWith(format('{0}', github.run_number), '6') || endsWith(format('{0}', github.run_number), '8')) && 'a' || 'b') ||
+        github.event_name == 'push' && github.ref == 'refs/heads/main' && format('{0}-v9-{1}', github.workflow, github.ref) ||
+        format('{0}-v9-{1}-{2}', github.workflow, github.ref, github.sha) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository != 'openclaw/openclaw') }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
@@ -1416,6 +1418,7 @@ jobs:
           const packageScripts = packageJson.scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
+          const isForkRepository = process.env.OPENCLAW_CI_REPOSITORY === "yozakura-ava/openclaw";
           const changedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -1541,7 +1544,8 @@ jobs:
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
-            !isCanonicalRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
+            (!isCanonicalRepository && !isForkRepository) ||
+            eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
             changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
@@ -1643,10 +1647,15 @@ jobs:
             );
           }
 
-          const compactPullRequest = isCanonicalRepository && eventName === "pull_request";
+          // The fork uses the same compact, changed-scope planner for PRs. The
+          // canonical repository keeps its release-only runtime policy below,
+          // but fork PRs must not expand into release/native validation lanes.
+          const compactPullRequest =
+            (isCanonicalRepository || isForkRepository) && eventName === "pull_request";
           const runtimePullRequest = isCanonicalRepository && (compactPullRequest || releaseGate);
           const includeReleaseOnlyRuntimeTests =
-            !isCanonicalRepository || (!runtimePullRequest && eventName !== "push");
+            (!isCanonicalRepository && !isForkRepository) ||
+            (isCanonicalRepository && !runtimePullRequest && eventName !== "push");
           const startupCorpusTestFiles =
             typeof nodeTestPlan.resolveStartupCorpusTestFiles === "function"
               ? nodeTestPlan.resolveStartupCorpusTestFiles({
@@ -1669,17 +1678,11 @@ jobs:
               eventName === "workflow_dispatch" || (ownerPathEvent && changedPaths === null))) {
             dockerSeedLanes.push("published-upgrade-survivor");
           }
-          // Canonical pushes also use compact bins: 80+ single-group jobs
-          // drain the runner pool for minutes, and per-shard check names on
-          // main have no branch-protection consumers. Dispatch (release
-          // validation) keeps the full named matrix.
-          const compactPlanMode = !isCanonicalRepository
-            ? undefined
-            : eventName === "pull_request"
+          // Fork pull requests use compact bins. Main pushes retain the full
+          // coverage contract; dispatch remains the explicit release owner.
+          const compactPlanMode = (isCanonicalRepository || isForkRepository) && eventName === "pull_request"
               ? "pull-request"
-              : eventName === "push"
-                ? "push"
-                : undefined;
+              : undefined;
           let changedNodeTestShards = null;
           let changedExtensionFallbackShards = [];
           if (compactPullRequest && runNodeFull) {
@@ -1692,7 +1695,14 @@ jobs:
                 throw new Error(`Current PR CI target does not export ${name}`);
               }
             }
-            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(changedPaths, {
+            // Fork-only workflow/harness edits must not be interpreted as a
+            // broad product change by the upstream shard planner.
+            const plannerChangedPaths = isCanonicalRepository
+              ? changedPaths
+              : changedPaths.filter(
+                  (path) => !path.startsWith(".github/") && !path.startsWith(".ci-harness/"),
+                );
+            changedNodeTestShards = changedNodeTestPlan.createChangedNodeTestShards(plannerChangedPaths, {
               includeReleaseOnlyToolingShards: false,
               includeReleaseOnlyRuntimeTests,
               runnerBackend: runnerProfile,
@@ -1702,8 +1712,16 @@ jobs:
               dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
             });
             if (changedNodeTestShards === null) {
-              changedExtensionFallbackShards =
-                changedNodeTestPlan.createChangedExtensionFallbackShards(changedPaths);
+              if (isForkRepository) {
+                // Fork workflow/harness changes are infrastructure-only. Keep
+                // the compact PR contract without expanding to the entire
+                // product matrix when the upstream planner requests fallback.
+                changedNodeTestShards = [];
+                changedExtensionFallbackShards = [];
+              } else {
+                changedExtensionFallbackShards =
+                  changedNodeTestPlan.createChangedExtensionFallbackShards(plannerChangedPaths);
+              }
             } else {
               console.log(`Node test plan changed-set: ${changedNodeTestShards.filter((shard) => !shard.requiresDist).length} rows`);
             }
@@ -1755,7 +1773,9 @@ jobs:
             runNodeFull &&
             changedScopeHasQaImpact &&
             (!frozenTarget || existsSync("extensions/qa-lab/src/ci-smoke-plan.ts"));
-          const nodeMatrixLimit = compactPlanMode === "pull-request" ? 130 : 70;
+          const nodeMatrixLimit = compactPlanMode === "pull-request"
+            ? (isForkRepository ? 32 : 130)
+            : 70;
           const rawNodeTestShards = runNodeFull
             ? changedNodeTestShards
               ? changedNodeTestShards
@@ -1763,7 +1783,8 @@ jobs:
                   ...createNodeTestPlan({
                     includeProofTests: runProofTier,
                     includeReleaseOnlyPluginShards: false,
-                    includeReleaseOnlyToolingShards: eventName === "workflow_dispatch" || !isCanonicalRepository,
+                    includeReleaseOnlyToolingShards:
+                      eventName === "workflow_dispatch" || (!isCanonicalRepository && !isForkRepository),
                     includeReleaseOnlyRuntimeTests,
                     ...(runtimePullRequest && changedPaths ? { changedPaths } : {}),
                     // Keep the legacy boolean for historical target planners;
@@ -1785,7 +1806,8 @@ jobs:
               ? nodeTestPlan.createUiTestShardGroups({
                   includeReleaseOnlyTests:
                     (eventName === "workflow_dispatch" && !releaseGate) ||
-                    !isCanonicalRepository || compatibilityTarget || changedPaths === null,
+                    (!isCanonicalRepository && !isForkRepository) ||
+                    compatibilityTarget || changedPaths === null,
                   changedPaths: changedPaths ?? [],
                 })
               : null;

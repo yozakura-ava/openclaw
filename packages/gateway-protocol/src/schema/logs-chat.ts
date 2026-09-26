@@ -465,8 +465,7 @@ export function projectChatErrorDetail(observation: unknown): ChatErrorDetail | 
     ...(httpStatus !== undefined &&
       Number.isInteger(httpStatus) &&
       httpStatus >= 100 &&
-      httpStatus <= 599 &&
-      { httpStatus }),
+      httpStatus <= 599 && { httpStatus }),
     ...(providerErrorMessagePreview !== undefined && { providerErrorMessagePreview }),
   };
   return Object.keys(detail).length > 0 ? detail : undefined;

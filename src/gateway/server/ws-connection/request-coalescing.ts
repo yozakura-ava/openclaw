@@ -197,9 +197,13 @@ export class RequestCoalescer {
           // DiagnosticEventInput is a discriminated union and our custom
           // gateway.request.rate event is statically outside it (it's a new
           // diagnostic kind scoped to this module). The runtime payload is
-          // structurally identical to the trusted-diagnostic base shape; cast
-          // through unknown to the trusted channel's parameter type.
-          emitTrustedDiagnosticEvent(event as unknown as Parameters<typeof emitTrustedDiagnosticEvent>[0]);
+          // structurally identical to the trusted-diagnostic base shape.
+          // structuredClone returns a fresh structural value at this diagnostics boundary;
+          // the receiver owns the trusted event shape after this point.
+          const trustedEvent: Parameters<typeof emitTrustedDiagnosticEvent>[0] = structuredClone(
+            event as never,
+          );
+          emitTrustedDiagnosticEvent(trustedEvent);
         }),
     };
   }
