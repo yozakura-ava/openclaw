@@ -200,9 +200,9 @@ export class RequestCoalescer {
           // structurally identical to the trusted-diagnostic base shape.
           // structuredClone returns a fresh structural value at this diagnostics boundary;
           // the receiver owns the trusted event shape after this point.
-          const trustedEvent = structuredClone(event) as Parameters<
-            typeof emitTrustedDiagnosticEvent
-          >[0];
+          const trustedEvent: Parameters<typeof emitTrustedDiagnosticEvent>[0] = structuredClone(
+            event as never,
+          );
           emitTrustedDiagnosticEvent(trustedEvent);
         }),
     };
