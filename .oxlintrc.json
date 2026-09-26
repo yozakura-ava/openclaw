@@ -403,24 +403,6 @@
       }
     },
     {
-      // Main @ 526f3d1 CI-red repair: one-time rebaseline. DEBT card
-      // 6699d7b2-b01a-4d00-bd6e-5388ec065582 owns the proper ~4 200-line
-      // shrink split (oversized-comment helpers → sibling + large test
-      // surface split). Re-cap to 700 once that split lands.
-      "files": ["extensions/workboard/src/store-normalizers.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 1431, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
-      // Same DEBT card 6699d7b2-b01a-4d00-bd6e-5388ec065582 shrink plan.
-      // Re-cap to 1 001 once the test surface split lands.
-      "files": ["extensions/workboard/src/store.test.ts"],
-      "rules": {
-        "max-lines": ["warn", { "max": 5246, "skipBlankLines": true, "skipComments": true }]
-      }
-    },
-    {
       "files": ["**/*.{ts,tsx,mts,cts}"],
       "rules": {
         // tsgo owns TypeScript type/value namespace validity; no-var still rejects var declarations.
