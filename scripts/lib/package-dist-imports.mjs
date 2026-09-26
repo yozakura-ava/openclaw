@@ -15,6 +15,15 @@ function hasJavaScriptFileExtension(value) {
   return /\.(?:cjs|js|mjs)$/u.test(path.posix.basename(stripSpecifierSuffix(value)));
 }
 
+function literal(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+  return node?.type === "TemplateLiteral" && node.expressions.length === 0
+    ? node.quasis[0].value.cooked
+    : undefined;
+}
+
 function appendImportEdges(source, importerPath, imports) {
   function visit(node) {
     let kind;
