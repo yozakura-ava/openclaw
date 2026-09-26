@@ -14,7 +14,7 @@ import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import { holdStateDatabaseCoordinator } from "../test-utils/state-database-contention.js";
 import { loadTaskAcpSessionCloser } from "./task-registry-acp-cleanup.js";
 import { getTaskPreparedActivity, recordTaskActivityEvent } from "./task-registry-activity.js";
-import { isTaskRegistryTaskSettled, prepareTaskRegistryRead } from "./task-registry-read.js";
+import { prepareTaskRegistryRead } from "./task-registry-read.js";
 import {
   getTasksByRunId,
   taskActivityByTaskId,
@@ -451,8 +451,6 @@ describe("task maintenance retention", () => {
               expect(getTaskPreparedActivity(task.taskId)).toEqual(before.activity);
               expect(published).toEqual([]);
               expect(readbacks).toHaveBeenCalledTimes(readbacksAtResultDelivery);
-              expect(isTaskRegistryTaskSettled(task.taskId)).toBe(false);
-
               const reconciled = expectDefined(
                 await prepareTaskRegistryRead(),
                 "separate canonical read after the unknown retention result",

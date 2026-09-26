@@ -112,9 +112,6 @@ type TaskRegistryRestoreState =
     };
 let taskRegistryRestoreState: TaskRegistryRestoreState = { status: "uninitialized" };
 
-export function isTaskRegistryResidentReady(): boolean {
-  return taskRegistryRestoreState.status === "ready";
-}
 export function emitTaskRegistryObserverEvent(createEvent: () => TaskRegistryObserverEvent): void {
   deliverTaskRegistryObserverEvent(createEvent, recordTaskRegistryPublication);
 }

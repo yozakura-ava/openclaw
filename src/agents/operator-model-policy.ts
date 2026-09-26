@@ -12,15 +12,6 @@ import type { PreparedOperatorModelPolicy } from "./operator-model-policy.types.
 
 export type { PreparedOperatorModelPolicy } from "./operator-model-policy.types.js";
 
-const modelPolicyMembership = new WeakMap<PreparedOperatorModelPolicy, string>();
-
-/** Comparison uses the original predicate, including models outside concrete discovery choices. */
-export function readOperatorModelPolicyMembership(
-  policy: PreparedOperatorModelPolicy | undefined,
-): string | undefined {
-  return policy ? modelPolicyMembership.get(policy) : "unrestricted";
-}
-
 /** Preserve the already-selected default when allowed, otherwise use the first compatible source choice. */
 export function resolveOperatorModelDefault(
   params: {
@@ -135,14 +126,5 @@ export function prepareOperatorModelPolicy(
     models: Object.freeze(models),
     allows,
   });
-  modelPolicyMembership.set(
-    prepared,
-    JSON.stringify([
-      [...allowed.exact.keys()].toSorted(),
-      allowed.wildcards,
-      [...denied.exact.keys()].toSorted(),
-      denied.wildcards,
-    ]),
-  );
   return prepared;
 }

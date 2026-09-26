@@ -320,4 +320,3 @@ export function runTaskRecordTransitionOperation(
 }
 
 /** Marks a task run transition whose publication outcome was not certified before reuse. */
-export class TaskRunTransitionUnsettledError extends Error {}

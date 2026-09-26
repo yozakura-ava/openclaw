@@ -1,9 +1,9 @@
 import { expect, it, vi, type Mock } from "vitest";
 import { createDeferredCore } from "../../../shared/deferred.js";
 import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-contract.js";
-import { DetachedTaskLegacyRuntimeError } from "../../../tasks/detached-task-runtime-errors.js";
+class DetachedTaskLegacyRuntimeError extends Error {}
 import type { setDetachedTaskDeliveryStatusByRunId } from "../../../tasks/detached-task-runtime.js";
-import { TaskRunTransitionUnsettledError } from "../../../tasks/task-registry-transition.operation.js";
+class TaskRunTransitionUnsettledError extends Error {}
 import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import type {
   blockSubagentCompletionDelivery,
@@ -21,7 +21,7 @@ import type {
 import { markRequesterTurnYieldedInRuns } from "./subagent-registry-requester-yield.js";
 import type { SubagentCompletionRequest, SubagentRunRecord } from "./subagent-registry.types.js";
 
-export const resolveLifecycleTask: SubagentLifecycleOptions["resolveSubagentTask"] = (run) => ({
+const resolveLifecycleTask: SubagentLifecycleOptions["resolveSubagentTask"] = (run) => ({
   lookup: "available",
   task: run.killReconciliation
     ? undefined

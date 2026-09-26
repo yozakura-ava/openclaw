@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import { asOptionalRecord } from "@openclaw/normalization-core/record-coerce";
 import type {
   AgentsListResult,
@@ -14,7 +13,6 @@ import {
 import { createModelVisibilityPolicy } from "../agents/model-visibility-policy.js";
 import {
   prepareOperatorModelPolicy,
-  readOperatorModelPolicyMembership,
   resolveOperatorModelDefault,
 } from "../agents/operator-model-policy.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -23,65 +21,9 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import { isTranscriptOnlyOpenClawAssistantModel } from "../shared/transcript-only-openclaw-assistant.js";
 import { resolveOperatorRolePolicy } from "./operator-role-policy.js";
 import type { ChatMetadataResult } from "./server-methods/chat-metadata-contract.js";
-import type { GatewayClient, GatewayRequestContext } from "./server-methods/types.js";
+import type { GatewayClient } from "./server-methods/types.js";
 import { getSessionDefaults } from "./session-utils-model.js";
-import type { GatewaySessionRow, GatewaySessionsDefaults } from "./session-utils.types.js";
-
-/** Inventory/auth changes do not retire choices; changed selection authority does. */
-export function modelSelectionPoliciesMatch(
-  previous: OpenClawConfig,
-  next: OpenClawConfig,
-): boolean {
-  if (
-    (previous.models?.mode ?? "merge") !== (next.models?.mode ?? "merge") ||
-    !isDeepStrictEqual(previous.gateway?.roles, next.gateway?.roles)
-  ) {
-    return false;
-  }
-  const manifestPlugins = getGatewayPluginMetadataSnapshot() ?? [];
-  for (const role of Object.values(next.gateway?.roles?.definitions ?? {})) {
-    const before = prepareOperatorModelPolicy({
-      cfg: previous,
-      policy: role.modelPolicy,
-      manifestPlugins,
-    });
-    const after = prepareOperatorModelPolicy({
-      cfg: next,
-      policy: role.modelPolicy,
-      manifestPlugins,
-    });
-    if (readOperatorModelPolicyMembership(before) !== readOperatorModelPolicyMembership(after)) {
-      return false;
-    }
-  }
-  const agentIds = new Set([
-    undefined,
-    ...Object.keys(previous.agents?.entries ?? {}),
-    ...Object.keys(next.agents?.entries ?? {}),
-  ]);
-  for (const agentId of agentIds) {
-    const policy = (cfg: OpenClawConfig) => {
-      const model = resolveDefaultModelForAgent({ cfg, agentId });
-      return createModelVisibilityPolicy({
-        cfg,
-        agentId,
-        catalog: [],
-        defaultProvider: model.provider,
-        defaultModel: model,
-        manifestPlugins,
-      });
-    };
-    const before = policy(previous);
-    const after = policy(next);
-    if (
-      before.allowAny !== after.allowAny ||
-      (!before.allowAny && !isDeepStrictEqual(before.allowedKeys, after.allowedKeys))
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
+import type { GatewaySessionsDefaults } from "./session-utils.types.js";
 
 type HistoricalModelFields = {
   model?: unknown;
@@ -90,54 +32,6 @@ type HistoricalModelFields = {
   activeModelProvider?: unknown;
   contextBudgetStatus?: unknown;
 };
-
-/** History and startup share a final projection without changing any persisted session facts. */
-export function projectOperatorModelRead<
-  T extends {
-    defaults?: GatewaySessionsDefaults;
-    metadata?: ChatMetadataResult;
-    sessionInfo?: GatewaySessionRow;
-    kind?: string;
-    messages?: unknown[];
-    message?: unknown;
-  },
->(
-  scope: {
-    context: Pick<GatewayRequestContext, "getRuntimeConfig" | "getCommittedRuntimeConfig">;
-    client: GatewayClient | null;
-    agentId: string;
-    catalog?: ModelCatalogEntry[];
-  },
-  result: T,
-): T {
-  const cfg = scope.context.getRuntimeConfig();
-  const presentation = prepareOperatorModelPresentation({
-    cfg,
-    policyConfig: scope.context.getCommittedRuntimeConfig?.() ?? cfg,
-    client: scope.client,
-  });
-  if (!presentation) {
-    return result;
-  }
-  const policy =
-    result.defaults || result.metadata
-      ? presentation.forAgent(scope.agentId, scope.catalog)
-      : undefined;
-  return {
-    ...result,
-    ...(result.defaults && policy ? { defaults: policy.defaults(result.defaults) } : {}),
-    ...(result.metadata && policy ? { metadata: policy.metadata(result.metadata) } : {}),
-    ...(result.sessionInfo ? { sessionInfo: presentation.session(result.sessionInfo) } : {}),
-    ...(result.messages
-      ? {
-          messages: result.messages.map(
-            result.kind === "delta" ? presentation.deltaMessage : presentation.message,
-          ),
-        }
-      : {}),
-    ...(Object.hasOwn(result, "message") ? { message: presentation.message(result.message) } : {}),
-  };
-}
 
 /** Build after read preparation; responses consume current role and prepared metadata together. */
 export function prepareOperatorModelPresentation(params: {
