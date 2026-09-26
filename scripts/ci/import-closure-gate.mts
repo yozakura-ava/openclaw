@@ -81,7 +81,8 @@ function parseImportSpec(spec: string): ImportDecl {
 
 function walkMjs(root: string): string[] {
   const found: string[] = [];
-  function recurse(dir: string): void {
+  const scanAllMjs = root.endsWith("/runtime");
+  function recurse(dir: string, insideSetup = scanAllMjs): void {
     let entries: string[];
     try {
       entries = readdirSync(dir);
@@ -97,12 +98,8 @@ function walkMjs(root: string): string[] {
         continue;
       }
       if (stat.isDirectory()) {
-        recurse(full);
-      } else if (
-        extname(name) === ".mjs" ||
-        name.endsWith(".setup") ||
-        name.endsWith(".setup.mjs")
-      ) {
+        recurse(full, insideSetup || full.endsWith(".setup"));
+      } else if (extname(name) === ".mjs" && insideSetup) {
         found.push(full);
       }
     }
