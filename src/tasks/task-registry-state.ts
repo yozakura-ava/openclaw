@@ -111,8 +111,21 @@ type TaskRegistryRestoreState =
       store: TaskRegistryStore;
     };
 let taskRegistryRestoreState: TaskRegistryRestoreState = { status: "uninitialized" };
+
+export function isTaskRegistryResidentReady(): boolean {
+  return taskRegistryRestoreState.status === "ready";
+}
 export function emitTaskRegistryObserverEvent(createEvent: () => TaskRegistryObserverEvent): void {
   deliverTaskRegistryObserverEvent(createEvent, recordTaskRegistryPublication);
+}
+
+export function clearTaskActivity(taskId: string): void {
+  const activity = taskActivityByTaskId.get(taskId);
+  if (activity?.flushTimer) {
+    clearTimeout(activity.flushTimer);
+  }
+  activity?.preparedItems.clear();
+  taskActivityByTaskId.delete(taskId);
 }
 
 function clearTaskRegistryEphemeralState(): void {
@@ -491,6 +504,7 @@ function installSnapshot(
         recordTaskRegistryProjectionWrite(recordWrites, taskId, true);
       }
       removeTaskIndexes(current);
+      clearTaskActivity(taskId);
       changed = tasks.delete(taskId) || changed;
       taskDeliveryStates.delete(taskId);
     }
@@ -686,7 +700,11 @@ export async function runTaskRegistryWorkerMutation<T>(
     dirtyScopes.add(scope);
     bumpTaskRegistryRevision(true, pending.readIdentity !== "preserved");
     try {
-      claimTaskRegistryPublication(pending, context.publicationRecords());
+      claimTaskRegistryPublication(
+        pending,
+        context.publicationRecords(),
+        context.publicationDeletions?.(),
+      );
       const { conflicted } = await reconcileTaskRegistryWorkerSnapshot({
         pending,
         assertCurrent: assertOwner,

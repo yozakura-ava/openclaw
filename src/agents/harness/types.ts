@@ -10,7 +10,9 @@ import type {
   ProviderModelRouteRuntimePolicy,
   ProviderRouteOverridePresence,
 } from "../../plugin-sdk/provider-model-types.js";
+import type { ProviderCatalogOutcome } from "../../plugins/provider-catalog-outcome.js";
 import type { McpToolCatalog } from "../agent-bundle-mcp-types.js";
+import type { ModelCatalogEntry } from "../model-catalog.types.js";
 import type { AgentHarnessHostCapabilities } from "./host-capability-types.js";
 import type { AgentHarnessRuntimeArtifactBinding } from "./runtime-artifact.types.js";
 
@@ -573,11 +575,19 @@ export type AgentHarnessModelCatalogParams = {
   configuredModelRefs?: readonly ModelRef[];
 };
 
+export type AgentHarnessModelCatalogResult =
+  | readonly ModelCatalogEntry[]
+  | {
+      entries: readonly ModelCatalogEntry[];
+      providerOutcomes?: readonly ProviderCatalogOutcome[];
+      outcomes?: readonly ProviderCatalogOutcome[];
+    };
+
 type AgentHarnessModelCatalogCapability = {
   /** Lists account-scoped models owned by this native runtime. */
   loadModelCatalog?(
     params: AgentHarnessModelCatalogParams,
-  ): Promise<readonly import("../model-catalog.types.js").ModelCatalogEntry[]>;
+  ): Promise<AgentHarnessModelCatalogResult>;
   /**
    * Reads current, secret-free native account evidence for this exact catalog scope/model.
    * No I/O or discovery here. Missing/stale/disposed evidence returns undefined; this is

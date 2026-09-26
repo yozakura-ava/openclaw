@@ -60,6 +60,8 @@ export function parseModelPolicyWildcardRef(raw: string): ModelPolicyWildcardRef
   };
 }
 
+export const parseOperatorModelPolicyWildcardRef = parseModelPolicyWildcardRef;
+
 /** True for a syntactically valid exact provider/model policy reference. */
 function isValidExactModelPolicyRef(raw: string): boolean {
   const parsed = parseModelCatalogRef(raw);

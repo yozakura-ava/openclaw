@@ -15,6 +15,7 @@ export function createPreparedModelCatalogProjection(params: {
   agentFacts: PreparedModelRuntimeAgentFacts;
   catalogFacts: PreparedModelRuntimeCatalogFacts;
   pluginGeneration: PreparedModelRuntimePluginGeneration;
+  normalizeProvider?: (provider: string) => string;
 }) {
   return (
     catalog: ModelCatalogSnapshot,

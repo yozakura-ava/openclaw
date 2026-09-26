@@ -281,6 +281,13 @@ export function resolveCronTaskRecordTimestamp(
   return task.endedAt ?? task.lastEventAt ?? task.createdAt;
 }
 
+/** Stable compatibility name used by task maintenance recovery. */
+export function resolveCronRunRecordTimestamp(
+  record: Pick<TaskRecord, "endedAt" | "lastEventAt" | "createdAt">,
+): number {
+  return resolveCronTaskRecordTimestamp(record);
+}
+
 /** Reads internal trigger recovery data without adding it to run-history responses. */
 export function cronTaskRecordToTriggerEval(
   task: TaskRecord,

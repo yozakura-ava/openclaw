@@ -66,6 +66,10 @@ export const AgentModelPolicySchema = z
   .object({
     /** Model refs allowed for session/run overrides. Empty or omitted allows any model. */
     allow: z.array(z.string()).optional(),
+    /** Model refs denied for session/run overrides. */
+    deny: z.array(z.string()).optional(),
+    /** Optional agent whose configured defaults provide the policy source. */
+    sourceAgent: z.string().trim().min(1).optional(),
   })
   .strict();
 
