@@ -5,8 +5,10 @@
 # apply only to product categories, never to dependency files. For overlapping
 # categories, the first matching category supplies the review guidance.
 
-rollout:
-  pull-request: 152415
+# Fork note: no `rollout:` pin. The upstream pin referenced PR numbers
+# that do not exist in this fork (404 in securityReviewRollout), which
+# failed the review job on every fork PR. Omitting the key enforces the
+# policy repo-wide, which is the landed intent.
 
 exclude:
   test-directories:
