@@ -1418,6 +1418,7 @@ jobs:
           const packageScripts = packageJson.scripts ?? {};
           const hasPackageScript = (name) => typeof packageScripts[name] === "string";
           const isCanonicalRepository = process.env.OPENCLAW_CI_REPOSITORY === "openclaw/openclaw";
+          const isForkRepository = process.env.OPENCLAW_CI_REPOSITORY === "yozakura-ava/openclaw";
           const changedPaths = (() => {
             try {
               const value = JSON.parse(process.env.OPENCLAW_CI_CHANGED_PATHS_JSON ?? "null");
@@ -1543,6 +1544,7 @@ jobs:
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
+            (!isCanonicalRepository && !isForkRepository) ||
             eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
@@ -1648,10 +1650,12 @@ jobs:
           // The fork uses the same compact, changed-scope planner for PRs. The
           // canonical repository keeps its release-only runtime policy below,
           // but fork PRs must not expand into release/native validation lanes.
-          const compactPullRequest = eventName === "pull_request";
+          const compactPullRequest =
+            (isCanonicalRepository || isForkRepository) && eventName === "pull_request";
           const runtimePullRequest = isCanonicalRepository && (compactPullRequest || releaseGate);
           const includeReleaseOnlyRuntimeTests =
-            isCanonicalRepository && (!runtimePullRequest && eventName !== "push");
+            (!isCanonicalRepository && !isForkRepository) ||
+            (isCanonicalRepository && !runtimePullRequest && eventName !== "push");
           const startupCorpusTestFiles =
             typeof nodeTestPlan.resolveStartupCorpusTestFiles === "function"
               ? nodeTestPlan.resolveStartupCorpusTestFiles({
@@ -1676,12 +1680,12 @@ jobs:
           }
           // Fork pull requests use compact bins. Main pushes retain the full
           // coverage contract; dispatch remains the explicit release owner.
-          const compactPlanMode = eventName === "pull_request"
+          const compactPlanMode = (isCanonicalRepository || isForkRepository) && eventName === "pull_request"
               ? "pull-request"
               : undefined;
           let changedNodeTestShards = null;
           let changedExtensionFallbackShards = [];
-          if (compactPullRequest && runNodeFull) {
+          if (compactPullRequest && runNodeFull && !isForkRepository) {
             // Compact core excludes plugins; a failed planner is not a complete fallback.
             if (changedPaths === null) {
               throw new Error("Current PR CI requires complete changed paths for Node test planning");
@@ -1761,7 +1765,9 @@ jobs:
             runNodeFull &&
             changedScopeHasQaImpact &&
             (!frozenTarget || existsSync("extensions/qa-lab/src/ci-smoke-plan.ts"));
-          const nodeMatrixLimit = compactPlanMode === "pull-request" ? 130 : 70;
+          const nodeMatrixLimit = compactPlanMode === "pull-request"
+            ? (isForkRepository ? 32 : 130)
+            : 70;
           const rawNodeTestShards = runNodeFull
             ? changedNodeTestShards
               ? changedNodeTestShards
@@ -1769,7 +1775,8 @@ jobs:
                   ...createNodeTestPlan({
                     includeProofTests: runProofTier,
                     includeReleaseOnlyPluginShards: false,
-                    includeReleaseOnlyToolingShards: eventName === "workflow_dispatch" || !isCanonicalRepository,
+                    includeReleaseOnlyToolingShards:
+                      eventName === "workflow_dispatch" || (!isCanonicalRepository && !isForkRepository),
                     includeReleaseOnlyRuntimeTests,
                     ...(runtimePullRequest && changedPaths ? { changedPaths } : {}),
                     // Keep the legacy boolean for historical target planners;
@@ -1791,7 +1798,8 @@ jobs:
               ? nodeTestPlan.createUiTestShardGroups({
                   includeReleaseOnlyTests:
                     (eventName === "workflow_dispatch" && !releaseGate) ||
-                    !isCanonicalRepository || compatibilityTarget || changedPaths === null,
+                    (!isCanonicalRepository && !isForkRepository) ||
+                    compatibilityTarget || changedPaths === null,
                   changedPaths: changedPaths ?? [],
                 })
               : null;
