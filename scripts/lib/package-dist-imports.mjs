@@ -31,14 +31,17 @@ function appendImportEdges(source, importerPath, imports) {
     if (
       ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(node.type)
     ) {
+      kind = "import";
       specifier = literal(node.source);
     } else if (node.type === "ImportExpression") {
+      kind = "dynamic-import";
       specifier = literal(node.source);
     } else if (
       node.type === "CallExpression" &&
       node.callee.type === "Identifier" &&
       node.callee.name === "require"
     ) {
+      kind = "commonjs-require";
       specifier = literal(node.arguments[0]);
     } else if (
       node.type === "NewExpression" &&
@@ -46,13 +49,39 @@ function appendImportEdges(source, importerPath, imports) {
       node.callee.name === "URL" &&
       node.arguments.length >= 2
     ) {
-      const base = node.arguments[1];
+      const [specifierNode, base] = node.arguments;
       if (
-        !specifier.startsWith(".") ||
-        (kind === "import-meta-url" && !hasJavaScriptFileExtension(specifier))
+        base?.type === "MemberExpression" &&
+        !base.computed &&
+        base.property?.type === "Identifier" &&
+        base.property.name === "url" &&
+        base.object?.type === "MetaProperty" &&
+        base.object.meta?.name === "import" &&
+        base.object.property?.name === "meta"
       ) {
-        return;
+        kind = "import-meta-url";
+        specifier = literal(specifierNode);
       }
+    }
+    if (
+      typeof specifier !== "string" ||
+      !specifier.startsWith(".") ||
+      (kind === "import-meta-url" && !hasJavaScriptFileExtension(specifier))
+    ) {
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          for (const child of value) {
+            if (child && typeof child.type === "string") {
+              visit(child);
+            }
+          }
+        } else if (value && typeof value.type === "string") {
+          visit(value);
+        }
+      }
+      return;
+    }
+    {
       const importedPath = path.posix.normalize(
         path.posix.join(path.posix.dirname(importerPath), stripSpecifierSuffix(specifier)),
       );

@@ -409,7 +409,7 @@ export function registerTaskFinalizationAuthorityTests({
     taskExecutorMocks.setDetachedTaskDeliveryStatusByRunId.mockRejectedValue(failure);
     const runSubagentAnnounceFlow = vi.fn<SubagentLifecycleOptions["runSubagentAnnounceFlow"]>(
       async (params) => {
-        await params.onDeliveryResult?.({
+        params.onDeliveryResult?.({
           delivered: true,
           path: "direct",
           deliveredAt: Date.now(),

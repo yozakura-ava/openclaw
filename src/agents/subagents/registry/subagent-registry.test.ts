@@ -81,14 +81,6 @@ import {
   makeSuspendedDeliveryRun,
 } from "./subagent-registry.run-fixtures.test-support.js";
 import { saveSubagentRegistryChangesToSqlite } from "./subagent-registry.store.sqlite.js";
-import {
-  registerCompletedTaskSettlementTest,
-  registerProvisionalKillCompletionSettlementTest,
-  registerReplacedGenerationTaskSettlementTest,
-  registerRestoredRunDeadlineSettlementTests,
-  registerRestoredRunningTaskSettlementTest,
-  registerRestoredTaskSettlementTest,
-} from "./subagent-registry.task-settlement.test-support.js";
 import type {
   ContextEngineSubagentEndedParams,
   SubagentRunRecord,

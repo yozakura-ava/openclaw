@@ -66,7 +66,7 @@ export function registerCompletedTaskSettlementTest({
     });
     const settleRootWork = observeRootWork();
     try {
-      await mod.registerSubagentRun({
+      mod.registerSubagentRun({
         runId: "run-1",
         requesterOrigin: { channel: " quietchat ", accountId: " acct-1 " },
         task: "finish the task",
@@ -173,9 +173,9 @@ export function registerRestoredTaskSettlementTest({
       .mockResolvedValue({ status: "pending" });
     const settleRootWork = observeRootWork();
     try {
-      await mod.registerSubagentRun({ runId, childSessionKey, task: "predecessor", collect: true });
+      mod.registerSubagentRun({ runId, childSessionKey, task: "predecessor", collect: true });
       await writerEntered.promise;
-      await mod.registerSubagentRun({ runId, childSessionKey, task: "replacement", collect: true });
+      mod.registerSubagentRun({ runId, childSessionKey, task: "replacement", collect: true });
       rejectWriter.resolve();
       await expect(settleRootWork()).rejects.toThrow("Failed to settle subagent cleanup roots");
       expect(mod.getSubagentRunByRunId(runId)).toMatchObject({
@@ -383,7 +383,7 @@ export function registerReplacedGenerationTaskSettlementTest({
       const settleRootWork = observeRootWork();
       try {
         // The spawning turn runs inside its admitted plugin generation.
-        await withPluginRuntimeRegistryScope(spawning, () =>
+        withPluginRuntimeRegistryScope(spawning, () =>
           mod.registerSubagentRun({
             runId,
             task: "outlive a plugin reload",
