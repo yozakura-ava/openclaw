@@ -10,7 +10,9 @@ import type {
   ProviderModelRouteRuntimePolicy,
   ProviderRouteOverridePresence,
 } from "../../plugin-sdk/provider-model-types.js";
+import type { ProviderCatalogOutcome } from "../../plugins/provider-catalog-outcome.js";
 import type { McpToolCatalog } from "../agent-bundle-mcp-types.js";
+import type { ModelCatalogEntry } from "../model-catalog.types.js";
 import type { AgentHarnessHostCapabilities } from "./host-capability-types.js";
 import type { AgentHarnessRuntimeArtifactBinding } from "./runtime-artifact.types.js";
 
@@ -572,6 +574,13 @@ export type AgentHarnessModelCatalogParams = {
   workspaceDir: string;
   configuredModelRefs?: readonly ModelRef[];
 };
+
+export type AgentHarnessModelCatalogResult =
+  | readonly ModelCatalogEntry[]
+  | {
+      entries: readonly ModelCatalogEntry[];
+      providerOutcomes?: readonly ProviderCatalogOutcome[];
+    };
 
 type AgentHarnessModelCatalogCapability = {
   /** Lists account-scoped models owned by this native runtime. */

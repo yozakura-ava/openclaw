@@ -173,11 +173,10 @@ export async function captureTaskRegistryRunSelection(
   }
   const context = captureOpenClawStateWorkerContext();
   const store = getTaskRegistryStore();
-  const snapshot = await store.loadMutationSnapshotAsync(
-    context,
-    { taskId: "", runId: normalized },
-    { missingDatabase: "empty" },
-  );
+  const snapshot = await store.loadMutationSnapshotAsync(context, {
+    taskId: "",
+    runId: normalized,
+  });
   assertTaskRegistryOwnerCurrent(context, store);
   return [...snapshot.tasks.values()]
     .filter((task) => task.runId?.trim() === normalized && matches(task))
