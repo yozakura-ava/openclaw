@@ -36,6 +36,7 @@ import {
   tryBeginGatewayRootWorkAdmission,
   tryBeginGatewaySuspendAdmission,
 } from "../../../process/gateway-work-admission.js";
+import * as terminalState from "../../../sessions/subagent-terminal-state.js";
 import {
   AsyncWorkScope,
   getAsyncWorkSignal,
@@ -81,6 +82,7 @@ import { registerDetachedCleanupAuthorityTest } from "./subagent-registry-lifecy
 import {
   mockBlockedCompletionDeliveryOwner,
   registerPrivateCompletionSettlementTests,
+  registerTaskFinalizationAuthorityTests,
 } from "./subagent-registry-lifecycle-completion.test-support.js";
 import { loadPendingFinalDeliveryPayload } from "./subagent-registry-lifecycle-delivery.js";
 import {
@@ -98,6 +100,7 @@ import {
   settleRequesterTurnAfterSessionSpawns,
 } from "./subagent-registry-requester-yield.js";
 import { markSubagentRunPausedAfterYield } from "./subagent-registry-run-pause.js";
+import { registerTerminalStateSignalAuthorityTests } from "./subagent-registry-terminal-state.test-support.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
 type LifecycleControllerParams = SubagentLifecycleOptions;
@@ -602,6 +605,7 @@ describe("subagent registry lifecycle hardening", () => {
       sessionId: "child-session-id",
       lifecycleRevision: "child-lifecycle-revision",
     });
+    vi.spyOn(terminalState, "recordSubagentTerminalState").mockResolvedValue();
   });
 
   it.each([
@@ -854,25 +858,6 @@ describe("subagent registry lifecycle hardening", () => {
   });
 
   registerDetachedCleanupAuthorityTest({ createRunEntry, createLifecycleController });
-
-  it("emits one progress end event at the canonical terminal transition", async () => {
-    const entry = createRunEntry({ expectsCompletionMessage: false });
-    const emitSubagentProgressEndedForRun = vi.fn(async () => {});
-    const controller = createLifecycleController({ entry, emitSubagentProgressEndedForRun });
-    const completion = {
-      runId: entry.runId,
-      endedAt: 4_000,
-      outcome: { status: "ok" as const },
-      reason: SUBAGENT_ENDED_REASON_COMPLETE,
-      triggerCleanup: false,
-    };
-
-    await controller.completeSubagentRun(completion);
-    await controller.completeSubagentRun(completion);
-
-    expect(emitSubagentProgressEndedForRun).toHaveBeenCalledTimes(1);
-    expect(emitSubagentProgressEndedForRun).toHaveBeenCalledWith(entry);
-  });
 
   it("publishes a recovered terminal session status exactly once", async () => {
     const entry = createRunEntry();
@@ -1700,40 +1685,23 @@ describe("subagent registry lifecycle hardening", () => {
     }
   });
 
-  it("does not reject completion when optional task tracking is absent and finalization throws", async () => {
-    const persist = vi.fn();
-    const persistOrThrow = vi.fn();
-    const warn = vi.fn();
-    const entry = createRunEntry();
-    const runs = new Map([[entry.runId, entry]]);
-    taskExecutorMocks.completeTaskRunByRunId.mockImplementation(() => {
-      throw new Error("task store boom");
-    });
+  registerTerminalStateSignalAuthorityTests({
+    createRunEntry,
+    createLifecycleController,
+    completeRun,
+    helperMocks,
+    lifecycleEventMocks,
+  });
 
-    const controller = createLifecycleController({ entry, runs, persist, persistOrThrow, warn });
-
-    await expect(completeRun(controller, entry)).resolves.toBeUndefined();
-
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(persistOrThrow).toHaveBeenCalledTimes(1);
-    expect(persistOrThrow.mock.invocationCallOrder[0]).toBeLessThan(
-      taskExecutorMocks.completeTaskRunByRunId.mock.invocationCallOrder[0]!,
-    );
-    const [warning, warningFields] = firstCall(warn);
-    expect(warning).toBe("failed to finalize subagent background task state");
-    expectFields(warningFields, {
-      error: { name: "Error", message: "task store boom" },
-      runId: "***",
-      childSessionKey: "agent:main:…",
-      outcomeStatus: "ok",
-    });
-    expect(helperMocks.persistSubagentSessionTiming).toHaveBeenCalledTimes(1);
-    expect(lifecycleEventMocks.emitSessionLifecycleEvent).toHaveBeenCalledWith({
-      sessionKey: "agent:main:subagent:child",
-      reason: "subagent-status",
-      parentSessionKey: "agent:main:main",
-      label: undefined,
-    });
+  registerTaskFinalizationAuthorityTests({
+    createRunEntry,
+    createLifecycleController,
+    completeRun,
+    taskExecutorMocks,
+    helperMocks,
+    lifecycleEventMocks,
+    expectFields,
+    firstCall,
   });
 
   it.each([

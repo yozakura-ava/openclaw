@@ -20,7 +20,10 @@ import type { TaskPersistenceReceipt, TaskRecord } from "./task-registry.types.j
 
 export type { TaskRecordTransitionReceipt } from "./task-registry-transition.operation.js";
 
-type TaskWorkerTransitionInput = Extract<TaskRecordTransitionInput, { kind: "state" }> & {
+export type TaskWorkerTransitionInput = Extract<
+  TaskRecordTransitionInput,
+  { kind: "state" | "run-owner" }
+> & {
   expectedTask: TaskPersistenceReceipt;
   selection?: never;
 };

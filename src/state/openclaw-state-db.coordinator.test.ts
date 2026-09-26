@@ -1,17 +1,16 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { stopChildProcess } from "../../test/helpers/stop-child-process.js";
+import { isMainThread } from "node:worker_threads";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import {
   acquireStateDatabaseCoordinator,
   acquireStateDatabaseHandleExclusion,
 } from "../infra/state-database-coordinator.js";
+import { holdStateCoordinator } from "./openclaw-state-coordinator.test-support.js";
 import {
   closeOpenClawStateDatabaseByPath,
   openClawStateDatabaseCache,
@@ -31,49 +30,11 @@ const tempDirs = useAutoCleanupTempDirTracker((cleanup) => {
   });
 });
 
-async function holdStateCoordinator(databasePath: string, releaseAfterMs = 0) {
-  // Initialize the real coordinator location/permissions through its owner.
-  const coordinator = acquireStateDatabaseCoordinator({ databasePath });
-  const coordinatorPath = coordinator.path;
-  coordinator.release();
-  const child = spawn(
-    process.execPath,
-    [
-      "--input-type=module",
-      "--eval",
-      `
-    import { DatabaseSync } from "node:sqlite";
-    const db = new DatabaseSync(${JSON.stringify(coordinatorPath)});
-    db.exec("PRAGMA journal_mode=MEMORY; BEGIN EXCLUSIVE");
-    process.send({ ready: true });
-    process.once("message", () => {
-      setTimeout(() => {
-        db.exec("ROLLBACK");
-        db.close();
-        process.disconnect();
-      }, ${releaseAfterMs});
-    });
-  `,
-    ],
-    { stdio: ["ignore", "ignore", "pipe", "ipc"] },
+beforeAll(() => {
+  expect(isMainThread, "Shared-state host admission requires a real process main thread").toBe(
+    true,
   );
-  try {
-    const [message] = await once(child, "message", { signal: AbortSignal.timeout(10_000) });
-    expect(message).toEqual({ ready: true });
-  } catch (error) {
-    await stopChildProcess(child, 5_000);
-    throw error;
-  }
-  return async () => {
-    try {
-      const closed = once(child, "close", { signal: AbortSignal.timeout(5_000) });
-      child.send({ release: true });
-      await closed;
-    } finally {
-      await stopChildProcess(child, 5_000);
-    }
-  };
-}
+});
 
 function sqliteBytes(databasePath: string) {
   return Object.fromEntries(

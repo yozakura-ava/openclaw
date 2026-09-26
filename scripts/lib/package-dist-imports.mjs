@@ -1,10 +1,6 @@
 // Scans packaged JavaScript for relative imports and missing closure entries.
-import { createRequire } from "node:module";
 import path from "node:path";
-import { visitModuleSpecifiers } from "./guard-inventory-utils.mjs";
-
-const require = createRequire(import.meta.url);
-const ts = require("typescript");
+import { visitJavaScriptStatements } from "./javascript-statements.mjs";
 const JS_FILE_RE = /\.(?:cjs|js|mjs)$/u;
 
 function normalizePackagePath(value) {
@@ -19,24 +15,73 @@ function hasJavaScriptFileExtension(value) {
   return /\.(?:cjs|js|mjs)$/u.test(path.posix.basename(stripSpecifierSuffix(value)));
 }
 
+function literal(node) {
+  if (node?.type === "Literal" && typeof node.value === "string") {
+    return node.value;
+  }
+  return node?.type === "TemplateLiteral" && node.expressions.length === 0
+    ? node.quasis[0].value.cooked
+    : undefined;
+}
+
 function appendImportEdges(source, importerPath, imports) {
-  const sourceFile = ts.createSourceFile(
-    importerPath,
-    source,
-    { languageVersion: ts.ScriptTarget.Latest, jsDocParsingMode: ts.JSDocParsingMode.ParseNone },
-    false,
-    ts.ScriptKind.JS,
-  );
-  visitModuleSpecifiers(
-    ts,
-    sourceFile,
-    ({ kind, specifier }) => {
+  function visit(node) {
+    let kind;
+    let specifier;
+    if (
+      ["ImportDeclaration", "ExportNamedDeclaration", "ExportAllDeclaration"].includes(node.type)
+    ) {
+      kind = "import";
+      specifier = literal(node.source);
+    } else if (node.type === "ImportExpression") {
+      kind = "dynamic-import";
+      specifier = literal(node.source);
+    } else if (
+      node.type === "CallExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === "require"
+    ) {
+      kind = "commonjs-require";
+      specifier = literal(node.arguments[0]);
+    } else if (
+      node.type === "NewExpression" &&
+      node.callee.type === "Identifier" &&
+      node.callee.name === "URL" &&
+      node.arguments.length >= 2
+    ) {
+      const [specifierNode, base] = node.arguments;
       if (
-        !specifier.startsWith(".") ||
-        (kind === "import-meta-url" && !hasJavaScriptFileExtension(specifier))
+        base?.type === "MemberExpression" &&
+        !base.computed &&
+        base.property?.type === "Identifier" &&
+        base.property.name === "url" &&
+        base.object?.type === "MetaProperty" &&
+        base.object.meta?.name === "import" &&
+        base.object.property?.name === "meta"
       ) {
-        return;
+        kind = "import-meta-url";
+        specifier = literal(specifierNode);
       }
+    }
+    if (
+      typeof specifier !== "string" ||
+      !specifier.startsWith(".") ||
+      (kind === "import-meta-url" && !hasJavaScriptFileExtension(specifier))
+    ) {
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) {
+          for (const child of value) {
+            if (child && typeof child.type === "string") {
+              visit(child);
+            }
+          }
+        } else if (value && typeof value.type === "string") {
+          visit(value);
+        }
+      }
+      return;
+    }
+    {
       const importedPath = path.posix.normalize(
         path.posix.join(path.posix.dirname(importerPath), stripSpecifierSuffix(specifier)),
       );
@@ -52,8 +97,30 @@ function appendImportEdges(source, importerPath, imports) {
       if (kind !== "import-meta-url" || importedPath.startsWith("dist/")) {
         imports.push({ importerPath, importedPath });
       }
+    }
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) {
+        for (const child of value) {
+          if (child && typeof child.type === "string") {
+            visit(child);
+          }
+        }
+      } else if (value && typeof value.type === "string") {
+        visit(value);
+      }
+    }
+  }
+  visitJavaScriptStatements(
+    source,
+    {
+      sourceType: importerPath.endsWith(".cjs") ? "script" : "module",
+      allowReturnOutsideFunction: true,
     },
-    { includeCommonJs: true, includeImportMetaUrl: true },
+    (statements) => {
+      for (const statement of statements) {
+        visit(statement);
+      }
+    },
   );
 }
 

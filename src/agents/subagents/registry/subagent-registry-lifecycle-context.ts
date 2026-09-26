@@ -30,6 +30,7 @@ export type SubagentLifecycleOptions = {
   ): SubagentRunRecord | null;
   suppressAnnounceForSteerRestart(entry?: SubagentRunRecord): boolean;
   resolveSubagentTask(entry: SubagentRunRecord): DetachedTaskFindResult;
+  resolveSubagentTaskAsync?(entry: SubagentRunRecord): Promise<DetachedTaskFindResult>;
   shouldEmitEndedHookForRun(args: {
     entry: SubagentRunRecord;
     reason: SubagentLifecycleEndedReason;

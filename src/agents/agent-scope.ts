@@ -432,6 +432,9 @@ export function resolveAgentEffectiveModelPrimary(
   );
 }
 
+/** Compatibility name used by native harness catalog readers. */
+export const resolveNativeModelPrimary = resolveAgentEffectiveModelPrimary;
+
 function updateAgentModelPrimary(
   existing: AgentModelConfig | undefined,
   primary: string,

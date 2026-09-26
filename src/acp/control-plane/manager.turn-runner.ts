@@ -3,10 +3,8 @@ import type { AcpRuntime, AcpRuntimeHandle } from "@openclaw/acp-core/runtime/ty
 import { expectDefined } from "@openclaw/normalization-core";
 import { resolveAdmittedRunActiveAssertion } from "../../agents/admitted-run-context.js";
 import { logVerbose } from "../../globals.js";
-import {
-  recordSessionHumanDirectMessage,
-  recordSubagentTerminalState,
-} from "../../sessions/session-state-events.js";
+import { recordSessionHumanDirectMessage } from "../../sessions/session-state-events.js";
+import { recordSubagentTerminalState } from "../../sessions/subagent-terminal-state.js";
 import { AcpRuntimeError, formatAcpErrorChain, toAcpRuntimeError } from "../runtime/errors.js";
 import { markAcpTurnActive } from "./active-turns.js";
 import type { AcceptedTurnState } from "./manager.accepted-turns.js";
@@ -158,12 +156,15 @@ export async function runManagerTurn(params: {
         });
       }
       if (spawnedByWatcher) {
-        recordSubagentTerminalState({
-          childSessionKey: sessionKey,
-          runId: taskContext.runId,
-          requesterSessionKey: spawnedByWatcher,
-          outcomeStatus: failureStatus === "timed_out" ? "timeout" : "error",
-        });
+        void recordSubagentTerminalState(
+          {
+            childSessionKey: sessionKey,
+            runId: taskContext.runId,
+            requesterSessionKey: spawnedByWatcher,
+            outcomeStatus: failureStatus === "timed_out" ? "timeout" : "error",
+          },
+          params.isCurrentActor,
+        );
       }
     }
     await params.setSessionState({
@@ -446,12 +447,15 @@ export async function runManagerTurn(params: {
               });
             }
             if (spawnedByWatcher) {
-              recordSubagentTerminalState({
-                childSessionKey: sessionKey,
-                runId: taskContext.runId,
-                requesterSessionKey: spawnedByWatcher,
-                outcomeStatus: turnOutcome.terminalStatus === "cancelled" ? "cancelled" : "ok",
-              });
+              void recordSubagentTerminalState(
+                {
+                  childSessionKey: sessionKey,
+                  runId: taskContext.runId,
+                  requesterSessionKey: spawnedByWatcher,
+                  outcomeStatus: turnOutcome.terminalStatus === "cancelled" ? "cancelled" : "ok",
+                },
+                params.isCurrentActor,
+              );
             }
           }
           await params.setSessionState({

@@ -26,8 +26,9 @@ name: Deploy Bundle
 #
 # Triggers:
 #   workflow_dispatch:    manual operator run (build for a known commit)
-#   pull_request:         any PR whose title contains deploy-bundle runs the
-#                         gate so reviewers see import-closure diffs inline
+#
+# PRs use the compact CI workflow as their merge gate. The deploy bundle is a
+# main-only release artifact and is dispatched after main CI is green.
 on:
   workflow_dispatch:
     inputs:
@@ -36,22 +37,6 @@ on:
         required: false
         type: string
         default: ""
-  pull_request:
-    branches:
-      - main
-    paths:
-      - "extensions/**"
-      - "src/**"
-      - "scripts/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
-      - "pnpm-workspace.yaml"
-      - ".github/workflows/deploy-bundle.yml"
-    types:
-      - opened
-      - synchronize
-      - reopened
-
 permissions:
   contents: read
 

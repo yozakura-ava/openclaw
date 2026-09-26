@@ -30,7 +30,7 @@ import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
 } from "../../../../src/state/openclaw-state-db.js";
-import { createTaskRecord, deleteTaskRecordById } from "../../../../src/tasks/task-registry.js";
+import { createTaskRecord } from "../../../../src/tasks/task-registry.js";
 import { captureEnv, setTestEnvValue } from "../../../../src/test-utils/env.js";
 import { useAutoCleanupTempDirTracker } from "../../../helpers/temp-dir.js";
 
@@ -365,9 +365,6 @@ describe("Gateway agent and artifact APIs", () => {
     if (!task) {
       throw new Error("expected task record");
     }
-    cleanup.push(() => {
-      deleteTaskRecordById(task.taskId);
-    });
     const documentFixtures = [
       {
         name: "artifact.json",

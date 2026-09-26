@@ -572,6 +572,12 @@ export function executeSharedStateCommand(
       writeOptions,
     );
   }
+  if (command.type === "sessionState.record") {
+    return runOpenClawStateWriteTransaction(
+      ({ db }) => recordSessionStateEventInDatabase(db, command.input.event, command.input.now),
+      writeOptions,
+    );
+  }
   if (command.type === "sessionState.prune") {
     return runOpenClawStateWriteTransaction(
       ({ db }) => pruneSessionStateEventsInDatabase(db, command.input.now),

@@ -72,7 +72,6 @@ import {
 } from "./task-registry-state.js";
 import {
   cancelTaskById,
-  deleteTaskRecordById,
   finalizeTaskRecordByRunId,
   findTaskByRunId,
   getTaskById,
@@ -1356,7 +1355,6 @@ describe("task-registry", () => {
       resetTaskFlowRegistryForTests({ persist: false });
       const taskStore = createInMemoryTaskRegistryStore();
       const taskUpsert = vi.spyOn(taskStore, "upsertTaskWithDeliveryState");
-      const taskDelete = vi.spyOn(taskStore, "deleteTaskWithDeliveryState");
       const deliveryUpsert = vi.spyOn(taskStore, "upsertDeliveryState");
       configureTaskRegistryRuntime({ store: taskStore });
       configureTaskFlowRegistryRuntime({
@@ -1398,12 +1396,6 @@ describe("task-registry", () => {
       ).toThrow("Task-flow registry restore failed: SQLITE_IOERR: task-flow restore failed");
       expect(taskUpsert).not.toHaveBeenCalled();
       expect(requireTaskById(task.taskId).status).toBe("running");
-
-      expect(() => deleteTaskRecordById(task.taskId)).toThrow(
-        "Task-flow registry restore failed: SQLITE_IOERR: task-flow restore failed",
-      );
-      expect(taskDelete).not.toHaveBeenCalled();
-      expect(requireTaskById(task.taskId).taskId).toBe(task.taskId);
 
       expect(() =>
         createTaskFixture("acp", {

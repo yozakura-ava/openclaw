@@ -64,6 +64,7 @@ import type {
 import type { SecretStoreExpiryCutoffs } from "../secrets/store/secret-store-expiry.kernel.js";
 import type {
   SessionStateEventInput,
+  SessionStateEventRow,
   SessionStateNotice,
 } from "../sessions/session-state-events.kernel.js";
 import type { SessionUpstreamLink } from "../sessions/session-upstream-links.kernel.js";
@@ -179,6 +180,10 @@ export type OpenClawStateWorkerOperations = McpOAuthReadOperations &
     "sessionState.recordGoalChange": {
       input: { event: SessionStateEventInput & { kind: "goal_changed" }; now: number };
       output: SessionStateNotice[];
+    };
+    "sessionState.record": {
+      input: { event: SessionStateEventInput; now: number };
+      output: { row?: SessionStateEventRow; notices: SessionStateNotice[] };
     };
     "sessionState.prune": { input: { now: number }; output: void };
     "managedImages.read": { input: { attachmentId: string }; output: ManagedImageRecord | null };

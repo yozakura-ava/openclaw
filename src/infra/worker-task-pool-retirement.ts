@@ -9,6 +9,8 @@ import type { Slot, WorkerTaskPoolOptions } from "./worker-task-pool.types.js";
 
 export type WorkerTaskPoolRetirement<Input, Output> = {
   retire(slot: Slot<Input, Output>): Promise<void>;
+  idle(slot: Slot<Input, Output>): void;
+  clearIdle(slot: Slot<Input, Output>): void;
   retireIdle(resourceClosures: WeakMap<Worker, { pending: number }>): void;
   retryFailedRetirements(): Promise<void>;
   joinArtifacts(): Promise<void[]>;
@@ -17,20 +19,21 @@ export type WorkerTaskPoolRetirement<Input, Output> = {
 export function createWorkerTaskPoolRetirement<Input, Output>({
   slots,
   options,
-  clearIdleTimer,
   runInContext,
   dispatch,
 }: {
   slots: Set<Slot<Input, Output>>;
   options: WorkerTaskPoolOptions<Output>;
-  clearIdleTimer: (timer: Slot<Input, Output>["idleTimer"]) => void;
   runInContext: <T>(operation: () => T) => T;
   dispatch: () => void;
 }): WorkerTaskPoolRetirement<Input, Output> {
   const artifactCleanups = new Set<Promise<void>>();
+  const setTimeoutFn = setTimeout;
+  const clearTimeoutFn = clearTimeout;
+  const clearIdle = (slot: Slot<Input, Output>) => clearTimeoutFn(slot.idleTimer);
 
   function retire(slot: Slot<Input, Output>): Promise<void> {
-    clearIdleTimer(slot.idleTimer);
+    clearIdle(slot);
     cancelWorkerNativeSections(slot.nativeSections);
     // Retain error listeners until exit: termination can race a worker startup error.
     // Constructor observers can retire this slot before its Worker is assigned.
@@ -106,6 +109,17 @@ export function createWorkerTaskPoolRetirement<Input, Output>({
 
   return {
     retire,
+    clearIdle,
+    idle(slot) {
+      const idleMs = options.idleTimeoutMs ?? 60_000;
+      if (idleMs <= 0) {
+        return;
+      }
+      slot.idleTimer = runInContext(() =>
+        setTimeoutFn(() => void retire(slot).catch(() => undefined), idleMs),
+      );
+      slot.idleTimer.unref();
+    },
     retireIdle(resourceClosures) {
       for (const slot of slots) {
         if (

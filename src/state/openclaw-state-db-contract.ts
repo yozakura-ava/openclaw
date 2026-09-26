@@ -130,6 +130,8 @@ export type OpenClawStateDatabaseOptions = {
   path?: string;
   database?: OpenClawStateDatabase;
   readOnly?: boolean;
+  /** Revalidate the owning async operation before and after a write. */
+  assertCurrent?: () => void;
 };
 export type OpenClawStateDatabaseSchemaMigration = {
   kind:
