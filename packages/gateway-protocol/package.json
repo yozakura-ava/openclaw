@@ -89,6 +89,7 @@
     }
   },
   "scripts": {
+    "prebuild": "pnpm --filter @openclaw/normalization-core run build",
     "build": "tsdown src/index.ts src/client-info.ts src/connect-error-details.ts src/frame-guards.ts src/gateway-error-details.ts src/restart-unavailable.ts src/schema.ts src/startup-unavailable.ts src/version.ts src/system-agent-context.ts src/theme.ts --no-config --platform node --format esm --dts --out-dir dist --clean && node --import tsx ../../scripts/check-protocol-registry-types.mts",
     "prepack": "pnpm run build && node --import tsx ../../scripts/protocol-gen.ts --out ./protocol.schema.json"
   },
