@@ -17,7 +17,6 @@ import {
   type TaskDeliveryStatus,
   type TaskEventRecord,
   type TaskRecord,
-  type TaskExecutionOwner,
   type TaskPersistenceReceipt,
   type TaskRuntime,
   type TaskStatus,
@@ -57,27 +56,13 @@ export type TaskRunTransition =
   | { kind: "state"; params: TaskRunStateTransitionParams }
   | { kind: "delivery"; params: TaskRunDeliveryTransitionParams };
 
-type TaskRunOwnerTransition = {
-  kind: "run-owner";
-  params: { runId: string; executionOwner?: TaskExecutionOwner };
-};
-
-type TaskRecordSelection = {
+export type TaskRecordTransitionInput = TaskRunTransition & {
   taskId: string;
   now: number;
   expectedTask?: TaskPersistenceReceipt;
   /** Preserve an initial batch match across sibling writes; this is not live authority. */
   selection?: TaskPersistenceReceipt;
 };
-
-export type TaskRecordTransitionInput =
-  | (TaskRunTransition & TaskRecordSelection)
-  | (TaskRunOwnerTransition & {
-      taskId: string;
-      now: number;
-      expectedTask: TaskPersistenceReceipt;
-      selection?: never;
-    });
 
 type TaskRecordUpdate = {
   previous: TaskRecord;
@@ -216,20 +201,8 @@ function prepareStateTransition(
 
 function prepareTaskRecordTransition(
   current: TaskRecord,
-  input: (TaskRunTransition | TaskRunOwnerTransition) & { now: number },
+  input: TaskRunTransition & { now: number },
 ): TaskRecordTransitionReceipt | null {
-  if (input.kind === "run-owner") {
-    return {
-      ...(current.status === "running" && input.params.executionOwner
-        ? prepareTaskRecordUpdate(
-            current,
-            { executionOwner: input.params.executionOwner },
-            input.now,
-          )
-        : { previous: current, task: current, persisted: false, becomesTerminal: false }),
-      deliver: false,
-    };
-  }
   if (input.kind === "delivery") {
     return {
       ...prepareTaskRecordUpdate(
@@ -275,8 +248,7 @@ export function runTaskRecordTransitionOperation(
     const current = operations.readCurrent();
     if (
       !current ||
-      (input.kind !== "run-owner" &&
-        input.selection &&
+      (input.selection &&
         (!matchesTaskPersistenceReceipt(current, input.selection) ||
           current.runId?.trim() !== input.params.runId.trim() ||
           filterTasksByRunScope([current], input.params).length === 0)) ||

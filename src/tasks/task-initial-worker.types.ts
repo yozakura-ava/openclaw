@@ -17,16 +17,12 @@ import type {
   TaskNotificationDeliveryUpdate,
 } from "./task-notification.operation.js";
 import type { TaskCreateInput, TaskCreateResult } from "./task-registry-create.kernel.js";
-<<<<<<< HEAD
 import type { TaskRetentionWriteResult } from "./task-registry-retention-receipt.js";
 import type { TaskRetentionInput } from "./task-registry-retention.operation.js";
 import type {
   TaskRecordTransitionReceipt,
   TaskWorkerTransitionInput,
 } from "./task-registry-transition.kernel.js";
-=======
-import type { TaskRecordTransitionReceipt } from "./task-registry-transition.kernel.js";
->>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
 import type {
   TaskExecutionOwner,
   TaskPersistenceReceipt,
@@ -34,7 +30,6 @@ import type {
 } from "./task-registry.types.js";
 
 export type TaskInitialWorkerOperations = {
-<<<<<<< HEAD
   "tasks.maintainCron": {
     input: CronTaskMaintenanceInput;
     output: TaskRecordTransitionReceipt | null;
@@ -44,17 +39,11 @@ export type TaskInitialWorkerOperations = {
     input: Extract<TaskWorkerTransitionInput, { kind: "state" | "delivery" }>;
     output: TaskRecordTransitionReceipt | null;
   };
-=======
->>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
   "tasks.bindRunOwner": {
     input: {
       taskId: string;
       expectedTask: TaskPersistenceReceipt;
-<<<<<<< HEAD
       params: { runId: string; executionOwner?: TaskExecutionOwner; clearLastToolName?: true };
-=======
-      params: { runId: string; executionOwner?: TaskExecutionOwner };
->>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
       now: number;
     };
     output: TaskRecordTransitionReceipt | null;

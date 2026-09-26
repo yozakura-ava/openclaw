@@ -60,7 +60,6 @@ export async function createTaskFlowEffectsFixture(
         | TaskInitialWorkerOperations[Key]["output"]
         | Promise<TaskInitialWorkerOperations[Key]["output"]>;
     } = {
-<<<<<<< HEAD
       "tasks.maintainCron": (input) =>
         originalCreate(context, { type: "tasks.maintainCron", input }, assertCurrent, onGranted),
       "tasks.applyRetention": (input) =>
@@ -72,8 +71,6 @@ export async function createTaskFlowEffectsFixture(
           assertCurrent,
           onGranted,
         ),
-=======
->>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
       "tasks.bindRunOwner": (input) =>
         originalCreate(context, { type: "tasks.bindRunOwner", input }, assertCurrent, onGranted),
       "tasks.acknowledgeStateChange": (input) =>

@@ -116,7 +116,6 @@ export function executeTaskInitialMutation(
         return write(() => {
           let result: Result;
           switch (command.type) {
-<<<<<<< HEAD
             case "tasks.maintainCron":
               result = maintainCronTaskInDatabase(database.db, command.input, assertCurrent);
               break;
@@ -144,8 +143,6 @@ export function executeTaskInitialMutation(
               );
               break;
             }
-=======
->>>>>>> b0ae8314dc0 (fix: avoid Gateway freezes when starting agent turns (#156064))
             case "tasks.bindRunOwner": {
               result = transitionTaskRecordInDatabase(
                 database.db,

@@ -272,12 +272,9 @@ describe("gateway agent detached task lifecycle", () => {
                   respond,
                   client: backendGatewayClient(),
                   reqId: runId,
-                  // Real worker admission must not inherit the helper's accelerated timer clock.
-                  flushDispatch: false,
+                  // Cancellation owns the terminal wait below and must not wait for dispatch.
+                  flushDispatch: outcome !== "cancelled",
                 });
-                if (outcome === "completed") {
-                  await waitForAssertion(() => expect(mocks.agentCommand).toHaveBeenCalledOnce());
-                }
                 expect(acceptedTasks).toEqual([
                   [
                     expect.objectContaining({
