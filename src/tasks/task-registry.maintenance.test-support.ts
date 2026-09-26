@@ -257,6 +257,9 @@ function createPreparedMaintenanceRead(): TaskRegistryMaintenanceRead {
   return {
     assertOwnerCurrent() {},
     assertCurrent() {},
+    isTaskSettled() {
+      return true;
+    },
   };
 }
 
@@ -372,7 +375,7 @@ export function createTaskRegistryMaintenanceHarness(params: {
     },
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => currentTasks.get(taskId),
-    getTaskRegistryMaintenanceTask: (taskId: string) => currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (_read, taskId: string) => currentTasks.get(taskId),
     prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
     listTaskRecords: () => Array.from(currentTasks.values()),
     getTaskRegistryMaintenanceSnapshot: () => {
@@ -495,7 +498,7 @@ export function configureTaskRegistryMaintenanceRuntimeForTest(params: {
       },
       ensureTaskRegistryReady: () => {},
       getTaskById: (taskId: string) => params.currentTasks.get(taskId),
-      getTaskRegistryMaintenanceTask: (taskId: string) => params.currentTasks.get(taskId),
+      getTaskRegistryMaintenanceTask: (_read, taskId: string) => params.currentTasks.get(taskId),
       prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
       listTaskRecords: listSnapshotTasks,
       getTaskRegistryMaintenanceSnapshot: () => {

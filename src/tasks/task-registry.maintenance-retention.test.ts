@@ -138,12 +138,11 @@ describe("task maintenance retention", () => {
             const observedContention = vi
               .spyOn(workerAdmission, "prepareSqliteWorkerLifecycle")
               .mockImplementation((job, actor) => {
-                const delegate = borrowLifecycle(job, actor, () => {});
+                borrowLifecycle(job, actor, () => {});
                 if (
-                  !delegate &&
                   job.lifecyclePreparation &&
                   job.request.type === "execute" &&
-                  (job.request.stateDatabasePath ?? actor.databasePath) ===
+                  (job.request.stateDatabasePath ?? actor?.databasePath) ===
                     context.admission.databasePath
                 ) {
                   const command: unknown = deserialize(job.request.input);
@@ -162,7 +161,7 @@ describe("task maintenance retention", () => {
                     }
                   }
                 }
-                return delegate;
+                return undefined;
               });
             // This escape hatch releases a regressed synchronous native waiter, not normal proof.
             const holder = holdStateDatabaseCoordinator(

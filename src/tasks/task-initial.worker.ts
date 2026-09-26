@@ -116,6 +116,32 @@ export function executeTaskInitialMutation(
         return write(() => {
           let result: Result;
           switch (command.type) {
+            case "tasks.maintainCron":
+              result = maintainCronTaskInDatabase(database.db, command.input, assertCurrent);
+              break;
+            case "tasks.applyRetention": {
+              const retained = applyTaskRetentionInDatabase(
+                database.db,
+                command.input,
+                assertCurrent,
+              );
+              if (retained.kind === "unchanged") {
+                result = retained;
+                break;
+              }
+              requestSqliteWorkerOperationAdmission({ stage: "commit", facts: admissionFacts });
+              result = captureTaskRetentionCommit(command.input, retained);
+              deferSqliteWorkerCommitReceipt(database.db, result);
+              break;
+            }
+            case "tasks.transitionRunRow":
+              result = transitionTaskRecordInDatabase(
+                database.db,
+                command.input,
+                (operation) => operation(),
+                { assertCurrent, onCommitted() {} },
+              );
+              break;
             case "tasks.bindRunOwner": {
               result = transitionTaskRecordInDatabase(
                 database.db,

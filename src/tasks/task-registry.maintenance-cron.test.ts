@@ -182,12 +182,11 @@ describe("durable cron task maintenance", () => {
         const observedContention = vi
           .spyOn(workerAdmission, "prepareSqliteWorkerLifecycle")
           .mockImplementation((job, actor) => {
-            const delegate = borrowLifecycle(job, actor, () => {});
+            borrowLifecycle(job, actor, () => {});
             if (
-              !delegate &&
               job.lifecyclePreparation &&
               job.request.type === "execute" &&
-              (job.request.stateDatabasePath ?? actor.databasePath) ===
+              (job.request.stateDatabasePath ?? actor?.databasePath) ===
                 context.admission.databasePath
             ) {
               const command: unknown = deserialize(job.request.input);
@@ -204,7 +203,7 @@ describe("durable cron task maintenance", () => {
                 }
               }
             }
-            return delegate;
+            return undefined;
           });
         // Only a deadlock escape hatch; success releases custody explicitly below.
         const holder = holdStateDatabaseCoordinator(

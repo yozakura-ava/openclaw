@@ -3,7 +3,6 @@ import type { AcpRuntime, AcpRuntimeHandle } from "@openclaw/acp-core/runtime/ty
 import { expectDefined } from "@openclaw/normalization-core";
 import { resolveAdmittedRunActiveAssertion } from "../../agents/admitted-run-context.js";
 import { logVerbose } from "../../globals.js";
-import { getProcessGatewayPluginMetadataSnapshot } from "../../plugins/current-plugin-metadata-state.js";
 import { recordSessionHumanDirectMessage } from "../../sessions/session-state-events.js";
 import { recordSubagentTerminalState } from "../../sessions/subagent-terminal-state.js";
 import { AcpRuntimeError, formatAcpErrorChain, toAcpRuntimeError } from "../runtime/errors.js";
@@ -105,32 +104,13 @@ export async function runManagerTurn(params: {
     agentId,
   });
   const initialMeta = requireReadySessionMeta(initialResolution);
-  const assertSignalAdmission = resolveAdmittedRunActiveAssertion(
-    input.admittedRunContext,
-    input.signal,
-  );
-  const assertActorCurrent = () => {
-    if (!params.isCurrentActor()) {
-      throw createSupersededActorError(sessionKey);
-    }
-  };
-  const assertSignalCurrent = () => {
-    assertActorCurrent();
-    input.signal?.throwIfAborted();
-    assertSignalAdmission?.();
-  };
-  await recordSessionHumanDirectMessage(
-    {
-      sessionKey,
-      agentId,
-      entry: initialResolution.kind === "ready" ? initialResolution.entry : undefined,
-      actor: { actorType: input.provenance },
-      channel: "acp",
-      runId: input.requestId,
-    },
-    { assertCurrent: assertSignalCurrent },
-  );
-  assertSignalCurrent();
+  recordSessionHumanDirectMessage({
+    sessionKey,
+    entry: initialResolution.kind === "ready" ? initialResolution.entry : undefined,
+    actor: { actorType: input.provenance },
+    channel: "acp",
+    runId: input.requestId,
+  });
   // ACP children bypass the subagent registry; terminal outcomes are projected into
   // the signal log here so changesSince histories are not spawn-only for ACP runs.
   const spawnedByWatcher =
@@ -176,16 +156,15 @@ export async function runManagerTurn(params: {
         });
       }
       if (spawnedByWatcher) {
-        await recordSubagentTerminalState(
+        void recordSubagentTerminalState(
           {
             childSessionKey: sessionKey,
             runId: taskContext.runId,
             requesterSessionKey: spawnedByWatcher,
             outcomeStatus: failureStatus === "timed_out" ? "timeout" : "error",
           },
-          assertActorCurrent,
+          params.isCurrentActor,
         );
-        assertActorCurrent();
       }
     }
     await params.setSessionState({
@@ -468,16 +447,15 @@ export async function runManagerTurn(params: {
               });
             }
             if (spawnedByWatcher) {
-              await recordSubagentTerminalState(
+              void recordSubagentTerminalState(
                 {
                   childSessionKey: sessionKey,
                   runId: taskContext.runId,
                   requesterSessionKey: spawnedByWatcher,
                   outcomeStatus: turnOutcome.terminalStatus === "cancelled" ? "cancelled" : "ok",
                 },
-                assertActorCurrent,
+                params.isCurrentActor,
               );
-              assertActorCurrent();
             }
           }
           await params.setSessionState({

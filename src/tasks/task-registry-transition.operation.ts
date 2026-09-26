@@ -59,7 +59,7 @@ export type TaskRunTransition =
 
 type TaskRunOwnerTransition = {
   kind: "run-owner";
-  params: { runId: string; executionOwner?: TaskExecutionOwner };
+  params: { runId: string; executionOwner?: TaskExecutionOwner; clearLastToolName?: true };
 };
 
 type TaskRecordSelection = {
@@ -220,10 +220,18 @@ function prepareTaskRecordTransition(
 ): TaskRecordTransitionReceipt | null {
   if (input.kind === "run-owner") {
     return {
-      ...(current.status === "running" && input.params.executionOwner
+      ...(current.status === "running" &&
+      (input.params.executionOwner || input.params.clearLastToolName)
         ? prepareTaskRecordUpdate(
             current,
-            { executionOwner: input.params.executionOwner },
+            {
+              ...(input.params.executionOwner
+                ? { executionOwner: input.params.executionOwner }
+                : {}),
+              ...(input.params.clearLastToolName
+                ? { lastToolName: undefined, lastEventAt: input.now }
+                : {}),
+            },
             input.now,
           )
         : { previous: current, task: current, persisted: false, becomesTerminal: false }),

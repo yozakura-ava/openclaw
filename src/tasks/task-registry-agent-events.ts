@@ -32,6 +32,7 @@ import {
 import {
   captureTaskAgentEventSource,
   sameTaskAgentEventSource,
+  type TaskAgentEventSource,
 } from "./task-registry-agent-event-source.js";
 import type { TaskAgentEventTarget } from "./task-registry-agent-event-target.js";
 import {
@@ -567,14 +568,8 @@ function startDrain(): void {
   void operation.finally(() => drains.delete(operation));
 }
 
-function sameSource(left: EventSource, right: EventSource): boolean {
-  return (
-    left.runId === right.runId &&
-    left.lifecycleGeneration === right.lifecycleGeneration &&
-    left.runContext === right.runContext &&
-    left.subagent === right.subagent &&
-    left.subagentGeneration === right.subagentGeneration
-  );
+function sameSource(left: TaskAgentEventSource, right: TaskAgentEventSource): boolean {
+  return sameTaskAgentEventSource(left, right);
 }
 
 /** At most one active batch and four ordered pending batches per live task identity. */
@@ -583,15 +578,7 @@ export function enqueueTaskAgentEvent(
   event: AgentEventPayload,
 ): boolean {
   let task = initialTask;
-  const runId = event.runId;
-  const subagent = subagentRuns.get(runId);
-  const source: EventSource = {
-    runId,
-    lifecycleGeneration: event.lifecycleGeneration ?? getAgentRunLifecycleGeneration(),
-    runContext: getAgentRunContext(runId),
-    subagent,
-    subagentGeneration: subagent?.generation,
-  };
+  const source: TaskAgentEventSource = captureTaskAgentEventSource(event);
   const entries = pendingByTask.get(task.taskId);
   const store = getTaskRegistryStore();
   const flowStore = getTaskFlowRegistryStore();
