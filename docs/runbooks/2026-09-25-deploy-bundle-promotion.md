@@ -44,7 +44,8 @@ Every item below MUST be true and recorded on the art card. If any fails, STOP a
 
 Every box below is a **Craig-gated step**. Wait for an explicit, verbatim Craig approval quote. Do not infer consent from silence, schedule, or Ava-side discretion.
 
-1. **State the request in chat.** Paste this block and ask Craig to issue one HR2 token (for example: _"HR2 approve promote build <commit-short> with provenance sha <artifact-sha>"_):
+1. **State the request in chat.** Paste this block and ask Craig to issue one HR2 token (for example: _"HR2 approve promote build `commit-short` with provenance sha `artifact-sha`"_):
+
    ```
    Promote deploy-bundle build <commit-short>
      provenance.commit = <commit>
@@ -52,9 +53,10 @@ Every box below is a **Craig-gated step**. Wait for an explicit, verbatim Craig 
      provenance.lockfile_sha = <lockfile_sha>
      provenance.node_version = <node_version>
      provenance.artifact_sha = <artifact_sha>
-     staging_smoke green at <timestamp>
-     HR2 approve or refuse with verbatim token
+   staging_smoke green at <timestamp>
+   HR2 approve or refuse with verbatim token
    ```
+
 2. **Receive the HR2 token verbatim.** No rewording, no paraphrase. Record the raw Craig message on the art card.
 3. **Pre-flight guard.** Reconfirm all pre-promotion gates within the last 5 minutes (do not rely on stale state).
 4. **Final backup.** Save the live runtime under `/root/backups/openclaw-pre-rework-<TIMESTAMP>/` plus a `sha256sum` manifest. Verify backup size > 0 and the tar extract succeeds against a scratch directory.
