@@ -139,12 +139,20 @@ function listPresentPackages(nodeModulesRoot: string): Set<string> {
   return present;
 }
 
-function extractImports(text: string): string[] {
-  const out: string[] = [];
+type ParsedImport = { spec: string; lineNo: number };
+
+function extractImports(text: string): ParsedImport[] {
+  const out: ParsedImport[] = [];
+  let cursor = 0;
+  let lineNo = 1;
   for (const match of text.matchAll(IMPORT_RE)) {
     const spec = match[1];
     if (spec) {
-      out.push(spec);
+      const index = match.index ?? cursor;
+      lineNo += text.slice(cursor, index).match(/\n/gu)?.length ?? 0;
+      out.push({ spec, lineNo });
+      cursor = index + match[0].length;
+      lineNo += match[0].match(/\n/gu)?.length ?? 0;
     }
   }
   return out;
@@ -184,8 +192,7 @@ function main(): number {
     const fileDir = file.split(sep).slice(0, -1).join(sep);
     const imports = extractImports(text);
     totalDecls += imports.length;
-    const lines = text.split("\n");
-    for (const spec of imports) {
+    for (const { spec, lineNo } of imports) {
       const decl = parseImportSpec(spec);
       if (decl.kind === "bare") {
         totalBareDecls++;
@@ -193,7 +200,6 @@ function main(): number {
       } else {
         totalRelativeDecls++;
       }
-      const lineNo = lines.findIndex((l) => l.includes(spec)) + 1;
       if (decl.kind === "relative") {
         if (!isInternalRuntimeResolution(decl, fileDir, dist)) {
           failureCount++;
