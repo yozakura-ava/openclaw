@@ -8,6 +8,7 @@ import {
 import type { SessionEntry } from "../config/sessions/types.js";
 import { executeSqliteQuerySync, executeSqliteQueryTakeFirstSync } from "../infra/kysely-sync.js";
 import { normalizeSqliteNumber } from "../infra/sqlite-number.js";
+import { createSqliteWorkerOperationAdmission } from "../infra/sqlite-worker-operation-admission.js";
 import { isSystemEventStoreCurrent } from "../infra/system-event-ownership.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { buildAgentMainSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
@@ -121,6 +122,62 @@ export function recordSessionStateEvent(
     return result.row ? rowToSessionStateEvent(result.row) : undefined;
   } catch (error) {
     log.warn(`failed to record session state event: ${String(error)}`);
+    return undefined;
+  }
+}
+
+type AsyncSessionStateEventOptions = Pick<OpenClawStateDatabaseOptions, "path" | "env"> & {
+  now?: number;
+  assertCurrent?: () => void;
+};
+
+/** Persist an event through the shared worker so terminal signals stay responsive under contention. */
+export async function recordSessionStateEventAsync(
+  input: SessionStateEventInput,
+  options: AsyncSessionStateEventOptions = {},
+): Promise<SessionStateEventRecord | undefined> {
+  try {
+    const context = captureOpenClawStateWorkerContext(options);
+    const now = options.now ?? Date.now();
+    const event = structuredClone({
+      ...input,
+      watcherStorePaths:
+        input.watcherStorePaths ??
+        captureSessionWatcherStorePaths(input.watcherSessionKeys, options.env),
+    });
+    return await runOpenClawStateWorkerOperation(
+      context,
+      async (scope) => {
+        const recorded = await scope.execute({
+          type: "sessionState.record",
+          input: { event, now },
+        });
+        for (const notice of recorded.notices) {
+          enqueueSessionStateNotice(notice);
+        }
+        return recorded.row ? rowToSessionStateEvent(recorded.row) : undefined;
+      },
+      {
+        assertCurrent: options.assertCurrent,
+        createAdmission: () => ({
+          nativeLocations: [context.admission.databasePath],
+          admission: createSqliteWorkerOperationAdmission((request, grant) => {
+            if (request.stage !== "transaction" && request.stage !== "commit") {
+              throw new Error("Session signal mutation requires transaction admission");
+            }
+            context.admission.assertCurrent();
+            options.assertCurrent?.();
+            grant();
+          }),
+        }),
+      },
+    );
+  } catch (error) {
+    try {
+      log.warn(`failed to record session state event: ${String(error)}`);
+    } catch {
+      // Preserve the originating durable result when diagnostics are unavailable.
+    }
     return undefined;
   }
 }
