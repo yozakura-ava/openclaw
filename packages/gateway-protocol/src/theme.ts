@@ -101,11 +101,16 @@ export function resolveThemeBranding(
     | Pick<ThemeDescriptor, "mascot" | "workingPhrases" | "critters" | "avatarHat" | "artwork">
     | undefined,
 ): ThemeBranding {
+  // exactOptionalPropertyTypes is enabled, so optional fields are built via
+  // conditional spread — the key is absent when the value is undefined,
+  // matching the ThemeBranding declaration shape without requiring
+  // `| undefined` widening. Matches the PR #198 / logs-chat.ts pattern at
+  // packages/gateway-protocol/src/schema/logs-chat.ts:447.
   return {
     mascot: source?.mascot ?? "claw",
-    workingPhrases: source?.workingPhrases,
     critters: source?.critters ?? DEFAULT_THEME_CRITTERS,
-    avatarHat: source?.avatarHat,
+    ...(source?.workingPhrases !== undefined && { workingPhrases: source.workingPhrases }),
+    ...(source?.avatarHat !== undefined && { avatarHat: source.avatarHat }),
     ...(source?.artwork ? { artwork: source.artwork } : {}),
   };
 }
