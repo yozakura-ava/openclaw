@@ -6,6 +6,7 @@ import {
   sameTaskBackingInstance,
   selectCurrentCanonicalTaskBacking,
 } from "../tasks/task-backing-records.js";
+import type { TaskBackingInstance } from "../tasks/task-backing-records.js";
 import { prepareCronTaskMaintenance } from "../tasks/task-cron-maintenance-policy.js";
 import { restoreTaskExecutionSnapshot } from "../tasks/task-execution-owner.js";
 import {
@@ -54,6 +55,7 @@ import type { TaskWorkerTransitionInput } from "../tasks/task-registry-transitio
 import { runTaskRecordTransitionOperation } from "../tasks/task-registry-transition.operation.js";
 import type { TaskRegistryStore, TaskRegistryStoreSnapshot } from "../tasks/task-registry.store.js";
 import type { TaskRegistryMutationScope } from "../tasks/task-registry.store.types.js";
+import type { TaskRecord } from "../tasks/task-registry.types.js";
 
 type TaskFlowRegistryStore = ReturnType<typeof getTaskFlowRegistryStore>;
 
@@ -175,7 +177,11 @@ export function createInMemoryTaskRegistryStore(
         runTaskRecordTransitionOperation(transition, {
           readCurrent: () => {
             const task = this.loadSnapshot().tasks.get(transition.taskId);
-            const selected = transition.selectedTask;
+            const selected = (
+              transition as typeof transition & {
+                selectedTask?: TaskRecord & { backing?: TaskBackingInstance };
+              }
+            ).selectedTask;
             if (task && selected && task.taskId !== selected.taskId) {
               const managed = readManagedTaskBacking(task.detail);
               if (
@@ -264,7 +270,7 @@ export function createInMemoryTaskRegistryStore(
           return result.kind === "unchanged" ? result : captureTaskRetentionCommit(input, result);
         },
         "tasks.transitionRunRow": (input) => transitionRecord(input),
-        "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input }),
+        "tasks.bindRunOwner": (input) => transitionRecord({ kind: "run-owner", ...input } as never),
         "tasks.acknowledgeStateChange": (input) =>
           acknowledgeTaskStateNotification(input, {
             readCurrent: () => ({

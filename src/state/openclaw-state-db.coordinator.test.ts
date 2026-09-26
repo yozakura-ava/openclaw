@@ -7,6 +7,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
+import { sqliteReaderDatabasePathKey } from "../infra/sqlite-reader-lifecycle.js";
+import { onSqliteWalCheckpoint } from "../infra/sqlite-wal-checkpoint.js";
 import {
   acquireStateDatabaseCoordinator,
   acquireStateDatabaseHandleExclusion,

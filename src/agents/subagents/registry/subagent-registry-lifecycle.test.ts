@@ -82,6 +82,7 @@ import { registerDetachedCleanupAuthorityTest } from "./subagent-registry-lifecy
 import {
   mockBlockedCompletionDeliveryOwner,
   registerPrivateCompletionSettlementTests,
+  registerTaskFinalizationAuthorityTests,
 } from "./subagent-registry-lifecycle-completion.test-support.js";
 import { loadPendingFinalDeliveryPayload } from "./subagent-registry-lifecycle-delivery.js";
 import {

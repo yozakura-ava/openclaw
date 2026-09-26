@@ -237,7 +237,7 @@ export function registerRestoredTaskSettlementTest({
       const settleRootWork = observeRootWork();
       hydrateAndActivateRegistry();
 
-      await settleRootWork(true);
+      await settleRootWork();
       expect(findTaskByRunIdForStatus(runId)).toMatchObject({
         status: "succeeded",
         endedAt,
@@ -331,7 +331,7 @@ export function registerRestoredRunningTaskSettlementTest({
         hydrateAndActivateRegistry();
 
         await announceEntered.promise;
-        await settleRootWork(true);
+        await settleRootWork();
         expect(findRequesterRun(runId)).toMatchObject({
           execution: { status: "terminal", endedAt, outcome: { status: "ok" } },
           endedReason: SUBAGENT_ENDED_REASON_COMPLETE,

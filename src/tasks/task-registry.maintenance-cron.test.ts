@@ -178,11 +178,11 @@ describe("durable cron task maintenance", () => {
         });
         const contended = createDeferred();
         const checks = new WeakMap<Job, number>();
-        const borrowLifecycle = workerAdmission.borrowSqliteWorkerLifecycle;
+        const borrowLifecycle = workerAdmission.prepareSqliteWorkerLifecycle;
         const observedContention = vi
-          .spyOn(workerAdmission, "borrowSqliteWorkerLifecycle")
+          .spyOn(workerAdmission, "prepareSqliteWorkerLifecycle")
           .mockImplementation((job, actor) => {
-            const delegate = borrowLifecycle(job, actor);
+            const delegate = borrowLifecycle(job, actor, () => {});
             if (
               !delegate &&
               job.lifecyclePreparation &&

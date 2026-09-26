@@ -96,11 +96,13 @@ function isTaskRegistryReadCurrent(taskId: string, mode: "identity" | "settled")
       currentScopes.add(pending.scope);
       continue;
     }
+    const readIdentity = pending.readIdentity as unknown;
     const creation =
       mode === "identity" &&
-      typeof pending.readIdentity === "object" &&
-      pending.readIdentity.kind === "creation"
-        ? pending.readIdentity
+      typeof readIdentity === "object" &&
+      readIdentity !== null &&
+      (readIdentity as { kind?: unknown }).kind === "creation"
+        ? (readIdentity as { kind: "creation"; taskId: string; runId?: string })
         : undefined;
     const changesIdentity = creation
       ? creation.taskId === taskId ||

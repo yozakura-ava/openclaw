@@ -253,7 +253,7 @@ class WorkerTaskPoolCore<Input, Output> {
     const slots = [...this.slots];
     const tasks = slots.flatMap((slot) => (slot.task ? [slot.task] : []));
     void Promise.allSettled(tasks.map((task) => task.promise))
-      .then(() => Promise.all(slots.map((slot) => this.retirement.retire(slot, "rotation"))))
+      .then(() => Promise.all(slots.map((slot) => this.retirement.retire(slot))))
       .then(() => this.retirement.joinArtifacts())
       .then(
         () => {
@@ -697,7 +697,7 @@ class WorkerTaskPoolCore<Input, Output> {
       if (retire) {
         // Keep input and capacity custody until execution stops, even if rejection is early.
         (slot.completions ??= []).push(complete);
-        void this.retirement.retire(slot, "failure").catch((failure: unknown) => {
+        void this.retirement.retire(slot).catch((failure: unknown) => {
           task.reject(
             error
               ? new AggregateError(

@@ -2,7 +2,6 @@ import { isDeepStrictEqual } from "node:util";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { ProviderCatalogOutcome } from "../../plugins/provider-catalog-outcome.js";
-import { copyProviderCatalogOutcomes } from "../../plugins/provider-catalog-result.js";
 import type { PluginRegistry } from "../../plugins/registry-types.js";
 import { getActivePluginRegistry } from "../../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../../plugins/runtime/gateway-request-scope.js";
@@ -220,7 +219,11 @@ export async function augmentModelCatalogWithAgentHarness(params: {
         listedRows = loaded;
       } else {
         listedRows = loaded.entries;
-        outcomes = copyProviderCatalogOutcomes(loaded);
+        outcomes = loaded.providerOutcomes
+          ? [...loaded.providerOutcomes]
+          : loaded.outcomes
+            ? [...loaded.outcomes]
+            : [];
         for (const outcome of outcomes) {
           outcome.provider = normalizeProvider(outcome.provider);
         }

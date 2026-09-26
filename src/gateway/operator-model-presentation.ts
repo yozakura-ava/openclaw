@@ -288,7 +288,6 @@ export function prepareOperatorModelPresentation(params: {
         return {
           ...getSessionDefaults(cfg, catalog, {
             agentId,
-            modelRef: defaultModel,
             metadataSnapshot,
             allowPluginNormalization: false,
             providerPolicySource: "active",
@@ -327,7 +326,6 @@ export function prepareOperatorModelPresentation(params: {
           return {
             ...result,
             models,
-            modelSelectionPolicy,
             pendingProviders: (result.pendingProviders ?? []).filter((provider) =>
               visibleProviders.has(provider),
             ),
@@ -351,7 +349,6 @@ export function prepareOperatorModelPresentation(params: {
           return {
             ...result,
             ...(result.models ? { models: filterModels(result.models) } : {}),
-            modelSelectionPolicy,
           };
         },
         defaults: projectDefaults,

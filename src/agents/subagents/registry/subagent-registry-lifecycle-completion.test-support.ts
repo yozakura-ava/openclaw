@@ -4,6 +4,7 @@ import { SUBAGENT_KILL_TASK_ERROR } from "../../../tasks/detached-task-runtime-c
 import { DetachedTaskLegacyRuntimeError } from "../../../tasks/detached-task-runtime-errors.js";
 import type { setDetachedTaskDeliveryStatusByRunId } from "../../../tasks/detached-task-runtime.js";
 import { TaskRunTransitionUnsettledError } from "../../../tasks/task-registry-transition.operation.js";
+import type { TaskRecord } from "../../../tasks/task-registry.types.js";
 import type {
   blockSubagentCompletionDelivery,
   settleRequesterCompletionBatch,
@@ -18,7 +19,26 @@ import type {
   SubagentLifecycleOptions,
 } from "./subagent-registry-lifecycle.js";
 import { markRequesterTurnYieldedInRuns } from "./subagent-registry-requester-yield.js";
-import type { SubagentRunRecord } from "./subagent-registry.types.js";
+import type { SubagentCompletionRequest, SubagentRunRecord } from "./subagent-registry.types.js";
+
+export const resolveLifecycleTask: SubagentLifecycleOptions["resolveSubagentTask"] = (run) => ({
+  lookup: "available",
+  task: run.killReconciliation
+    ? undefined
+    : {
+        taskId: `task-${run.runId}`,
+        runId: run.taskRunId ?? run.runId,
+        runtime: "subagent",
+        requesterSessionKey: run.requesterSessionKey,
+        ownerKey: run.requesterSessionKey,
+        scopeKind: "session",
+        task: run.task,
+        status: "succeeded",
+        deliveryStatus: "pending",
+        notifyPolicy: "done_only",
+        createdAt: run.createdAt,
+      },
+});
 
 export function mockBlockedCompletionDeliveryOwner(
   completionDeliveryMocks: {
