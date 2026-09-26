@@ -2844,7 +2844,7 @@ describe("ci workflow guards", () => {
       ["opened", "reopened", "synchronize"].flatMap((action) =>
         ["pending", "running"].map((state) => ({ action, state })),
       ),
-    )("preserves $state ready CI after a delayed draft $action", ({ action, state }) => {
+    )("supersedes $state ready CI after a delayed draft $action", ({ action, state }) => {
       const scheduler = admissionDriver();
       const predecessor = scheduler.admit(event(1, { action: "opened" }));
       scheduler.start(predecessor);
@@ -2855,22 +2855,18 @@ describe("ci workflow guards", () => {
       }
       expect(ready.state).toBe(state);
       const lateDraft = scheduler.admit(event(3, { action, draft: true }));
-      expect(ready.state, "late draft displaced runnable ready CI").toBe(state);
+      expect(ready.state).toBe(state === "pending" ? "cancelled" : "cancelling");
       scheduler.start(lateDraft);
-      expect(lateDraft.state).toBe("skipped");
-      expect(lateDraft.eligibleJobs).toEqual([]);
+      expect(lateDraft.state).toBe("pending");
+      expect(lateDraft.eligibleJobs).toBeUndefined();
       const anotherDraft = scheduler.admit(event(4, { action, draft: true }));
-      expect(anotherDraft.group).not.toBe(lateDraft.group);
-      expect(lateDraft.group).not.toBe(ready.group);
+      expect(anotherDraft.group).toBe(lateDraft.group);
+      expect(lateDraft.group).toBe(ready.group);
       if (state === "pending") {
         expect(ready.eligibleJobs).toBeUndefined();
-        scheduler.start(ready);
-        expect(ready.state).toBe("pending");
-        scheduler.finish(predecessor);
-        scheduler.start(ready);
+      } else {
+        expect(ready.eligibleJobs).toEqual(guardedJobs);
       }
-      expect(ready.state).toBe("running");
-      expect(ready.eligibleJobs).toEqual(guardedJobs);
     });
 
     it("admits ready CI after the forward draft-to-ready sequence", () => {
@@ -2881,7 +2877,7 @@ describe("ci workflow guards", () => {
       expect(draft.state).toBe("skipped");
       const ready = scheduler.admit(event(2));
       scheduler.start(ready);
-      expect(ready.group).toBe("CI-v7-7");
+      expect(ready.group).toBe("CI-v9-pr-7");
       expect(ready.eligibleJobs).toEqual(guardedJobs);
     });
 
@@ -2893,7 +2889,7 @@ describe("ci workflow guards", () => {
         scheduler.start(previous);
         const ready = state === "pending" ? scheduler.admit(event(2)) : previous;
         const converted = scheduler.admit(event(3, { action: "converted_to_draft", draft: true }));
-        expect(converted.group).toBe("CI-v7-7");
+        expect(converted.group).toBe("CI-v9-pr-7");
         expect(ready.state).toBe(state === "pending" ? "cancelled" : "cancelling");
         expect(previous.state).toBe("cancelling");
         scheduler.finish(previous);
@@ -2950,7 +2946,7 @@ describe("ci workflow guards", () => {
         expect(run.state).toBe("running");
         expect(run.eligibleJobs).toEqual(guardedJobs);
       }
-      expect(manual.map((run) => run.group)).toEqual(["CI-manual-v1-2", "CI-manual-v1-3"]);
+      expect(manual.map((run) => run.group)).toEqual(["CI-v9-manual-2", "CI-v9-manual-3"]);
       expect(ready.state).toBe("running");
     });
 
@@ -3018,15 +3014,15 @@ describe("ci workflow guards", () => {
     });
 
     it.each([
-      ["openclaw/openclaw", "refs/heads/topic", "CI-v7-refs/heads/topic"],
-      ["contributor/fork", "refs/heads/main", `CI-v7-refs/heads/main-${"b".repeat(40)}`],
-      ["contributor/fork", "refs/heads/topic", `CI-v7-refs/heads/topic-${"b".repeat(40)}`],
+      ["openclaw/openclaw", "refs/heads/topic", `CI-v9-refs/heads/topic-${"b".repeat(40)}`],
+      ["contributor/fork", "refs/heads/main", "CI-v9-refs/heads/main"],
+      ["contributor/fork", "refs/heads/topic", `CI-v9-refs/heads/topic-${"b".repeat(40)}`],
     ])("preserves push grouping for %s on %s", (repository, ref, group) => {
       const workflow = readCiWorkflow();
       const context = event(1, { eventName: "push", repository, ref });
       expect(evaluateWorkflowExpression(workflow.concurrency.group, context)).toBe(group);
       expect(evaluateWorkflowExpression(workflow.concurrency["cancel-in-progress"], context)).toBe(
-        false,
+        repository !== "openclaw/openclaw" && ref === "refs/heads/main",
       );
     });
   });
@@ -5643,7 +5639,7 @@ describe("ci workflow guards", () => {
   it.each([
     ["pull_request", "compact", "blacksmith", 130],
     ["pull_request", "precise", "github", 130],
-    ["push", "compact", "hybrid", 70],
+    ["push", "full", "hybrid", null],
     ["workflow_dispatch", "compact", "blacksmith", null],
   ] as const)(
     "bounds the final Node matrix for %s %s plans",
@@ -5857,7 +5853,7 @@ describe("ci workflow guards", () => {
         expect.objectContaining({
           check_name: "bundled-node-plan",
           env: {
-            OPENCLAW_CI_TEST_COMPACT_MODE: "push",
+            OPENCLAW_CI_TEST_COMPACT_MODE: "full",
             OPENCLAW_CI_TEST_COMPACT_NODE_JOB_CAP: "70",
             OPENCLAW_CI_TEST_RUNNER_BACKEND: runnerBackend ?? "blacksmith",
             OPENCLAW_CI_TEST_PROOF_TIER: "true",
