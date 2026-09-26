@@ -115,6 +115,20 @@ function walkMjs(root: string): string[] {
 }
 
 function listMissingPackages(decls: ImportDecl[], nodeModulesRoot: string): Set<string> {
+  const present = listPresentPackages(nodeModulesRoot);
+  const missing = new Set<string>();
+  for (const d of decls) {
+    if (d.kind !== "bare") {
+      continue;
+    }
+    if (!present.has(d.packageName)) {
+      missing.add(d.packageName);
+    }
+  }
+  return missing;
+}
+
+function listPresentPackages(nodeModulesRoot: string): Set<string> {
   const present = new Set<string>();
   try {
     const scopedEntries = readdirSync(nodeModulesRoot).filter((d) => d.startsWith("@"));
@@ -139,16 +153,7 @@ function listMissingPackages(decls: ImportDecl[], nodeModulesRoot: string): Set<
   } catch {
     // node_modules missing entirely — every bare package will be reported
   }
-  const missing = new Set<string>();
-  for (const d of decls) {
-    if (d.kind !== "bare") {
-      continue;
-    }
-    if (!present.has(d.packageName)) {
-      missing.add(d.packageName);
-    }
-  }
-  return missing;
+  return present;
 }
 
 function extractImports(text: string): string[] {
@@ -188,6 +193,7 @@ function main(): number {
   let totalBareDecls = 0;
   let totalRelativeDecls = 0;
   const bareDecls: ImportDecl[] = [];
+  const presentPackages = listPresentPackages(nodeModules);
   const failures: { file: string; line: number; spec: string; reason: string }[] = [];
 
   for (const file of files) {
@@ -217,8 +223,7 @@ function main(): number {
         continue;
       }
       // Bare — collect for later cross-check against node_modules
-      const probe = join(nodeModules, decl.packageName);
-      if (!existsSync(probe)) {
+      if (!presentPackages.has(decl.packageName)) {
         failures.push({
           file,
           line: lineNo,
