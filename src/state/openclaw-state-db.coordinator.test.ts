@@ -4,11 +4,8 @@ import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { isMainThread } from "node:worker_threads";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDeferred, withTestTimeout } from "../../test/helpers/promise.js";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
-import { sqliteReaderDatabasePathKey } from "../infra/sqlite-reader-lifecycle.js";
-import { onSqliteWalCheckpoint } from "../infra/sqlite-wal-checkpoint.js";
 import {
   acquireStateDatabaseCoordinator,
   acquireStateDatabaseHandleExclusion,
@@ -38,65 +35,6 @@ beforeAll(() => {
     true,
   );
 });
-
-function openStateDatabaseWithPeriodicMaintenance(databasePath: string) {
-  let periodic: (() => void) | undefined;
-  const realSetInterval = globalThis.setInterval;
-  const interval = vi
-    .spyOn(globalThis, "setInterval")
-    .mockImplementation((callback, delay, ...args) => {
-      if (delay === 30 * 60 * 1000 && typeof callback === "function") {
-        periodic = () => callback(...args);
-      }
-      return realSetInterval(callback, delay, ...args);
-    });
-  try {
-    const database = openOpenClawStateDatabase({ path: databasePath });
-    if (!periodic) {
-      throw new Error("Shared-state open did not register periodic WAL maintenance");
-    }
-    return { database, periodic };
-  } finally {
-    interval.mockRestore();
-  }
-}
-
-function observeStateWalCheckpoints(pathname: string) {
-  const databasePath = sqliteReaderDatabasePathKey(pathname);
-  const observations: string[] = [];
-  const waiters = new Set<() => void>();
-  const stopObserving = onSqliteWalCheckpoint((observation) => {
-    if (observation.databasePath === databasePath) {
-      observations.push(observation.health.state);
-      for (const waiter of waiters) {
-        waiter();
-      }
-    }
-  });
-  return {
-    observations,
-    stopObserving,
-    async waitForObservation(
-      this: void,
-      predicate: (states: readonly string[]) => boolean,
-      timeoutMs: number,
-    ) {
-      const observed = createDeferred();
-      const check = () => {
-        if (predicate(observations)) {
-          observed.resolve();
-        }
-      };
-      waiters.add(check);
-      try {
-        check();
-        await withTestTimeout(observed.promise, timeoutMs, "WAL checkpoint observation timed out");
-      } finally {
-        waiters.delete(check);
-      }
-    },
-  };
-}
 
 function sqliteBytes(databasePath: string) {
   return Object.fromEntries(
