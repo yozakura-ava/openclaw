@@ -102,6 +102,9 @@ jobs:
           restore-keys: |
             pnpm-${{ runner.os }}-
 
+      - name: Enable Corepack pnpm shim (packageManager-driven)
+        run: corepack enable
+
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
