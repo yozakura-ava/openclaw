@@ -23,7 +23,9 @@ function rowToSessionStateEvent(row: SessionStateEventRow): SessionStateEventRec
     sessionKey: row.session_key,
     ...(row.session_id ? { sessionId: row.session_id } : {}),
     agentId: row.agent_id,
+    // SAFETY: SQLite rows are constrained to the event-kind enum at insertion time.
     kind: row.kind as SessionStateEventKind,
+    // SAFETY: SQLite rows are constrained to the actor-type enum at insertion time.
     actorType: row.actor_type as SessionStateActorType,
     ...(row.actor_id ? { actorId: row.actor_id } : {}),
     ...(row.run_id ? { runId: row.run_id } : {}),

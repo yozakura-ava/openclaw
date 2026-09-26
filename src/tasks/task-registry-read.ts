@@ -96,13 +96,14 @@ function isTaskRegistryReadCurrent(taskId: string, mode: "identity" | "settled")
       currentScopes.add(pending.scope);
       continue;
     }
-    const readIdentity = pending.readIdentity as unknown;
+    const readIdentity = pending.readIdentity;
     const creation =
       mode === "identity" &&
       typeof readIdentity === "object" &&
       readIdentity !== null &&
-      (readIdentity as { kind?: unknown }).kind === "creation"
-        ? (readIdentity as { kind: "creation"; taskId: string; runId?: string })
+      // SAFETY: the preceding object/kind checks establish the narrowed identity shape.
+      (readIdentity as { kind?: unknown }).kind === "creation" // SAFETY: object/kind checks establish the identity shape.
+        ? (readIdentity as { kind: "creation"; taskId: string; runId?: string }) // SAFETY: kind is verified immediately above.
         : undefined;
     const changesIdentity = creation
       ? creation.taskId === taskId ||
