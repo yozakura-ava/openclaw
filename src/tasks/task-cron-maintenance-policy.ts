@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
-import { resolveCronRunRecordTimestamp } from "../cron/run-history-detail.js";
+import { resolveCronRunRecordTimestamp } from "../cron/task-run-detail.js";
 import { prepareTaskRecordUpdate } from "./task-registry-transition.operation.js";
 import type { TaskRecordTransitionReceipt } from "./task-registry-transition.operation.js";
 import type { TaskRecord, TaskStatus } from "./task-registry.types.js";
