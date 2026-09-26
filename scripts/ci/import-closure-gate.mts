@@ -114,20 +114,6 @@ function walkMjs(root: string): string[] {
   return found;
 }
 
-function listMissingPackages(decls: ImportDecl[], nodeModulesRoot: string): Set<string> {
-  const present = listPresentPackages(nodeModulesRoot);
-  const missing = new Set<string>();
-  for (const d of decls) {
-    if (d.kind !== "bare") {
-      continue;
-    }
-    if (!present.has(d.packageName)) {
-      missing.add(d.packageName);
-    }
-  }
-  return missing;
-}
-
 function listPresentPackages(nodeModulesRoot: string): Set<string> {
   const present = new Set<string>();
   try {
@@ -192,9 +178,9 @@ function main(): number {
   let totalDecls = 0;
   let totalBareDecls = 0;
   let totalRelativeDecls = 0;
-  const bareDecls: ImportDecl[] = [];
   const presentPackages = listPresentPackages(nodeModules);
-  const failures: { file: string; line: number; spec: string; reason: string }[] = [];
+  const barePackages = new Set<string>();
+  let failureCount = 0;
 
   for (const file of files) {
     const text = readFileSync(file, "utf8");
@@ -206,50 +192,43 @@ function main(): number {
       const decl = parseImportSpec(spec);
       if (decl.kind === "bare") {
         totalBareDecls++;
-        bareDecls.push(decl);
+        barePackages.add(decl.packageName);
       } else {
         totalRelativeDecls++;
       }
       const lineNo = lines.findIndex((l) => l.includes(spec)) + 1;
       if (decl.kind === "relative") {
         if (!isInternalRuntimeResolution(decl, fileDir, dist)) {
-          failures.push({
-            file,
-            line: lineNo,
-            spec,
-            reason: "relative import escaping dist/ root",
-          });
+          failureCount++;
+          reportLines.push(
+            `FAIL ${relative(dist, file)}:${lineNo} relative import escaping dist/ root | spec=${spec}`,
+          );
         }
         continue;
       }
       // Bare — collect for later cross-check against node_modules
       if (!presentPackages.has(decl.packageName)) {
-        failures.push({
-          file,
-          line: lineNo,
-          spec,
-          reason: `package not in staged node_modules: ${decl.packageName}`,
-        });
+        failureCount++;
+        reportLines.push(
+          `FAIL ${relative(dist, file)}:${lineNo} package not in staged node_modules: ${decl.packageName} | spec=${spec}`,
+        );
       }
     }
   }
 
   // Surface deduped missing packages so reviewers see them once.
-  const missingPkgs = listMissingPackages(bareDecls, nodeModules);
-  for (const pkg of missingPkgs) {
-    reportLines.push(`MISSING_PACKAGE ${pkg}`);
+  for (const pkg of barePackages) {
+    if (!presentPackages.has(pkg)) {
+      reportLines.push(`MISSING_PACKAGE ${pkg}`);
+    }
   }
 
   // Untracked imports surface as failures from per-file resolution; ignore the
   // duplicates listMissingPackages surfaces because per-file is authoritative.
 
   reportLines.push(
-    `SUMMARY files=${files.length} imports=${totalDecls} bare=${totalBareDecls} relative=${totalRelativeDecls} failures=${failures.length}`,
+    `SUMMARY files=${files.length} imports=${totalDecls} bare=${totalBareDecls} relative=${totalRelativeDecls} failures=${failureCount}`,
   );
-  for (const f of failures) {
-    const rel = relative(dist, f.file);
-    reportLines.push(`FAIL ${rel}:${f.line} ${f.reason} | spec=${f.spec}`);
-  }
   if (files.length === 0) {
     reportLines.push(
       "WARN no .setup/.mjs files found under dist/extensions or dist/runtime — verify the build output paths",
@@ -270,7 +249,7 @@ function main(): number {
     );
   }
 
-  return failures.length === 0 ? 0 : 1;
+  return failureCount === 0 ? 0 : 1;
 }
 
 process.exit(main());
