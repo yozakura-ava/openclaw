@@ -446,22 +446,30 @@ export function projectChatErrorDetail(observation: unknown): ChatErrorDetail | 
   const httpStatus = typeof source.httpStatus === "number" ? source.httpStatus : undefined;
   // Only the observation owner's redacted facts cross this boundary; raw previews,
   // bodies, and correlation hashes remain outside the closed chat contract.
+  // exactOptionalPropertyTypes is enabled for the closed chat contract, so
+  // optional fields are built via conditional spread — the key is absent when
+  // the value is undefined, matching the Type.Optional() target shape without
+  // requiring | undefined in the schema declarations.
+  const provider = readText(source.provider);
+  const model = readText(source.model);
+  const failoverReason = readText(source.failoverReason);
+  const providerRuntimeFailureKind = readText(source.providerRuntimeFailureKind);
+  const providerErrorType = readText(source.providerErrorType);
+  const providerErrorMessagePreview = readText(source.providerErrorMessagePreview);
   const detail: ChatErrorDetail = {
-    provider: readText(source.provider),
-    model: readText(source.model),
-    failoverReason: readText(source.failoverReason),
-    providerRuntimeFailureKind: readText(source.providerRuntimeFailureKind),
-    providerErrorType: readText(source.providerErrorType),
-    httpStatus:
-      httpStatus !== undefined &&
+    ...(provider !== undefined && { provider }),
+    ...(model !== undefined && { model }),
+    ...(failoverReason !== undefined && { failoverReason }),
+    ...(providerRuntimeFailureKind !== undefined && { providerRuntimeFailureKind }),
+    ...(providerErrorType !== undefined && { providerErrorType }),
+    ...(httpStatus !== undefined &&
       Number.isInteger(httpStatus) &&
       httpStatus >= 100 &&
-      httpStatus <= 599
-        ? httpStatus
-        : undefined,
-    providerErrorMessagePreview: readText(source.providerErrorMessagePreview),
+      httpStatus <= 599 &&
+      { httpStatus }),
+    ...(providerErrorMessagePreview !== undefined && { providerErrorMessagePreview }),
   };
-  return Object.values(detail).some((value) => value !== undefined) ? detail : undefined;
+  return Object.keys(detail).length > 0 ? detail : undefined;
 }
 
 /** Terminal event for failed chat runs with optional sanitized provider diagnostics. */
