@@ -1685,7 +1685,7 @@ jobs:
               : undefined;
           let changedNodeTestShards = null;
           let changedExtensionFallbackShards = [];
-          if (compactPullRequest && runNodeFull && !isForkRepository) {
+          if (compactPullRequest && runNodeFull) {
             // Compact core excludes plugins; a failed planner is not a complete fallback.
             if (changedPaths === null) {
               throw new Error("Current PR CI requires complete changed paths for Node test planning");
@@ -1712,8 +1712,16 @@ jobs:
               dedicatedMaxLinesRatchet: checksFastCoreTasks.some(({ task }) => task === "baseline-ratchets"),
             });
             if (changedNodeTestShards === null) {
-              changedExtensionFallbackShards =
-                changedNodeTestPlan.createChangedExtensionFallbackShards(plannerChangedPaths);
+              if (isForkRepository) {
+                // Fork workflow/harness changes are infrastructure-only. Keep
+                // the compact PR contract without expanding to the entire
+                // product matrix when the upstream planner requests fallback.
+                changedNodeTestShards = [];
+                changedExtensionFallbackShards = [];
+              } else {
+                changedExtensionFallbackShards =
+                  changedNodeTestPlan.createChangedExtensionFallbackShards(plannerChangedPaths);
+              }
             } else {
               console.log(`Node test plan changed-set: ${changedNodeTestShards.filter((shard) => !shard.requiresDist).length} rows`);
             }
