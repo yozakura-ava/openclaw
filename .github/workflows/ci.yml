@@ -1543,7 +1543,7 @@ jobs:
           // Only ordinary current PR unit entries may omit browser integration;
           // main, dispatches, frozen targets and unknown selectors retain their owners.
           const runUiE2e = runUiTests && (
-            !isCanonicalRepository || eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
+            eventName !== "pull_request" || frozenTarget || compatibilityTarget ||
             changedPaths === null ||
             typeof changedNodeTestPlan.hasUiE2eAffectingChange !== "function" ||
             changedNodeTestPlan.hasUiE2eAffectingChange(changedPaths)
@@ -1645,10 +1645,13 @@ jobs:
             );
           }
 
-          const compactPullRequest = isCanonicalRepository && eventName === "pull_request";
+          // The fork uses the same compact, changed-scope planner for PRs. The
+          // canonical repository keeps its release-only runtime policy below,
+          // but fork PRs must not expand into release/native validation lanes.
+          const compactPullRequest = eventName === "pull_request";
           const runtimePullRequest = isCanonicalRepository && (compactPullRequest || releaseGate);
           const includeReleaseOnlyRuntimeTests =
-            !isCanonicalRepository || (!runtimePullRequest && eventName !== "push");
+            isCanonicalRepository && (!runtimePullRequest && eventName !== "push");
           const startupCorpusTestFiles =
             typeof nodeTestPlan.resolveStartupCorpusTestFiles === "function"
               ? nodeTestPlan.resolveStartupCorpusTestFiles({
@@ -1675,9 +1678,7 @@ jobs:
           // drain the runner pool for minutes, and per-shard check names on
           // main have no branch-protection consumers. Dispatch (release
           // validation) keeps the full named matrix.
-          const compactPlanMode = !isCanonicalRepository
-            ? undefined
-            : eventName === "pull_request"
+          const compactPlanMode = eventName === "pull_request"
               ? "pull-request"
               : eventName === "push"
                 ? "push"
