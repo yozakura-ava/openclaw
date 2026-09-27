@@ -3,7 +3,14 @@
 // production dependency tree. This is intentionally a small CLI wrapper for
 // the deploy workflow; source-side closure analysis remains in scripts/lib.
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { argv, exit } from "node:process";
 
@@ -35,16 +42,28 @@ function parseArgs(args: string[]) {
 function walkGenerated(root: string): string[] {
   if (!existsSync(root)) return [];
   const files: string[] = [];
-  for (const name of readdirSync(root)) {
-    const file = join(root, name);
-    let stat;
+  const pending = [root];
+  while (pending.length > 0) {
+    const directory = pending.pop();
+    if (!directory) continue;
+    let entries: string[];
     try {
-      stat = statSync(file);
+      entries = readdirSync(directory);
     } catch {
       continue;
     }
-    if (stat.isDirectory()) files.push(...walkGenerated(file));
-    else if (extname(name) === ".mjs" || name.endsWith(".setup")) files.push(file);
+    for (const name of entries) {
+      const file = join(directory, name);
+      let stat;
+      try {
+        stat = lstatSync(file);
+      } catch {
+        continue;
+      }
+      if (stat.isSymbolicLink()) continue;
+      if (stat.isDirectory()) pending.push(file);
+      else if (extname(name) === ".mjs" || name.endsWith(".setup")) files.push(file);
+    }
   }
   return files;
 }
