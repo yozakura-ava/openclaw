@@ -66,7 +66,7 @@ import {
 } from "./task-registry-acp-cleanup.js";
 import { reconcileCronTaskForMaintenance } from "./task-registry-maintenance-cron.js";
 import { applyTaskRegistryMaintenanceRetention } from "./task-registry-maintenance-retention.js";
-import { createTaskMaintenanceScheduler } from "./task-registry-maintenance-scheduler.js";
+import { createTaskRegistryMaintenanceLifecycle } from "./task-registry-maintenance-lifecycle.js";
 import {
   createBackingSessionLookupContext,
   findTaskSessionEntry,
@@ -114,7 +114,7 @@ const log = createSubsystemLogger("tasks/task-registry-maintenance");
 const TASK_RECONCILE_GRACE_MS = 5 * 60_000;
 const HARNESS_OWNED_SUBAGENT_RECONCILE_GRACE_MS = 30 * 60_000;
 const TASK_STALE_RUNNING_MS = 30 * 60_000;
-const maintenanceScheduler = createTaskMaintenanceScheduler(
+const maintenanceScheduler = createTaskRegistryMaintenanceLifecycle(
   async () => {
     // Flow retention reads linked task activity, so reconcile the task owner first.
     // Reversing this order can preserve phantom active work for another sweep.
@@ -921,7 +921,6 @@ export async function sweepTaskRegistry(): Promise<TaskRegistryMaintenanceSummar
 }
 
 export function startTaskRegistryMaintenance(scheduler?: GatewayScheduler) {
-  ensureTaskRegistryReady();
   maintenanceScheduler.start(scheduler);
 }
 
