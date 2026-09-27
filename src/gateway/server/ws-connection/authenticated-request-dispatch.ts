@@ -44,6 +44,7 @@ import {
 import type { GatewayWsClient } from "../ws-types.js";
 import type { GatewayWsMessageHandlerParams } from "./message-handler-types.js";
 import {
+  DEFAULT_COALESCED_METHODS,
   dispatchWithCoalescing,
   extractClientIdentity,
   RequestCoalescer,
@@ -63,6 +64,11 @@ const DEVICE_CREDENTIAL_INVALIDATING_METHODS = new Set([
   "device.token.revoke",
   "node.pair.remove",
 ]);
+
+// A connected UI can legitimately issue several distinct catalog reads during one
+// render/update burst. Keep the coalescer's stricter unit-test default while using
+// a burst budget appropriate for the server dispatch path.
+const SERVER_COALESCER_RATE_LIMIT_PER_WINDOW = 100;
 
 export function createGatewayAuthenticatedRequestDispatcher(params: {
   handler: GatewayWsMessageHandlerParams;
@@ -86,40 +92,50 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
   // Per-client request coalescers (issue #184 server-side fold-in).
   // WeakMap so connection teardown releases state without an explicit hook.
   const perClientCoalescers = new WeakMap<GatewayWsClient, RequestCoalescer>();
+  const coalescerTeardownClients = new WeakSet<GatewayWsClient>();
 
   /**
    * Issue #184 fold-in: lazy-create the per-connection coalescer on first use.
    * Builds client identity from the connect payload; teardown fires when the
    * WeakMap entry is GC'd or when the socket emits `close`.
    */
-  const getOrCreateCoalescer = (client: GatewayWsClient): RequestCoalescer => {
+  const getOrCreateCoalescer = (
+    client: GatewayWsClient,
+    needsTeardown: boolean,
+  ): RequestCoalescer => {
     let coalescer = perClientCoalescers.get(client);
-    if (coalescer) {
+    if (coalescer && (!needsTeardown || coalescerTeardownClients.has(client))) {
       return coalescer;
     }
-    // SAFETY: GatewayWsClient is structurally compatible with `extractClientIdentity`'s
-    // client parameter; the `{ connect?: unknown }` intersection surfaces the optional
-    // connect payload from the WS handshake.
-    const identityClient = client as Parameters<typeof extractClientIdentity>[0]["client"] & {
-      connect?: unknown;
-    };
-    const identity = extractClientIdentity({
-      connId,
-      client: identityClient,
-    });
-    coalescer = new RequestCoalescer({
-      connId,
-      identity,
-      connectionAcceptedAt: Date.now(),
-    });
-    perClientCoalescers.set(client, coalescer);
+    if (!coalescer) {
+      // SAFETY: GatewayWsClient is structurally compatible with `extractClientIdentity`'s
+      // client parameter; the `{ connect?: unknown }` intersection surfaces the optional
+      // connect payload from the WS handshake.
+      const identityClient = client as Parameters<typeof extractClientIdentity>[0]["client"] & {
+        connect?: unknown;
+      };
+      const identity = extractClientIdentity({
+        connId,
+        client: identityClient,
+      });
+      coalescer = new RequestCoalescer({
+        connId,
+        identity,
+        connectionAcceptedAt: Date.now(),
+        rateLimitPerWindow: SERVER_COALESCER_RATE_LIMIT_PER_WINDOW,
+      });
+      perClientCoalescers.set(client, coalescer);
+    }
     // Best-effort teardown when the socket closes. WeakMap handles GC, but
     // explicit dispose flushes pending in-flight entries so subscribers
     // never await a handle that nobody will resolve.
-    try {
-      client.socket?.once?.("close", () => coalescer?.dispose());
-    } catch {
-      // `socket` is an opaque shape; defensive about runtime-only access.
+    if (needsTeardown) {
+      try {
+        client.socket?.once?.("close", () => coalescer?.dispose());
+        coalescerTeardownClients.add(client);
+      } catch {
+        // `socket` is an opaque shape; defensive about runtime-only access.
+      }
     }
     return coalescer;
   };
@@ -472,8 +488,15 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
           //   - resolve the RunHandle with {ok, payload, error} so coalesced
           //     subscribers replay the producer's actual data instead of
           //     the previous `{ok:true}` empty success.
+          const isCoalescedMethod = DEFAULT_COALESCED_METHODS.has(req.method);
+          const coalescer = getOrCreateCoalescer(client, isCoalescedMethod);
+          if (!isCoalescedMethod || req.method === "models.list") {
+            // Mutations invalidate cached read views. models.list also observes live
+            // prepared-catalog/config generations that are not represented in RPC params.
+            coalescer.clearCache();
+          }
           await dispatchWithCoalescing({
-            coalescer: getOrCreateCoalescer(client),
+            coalescer,
             method: req.method,
             params: req.params,
             respond: respondWithAuthority,

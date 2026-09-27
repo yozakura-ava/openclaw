@@ -118,13 +118,17 @@ export function createCatalogAttemptReporter(
   };
   const hasFailedProviders = () =>
     attempt.failedProviders.provider.size > 0 || attempt.failedProviders.native.size > 0;
+  const hasFailedNativeOutcomes = (catalog: ModelCatalogSnapshot) =>
+    Object.values(catalog.nativeProviderOutcomes ?? {}).some((outcomes) =>
+      outcomes.some((outcome) => outcome.status !== "ready"),
+    );
   return {
     setPending: (providers, kind = "provider") => {
       pendingProviders[kind] = providers;
     },
     withRefreshStatus: (catalog) => {
       // Provider renewal does not retry a failed native inventory.
-      if (attempt.failedProviders.native.size > 0) {
+      if (attempt.failedProviders.native.size > 0 || hasFailedNativeOutcomes(catalog)) {
         catalog.authoritative = false;
       }
       Object.defineProperty(catalog, "pendingProviders", {
@@ -146,6 +150,7 @@ export function createCatalogAttemptReporter(
         configurable: true,
         get: () =>
           hasFailedProviders() ||
+          hasFailedNativeOutcomes(catalog) ||
           catalog.providerOutcomes?.some((outcome) => outcome.status !== "ready") ||
           undefined,
       });
