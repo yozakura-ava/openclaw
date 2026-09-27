@@ -21,7 +21,7 @@ export function createTestGatewayScheduler(
 }
 
 /** A host wake is explicit; advancing the wall clock never replays missed ticks. */
-export function createGatewaySchedulerClock(initialNowMs = 0) {
+function createGatewaySchedulerClock(initialNowMs = 0) {
   let nowMs = initialNowMs;
   let elapsedMs = 0;
   let armed: { run: () => void | Promise<void>; atMs: number; elapsedAtMs: number } | undefined;

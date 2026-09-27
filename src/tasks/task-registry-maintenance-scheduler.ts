@@ -45,12 +45,12 @@ export function createTaskMaintenanceScheduler(
       if (sweepJob) {
         return;
       }
-      scheduler ??= new GatewayScheduler();
-      sweepJob = scheduler.schedule({
+      const activeScheduler = scheduler ?? new GatewayScheduler();
+      sweepJob = activeScheduler.schedule({
         id: "task-registry-maintenance",
-        atMs: scheduler.now() + 5_000,
+        atMs: activeScheduler.now() + 5_000,
         everyMs: TASK_SWEEP_INTERVAL_MS,
-        run: () => startScheduledSweep(scheduler.signal),
+        run: () => startScheduledSweep(activeScheduler.signal),
       });
     },
     async stop(): Promise<void> {
