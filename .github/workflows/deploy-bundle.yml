@@ -255,12 +255,10 @@ jobs:
           grep -F "${EXPECTED_TARBALL_SHA}  deploy-bundle.tar.gz" deploy-bundle-checksums.txt
           grep -F "${EXPECTED_PROVENANCE_SHA}  provenance/provenance.json" deploy-bundle-checksums.txt
 
-          verify_dir="$(mktemp -d)"
-          tar -xzf deploy-bundle.tar.gz -C "${verify_dir}"
-          test -d "${verify_dir}/openclaw/dist"
-          test -d "${verify_dir}/openclaw/node_modules"
-          test -f "${verify_dir}/openclaw/import-closure-report.txt"
-          grep -F "failures=0" "${verify_dir}/openclaw/import-closure-report.txt"
+          # Stream the report from the tarball instead of unpacking another
+          # 1.1GB tree into runner workspace; the staged tree was already
+          # checked by the import gate above.
+          tar -xOzf deploy-bundle.tar.gz openclaw/import-closure-report.txt | grep -F "failures=0"
 
       - name: Upload deploy bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
