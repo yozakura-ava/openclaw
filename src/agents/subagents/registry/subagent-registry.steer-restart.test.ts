@@ -13,6 +13,7 @@ import {
 } from "../../../tasks/task-runtime.test-helpers.js";
 import { subagentRuns } from "./subagent-registry-memory.js";
 import { persistSubagentRunsToDiskOrThrow } from "./subagent-registry-state.js";
+import { observeRootWork } from "./subagent-registry.browser-cleanup.test-support.js";
 import { settleSubagentRegistryPersistenceWork } from "./subagent-registry.persistence.test-support.js";
 
 const noop = () => {};
@@ -227,21 +228,29 @@ describe("subagent registry steer restarts", () => {
       setImmediate(resolve);
     });
   };
-  const createDeferredAnnounceResolver = (): ((value: "delivered" | "retryable") => void) => {
+  const waitForRegistrySideEffect = async (assertion: () => void) => {
+    await vi.waitFor(assertion, { interval: 1, timeout: 1_000 });
+  };
+  const createDeferredAnnounceResolver = () => {
     // Deferred announce lets tests observe registry state while delivery is
     // still in flight, then release the promise deterministically.
+    const entered = createDeferred();
     let resolveAnnounce: ((value: "delivered" | "retryable") => void) | undefined;
     announceSpy.mockImplementationOnce(
       () =>
         new Promise<"delivered" | "retryable">((resolve) => {
+          entered.resolve();
           resolveAnnounce = resolve;
         }),
     );
-    return (value: "delivered" | "retryable") => {
-      if (!resolveAnnounce) {
-        throw new Error("Expected subagent announcement resolver to be initialized");
-      }
-      resolveAnnounce(value);
+    return {
+      entered: entered.promise,
+      resolve: (value: "delivered" | "retryable") => {
+        if (!resolveAnnounce) {
+          throw new Error("Expected subagent announcement resolver to be initialized");
+        }
+        resolveAnnounce(value);
+      },
     };
   };
 
@@ -388,30 +397,31 @@ describe("subagent registry steer restarts", () => {
         fallback: previous,
       });
 
-      emitLifecycleEnd("run-new");
-
-      await waitForRegistrySideEffect(() => {
+      const settleRootWork = observeRootWork();
+      try {
+        emitLifecycleEnd("run-new");
+        await settleRootWork(true);
         expect(announceSpy).toHaveBeenCalledTimes(1);
-      });
-      await waitForRegistrySideEffect(() => {
         const matchingCalls = runSubagentEndedHookMock.mock.calls.filter((call) => {
           const ctx = call[1] as { runId?: string } | undefined;
           return ctx?.runId === "run-new";
         });
         expect(matchingCalls).toHaveLength(1);
-      });
-      const hookCall = requireSubagentEndedHookCall("run-new");
-      expect(hookCall.event.runId).toBe("run-new");
-      expect(hookCall.ctx.runId).toBe("run-new");
+        const hookCall = requireSubagentEndedHookCall("run-new");
+        expect(hookCall.event.runId).toBe("run-new");
+        expect(hookCall.ctx.runId).toBe("run-new");
 
-      const announce = requireFirstAnnounceCall();
-      expect(announce.childRunId).toBe("run-new");
+        const announce = requireFirstAnnounceCall();
+        expect(announce.childRunId).toBe("run-new");
+      } finally {
+        await settleRootWork();
+      }
     }
   });
 
   it("defers subagent_ended hook for completion-mode runs until announce delivery resolves", async () => {
     {
-      const resolveAnnounce = createDeferredAnnounceResolver();
+      const announce = createDeferredAnnounceResolver();
       registerCompletionModeRun(
         "run-completion-delayed",
         "agent:main:subagent:completion-delayed",
@@ -420,15 +430,13 @@ describe("subagent registry steer restarts", () => {
 
       emitLifecycleEnd("run-completion-delayed");
 
-      await waitForRegistrySideEffect(() => {
-        expect(announceSpy).toHaveBeenCalledTimes(1);
-      });
+      await announce.entered;
+      expect(announceSpy).toHaveBeenCalledTimes(1);
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
 
-      resolveAnnounce("delivered");
-      await waitForRegistrySideEffect(() => {
-        expect(runSubagentEndedHookMock).toHaveBeenCalledTimes(1);
-      });
+      announce.resolve("delivered");
+      await settleSubagentRegistryPersistenceWork();
+      expect(runSubagentEndedHookMock).toHaveBeenCalledTimes(1);
       const hookCall = requireSubagentEndedHookCall("run-completion-delayed");
       expect(hookCall.event.targetSessionKey).toBe("agent:main:subagent:completion-delayed");
       expect(hookCall.event.reason).toBe("subagent-complete");
@@ -440,7 +448,7 @@ describe("subagent registry steer restarts", () => {
 
   it("does not emit subagent_ended on completion for persistent session-mode runs", async () => {
     {
-      const resolveAnnounce = createDeferredAnnounceResolver();
+      const announce = createDeferredAnnounceResolver();
       registerCompletionModeRun(
         "run-persistent-session",
         "agent:main:subagent:persistent-session",
@@ -450,11 +458,11 @@ describe("subagent registry steer restarts", () => {
 
       emitLifecycleEnd("run-persistent-session");
 
-      await flushAnnounce();
+      await announce.entered;
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
 
-      resolveAnnounce("delivered");
-      await flushAnnounce();
+      announce.resolve("delivered");
+      await settleSubagentRegistryPersistenceWork();
 
       expect(runSubagentEndedHookMock).not.toHaveBeenCalled();
       const run = listMainRuns()[0];
