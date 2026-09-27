@@ -100,10 +100,14 @@ jobs:
         id: provenance
         run: |
           set -euo pipefail
-          COMMIT="${{ github.sha }}"
+          COMMIT="$(git rev-parse HEAD)"
           MANIFEST_SHA="$(sha256sum package.json | awk '{print $1}')"
           LOCKFILE_SHA="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
           NODE_VERSION="$(node --version)"
+          [[ "${NODE_VERSION}" == "v24.20.0" ]] || {
+            echo "::error::unexpected Node version: ${NODE_VERSION}"
+            exit 1
+          }
           mkdir -p provenance
           cat > provenance/provenance.template.json <<JSON
           {
@@ -156,25 +160,87 @@ jobs:
           cd staging-tmp
           # Strip pnpm deploy markers so reviewers don't ship debug metadata.
           rm -f .npmrc 2>/dev/null || true
-          # Compose the provenance sidecar with the artifact sha once known.
-          ARTIFACT_SHA="$(tar -cf - --exclude=./node_modules/.cache . | sha256sum | awk '{print $1}')"
+          # Compose the provenance sidecar with the staged payload hash. This
+          # is intentionally distinct from the final tarball checksum below.
+          PAYLOAD_SHA256="$(tar -cf - --exclude=./node_modules/.cache . | sha256sum | awk '{print $1}')"
           cd ..
           cp provenance/provenance.template.json provenance/provenance.json
-          node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2))' \
-            ARTIFACT_SHA="${ARTIFACT_SHA}"
+          # ARTIFACT_SHA must be an environment assignment before `node`.
+          # Passing it after the script makes it a positional Node argument
+          # and leaves process.env.ARTIFACT_SHA unset.
+          ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); if (!process.env.ARTIFACT_SHA) throw new Error("ARTIFACT_SHA was not provided"); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2)+"\\n")'
           # Build the final tarball: dist + production node_modules + provenance.
           cp -R provenance staging-tmp/
           tar -czf deploy-bundle.tar.gz \
-            --transform 's,^staging-tmp,openclaw,' \
+            --transform 's,^\\./,openclaw/,' \
             -C staging-tmp .
+          TARBALL_SHA256="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
+          PROVENANCE_SHA256="$(sha256sum provenance/provenance.json | awk '{print $1}')"
           BUNDLE_SIZE="$(stat -c%s deploy-bundle.tar.gz)"
           {
-            echo "ARTIFACT_SHA=${ARTIFACT_SHA}"
+            echo "PAYLOAD_SHA256=${PAYLOAD_SHA256}"
+            echo "ARTIFACT_SHA=${PAYLOAD_SHA256}"
+            echo "TARBALL_SHA256=${TARBALL_SHA256}"
+            echo "PROVENANCE_SHA256=${PROVENANCE_SHA256}"
             echo "BUNDLE_SIZE=${BUNDLE_SIZE}"
-            echo "PROVENANCE_SHA256=${ARTIFACT_SHA}"
+            echo "provenance_sha256=${PROVENANCE_SHA256}"
+            echo "bundle_size=${BUNDLE_SIZE}"
           } >> "$GITHUB_OUTPUT"
+          {
+            echo "source_sha=${{ steps.provenance.outputs.COMMIT }}"
+            echo "payload_sha256=${PAYLOAD_SHA256}"
+            echo "artifact_sha256=${PAYLOAD_SHA256}"
+            echo "tarball_sha256=${TARBALL_SHA256}"
+            echo "provenance_sha256=${PROVENANCE_SHA256}"
+            echo "bundle_size_bytes=${BUNDLE_SIZE}"
+          } > deploy-bundle-manifest.txt
+          sha256sum deploy-bundle.tar.gz provenance/provenance.json > deploy-bundle-checksums.txt
           # Embed provenance into the bundle so consumers always have it locally.
           tar -czf deploy-bundle-with-provenance.tar.gz deploy-bundle.tar.gz provenance/provenance.json
+
+      - name: Verify bundle provenance and extraction
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ steps.provenance.outputs.COMMIT }}
+          EXPECTED_MANIFEST_SHA: ${{ steps.provenance.outputs.MANIFEST_SHA }}
+          EXPECTED_LOCKFILE_SHA: ${{ steps.provenance.outputs.LOCKFILE_SHA }}
+          EXPECTED_NODE_VERSION: ${{ steps.provenance.outputs.NODE_VERSION }}
+          EXPECTED_PAYLOAD_SHA: ${{ steps.package.outputs.PAYLOAD_SHA256 }}
+          EXPECTED_TARBALL_SHA: ${{ steps.package.outputs.TARBALL_SHA256 }}
+          EXPECTED_PROVENANCE_SHA: ${{ steps.package.outputs.PROVENANCE_SHA256 }}
+          EXPECTED_BUNDLE_SIZE: ${{ steps.package.outputs.BUNDLE_SIZE }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_SHA="${EXPECTED_PAYLOAD_SHA}" node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const hash = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+            const p = JSON.parse(fs.readFileSync("provenance/provenance.json", "utf8"));
+            const checks = {
+              commit: [p.commit, process.env.EXPECTED_COMMIT],
+              manifest_sha: [p.manifest_sha, process.env.EXPECTED_MANIFEST_SHA, hash("package.json")],
+              lockfile_sha: [p.lockfile_sha, process.env.EXPECTED_LOCKFILE_SHA, hash("pnpm-lock.yaml")],
+              node_version: [p.node_version, process.env.EXPECTED_NODE_VERSION, "v24.20.0", process.version],
+              artifact_sha: [p.artifact_sha, process.env.EXPECTED_PAYLOAD_SHA, process.env.ARTIFACT_SHA],
+            };
+            for (const [name, values] of Object.entries(checks)) {
+              if (values.some((value) => value !== values[0])) throw new Error(`${name} mismatch: ${values.join(",")}`);
+            }
+          '
+          test "$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')" = "${EXPECTED_TARBALL_SHA}"
+          test "$(sha256sum provenance/provenance.json | awk '{print $1}')" = "${EXPECTED_PROVENANCE_SHA}"
+          test "$(stat -c%s deploy-bundle.tar.gz)" = "${EXPECTED_BUNDLE_SIZE}"
+          grep -F "${EXPECTED_TARBALL_SHA}  deploy-bundle.tar.gz" deploy-bundle-checksums.txt
+          grep -F "${EXPECTED_PROVENANCE_SHA}  provenance/provenance.json" deploy-bundle-checksums.txt
+
+          verify_dir="$(mktemp -d)"
+          tar -xzf deploy-bundle.tar.gz -C "${verify_dir}"
+          test -d "${verify_dir}/openclaw/dist"
+          test -d "${verify_dir}/openclaw/node_modules"
+          test -f "${verify_dir}/openclaw/import-closure-report.txt"
+          grep -F "failures=0" "${verify_dir}/openclaw/import-closure-report.txt"
+          tar -xzf deploy-bundle-with-provenance.tar.gz -C "${verify_dir}"
+          test -f "${verify_dir}/provenance/provenance.json"
 
       - name: Upload deploy bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -183,6 +249,8 @@ jobs:
           path: |
             deploy-bundle.tar.gz
             deploy-bundle-with-provenance.tar.gz
+            deploy-bundle-manifest.txt
+            deploy-bundle-checksums.txt
           if-no-files-found: error
           retention-days: 14
 
