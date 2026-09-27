@@ -921,7 +921,7 @@ export async function sweepTaskRegistry(): Promise<TaskRegistryMaintenanceSummar
   return runTaskRegistryMaintenance();
 }
 
-export function startTaskRegistryMaintenance(scheduler: GatewayScheduler) {
+export function startTaskRegistryMaintenance(scheduler?: GatewayScheduler) {
   ensureTaskRegistryReady(); maintenanceScheduler.start(scheduler);
 }
 
