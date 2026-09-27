@@ -9,6 +9,7 @@ import { PreparedModelRuntimePublicationSupersededError } from "../../agents/pre
 import { normalizeAgentId } from "../../routing/session-key.js";
 import { readGatewayAccessRevision } from "../gateway-access-revision.js";
 import { ModelAccountConnectAuthorityError } from "../model-account-connect.js";
+import { isSessionCreatorProfile } from "../session-creator.js";
 import { resolveRequestedSessionAgentId } from "../session-request-agent.js";
 import { hiddenSessionNotFound } from "../session-sharing-policy.js";
 import {
@@ -51,8 +52,11 @@ export function resolveChatMetadataReadParams(
     const assertVisible = () => {
       const visible = createSessionListEntryFilter({ client, cfg: context.getRuntimeConfig() });
       if (
-        !session.entry ||
-        visible?.(session.legacyKey ?? session.canonicalKey, session.entry) === false
+        (session.readSource !== undefined &&
+          (!session.entry ||
+            !isSessionCreatorProfile(session.entry.createdActor, requesterProfileId))) ||
+        (session.entry &&
+          visible?.(session.legacyKey ?? session.canonicalKey, session.entry) === false)
       ) {
         throw new SessionMutationAuthorizationChangedError(hiddenSessionNotFound(sessionKey));
       }
