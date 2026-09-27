@@ -5,6 +5,7 @@ import {
   retainTaskMutationFlowEffects,
 } from "./task-executor-mutation-effects.async.js";
 import { ensureTaskFlowRegistryReadyAsync } from "./task-flow-runtime-internal.js";
+import type { TaskRetentionOverflowSelections } from "./task-registry-maintenance-snapshot.js";
 import { readTaskRetentionCommit } from "./task-registry-retention-receipt.js";
 import {
   captureTaskRetentionSelection,
@@ -17,7 +18,6 @@ import {
   taskRegistryLog,
 } from "./task-registry-state.js";
 import type { TaskRecord } from "./task-registry.types.js";
-import type { TaskRetentionOverflowSelections } from "./task-registry-maintenance-snapshot.js";
 
 export async function applyTaskRegistryMaintenanceRetention(
   selected: TaskRecord,
