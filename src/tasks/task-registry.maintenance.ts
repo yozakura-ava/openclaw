@@ -65,8 +65,8 @@ import {
   type TaskRegistryAcpMaintenanceRuntime,
 } from "./task-registry-acp-cleanup.js";
 import { reconcileCronTaskForMaintenance } from "./task-registry-maintenance-cron.js";
-import { applyTaskRegistryMaintenanceRetention } from "./task-registry-maintenance-retention.js";
 import { createTaskRegistryMaintenanceLifecycle } from "./task-registry-maintenance-lifecycle.js";
+import { applyTaskRegistryMaintenanceRetention } from "./task-registry-maintenance-retention.js";
 import {
   createBackingSessionLookupContext,
   findTaskSessionEntry,

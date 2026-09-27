@@ -7,13 +7,10 @@ export function createTaskRegistryMaintenanceLifecycle(
   runFlowMaintenance: () => Promise<unknown>,
   onError: (error: unknown) => void,
 ) {
-  const scheduler = createTaskMaintenanceScheduler(
-    async () => {
-      await runSweep();
-      await runFlowMaintenance();
-    },
-    onError,
-  );
+  const scheduler = createTaskMaintenanceScheduler(async () => {
+    await runSweep();
+    await runFlowMaintenance();
+  }, onError);
   return {
     start(gatewayScheduler?: GatewayScheduler) {
       ensureTaskRegistryReady();
