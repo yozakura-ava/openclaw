@@ -17,6 +17,7 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { isCronJobActive } from "../cron/active-jobs.js";
 import { getAgentRunContext } from "../infra/agent-run-registry.js";
+import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import { getSessionBindingService } from "../infra/outbound/session-binding-service.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { sweepExpiredPluginStateEntries } from "../plugin-state/plugin-state-store.js";
@@ -920,9 +921,9 @@ export async function sweepTaskRegistry(): Promise<TaskRegistryMaintenanceSummar
   return runTaskRegistryMaintenance();
 }
 
-export function startTaskRegistryMaintenance() {
+export function startTaskRegistryMaintenance(scheduler: GatewayScheduler) {
   ensureTaskRegistryReady();
-  maintenanceScheduler.start();
+  maintenanceScheduler.start(scheduler);
 }
 
 export async function stopTaskRegistryMaintenance(): Promise<void> {
