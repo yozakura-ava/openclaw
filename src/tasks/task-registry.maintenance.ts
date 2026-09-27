@@ -115,14 +115,8 @@ const TASK_RECONCILE_GRACE_MS = 5 * 60_000;
 const HARNESS_OWNED_SUBAGENT_RECONCILE_GRACE_MS = 30 * 60_000;
 const TASK_STALE_RUNNING_MS = 30 * 60_000;
 const maintenanceScheduler = createTaskRegistryMaintenanceLifecycle(
-  async () => {
-    // Flow retention reads linked task activity, so reconcile the task owner first.
-    // Reversing this order can preserve phantom active work for another sweep.
-    await sweepTaskRegistry();
-  },
-  async () => {
-    await runTaskFlowRegistryMaintenance();
-  },
+  sweepTaskRegistry,
+  runTaskFlowRegistryMaintenance,
   (error) => log.warn("Task registry maintenance failed", { error }),
 );
 let configuredRuntimeAuthoritative = false;
