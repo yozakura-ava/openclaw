@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { closePreparedModelRuntimeSnapshots } from "../agents/prepared-model-runtime.lifecycle.js";
 import { isNixMode, resolveIsConfigReadOnly } from "../config/paths.js";
+import { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import { clearGatewayAgentCliShim } from "../infra/openclaw-cli-shim.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
@@ -124,10 +125,11 @@ export async function createGatewayKernel(
   opts: GatewayServerOptions = {},
   options: GatewayKernelOptions = {},
 ) {
+  const scheduler = new GatewayScheduler();
   const sdkResourceHost = options.sdkResourceHost ?? new LegacyPluginSdkResourceHost();
   sdkResourceHost.assertOpen();
   return await sdkResourceHost.run(() =>
-    createGatewayKernelWithSdkHost(port, opts, options, sdkResourceHost),
+    createGatewayKernelWithSdkHost(port, opts, options, sdkResourceHost, scheduler),
   );
 }
 
@@ -136,6 +138,7 @@ async function createGatewayKernelWithSdkHost(
   opts: GatewayServerOptions,
   options: GatewayKernelOptions,
   sdkResourceHost: LegacyPluginSdkResourceHost,
+  scheduler: GatewayScheduler,
 ) {
   // Listener and socket-free embedders share one generation for instance-owned state.
   const suppliedBootId = opts.bootId;
@@ -176,6 +179,7 @@ async function createGatewayKernelWithSdkHost(
     const runtime = await bootstrap.startupTrace.measure("gateway.kernel-state", () =>
       prepareGatewayKernelState({
         bootstrap,
+        scheduler,
         bootId,
         pluginRegistryOwner: preparedPluginRegistryOwner,
         getPluginReloadStatus: () =>

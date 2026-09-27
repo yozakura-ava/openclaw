@@ -143,7 +143,9 @@ export function hasSqliteWorkerOutcomeUnknown(error: unknown): boolean {
   const seen = new Set<unknown>();
   while (pending.length > 0) {
     const current = pending.pop();
-    if (seen.has(current) || isProxy(current) || !isNativeError(current)) continue;
+    if (seen.has(current) || isProxy(current) || !isNativeError(current)) {
+      continue;
+    }
     seen.add(current);
     if (
       Object.getOwnPropertyDescriptor(current, retainedWorkerErrorCode)?.value === "outcome-unknown"
@@ -151,12 +153,20 @@ export function hasSqliteWorkerOutcomeUnknown(error: unknown): boolean {
       return true;
     }
     const cause = Object.getOwnPropertyDescriptor(current, "cause");
-    if (cause && "value" in cause) pending.push(cause.value);
-    if (!(current instanceof AggregateError)) continue;
+    if (cause && "value" in cause) {
+      pending.push(cause.value);
+    }
+    if (!(current instanceof AggregateError)) {
+      continue;
+    }
     const errors = Object.getOwnPropertyDescriptor(current, "errors")?.value;
-    if (isProxy(errors) || !Array.isArray(errors)) continue;
+    if (isProxy(errors) || !Array.isArray(errors)) {
+      continue;
+    }
     for (const key of Object.keys(errors)) {
-      if (!/^(0|[1-9][0-9]*)$/.test(key)) continue;
+      if (!/^(0|[1-9][0-9]*)$/.test(key)) {
+        continue;
+      }
       const item = Object.getOwnPropertyDescriptor(errors, key);
       if (item && "value" in item) pending.push(item.value);
     }

@@ -37,6 +37,7 @@ export function createTaskMaintenanceScheduler(
         scheduledSweep = null;
       });
     scheduledSweep = { completion, cancelAdmission: () => admission.abort() };
+    return completion;
   }
 
   return {
