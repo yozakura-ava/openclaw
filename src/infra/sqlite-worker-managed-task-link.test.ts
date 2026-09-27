@@ -514,7 +514,8 @@ describe("registered async managed child linkage", () => {
           expect(
             updates
               .filter((event) => event.task.status === "succeeded")
-              .map((event) => event.task.taskId),
+              .map((event) => event.task.taskId)
+              .toSorted(),
           ).toEqual([backing.taskId, receipt.task.taskId].toSorted());
         }
         expect(
