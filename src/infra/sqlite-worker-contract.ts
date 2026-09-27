@@ -168,7 +168,9 @@ export function hasSqliteWorkerOutcomeUnknown(error: unknown): boolean {
         continue;
       }
       const item = Object.getOwnPropertyDescriptor(errors, key);
-      if (item && "value" in item) pending.push(item.value);
+      if (item && "value" in item) {
+        pending.push(item.value);
+      }
     }
   }
   return false;
