@@ -177,10 +177,8 @@ describe("subagent registry persistence resume", () => {
       mod.initSubagentRegistry();
       activateRegistry();
 
-      await vi.waitFor(() => expect(announceSpy).toHaveBeenCalled(), {
-        timeout: 1_000,
-        interval: 10,
-      });
+      await settleSubagentRegistryPersistenceWork();
+      expect(announceSpy).toHaveBeenCalled();
       const announce = (announceSpy.mock.calls as unknown as Array<[unknown]>).at(-1)?.[0] as
         | {
             childRunId?: string;
