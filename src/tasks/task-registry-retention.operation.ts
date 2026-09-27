@@ -1,4 +1,4 @@
-import { cronRunRecordStoreKey } from "../cron/run-history-detail.js";
+import { cronTaskRecordStoreKey } from "../cron/task-run-detail.js";
 import { hasCronRunHistory, shouldPruneTerminalTask } from "./cron-history-retention.js";
 import { prepareTaskRecordUpdate } from "./task-registry-transition.operation.js";
 import type { TaskRecord } from "./task-registry.types.js";
@@ -60,7 +60,7 @@ export function captureTaskRetentionSelection(
             lastEventAt: task.lastEventAt,
             cleanupAfter: task.cleanupAfter,
             sourceId: task.sourceId,
-            storeKey: cronRunRecordStoreKey(task),
+            storeKey: cronTaskRecordStoreKey(task),
             hasHistory: hasCronRunHistory(task),
           },
         }
@@ -95,7 +95,7 @@ export function prepareTaskRetention(
       current.lastEventAt !== facts.lastEventAt ||
       current.cleanupAfter !== facts.cleanupAfter ||
       current.sourceId !== facts.sourceId ||
-      cronRunRecordStoreKey(current) !== facts.storeKey ||
+      cronTaskRecordStoreKey(current) !== facts.storeKey ||
       hasCronRunHistory(current) !== facts.hasHistory)
   ) {
     return { kind: "unchanged" };
