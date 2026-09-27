@@ -17,6 +17,7 @@ import {
 } from "../config/sessions/session-accessor.js";
 import { isCronJobActive } from "../cron/active-jobs.js";
 import { getAgentRunContext } from "../infra/agent-run-registry.js";
+import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import { getSessionBindingService } from "../infra/outbound/session-binding-service.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { sweepExpiredPluginStateEntries } from "../plugin-state/plugin-state-store.js";
@@ -64,8 +65,8 @@ import {
   type TaskRegistryAcpMaintenanceRuntime,
 } from "./task-registry-acp-cleanup.js";
 import { reconcileCronTaskForMaintenance } from "./task-registry-maintenance-cron.js";
+import { createTaskRegistryMaintenanceLifecycle } from "./task-registry-maintenance-lifecycle.js";
 import { applyTaskRegistryMaintenanceRetention } from "./task-registry-maintenance-retention.js";
-import { createTaskMaintenanceScheduler } from "./task-registry-maintenance-scheduler.js";
 import {
   createBackingSessionLookupContext,
   findTaskSessionEntry,
@@ -113,13 +114,9 @@ const log = createSubsystemLogger("tasks/task-registry-maintenance");
 const TASK_RECONCILE_GRACE_MS = 5 * 60_000;
 const HARNESS_OWNED_SUBAGENT_RECONCILE_GRACE_MS = 30 * 60_000;
 const TASK_STALE_RUNNING_MS = 30 * 60_000;
-const maintenanceScheduler = createTaskMaintenanceScheduler(
-  async () => {
-    // Flow retention reads linked task activity, so reconcile the task owner first.
-    // Reversing this order can preserve phantom active work for another sweep.
-    await sweepTaskRegistry();
-    await runTaskFlowRegistryMaintenance();
-  },
+const maintenanceScheduler = createTaskRegistryMaintenanceLifecycle(
+  sweepTaskRegistry,
+  runTaskFlowRegistryMaintenance,
   (error) => log.warn("Task registry maintenance failed", { error }),
 );
 let configuredRuntimeAuthoritative = false;
@@ -915,14 +912,12 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
     stopObservingBacking();
   }
 }
-
 export async function sweepTaskRegistry(): Promise<TaskRegistryMaintenanceSummary> {
   return runTaskRegistryMaintenance();
 }
 
-export function startTaskRegistryMaintenance() {
-  ensureTaskRegistryReady();
-  maintenanceScheduler.start();
+export function startTaskRegistryMaintenance(scheduler?: GatewayScheduler) {
+  maintenanceScheduler.start(scheduler);
 }
 
 export async function stopTaskRegistryMaintenance(): Promise<void> {

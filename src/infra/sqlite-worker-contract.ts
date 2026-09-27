@@ -1,3 +1,4 @@
+import { isNativeError, isProxy } from "node:util/types";
 import type { MessagePort } from "node:worker_threads";
 import type { OpenClawStateWorkerErrorPayload } from "../state/openclaw-state-worker-error.js";
 import type { SqliteWorkerStateContext } from "./sqlite-worker-state-context.js";
@@ -134,4 +135,43 @@ export function isSqliteWorkerError(
   } catch {
     return false;
   }
+}
+
+/** Unknown native outcomes remain terminal through canonical cause and cleanup envelopes. */
+export function hasSqliteWorkerOutcomeUnknown(error: unknown): boolean {
+  const pending: unknown[] = [error];
+  const seen = new Set<unknown>();
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (seen.has(current) || isProxy(current) || !isNativeError(current)) {
+      continue;
+    }
+    seen.add(current);
+    if (
+      Object.getOwnPropertyDescriptor(current, retainedWorkerErrorCode)?.value === "outcome-unknown"
+    ) {
+      return true;
+    }
+    const cause = Object.getOwnPropertyDescriptor(current, "cause");
+    if (cause && "value" in cause) {
+      pending.push(cause.value);
+    }
+    if (!(current instanceof AggregateError)) {
+      continue;
+    }
+    const errors = Object.getOwnPropertyDescriptor(current, "errors")?.value;
+    if (isProxy(errors) || !Array.isArray(errors)) {
+      continue;
+    }
+    for (const key of Object.keys(errors)) {
+      if (!/^(0|[1-9][0-9]*)$/.test(key)) {
+        continue;
+      }
+      const item = Object.getOwnPropertyDescriptor(errors, key);
+      if (item && "value" in item) {
+        pending.push(item.value);
+      }
+    }
+  }
+  return false;
 }

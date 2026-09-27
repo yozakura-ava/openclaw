@@ -17,7 +17,6 @@ export type TaskRegistryMaintenanceRead = Pick<
 >;
 
 export const TASK_MAINTENANCE_BATCH_SIZE = 25;
-
 export type TaskRetentionOverflowSelections =
   | ReadonlyMap<string, TaskRetentionSelection>
   | ReadonlySet<string>;
