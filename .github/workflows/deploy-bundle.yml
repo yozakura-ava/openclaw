@@ -216,8 +216,9 @@ jobs:
             echo "bundle_size_bytes=${BUNDLE_SIZE}"
           } > deploy-bundle-manifest.txt
           sha256sum deploy-bundle.tar.gz provenance/provenance.json > deploy-bundle-checksums.txt
-          # Embed provenance into the bundle so consumers always have it locally.
-          tar -czf deploy-bundle-with-provenance.tar.gz deploy-bundle.tar.gz provenance/provenance.json
+          # The primary bundle already contains provenance/provenance.json;
+          # expose the compatibility name without nesting a second 1.1GB tar.
+          cp -f deploy-bundle.tar.gz deploy-bundle-with-provenance.tar.gz
 
       - name: Verify bundle provenance and extraction
         shell: bash
