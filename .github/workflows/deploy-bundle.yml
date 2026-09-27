@@ -94,7 +94,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build full host + extensions
-        run: pnpm -r --include-workspace-root build
+        run: pnpm -r --include-workspace-root --workspace-concurrency=1 build
 
       - name: Capture provenance tuple
         id: provenance
