@@ -120,7 +120,9 @@ const maintenanceScheduler = createTaskRegistryMaintenanceLifecycle(
     // Reversing this order can preserve phantom active work for another sweep.
     await sweepTaskRegistry();
   },
-  runTaskFlowRegistryMaintenance,
+  async () => {
+    await runTaskFlowRegistryMaintenance();
+  },
   (error) => log.warn("Task registry maintenance failed", { error }),
 );
 let configuredRuntimeAuthoritative = false;
