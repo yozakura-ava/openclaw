@@ -116,6 +116,9 @@ export const modelsHandlers: GatewayRequestHandlers = {
       respond(true, policy ? policy.catalog(projected) : projected, undefined);
     } catch (error) {
       if (error instanceof SessionMutationAuthorizationChangedError) {
+        if (error.error.code === ErrorCodes.INVALID_REQUEST) {
+          throw error;
+        }
         respond(false, undefined, error.error);
         return;
       }
