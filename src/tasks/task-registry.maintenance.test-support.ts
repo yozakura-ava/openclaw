@@ -193,14 +193,17 @@ function installMaintenanceRuntime(
   replace(
     retention.applyTaskRegistryMaintenanceRetention,
     () => vi.spyOn(retention, "applyTaskRegistryMaintenanceRetention"),
-    async (selected, now, cronHistoryOverflowTaskIds, assertOwnerCurrent) => {
+    async (selected, now, cronHistoryOverflowSelections, assertOwnerCurrent) => {
       assertOwnerCurrent();
       // Keep retention decisions production-owned while these fixtures use an in-memory ledger.
       const result = prepareTaskRetention(currentTasks.get(selected.taskId), {
         taskId: selected.taskId,
-        selection: captureTaskRetentionSelection(selected),
+        selection:
+          (cronHistoryOverflowSelections instanceof Map
+            ? cronHistoryOverflowSelections.get(selected.taskId)
+            : undefined) ?? captureTaskRetentionSelection(selected),
         now,
-        cronHistoryOverflow: cronHistoryOverflowTaskIds.has(selected.taskId),
+        cronHistoryOverflow: cronHistoryOverflowSelections.has(selected.taskId),
       });
       if (result.kind === "pruned") {
         currentTasks.delete(selected.taskId);
@@ -257,9 +260,18 @@ function createPreparedMaintenanceRead(): TaskRegistryMaintenanceRead {
   return {
     assertOwnerCurrent() {},
     assertCurrent() {},
-    isTaskSettled() {
-      return true;
-    },
+  };
+}
+
+function createMaintenanceSnapshot(snapshotTasks: TaskRecord[]) {
+  const overflowIds = collectCronHistoryOverflowTaskIds(snapshotTasks);
+  return {
+    taskIds: snapshotTasks.map((task) => task.taskId),
+    cronHistoryOverflowSelections: new Map(
+      snapshotTasks
+        .filter((task) => overflowIds.has(task.taskId))
+        .map((task) => [task.taskId, captureTaskRetentionSelection(task, true)]),
+    ),
   };
 }
 
@@ -375,16 +387,11 @@ export function createTaskRegistryMaintenanceHarness(params: {
     },
     ensureTaskRegistryReady: () => {},
     getTaskById: (taskId: string) => currentTasks.get(taskId),
-    getTaskRegistryMaintenanceTask: (_read, taskId: string) => currentTasks.get(taskId),
+    getTaskRegistryMaintenanceTask: (taskId: string) => currentTasks.get(taskId),
     prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
     listTaskRecords: () => Array.from(currentTasks.values()),
-    getTaskRegistryMaintenanceSnapshot: () => {
-      const snapshotTasks = Array.from(currentTasks.values());
-      return {
-        taskIds: snapshotTasks.map((task) => task.taskId),
-        cronHistoryOverflowTaskIds: collectCronHistoryOverflowTaskIds(snapshotTasks),
-      };
-    },
+    getTaskRegistryMaintenanceSnapshot: () =>
+      createMaintenanceSnapshot(Array.from(currentTasks.values())),
     markTaskLostById: (patch) => {
       const current = currentTasks.get(patch.taskId);
       if (!current) {
@@ -498,16 +505,10 @@ export function configureTaskRegistryMaintenanceRuntimeForTest(params: {
       },
       ensureTaskRegistryReady: () => {},
       getTaskById: (taskId: string) => params.currentTasks.get(taskId),
-      getTaskRegistryMaintenanceTask: (_read, taskId: string) => params.currentTasks.get(taskId),
+      getTaskRegistryMaintenanceTask: (taskId: string) => params.currentTasks.get(taskId),
       prepareTaskRegistryRead: async () => createPreparedMaintenanceRead(),
       listTaskRecords: listSnapshotTasks,
-      getTaskRegistryMaintenanceSnapshot: () => {
-        const snapshotTasks = listSnapshotTasks();
-        return {
-          taskIds: snapshotTasks.map((task) => task.taskId),
-          cronHistoryOverflowTaskIds: collectCronHistoryOverflowTaskIds(snapshotTasks),
-        };
-      },
+      getTaskRegistryMaintenanceSnapshot: () => createMaintenanceSnapshot(listSnapshotTasks()),
       markTaskLostById: (patch: {
         taskId: string;
         endedAt: number;
