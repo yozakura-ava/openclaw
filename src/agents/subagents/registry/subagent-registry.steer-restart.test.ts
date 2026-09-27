@@ -4,6 +4,7 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../../test/helpers/promise.js";
 import type { ContextEngine } from "../../../context-engine/types.js";
 import * as gatewayCallRuntime from "../../../gateway/call.js";
 import { openOpenClawStateDatabase } from "../../../state/openclaw-state-db.js";
@@ -970,9 +971,13 @@ describe("subagent registry steer restarts", () => {
     expect(listMainRuns()[0]?.cleanupHandled).toBe(true);
     expect(typeof listMainRuns()[0]?.cleanupCompletedAt).toBe("number");
 
-    emitLifecycleEnd("run-kill-race");
-    await flushAnnounce();
-    await flushAnnounce();
+    const settleRootWork = observeRootWork();
+    try {
+      emitLifecycleEnd("run-kill-race");
+      await settleRootWork(true);
+    } finally {
+      await settleRootWork();
+    }
 
     expect(announceSpy).toHaveBeenCalledTimes(1);
     const announce = requireFirstAnnounceCall();
@@ -1046,6 +1051,7 @@ describe("subagent registry steer restarts", () => {
   it("retries completion delivery beyond three attempts and suspends at its deadline", async () => {
     {
       vi.useFakeTimers();
+      const settleRootWork = observeRootWork();
       try {
         announceSpy.mockResolvedValue("retryable");
 
@@ -1058,10 +1064,20 @@ describe("subagent registry steer restarts", () => {
         emitLifecycleEnd("run-completion-retry");
 
         await vi.advanceTimersByTimeAsync(0);
+        await settleRootWork(true);
         expect(announceSpy).toHaveBeenCalledTimes(1);
         expect(listMainRuns()[0]?.delivery?.attemptCount).toBe(1);
 
-        await vi.advanceTimersByTimeAsync(5 * 60_000);
+        const retryWindowEnd = Date.now() + 5 * 60_000;
+        while (Date.now() < retryWindowEnd) {
+          const nextAttemptAt = expectDefined(
+            listMainRuns()[0]?.delivery?.nextAttemptAt,
+            "scheduled completion retry",
+          );
+          expect(nextAttemptAt).toBeGreaterThan(Date.now());
+          await vi.advanceTimersByTimeAsync(Math.min(nextAttemptAt, retryWindowEnd) - Date.now());
+          await settleRootWork(true);
+        }
         expect(announceSpy.mock.calls.length).toBeGreaterThan(3);
         expect(listMainRuns()[0]?.delivery?.status).not.toBe("suspended");
 
@@ -1070,15 +1086,15 @@ describe("subagent registry steer restarts", () => {
         vi.setSystemTime((deadlineAt ?? Date.now()) + 1);
         mod.resumeSubagentRun("run-completion-retry");
         await vi.advanceTimersByTimeAsync(0);
-        await waitForRegistrySideEffect(() => {
-          const run = listMainRuns()[0];
-          expect(run?.delivery?.status).toBe("suspended");
-          expect(run?.delivery?.suspendedAt).toBeTypeOf("number");
-          expect(run?.delivery?.suspendedReason).toBe("expiry");
-          expect(run?.cleanupCompletedAt).toBeUndefined();
-        });
+        await settleRootWork(true);
+        const run = listMainRuns()[0];
+        expect(run?.delivery?.status).toBe("suspended");
+        expect(run?.delivery?.suspendedAt).toBeTypeOf("number");
+        expect(run?.delivery?.suspendedReason).toBe("expiry");
+        expect(run?.cleanupCompletedAt).toBeUndefined();
       } finally {
         vi.useRealTimers();
+        await settleRootWork();
       }
     }
   });
