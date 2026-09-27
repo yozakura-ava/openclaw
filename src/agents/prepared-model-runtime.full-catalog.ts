@@ -54,6 +54,7 @@ import type {
 import { AuthStorage } from "./sessions/auth-storage.js";
 
 const fullModelCatalogSnapshots = new WeakSet<ModelCatalogSnapshot>();
+const nativeOnlyProviderOutcomes = Symbol("nativeOnlyProviderOutcomes");
 
 function catalogPublicationContent(catalog: ModelCatalogSnapshot) {
   const { pendingProviders: _pending, refreshFailed: _failed, ...inventory } = catalog;
@@ -203,9 +204,26 @@ export function mergePreparedNativeCatalog(
   providers: ModelCatalogSnapshot,
 ): ModelCatalogSnapshot {
   const keyOf = createModelCatalogIdentityKeyResolver();
+  const providerOutcomeIds = new Set(
+    (providers.providerOutcomes ?? []).map(({ provider }) => normalizeProviderId(provider)),
+  );
+  const priorNativeOnlyValue = Object.getOwnPropertyDescriptor(
+    providers,
+    nativeOnlyProviderOutcomes,
+  )?.value;
+  const priorNativeOnly = Array.isArray(priorNativeOnlyValue) ? priorNativeOnlyValue : [];
+  const baseProviderOutcomes = (providers.providerOutcomes ?? []).filter(
+    (outcome) => !priorNativeOnly.includes(outcome),
+  );
+  const nativeOnlyOutcomes = Object.values(native.nativeProviderOutcomes ?? {})
+    .flat()
+    .filter(({ provider }) => !providerOutcomeIds.has(normalizeProviderId(provider)));
   // Host observations carry their own provenance; inherited API rows are never native facts.
-  return {
+  const merged = {
     ...providers,
+    ...(baseProviderOutcomes.length > 0 || nativeOnlyOutcomes.length > 0
+      ? { providerOutcomes: [...baseProviderOutcomes, ...nativeOnlyOutcomes] }
+      : { providerOutcomes: undefined }),
     nativeProviderOutcomes: native.nativeProviderOutcomes,
     nativeHostRows: native.nativeHostRows,
     entries: dedupeByKey(
@@ -225,6 +243,11 @@ export function mergePreparedNativeCatalog(
       (entry) => modelCatalogRouteVariantKey(entry, keyOf(entry)),
     ),
   };
+  Object.defineProperty(merged, nativeOnlyProviderOutcomes, {
+    configurable: true,
+    value: nativeOnlyOutcomes,
+  });
+  return merged;
 }
 
 export function filterNativeModelCatalogScopes<T extends { provider: string }>(
