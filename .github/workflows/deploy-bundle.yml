@@ -138,6 +138,10 @@ jobs:
           # each one into its packaged dist root so Node's importer-relative
           # lookup remains valid without shipping the source workspace or
           # development dependencies.
+          if [[ -d dist/extensions/node_modules ]]; then
+            mkdir -p staging-tmp/dist/extensions/node_modules
+            cp -a dist/extensions/node_modules/. staging-tmp/dist/extensions/node_modules/
+          fi
           mkdir -p staging-tmp/.plugin-deps
           while IFS= read -r -d '' plugin_dist; do
             plugin_id="$(basename "$plugin_dist")"
