@@ -156,7 +156,7 @@ export async function runManagerTurn(params: {
         });
       }
       if (spawnedByWatcher) {
-        void recordSubagentTerminalState(
+        await recordSubagentTerminalState(
           {
             childSessionKey: sessionKey,
             runId: taskContext.runId,
@@ -447,7 +447,7 @@ export async function runManagerTurn(params: {
               });
             }
             if (spawnedByWatcher) {
-              void recordSubagentTerminalState(
+              await recordSubagentTerminalState(
                 {
                   childSessionKey: sessionKey,
                   runId: taskContext.runId,

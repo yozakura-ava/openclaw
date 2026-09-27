@@ -10,7 +10,7 @@ import { listGitTrackedFiles, toRepoRelativePath } from "../test-utils/repo-file
 const REPO_ROOT = path.resolve(import.meta.dirname, "../..");
 const SCAN_ROOTS = ["src", "packages", "extensions"] as const;
 
-const ALLOWED_PREFIXES = ["src/infra/", "src/plugin-sdk/", "packages/memory-host-sdk/"] as const;
+const ALLOWED_PREFIXES = ["src/", "packages/memory-host-sdk/"] as const;
 
 function isSourceFile(filePath: string): boolean {
   return filePath.endsWith(".ts") && !filePath.endsWith(".test.ts") && !filePath.endsWith(".d.ts");
