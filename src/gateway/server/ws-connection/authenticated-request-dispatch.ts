@@ -490,9 +490,15 @@ export function createGatewayAuthenticatedRequestDispatcher(params: {
           //     the previous `{ok:true}` empty success.
           const isCoalescedMethod = DEFAULT_COALESCED_METHODS.has(req.method);
           const coalescer = getOrCreateCoalescer(client, isCoalescedMethod);
-          if (!isCoalescedMethod || req.method === "models.list") {
+          if (
+            !isCoalescedMethod ||
+            req.method === "models.list" ||
+            req.method === "chat.metadata"
+          ) {
             // Mutations invalidate cached read views. models.list also observes live
             // prepared-catalog/config generations that are not represented in RPC params.
+            // chat.metadata is invalidated by lifecycle publications, which are outside
+            // this dispatcher and therefore cannot evict a parameter-only cache key.
             coalescer.clearCache();
           }
           await dispatchWithCoalescing({
