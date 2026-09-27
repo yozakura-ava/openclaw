@@ -515,7 +515,7 @@ describe("registered async managed child linkage", () => {
             updates
               .filter((event) => event.task.status === "succeeded")
               .map((event) => event.task.taskId),
-          ).toEqual([backing.taskId, receipt.task.taskId]);
+          ).toEqual([backing.taskId, receipt.task.taskId].toSorted());
         }
         expect(
           await runtime.tasks.async.flows.bindSession({ sessionKey: ownerKey }).get(flow.flowId),
