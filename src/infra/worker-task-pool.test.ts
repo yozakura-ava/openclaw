@@ -833,7 +833,9 @@ describe("worker task pool", () => {
       await coldExit;
       const warm = await pool.run({ label: "hot script" }, {});
       for (let index = 0; index < 8; index++) {
-        await vi.advanceTimersByTimeAsync(70_000);
+        // Stay just below the default 60-second idle retirement window so
+        // each intermittent task proves the same worker remains warm.
+        await vi.advanceTimersByTimeAsync(59_000);
         const next = await pool.run({ label: "intermittent" }, {});
         expect(next.threadId).toBe(warm.threadId);
       }
