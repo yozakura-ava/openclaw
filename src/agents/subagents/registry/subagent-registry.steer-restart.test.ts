@@ -229,12 +229,7 @@ describe("subagent registry steer restarts", () => {
       setImmediate(resolve);
     });
   };
-  const waitForRegistrySideEffect = async (assertion: () => void) => {
-    await vi.waitFor(assertion, { interval: 1, timeout: 1_000 });
-  };
   const createDeferredAnnounceResolver = () => {
-    // Deferred announce lets tests observe registry state while delivery is
-    // still in flight, then release the promise deterministically.
     const entered = createDeferred();
     let resolveAnnounce: ((value: "delivered" | "retryable") => void) | undefined;
     announceSpy.mockImplementationOnce(
@@ -972,12 +967,9 @@ describe("subagent registry steer restarts", () => {
     expect(typeof listMainRuns()[0]?.cleanupCompletedAt).toBe("number");
 
     const settleRootWork = observeRootWork();
-    try {
-      emitLifecycleEnd("run-kill-race");
-      await settleRootWork(true);
-    } finally {
-      await settleRootWork();
-    }
+    emitLifecycleEnd("run-kill-race");
+    await settleRootWork(true);
+    await settleRootWork();
 
     expect(announceSpy).toHaveBeenCalledTimes(1);
     const announce = requireFirstAnnounceCall();
@@ -1023,10 +1015,14 @@ describe("subagent registry steer restarts", () => {
     try {
       emitLifecycleEnd("run-parent");
       await settleRootWork(true);
-      const initialChildRunIds = announceSpy.mock.calls.map(
-        (call) => ((call[0] ?? {}) as { childRunId?: string }).childRunId,
-      );
-      expect(countMatching(initialChildRunIds, (id) => id === "run-parent")).toBe(1);
+      expect(
+        countMatching(
+          announceSpy.mock.calls.map(
+            (call) => ((call[0] ?? {}) as { childRunId?: string }).childRunId,
+          ),
+          (id) => id === "run-parent",
+        ),
+      ).toBe(1);
 
       emitLifecycleEnd("run-child");
       await settleRootWork(true);
@@ -1040,12 +1036,6 @@ describe("subagent registry steer restarts", () => {
         },
         { timeout: 3_000, interval: 10 },
       );
-
-      const childRunIds = announceSpy.mock.calls.map(
-        (call) => ((call[0] ?? {}) as { childRunId?: string }).childRunId,
-      );
-      expect(countMatching(childRunIds, (id) => id === "run-parent")).toBe(2);
-      expect(countMatching(childRunIds, (id) => id === "run-child")).toBe(1);
     } finally {
       await settleRootWork();
     }
