@@ -916,7 +916,6 @@ export async function runTaskRegistryMaintenance(): Promise<TaskRegistryMaintena
     stopObservingBacking();
   }
 }
-
 export async function sweepTaskRegistry(): Promise<TaskRegistryMaintenanceSummary> {
   return runTaskRegistryMaintenance();
 }
