@@ -1,0 +1,286 @@
+name: Deploy Bundle
+
+# PR-K, pre96-rework. Replaces the eight legacy ci(deploy-bundle) commits on
+# the archive branch with a GitHub-Actions-built deploy bundle whose artifact
+# is consumed by the local openclaw-staging.service on port 18800.
+#
+# Design: docs/plans/gateway-ci-staging-pipeline.md (Craig-endorsed 2026-09-24).
+# Postmortem-driven: docs/postmortems/2026-09-24-openclaw-9-6-rollout.md
+#
+# RC addresses:
+#   RC#1 (private contract runtime resolvability) — @openclaw/workboard-contract
+#         is a legitimate bundled runtime dependency on this base (Tsubaki STOP
+#         finding, card 44909d8c: imported as runtime values in 10 non-test
+#         files — src/cli.ts, command.ts, store-card-helpers.ts,
+#         tools-card-mutations.ts, gateway-helpers.ts, and 5 browser files).
+#         The postmortem lesson is "no runtime import may fail to resolve";
+#         that is exactly what the import-closure gate (step below) enforces.
+#         A separate devDependencies-boundary assertion is intentionally NOT
+#         used here — keeping the contract in dependencies is correct on this
+#         base, and the import-closure gate catches the actual failure mode.
+#   RC#2 (ESM race fallback) — Node 24.21.0 pinned; ESM signal handling is
+#         considered an upstream concern, not re-fixed here.
+#   RC#3 (production dependency tree mismatch) — import-closure gate scans
+#         dist/extensions/**/*.setup/*.mjs and dist/runtime/**/*.mjs and
+#         rejects any bare-package import absent from the staged node_modules.
+#
+# Triggers:
+#   workflow_dispatch:    manual operator run (build for a known commit)
+#
+# PRs use the compact CI workflow as their merge gate. The deploy bundle is a
+# main-only release artifact and is dispatched after main CI is green.
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source branch / SHA to build. Defaults to workflow ref."
+        required: false
+        type: string
+        default: ""
+permissions:
+  contents: read
+
+# Match the canonical env pinning used by the live repo.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_VERSION: "24.21.0"
+  # Tell workflows that consumers may reference this exact run by SHA.
+  DEPLOY_BUNDLE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+
+# Disallow concurrent runs on the same ref — bundle is heavy and the result
+# is a snapshot artifact keyed off the source SHA + run id.
+concurrency:
+  group: deploy-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_deploy_bundle:
+    name: Build deploy bundle (Node 24.21.0, frozen lockfile)
+    # Single OS lane (per Ken report PR-K review point 1). Ubuntu because the
+    # staging target is xeon / Linux and matrix linux/macos/windows only
+    # adds noise with no extra coverage.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      artifact_name: deploy-bundle-${{ github.sha }}
+      provenance_sha256: ${{ steps.package.outputs.provenance_sha256 }}
+      bundle_size: ${{ steps.package.outputs.bundle_size }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
+          fetch-depth: 0
+          show-progress: false
+
+      - name: Setup Node 24.21.0 (exact pin)
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24.21.0"
+          check-latest: false
+
+      - name: Cache pnpm store by lockfile hash
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Enable Corepack pnpm shim (packageManager-driven)
+        run: corepack enable
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build full host + extensions
+        run: pnpm -r --include-workspace-root build
+
+      - name: Capture provenance tuple
+        id: provenance
+        run: |
+          set -euo pipefail
+          COMMIT="$(git rev-parse HEAD)"
+          MANIFEST_SHA="$(sha256sum package.json | awk '{print $1}')"
+          LOCKFILE_SHA="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
+          NODE_VERSION="$(node --version)"
+          [[ "${NODE_VERSION}" == "v24.21.0" ]] || {
+            echo "::error::unexpected Node version: ${NODE_VERSION}"
+            exit 1
+          }
+          mkdir -p provenance
+          cat > provenance/provenance.template.json <<JSON
+          {
+            "commit": "${COMMIT}",
+            "manifest_sha": "${MANIFEST_SHA}",
+            "lockfile_sha": "${LOCKFILE_SHA}",
+            "node_version": "${NODE_VERSION}",
+            "artifact_sha": ""
+          }
+          JSON
+          {
+            echo "COMMIT=${COMMIT}"
+            echo "MANIFEST_SHA=${MANIFEST_SHA}"
+            echo "LOCKFILE_SHA=${LOCKFILE_SHA}"
+            echo "NODE_VERSION=${NODE_VERSION}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build production node_modules tree (pnpm deploy, prod only)
+        id: stage_deps
+        run: |
+          set -euo pipefail
+          rm -rf staging-tmp
+          mkdir -p staging-tmp
+          # pnpm deploy isolates ONLY production deps; devDeps and the source
+          # tree never make it into the bundle. This is what addresses RC#3.
+          pnpm deploy --filter=openclaw --prod staging-tmp
+
+      - name: Run import-closure gate (postmortem RC#3)
+        id: import_closure
+        run: |
+          set -euo pipefail
+          if [ ! -d dist/extensions ] && [ ! -d dist/runtime ]; then
+            echo "[import-closure-gate] FAIL: dist/extensions or dist/runtime must exist after build"
+            exit 1
+          fi
+          if ! node --import ./scripts/tsx.mjs ./scripts/ci/import-closure-gate.mts \
+            --dist dist \
+            --node-modules staging-tmp/node_modules \
+            --out staging-tmp/import-closure-report.txt; then
+            echo "[import-closure-gate] FAIL — see import-closure-report.txt for unresolved imports"
+            cat staging-tmp/import-closure-report.txt || true
+            exit 1
+          fi
+          echo "[import-closure-gate] PASS — every generated .setup/.mjs import resolved"
+
+      - name: Package deploy bundle (tarball, no source tree, no docs)
+        id: package
+        run: |
+          set -euo pipefail
+          cd staging-tmp
+          # Strip pnpm deploy markers so reviewers don't ship debug metadata.
+          rm -f .npmrc 2>/dev/null || true
+          # Compose the provenance sidecar with the staged payload hash. This
+          # is intentionally distinct from the final tarball checksum below.
+          PAYLOAD_SHA256="$(tar -cf - --exclude=./node_modules/.cache . | sha256sum | awk '{print $1}')"
+          cd ..
+          cp provenance/provenance.template.json provenance/provenance.json
+          # ARTIFACT_SHA must be an environment assignment before `node`.
+          # Passing it after the script makes it a positional Node argument
+          # and leaves process.env.ARTIFACT_SHA unset.
+          ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); if (!process.env.ARTIFACT_SHA) throw new Error("ARTIFACT_SHA was not provided"); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2)+"\\n")'
+          # Build the final tarball: dist + production node_modules + provenance.
+          cp -R provenance staging-tmp/
+          tar -czf deploy-bundle.tar.gz \
+            --transform 's,^\\./,openclaw/,' \
+            -C staging-tmp .
+          TARBALL_SHA256="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
+          PROVENANCE_SHA256="$(sha256sum provenance/provenance.json | awk '{print $1}')"
+          BUNDLE_SIZE="$(stat -c%s deploy-bundle.tar.gz)"
+          {
+            echo "PAYLOAD_SHA256=${PAYLOAD_SHA256}"
+            echo "ARTIFACT_SHA=${PAYLOAD_SHA256}"
+            echo "TARBALL_SHA256=${TARBALL_SHA256}"
+            echo "PROVENANCE_SHA256=${PROVENANCE_SHA256}"
+            echo "BUNDLE_SIZE=${BUNDLE_SIZE}"
+            echo "provenance_sha256=${PROVENANCE_SHA256}"
+            echo "bundle_size=${BUNDLE_SIZE}"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "source_sha=${{ steps.provenance.outputs.COMMIT }}"
+            echo "payload_sha256=${PAYLOAD_SHA256}"
+            echo "artifact_sha256=${PAYLOAD_SHA256}"
+            echo "tarball_sha256=${TARBALL_SHA256}"
+            echo "provenance_sha256=${PROVENANCE_SHA256}"
+            echo "bundle_size_bytes=${BUNDLE_SIZE}"
+          } > deploy-bundle-manifest.txt
+          sha256sum deploy-bundle.tar.gz provenance/provenance.json > deploy-bundle-checksums.txt
+          # Embed provenance into the bundle so consumers always have it locally.
+          tar -czf deploy-bundle-with-provenance.tar.gz deploy-bundle.tar.gz provenance/provenance.json
+
+      - name: Verify bundle provenance and extraction
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ steps.provenance.outputs.COMMIT }}
+          EXPECTED_MANIFEST_SHA: ${{ steps.provenance.outputs.MANIFEST_SHA }}
+          EXPECTED_LOCKFILE_SHA: ${{ steps.provenance.outputs.LOCKFILE_SHA }}
+          EXPECTED_NODE_VERSION: ${{ steps.provenance.outputs.NODE_VERSION }}
+          EXPECTED_PAYLOAD_SHA: ${{ steps.package.outputs.PAYLOAD_SHA256 }}
+          EXPECTED_TARBALL_SHA: ${{ steps.package.outputs.TARBALL_SHA256 }}
+          EXPECTED_PROVENANCE_SHA: ${{ steps.package.outputs.PROVENANCE_SHA256 }}
+          EXPECTED_BUNDLE_SIZE: ${{ steps.package.outputs.BUNDLE_SIZE }}
+        run: |
+          set -euo pipefail
+          ARTIFACT_SHA="${EXPECTED_PAYLOAD_SHA}" node -e '
+            const crypto = require("node:crypto");
+            const fs = require("node:fs");
+            const hash = (file) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+            const p = JSON.parse(fs.readFileSync("provenance/provenance.json", "utf8"));
+            const checks = {
+              commit: [p.commit, process.env.EXPECTED_COMMIT],
+              manifest_sha: [p.manifest_sha, process.env.EXPECTED_MANIFEST_SHA, hash("package.json")],
+              lockfile_sha: [p.lockfile_sha, process.env.EXPECTED_LOCKFILE_SHA, hash("pnpm-lock.yaml")],
+              node_version: [p.node_version, process.env.EXPECTED_NODE_VERSION, "v24.21.0", process.version],
+              artifact_sha: [p.artifact_sha, process.env.EXPECTED_PAYLOAD_SHA, process.env.ARTIFACT_SHA],
+            };
+            for (const [name, values] of Object.entries(checks)) {
+              if (values.some((value) => value !== values[0])) throw new Error(`${name} mismatch: ${values.join(",")}`);
+            }
+          '
+          test "$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')" = "${EXPECTED_TARBALL_SHA}"
+          test "$(sha256sum provenance/provenance.json | awk '{print $1}')" = "${EXPECTED_PROVENANCE_SHA}"
+          test "$(stat -c%s deploy-bundle.tar.gz)" = "${EXPECTED_BUNDLE_SIZE}"
+          grep -F "${EXPECTED_TARBALL_SHA}  deploy-bundle.tar.gz" deploy-bundle-checksums.txt
+          grep -F "${EXPECTED_PROVENANCE_SHA}  provenance/provenance.json" deploy-bundle-checksums.txt
+
+          verify_dir="$(mktemp -d)"
+          tar -xzf deploy-bundle.tar.gz -C "${verify_dir}"
+          test -d "${verify_dir}/openclaw/dist"
+          test -d "${verify_dir}/openclaw/node_modules"
+          test -f "${verify_dir}/openclaw/import-closure-report.txt"
+          grep -F "failures=0" "${verify_dir}/openclaw/import-closure-report.txt"
+          tar -xzf deploy-bundle-with-provenance.tar.gz -C "${verify_dir}"
+          test -f "${verify_dir}/provenance/provenance.json"
+
+      - name: Upload deploy bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deploy-bundle-${{ github.sha }}
+          path: |
+            deploy-bundle.tar.gz
+            deploy-bundle-with-provenance.tar.gz
+            deploy-bundle-manifest.txt
+            deploy-bundle-checksums.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload provenance tuple as a dedicated artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deploy-bundle-provenance-${{ github.sha }}
+          path: provenance/provenance.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Upload import-closure report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: import-closure-report-${{ github.sha }}
+          path: staging-tmp/import-closure-report.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Deploy bundle build"
+            echo "- commit: ${{ steps.provenance.outputs.COMMIT }}"
+            echo "- manifest_sha: ${{ steps.provenance.outputs.MANIFEST_SHA }}"
+            echo "- lockfile_sha: ${{ steps.provenance.outputs.LOCKFILE_SHA }}"
+            echo "- node_version: ${{ steps.provenance.outputs.NODE_VERSION }}"
+            echo "- artifact_sha: ${{ steps.package.outputs.ARTIFACT_SHA }}"
+            echo "- bundle_size: ${{ steps.package.outputs.BUNDLE_SIZE }} bytes"
+            echo "- import-closure: ${{ steps.import_closure.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"
