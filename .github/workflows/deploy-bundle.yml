@@ -155,6 +155,13 @@ jobs:
             cp -a "$plugin_stage/node_modules" "staging-tmp/dist/extensions/${plugin_id}/node_modules"
           done < <(find dist/extensions -mindepth 1 -maxdepth 1 -type d ! -name node_modules -print0)
           rm -rf staging-tmp/.plugin-deps
+          # pnpm deploy follows the package's publish file list, which also
+          # carries the repository's documentation into the staging tree.
+          # The runtime bundle must contain executable output and production
+          # dependencies only; remove repository docs and install-time patch
+          # material before hashing or packaging it.
+          rm -rf staging-tmp/docs staging-tmp/patches
+          rm -f staging-tmp/README.md staging-tmp/CHANGELOG.md staging-tmp/THIRD_PARTY_NOTICES.md
 
       - name: Run import-closure gate (postmortem RC#3)
         id: import_closure
@@ -192,6 +199,11 @@ jobs:
           ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); if (!process.env.ARTIFACT_SHA) throw new Error("ARTIFACT_SHA was not provided"); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2)+"\n")'
           # Build the final tarball: dist + production node_modules + provenance.
           cp -R provenance staging-tmp/
+          if find staging-tmp -maxdepth 1 \( -type d -name docs -o -type d -name patches -o -type f \( -name '*.md' -o -name '*.markdown' \) \) -print -quit | grep -q .; then
+            echo "[package] FAIL: repository documentation remains in staging-tmp"
+            find staging-tmp -maxdepth 1 \( -type d -name docs -o -type d -name patches -o -type f \( -name '*.md' -o -name '*.markdown' \) \) -print
+            exit 1
+          fi
           tar -czf deploy-bundle.tar.gz \
             --transform 's,^\.\/,openclaw/,' \
             -C staging-tmp .
