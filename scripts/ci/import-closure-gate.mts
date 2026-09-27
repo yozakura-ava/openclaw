@@ -11,7 +11,7 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { argv, exit } from "node:process";
 
 type ImportDecl =
@@ -53,6 +53,7 @@ function walkGenerated(root: string): string[] {
       continue;
     }
     for (const name of entries) {
+      if (name === "node_modules") continue;
       const file = join(directory, name);
       let stat;
       try {
@@ -78,6 +79,18 @@ function parseImport(spec: string): ImportDecl {
   };
 }
 
+function packageIsPresent(file: string, packageName: string, dist: string, nodeModules: string) {
+  let current = dirname(file);
+  while (true) {
+    if (existsSync(join(current, "node_modules", ...packageName.split("/")))) return true;
+    if (current === dist) break;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return existsSync(join(nodeModules, ...packageName.split("/")));
+}
+
 function main(): number {
   const { dist, nodeModules, out } = parseArgs(argv.slice(2));
   const files = [
@@ -92,11 +105,11 @@ function main(): number {
 
   for (const file of files) {
     const text = readFileSync(file, "utf8");
-    const lineText = text.split("\n");
     for (const match of text.matchAll(IMPORT_RE)) {
       const spec = match[1];
       if (!spec) continue;
       if (spec.startsWith("node:")) continue;
+      if (spec.includes("${") || /[\s,;(){}]/u.test(spec)) continue;
       imports++;
       const decl = parseImport(spec);
       const line = text.slice(0, match.index ?? 0).split("\n").length;
@@ -110,10 +123,10 @@ function main(): number {
         }
       } else {
         bare++;
-        if (!existsSync(join(nodeModules, decl.packageName))) {
+        if (!packageIsPresent(file, decl.packageName, dist, nodeModules)) {
           missing.add(decl.packageName);
           failures.push(
-            `FAIL ${relative(dist, file)}:${line} package not in staged node_modules: ${decl.packageName} | spec=${spec}`,
+            `FAIL ${relative(dist, file)}:${line} package not resolvable from staged output: ${decl.packageName} | spec=${spec}`,
           );
         }
       }
