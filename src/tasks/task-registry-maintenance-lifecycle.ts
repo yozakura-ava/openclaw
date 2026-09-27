@@ -19,6 +19,6 @@ export function createTaskRegistryMaintenanceLifecycle(
       ensureTaskRegistryReady();
       scheduler.start(gatewayScheduler);
     },
-    stop: scheduler.stop,
+    stop: () => scheduler.stop(),
   };
 }

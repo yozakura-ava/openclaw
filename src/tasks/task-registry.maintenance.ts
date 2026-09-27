@@ -119,8 +119,8 @@ const maintenanceScheduler = createTaskRegistryMaintenanceLifecycle(
     // Flow retention reads linked task activity, so reconcile the task owner first.
     // Reversing this order can preserve phantom active work for another sweep.
     await sweepTaskRegistry();
-    await runTaskFlowRegistryMaintenance();
   },
+  runTaskFlowRegistryMaintenance,
   (error) => log.warn("Task registry maintenance failed", { error }),
 );
 let configuredRuntimeAuthoritative = false;
