@@ -51,7 +51,7 @@ export function resolveChatMetadataReadParams(
     const assertVisible = () => {
       const visible = createSessionListEntryFilter({ client, cfg: context.getRuntimeConfig() });
       if (
-        session.entry &&
+        !session.entry ||
         visible?.(session.legacyKey ?? session.canonicalKey, session.entry) === false
       ) {
         throw new SessionMutationAuthorizationChangedError(hiddenSessionNotFound(sessionKey));
