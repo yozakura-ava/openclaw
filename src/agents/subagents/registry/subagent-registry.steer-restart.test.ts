@@ -396,7 +396,7 @@ describe("subagent registry steer restarts", () => {
       const settleRootWork = observeRootWork();
       try {
         emitLifecycleEnd("run-new");
-        await settleRootWork(true);
+        await settleRootWork();
         expect(announceSpy).toHaveBeenCalledTimes(1);
         const matchingCalls = runSubagentEndedHookMock.mock.calls.filter((call) => {
           const ctx = call[1] as { runId?: string } | undefined;
@@ -530,7 +530,7 @@ describe("subagent registry steer restarts", () => {
       const settleRootWork = observeRootWork();
       try {
         emitLifecycleEnd("run-terminal-state-new");
-        await settleRootWork(true);
+        await settleRootWork();
         const hookCall = requireSubagentEndedHookCall("run-terminal-state-new");
         expect(hookCall.event.runId).toBe("run-terminal-state-new");
         expect(hookCall.ctx.runId).toBe("run-terminal-state-new");
@@ -968,7 +968,7 @@ describe("subagent registry steer restarts", () => {
 
     const settleRootWork = observeRootWork();
     emitLifecycleEnd("run-kill-race");
-    await settleRootWork(true);
+    await settleRootWork();
     await settleRootWork();
 
     expect(announceSpy).toHaveBeenCalledTimes(1);
@@ -1014,7 +1014,7 @@ describe("subagent registry steer restarts", () => {
     const settleRootWork = observeRootWork();
     try {
       emitLifecycleEnd("run-parent");
-      await settleRootWork(true);
+      await settleRootWork();
       expect(
         countMatching(
           announceSpy.mock.calls.map(
@@ -1025,7 +1025,7 @@ describe("subagent registry steer restarts", () => {
       ).toBe(1);
 
       emitLifecycleEnd("run-child");
-      await settleRootWork(true);
+      await settleRootWork();
       await vi.waitFor(
         () => {
           const childRunIds = announceSpy.mock.calls.map(
@@ -1057,7 +1057,7 @@ describe("subagent registry steer restarts", () => {
         emitLifecycleEnd("run-completion-retry");
 
         await vi.advanceTimersByTimeAsync(0);
-        await settleRootWork(true);
+        await settleRootWork();
         expect(announceSpy).toHaveBeenCalledTimes(1);
         expect(listMainRuns()[0]?.delivery?.attemptCount).toBe(1);
 
@@ -1069,7 +1069,7 @@ describe("subagent registry steer restarts", () => {
           );
           expect(nextAttemptAt).toBeGreaterThan(Date.now());
           await vi.advanceTimersByTimeAsync(Math.min(nextAttemptAt, retryWindowEnd) - Date.now());
-          await settleRootWork(true);
+          await settleRootWork();
         }
         expect(announceSpy.mock.calls.length).toBeGreaterThan(3);
         expect(listMainRuns()[0]?.delivery?.status).not.toBe("suspended");
@@ -1079,7 +1079,7 @@ describe("subagent registry steer restarts", () => {
         vi.setSystemTime((deadlineAt ?? Date.now()) + 1);
         mod.resumeSubagentRun("run-completion-retry");
         await vi.advanceTimersByTimeAsync(0);
-        await settleRootWork(true);
+        await settleRootWork();
         const run = listMainRuns()[0];
         expect(run?.delivery?.status).toBe("suspended");
         expect(run?.delivery?.suspendedAt).toBeTypeOf("number");
