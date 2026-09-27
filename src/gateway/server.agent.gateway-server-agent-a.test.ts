@@ -30,7 +30,10 @@ import {
   createChannelTestPluginBase,
   createDirectOutboundTestAdapter,
 } from "../test-utils/channel-plugins.js";
-import { waitForAgentCommandCall } from "./agent-command.test-helpers.js";
+import {
+  observeGatewayRunExecution,
+  waitForAgentCommandCall,
+} from "./agent-command.test-helpers.js";
 import { setRegistry } from "./server.agent.gateway-server-agent.mocks.js";
 import { createRegistry } from "./server.e2e-registry-helpers.js";
 import { readSessionMessagesAsync } from "./session-transcript-readers.js";
@@ -299,6 +302,10 @@ describe("gateway server agent", () => {
   });
 
   test("keeps accepted detached agent work on its retained request root", async () => {
+    const execution = await observeGatewayRunExecution({
+      method: "agent",
+      runId: "idem-agent-detached-root",
+    });
     await setTestSessionStore({
       entries: {
         main: {
@@ -318,20 +325,21 @@ describe("gateway server agent", () => {
       }
     });
 
-    const res = await rpcReq(gatewaySuite.ws, "agent", {
-      message: "prove detached root transfer",
-      sessionKey: "main",
-      idempotencyKey: "idem-agent-detached-root",
-    });
+    try {
+      const res = await rpcReq(gatewaySuite.ws, "agent", {
+        message: "prove detached root transfer",
+        sessionKey: "main",
+        idempotencyKey: "idem-agent-detached-root",
+      });
 
-    expect(res.ok).toBe(true);
-    expect(res.payload?.status).toBe("accepted");
-    await vi.waitFor(() => {
-      expect(subordinateAdmissionClosed).toBe(false);
-    });
-    await vi.waitFor(() => {
+      expect(res.ok).toBe(true);
+      expect(res.payload?.status).toBe("accepted");
+      await execution.waitForCompletion();
+      await vi.waitFor(() => expect(subordinateAdmissionClosed).toBe(false));
       expect(getActiveGatewayRootWorkCount()).toBe(0);
-    });
+    } finally {
+      await execution.restore();
+    }
   });
 
   test("agent marks implicit delivery when lastTo is stale", async () => {

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { rawDataToString } from "@openclaw/gateway-client/websocket-data";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { beforeEach, describe, expect, test, vi } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { WebSocket, type RawData } from "ws";
 import { createDeferred } from "../../test/helpers/promise.js";
 import type { InternalGetReplyOptions } from "../auto-reply/reply/get-reply.types.js";
@@ -32,6 +32,7 @@ import {
 } from "../sessions/session-lifecycle-admission.js";
 import { extractFirstTextBlock } from "../shared/chat-message-content.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
+import { installGatewayChatExecutionSettlement } from "./server.chat.gateway-server-chat.settlement.test-support.js";
 import * as sessionLifecycleState from "./session-lifecycle-state.js";
 import { removeChatTestDirectory as removeTempDir } from "./session-test-directories.test-support.js";
 import {
@@ -108,9 +109,7 @@ installConnectedControlUiServerSuite((started) => {
 });
 
 describe("gateway server chat", () => {
-  beforeEach(() => {
-    dispatchInboundMessageMock.mockReset();
-  });
+  installGatewayChatExecutionSettlement();
 
   const loadChatHistoryWithMessages = async (
     messages: Array<Record<string, unknown>>,
