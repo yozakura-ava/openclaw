@@ -18,10 +18,6 @@ export type TaskRegistryMaintenanceRead = Pick<
 
 export const TASK_MAINTENANCE_BATCH_SIZE = 25;
 
-export type TaskRetentionOverflowSelections =
-  | ReadonlyMap<string, TaskRetentionSelection>
-  | ReadonlySet<string>;
-
 export type TaskRegistryMaintenanceReader = {
   prepareTaskRegistryRead: () => Promise<TaskRegistryMaintenanceRead | undefined>;
   getTaskRegistryMaintenanceSnapshot: typeof getTaskRegistryMaintenanceSnapshot;
@@ -32,7 +28,7 @@ export type TaskRegistryMaintenanceReader = {
 // IDs and compact retention selections across awaits, then rereads and clones each task.
 export function getTaskRegistryMaintenanceSnapshot(read: TaskRegistryMaintenanceRead): {
   taskIds: readonly string[];
-  cronHistoryOverflowSelections: TaskRetentionOverflowSelections;
+  cronHistoryOverflowSelections: ReadonlyMap<string, TaskRetentionSelection>;
 } {
   read.assertCurrent();
   // Stable sorting keeps later insertions first when creation timestamps match.
@@ -55,7 +51,7 @@ export function getTaskRegistryMaintenanceSnapshot(read: TaskRegistryMaintenance
 export function getTaskRegistryMaintenanceTask(
   taskId: string,
   now: number,
-  cronHistoryOverflowSelections: TaskRetentionOverflowSelections,
+  cronHistoryOverflowSelections: ReadonlyMap<string, TaskRetentionSelection>,
 ): TaskRecord | undefined | "needs-preparation" {
   if (!isTaskRegistryTaskSettled(taskId)) {
     return "needs-preparation";
@@ -79,7 +75,7 @@ export async function visitTaskRegistryMaintenanceTasks(
   visit: (
     task: TaskRecord,
     now: number,
-    cronHistoryOverflowSelections: TaskRetentionOverflowSelections,
+    cronHistoryOverflowSelections: ReadonlyMap<string, TaskRetentionSelection>,
     assertOwnerCurrent: () => void,
   ) => Promise<void>,
   prepareBatch?: (tasks: readonly TaskRecord[], now: number) => Promise<void>,

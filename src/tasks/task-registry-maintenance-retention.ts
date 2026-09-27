@@ -5,12 +5,12 @@ import {
   retainTaskMutationFlowEffects,
 } from "./task-executor-mutation-effects.async.js";
 import { ensureTaskFlowRegistryReadyAsync } from "./task-flow-runtime-internal.js";
-import type { TaskRetentionOverflowSelections } from "./task-registry-maintenance-snapshot.js";
 import { readTaskRetentionCommit } from "./task-registry-retention-receipt.js";
 import {
   captureTaskRetentionSelection,
   prepareTaskRetention,
   type TaskRetentionResult,
+  type TaskRetentionSelection,
 } from "./task-registry-retention.operation.js";
 import {
   ensureTaskRegistryReadyAsync,
@@ -22,7 +22,7 @@ import type { TaskRecord } from "./task-registry.types.js";
 export async function applyTaskRegistryMaintenanceRetention(
   selected: TaskRecord,
   now: number,
-  cronHistoryOverflowSelections: TaskRetentionOverflowSelections,
+  cronHistoryOverflowSelections: ReadonlyMap<string, TaskRetentionSelection>,
   assertOwnerCurrent: () => void,
 ): Promise<"pruned" | "stamped" | undefined> {
   assertOwnerCurrent();
@@ -30,9 +30,7 @@ export async function applyTaskRegistryMaintenanceRetention(
   const selection = {
     taskId: selected.taskId,
     selection:
-      (cronHistoryOverflowSelections instanceof Map
-        ? cronHistoryOverflowSelections.get(selected.taskId)
-        : undefined) ?? captureTaskRetentionSelection(selected),
+      cronHistoryOverflowSelections.get(selected.taskId) ?? captureTaskRetentionSelection(selected),
     now,
     cronHistoryOverflow: cronHistoryOverflowSelections.has(selected.taskId),
   };

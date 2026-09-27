@@ -1,6 +1,9 @@
 /** Enforces the task-ledger retention bound for terminal cron history. */
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { cronTaskRecordStoreKey, resolveCronRunRecordTimestamp } from "../cron/task-run-detail.js";
+import {
+  cronRunRecordStoreKey,
+  resolveCronRunRecordTimestamp,
+} from "../cron/run-history-detail.js";
 import type { TaskRecord } from "./task-registry.types.js";
 import { resolveEffectiveTaskCleanupAfter } from "./task-retention.js";
 
@@ -44,7 +47,7 @@ export function collectCronHistoryOverflowTaskIds(tasks: readonly TaskRecord[]):
     ) {
       continue;
     }
-    const storeKey = cronTaskRecordStoreKey(task);
+    const storeKey = cronRunRecordStoreKey(task);
     const bySource = byStore.get(storeKey) ?? new Map<string, CronHistoryRetentionPartition>();
     const partition = bySource.get(task.sourceId) ?? { history: [], quiet: [] };
     // Quiet watcher ticks have no history entry. Bound them separately so
