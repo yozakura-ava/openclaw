@@ -1,4 +1,4 @@
-import type { GatewayScheduler, GatewayScheduledJob } from "../infra/gateway-scheduler.js";
+import { GatewayScheduler, type GatewayScheduledJob } from "../infra/gateway-scheduler.js";
 import {
   isGatewayRestartDrainError,
   runWithGatewayIndependentRootWorkAdmission,

@@ -18,7 +18,7 @@ const loadRemoteSkillsRuntimeModule = async () => await import("../skills/runtim
 
 /** Start early Gateway side runtimes before the main server is fully ready. */
 export async function startGatewayEarlyRuntime(params: {
-  scheduler: GatewayScheduler;
+  scheduler?: GatewayScheduler;
   minimalTestGateway: boolean;
   isClosing: () => boolean;
   updateCanary?: boolean;
