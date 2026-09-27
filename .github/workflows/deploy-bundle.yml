@@ -263,8 +263,8 @@ jobs:
           # The wrapper contains the already-validated 1.1GB primary tarball.
           # Listing it and extracting only the provenance member verifies the
           # wrapper without duplicating the full payload in runner workspace.
-          tar -tzf deploy-bundle-with-provenance.tar.gz | grep -Fx "provenance/provenance.json"
-          tar -xzf deploy-bundle-with-provenance.tar.gz -C "${verify_dir}" provenance/provenance.json
+          tar -tzf deploy-bundle-with-provenance.tar.gz | grep -E '(^|\./)provenance/provenance\.json$'
+          tar -xzf deploy-bundle-with-provenance.tar.gz -C "${verify_dir}" --wildcards '*provenance/provenance.json'
           test -f "${verify_dir}/provenance/provenance.json"
 
       - name: Upload deploy bundle artifact
