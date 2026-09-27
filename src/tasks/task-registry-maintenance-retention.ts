@@ -10,7 +10,6 @@ import {
   captureTaskRetentionSelection,
   prepareTaskRetention,
   type TaskRetentionResult,
-  type TaskRetentionSelection,
 } from "./task-registry-retention.operation.js";
 import {
   ensureTaskRegistryReadyAsync,
