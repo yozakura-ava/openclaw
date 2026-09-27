@@ -18,11 +18,12 @@ import {
   taskRegistryLog,
 } from "./task-registry-state.js";
 import type { TaskRecord } from "./task-registry.types.js";
+import type { TaskRetentionOverflowSelections } from "./task-registry-maintenance-snapshot.js";
 
 export async function applyTaskRegistryMaintenanceRetention(
   selected: TaskRecord,
   now: number,
-  cronHistoryOverflowSelections: ReadonlyMap<string, TaskRetentionSelection>,
+  cronHistoryOverflowSelections: TaskRetentionOverflowSelections,
   assertOwnerCurrent: () => void,
 ): Promise<"pruned" | "stamped" | undefined> {
   assertOwnerCurrent();
@@ -30,7 +31,9 @@ export async function applyTaskRegistryMaintenanceRetention(
   const selection = {
     taskId: selected.taskId,
     selection:
-      cronHistoryOverflowSelections.get(selected.taskId) ?? captureTaskRetentionSelection(selected),
+      (cronHistoryOverflowSelections instanceof Map
+        ? cronHistoryOverflowSelections.get(selected.taskId)
+        : undefined) ?? captureTaskRetentionSelection(selected),
     now,
     cronHistoryOverflow: cronHistoryOverflowSelections.has(selected.taskId),
   };

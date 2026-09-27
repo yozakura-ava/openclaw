@@ -41,10 +41,11 @@ export function createTaskMaintenanceScheduler(
   }
 
   return {
-    start(scheduler: GatewayScheduler) {
+    start(scheduler?: GatewayScheduler) {
       if (sweepJob) {
         return;
       }
+      scheduler ??= new GatewayScheduler();
       sweepJob = scheduler.schedule({
         id: "task-registry-maintenance",
         atMs: scheduler.now() + 5_000,

@@ -37,7 +37,7 @@ type TaskFlowSyncRetrySelection =
   | {
       kind: "live";
       owner: TaskFlowSyncLiveOwner;
-      afterSync?: (context: OpenClawStateWorkerContext) => Promise<boolean>;
+      afterSync?: (context: OpenClawStateWorkerContext) => Promise<boolean | void>;
     };
 type TaskFlowSyncRetryTimer = {
   timer: ReturnType<typeof setTimeout>;
@@ -354,7 +354,7 @@ export function retainCommittedTaskFlowEffects(
   task: TaskRecord,
   operation: string,
   owner: TaskFlowSyncLiveOwner,
-  afterSync?: (context: OpenClawStateWorkerContext) => Promise<boolean>,
+  afterSync?: (context: OpenClawStateWorkerContext) => Promise<boolean | void>,
 ): void {
   if (!task.parentFlowId?.trim()) {
     return;
