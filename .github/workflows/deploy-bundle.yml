@@ -132,19 +132,36 @@ jobs:
           rm -rf staging-tmp
           mkdir -p staging-tmp
           # pnpm deploy isolates ONLY production deps; devDeps and the source
-          # tree never make it into the bundle. This is what addresses RC#3.
+          # tree never make it into the bundle. This stages the host first.
           pnpm deploy --filter=openclaw --prod staging-tmp
+          # Bundled extensions own additional production dependencies. Deploy
+          # each one into its packaged dist root so Node's importer-relative
+          # lookup remains valid without shipping the source workspace or
+          # development dependencies.
+          mkdir -p staging-tmp/.plugin-deps
+          while IFS= read -r -d '' plugin_dist; do
+            plugin_id="$(basename "$plugin_dist")"
+            manifest="extensions/${plugin_id}/package.json"
+            [[ -f "$manifest" ]] || continue
+            package_name="$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).name' "$manifest")"
+            plugin_stage="staging-tmp/.plugin-deps/${plugin_id}"
+            pnpm deploy --filter="$package_name" --prod "$plugin_stage"
+            mkdir -p "staging-tmp/dist/extensions/${plugin_id}"
+            rm -rf "staging-tmp/dist/extensions/${plugin_id}/node_modules"
+            cp -a "$plugin_stage/node_modules" "staging-tmp/dist/extensions/${plugin_id}/node_modules"
+          done < <(find dist/extensions -mindepth 1 -maxdepth 1 -type d ! -name node_modules -print0)
+          rm -rf staging-tmp/.plugin-deps
 
       - name: Run import-closure gate (postmortem RC#3)
         id: import_closure
         run: |
           set -euo pipefail
-          if [ ! -d dist/extensions ] && [ ! -d dist/runtime ]; then
-            echo "[import-closure-gate] FAIL: dist/extensions or dist/runtime must exist after build"
+          if [ ! -d staging-tmp/dist/extensions ] && [ ! -d staging-tmp/dist/runtime ]; then
+            echo "[import-closure-gate] FAIL: staged dist/extensions or dist/runtime must exist after build"
             exit 1
           fi
           if ! node --import ./scripts/tsx.mjs ./scripts/ci/import-closure-gate.mts \
-            --dist dist \
+            --dist staging-tmp/dist \
             --node-modules staging-tmp/node_modules \
             --out staging-tmp/import-closure-report.txt; then
             echo "[import-closure-gate] FAIL — see import-closure-report.txt for unresolved imports"
