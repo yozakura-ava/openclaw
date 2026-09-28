@@ -7,6 +7,7 @@ import {
   createChildAdapter,
   type AwaitedStdoutChildAdapter,
 } from "../process/supervisor/adapters/child.js";
+import { assertProcessGroupControl } from "../process/supervisor/service-child-group-ownership.js";
 import { supportsNodeWorkerProcessOwner } from "../process/supervisor/service-child-protocol.js";
 import { createServiceChildRelayAdapter } from "../process/supervisor/service-child-relay-host.js";
 import type { SpawnSecretInput } from "../process/supervisor/types.js";
@@ -159,6 +160,7 @@ export async function prepareNodeWorkerLaunchTransport(
       await ready;
       return { kind: "started", adapter, cleanupMode: adapter.treeOwnership ?? "owned-anchor" };
     }
+    assertProcessGroupControl();
     const { adapter, ready } = await createChildAdapter({
       ...workerOptions,
       argv: [process.execPath, ...args],
