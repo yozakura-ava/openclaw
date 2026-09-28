@@ -55,7 +55,9 @@ export class NodeWorkerWorkspaceQuiescence {
   async execute(context: LeaseContext, signal?: AbortSignal): Promise<string> {
     const assertCurrent = () => {
       signal?.throwIfAborted();
-      if (this.closed) throw new Error("workspace quiescence owner is closed");
+      if (this.closed) {
+        throw new Error("workspace quiescence owner is closed");
+      }
     };
     assertCurrent();
     const operation = context.input.quiescence!;
@@ -90,7 +92,9 @@ export class NodeWorkerWorkspaceQuiescence {
     }
     if (!lease || lease.nonce !== operation.nonce) {
       // Release is idempotent after expiry, but cannot borrow another lease's watchdog.
-      if (!lease && operation.action === "release") return "";
+      if (!lease && operation.action === "release") {
+        return "";
+      }
       throw new Error("workspace quiescence lease is no longer active");
     }
     if (operation.action === "release") {
@@ -118,7 +122,9 @@ export class NodeWorkerWorkspaceQuiescence {
     const failures = outcomes.flatMap((result) =>
       result.status === "rejected" ? [result.reason] : [],
     );
-    if (failures.length) throw new AggregateError(failures, "workspace quiescence recovery failed");
+    if (failures.length) {
+      throw new AggregateError(failures, "workspace quiescence recovery failed");
+    }
   }
 
   private assertActive(lease: Lease): void {
@@ -135,8 +141,12 @@ export class NodeWorkerWorkspaceQuiescence {
   }
 
   private retire(lease: Lease): void {
-    if (!lease.exited || (!lease.retirementRecorded && !lease.releaseFinished)) return;
-    if (this.leases.get(lease.key) !== lease) return;
+    if (!lease.exited || (!lease.retirementRecorded && !lease.releaseFinished)) {
+      return;
+    }
+    if (this.leases.get(lease.key) !== lease) {
+      return;
+    }
     this.leases.delete(lease.key);
     lease.releaseWorkspace();
   }
@@ -200,7 +210,9 @@ export class NodeWorkerWorkspaceQuiescence {
       }
     });
     child.on("message", (message: unknown) => {
-      if (!isRecord(message) || message.nonce !== lease.nonce) return;
+      if (!isRecord(message) || message.nonce !== lease.nonce) {
+        return;
+      }
       if (message.type === "workspace-quiescence-ready") {
         started.resolve();
         try {
@@ -218,8 +230,12 @@ export class NodeWorkerWorkspaceQuiescence {
       lease.exited = true;
       started.resolve();
       // A spawn refusal never acquired a watchdog or created its lease.
-      if (!child.pid) lease.releaseFinished = true;
-      if (code !== 0) lease.retirementRecorded = false;
+      if (!child.pid) {
+        lease.releaseFinished = true;
+      }
+      if (code !== 0) {
+        lease.retirementRecorded = false;
+      }
       ready.reject(new Error(stderr || "workspace quiescence watchdog exited before readiness"));
       this.retire(lease);
       done.resolve();
@@ -236,8 +252,11 @@ export class NodeWorkerWorkspaceQuiescence {
       if (!lease.exited && lease.child.connected) {
         await new Promise<void>((resolve, reject) => {
           lease.child.send({ type: "workspace-quiescence-retire", nonce: lease.nonce }, (error) => {
-            if (error && !lease.exited) reject(error);
-            else resolve();
+            if (error && !lease.exited) {
+              reject(error);
+            } else {
+              resolve();
+            }
           });
         });
       }
@@ -296,7 +315,9 @@ export class NodeWorkerWorkspaceQuiescence {
         maxCapturedOutputChars: 16_384,
         assertCurrent: () => signal?.throwIfAborted(),
       });
-      if (signal?.aborted) abort();
+      if (signal?.aborted) {
+        abort();
+      }
       const result = await run.wait();
       if (result.exitCode !== 0 || result.exitSignal !== null) {
         throw new Error(result.stderr || "workspace quiescence operation failed");

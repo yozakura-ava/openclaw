@@ -1,6 +1,7 @@
 import type { ChildProcess } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { hasErrnoCode } from "../../infra/errno.js";
 
 const PR_SET_CHILD_SUBREAPER = 36;
 const PR_GET_CHILD_SUBREAPER = 37;
@@ -22,7 +23,7 @@ function childPids(): number[] {
       value = readFileSync("/proc/self/task/" + thread + "/children", "utf8");
     } catch (error) {
       // A thread can retire during enumeration. This is not extinction evidence.
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      if (hasErrnoCode(error, "ENOENT")) {
         continue;
       }
       throw error;
@@ -122,7 +123,7 @@ export function acquireLinuxChildSubreaper() {
             // No await, reap, or event-loop callback may cross this ownership/signal pair.
             process.kill(pid, signal);
           } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+            if (!hasErrnoCode(error, "ESRCH")) {
               throw error;
             }
           }
