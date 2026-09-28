@@ -40,6 +40,8 @@ Completed cloud turns preserve eligible, size-bounded workspace files before the
 
 Workspace quiescence retries slow process probes within one 30-second budget. The recovery watchdog keeps unfinished processes across at most four passes, with up to seven seconds of backoff between them, so recovery has a total probe and backoff budget of 127 seconds. Slow probes cannot repeatedly resume the same workers and starve the rest. Each probe starts with a two-second allowance and gets more time after a timeout. Exhaustion retains the unfinished PID/start references and reason in the lease for the Gateway's next recovery attempt; check host load and `ps` availability, then retry workspace recovery. Failed reconciliation retains the recoverable workspace result and reports the reason through the normal recovery flow.
 
+For node-backed sessions, the node-host workspace runtime owns the quiescence watchdog independently of individual commands and environment-owned preview processes. Its exact process identity and lease nonce remain bound through transfer and final reconciliation. Lease release or successful expiry recovery joins watchdog retirement before releasing its workspace protection. This is native host behavior: update the Gateway and node host together; refreshing only the portable worker bundle does not update that owner.
+
 Result staging and rollback preserve exact supported filenames and file bytes, independently of Git attributes and checkout encodings.
 
 If workspace transfer ownership closes during an upload, the Gateway disconnects the uploader promptly, including while it waits for validation after sending all bytes. The cancelled upload cannot become an accepted workspace result.

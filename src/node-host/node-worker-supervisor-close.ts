@@ -23,6 +23,7 @@ export async function settleNodeWorkerSupervisorClose(context: {
   reconcileTerminal(active: NodeWorkerObservedTerminal): Promise<NodeWorkerLaunchReceipt>;
 }): Promise<void> {
   const errors: unknown[] = [];
+  await context.workspace.quiescence.close().catch((error: unknown) => errors.push(error));
   await context.workspace.processes.close().catch((error: unknown) => errors.push(error));
   await context.initialization?.catch((error: unknown) => errors.push(error));
   await Promise.allSettled([...context.admissions.values()].map((admission) => admission.done));

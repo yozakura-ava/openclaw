@@ -226,6 +226,7 @@ export function createNodeWorkerTunnelManager(options: NodeWorkerTunnelManagerOp
       ...(command.transfer === undefined ? {} : { transfer: command.transfer }),
       ...(command.seed === undefined ? {} : { seed: command.seed }),
       ...(command.process === undefined ? {} : { process: command.process }),
+      ...(command.quiescence === undefined ? {} : { quiescence: command.quiescence }),
     };
     while (true) {
       assertCurrent();

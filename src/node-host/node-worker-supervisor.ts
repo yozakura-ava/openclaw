@@ -169,7 +169,8 @@ class NodeWorkerSupervisor {
       this.retentions.size > 0 ||
       this.active.size > 0 ||
       this.stoppingEnvironments.size > 0 ||
-      this.workspace.processes.hasActiveWork();
+      this.workspace.processes.hasActiveWork() ||
+      this.workspace.quiescence.hasActiveWork();
     if (hasLocalWork()) {
       return true;
     }
