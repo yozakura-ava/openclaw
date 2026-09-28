@@ -51,6 +51,7 @@ import {
   type NodeWorkerWorkspaceSession as WorkspaceSession,
 } from "./node-worker-workspace-identity.js";
 import { NodeWorkerWorkspaceProcesses } from "./node-worker-workspace-processes.js";
+import { NodeWorkerWorkspaceQuiescence } from "./node-worker-workspace-quiescence.js";
 import {
   listOwnedEntries,
   listOwnedDirectories,
@@ -98,6 +99,7 @@ export class NodeWorkerWorkspaceRuntime {
   private readonly deletingWorkspaceGenerations = new Set<string>();
   private readonly activeRetainProtections = new Map<string, Set<Set<string>>>();
   readonly processes = new NodeWorkerWorkspaceProcesses();
+  readonly quiescence = new NodeWorkerWorkspaceQuiescence();
 
   constructor(options: { root?: string; env?: NodeJS.ProcessEnv; ephemeral?: boolean } = {}) {
     const env = options.env ?? process.env;
@@ -654,8 +656,24 @@ export class NodeWorkerWorkspaceRuntime {
         const workspaceDir = prepared
           ? workspacePath
           : ensureContainedDirectory(sessionRoot, workspaceName);
-        assertWorkspaceArgv(workspaceDir, input.argv);
         const commandEnv = workspaceCommandEnv(homeDir, this.env);
+        if (input.quiescence) {
+          if (input.argv[1] !== workspaceDir) {
+            throw new Error("INVALID_REQUEST: workspace quiescence root does not match its owner");
+          }
+          const stdout = await this.quiescence.execute(
+            {
+              input,
+              workspaceDir,
+              env: commandEnv,
+              retainWorkspace: () =>
+                this.beginWorkspaceOperation(input.gatewayNamespace, generationKey),
+            },
+            signal,
+          );
+          return projectWorkspaceOperationResult(workspaceDir, stdout);
+        }
+        assertWorkspaceArgv(workspaceDir, input.argv);
         if (input.process) {
           return await this.processes.execute({
             input,

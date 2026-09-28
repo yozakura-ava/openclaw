@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   NODE_WORKSPACE_DRAIN_COMMAND,
+  NODE_WORKSPACE_QUIESCENCE_COMMAND,
   parseNodeWorkerWorkspaceExecInput,
   parseNodeWorkerWorkspaceExecResult,
 } from "./node-workspace-protocol.js";
@@ -225,4 +226,41 @@ it.each([
   expect(() =>
     parseNodeWorkerWorkspaceExecInput(JSON.stringify({ ...request, ...fields })),
   ).toThrow("inspection owns its operation");
+});
+
+it("admits bounded quiescence lifecycle operations without an arbitrary command", () => {
+  const nonce = "c".repeat(32);
+  for (const quiescence of [
+    { action: "acquire", nonce, timeoutMs: 720_000 },
+    { action: "renew", nonce, timeoutMs: 720_000, validationMode: "final" },
+    { action: "release", nonce },
+  ]) {
+    const input = {
+      ...request,
+      argv: [NODE_WORKSPACE_QUIESCENCE_COMMAND, "/workspace"],
+      quiescence,
+    };
+    expect(parseNodeWorkerWorkspaceExecInput(JSON.stringify(input))).toEqual(input);
+    for (const invalid of [
+      { argv: ["node", "-e", "arbitrary script"] },
+      { input: "payload" },
+      { resetWorkspace: false },
+      { seed: { action: "apply", key } },
+      { process: { action: "start", processId: "app" } },
+      { quiescence: { ...quiescence, nonce: "../other-lease" } },
+      { quiescence: { action: "acquire", nonce, timeoutMs: 720_001 } },
+    ]) {
+      expect(() =>
+        parseNodeWorkerWorkspaceExecInput(JSON.stringify({ ...input, ...invalid })),
+      ).toThrow();
+    }
+  }
+  expect(() =>
+    parseNodeWorkerWorkspaceExecInput(
+      JSON.stringify({
+        ...request,
+        argv: [NODE_WORKSPACE_QUIESCENCE_COMMAND, "/workspace"],
+      }),
+    ),
+  ).toThrow("quiescence owns its operation");
 });

@@ -88,6 +88,7 @@ export function createNodeWorkerWorkspaceActions(params: {
   const quiesceWorkspace = createWorkerWorkspaceQuiescence({
     ownerSignal: params.ownerSignal,
     sharedHost: true,
+    nativeWatchdog: true,
     runWorkspaceCommand: exec,
   });
   const validateRestoredWorkspace = async (authorize?: () => void): Promise<void> => {
