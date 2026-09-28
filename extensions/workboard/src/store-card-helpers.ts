@@ -320,7 +320,6 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
     "agentId",
     "sessionKey",
     "runId",
-    "taskId",
     "sourceUrl",
     "execution",
     "startedAt",

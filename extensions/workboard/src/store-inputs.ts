@@ -25,7 +25,6 @@ type WorkboardCardInput = {
   agentId?: unknown;
   sessionKey?: unknown;
   runId?: unknown;
-  taskId?: unknown;
   sourceUrl?: unknown;
   execution?: unknown;
   metadata?: unknown;
