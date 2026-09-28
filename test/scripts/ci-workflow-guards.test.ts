@@ -13304,6 +13304,7 @@ describe("workflow file size", () => {
         `(for example, YAML anchors/aliases for byte-identical expressions) before raising this limit.`,
     ).toEqual([]);
 });
+});
 describe("deploy bundle workflow contracts", () => {
   const source = readFileSync(".github/workflows/deploy-bundle.yml", "utf8");
   const workflow = parse(source) as {
