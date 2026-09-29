@@ -1095,6 +1095,7 @@ export function trimMetadataToBudget(
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
     const currentSize = metadataByteSize(next);
     for (const key of [
+      "comments",
       "attempts",
       "diagnostics",
       "notifications",
@@ -1103,7 +1104,6 @@ export function trimMetadataToBudget(
       "attachments",
       "workerLogs",
       "links",
-      "comments",
     ] as const) {
       const entries = next[key];
       if (!entries?.length) {
