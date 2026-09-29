@@ -26,6 +26,19 @@ type LobsterEnvelope =
 export type LobsterRunnerParams = {
   action: "run" | "resume";
   pipeline?: string;
+  /**
+   * Canonical workflow args (object form). Aligned with how 2026.9.x upstream
+   * surfaces tool params (Craig directive 2026-09-28 20:33 EDT). Takes
+   * precedence over the deprecated `argsJson` string form when both are
+   * provided.
+   */
+  args?: Record<string, unknown>;
+  /**
+   * @deprecated Use `args` (object form) instead. Kept for backward
+   * compatibility with pre-2026.9.x callers; the tool layer emits a runtime
+   * warning every time this parameter is used so callers can migrate. Will be
+   * removed in a future release.
+   */
   argsJson?: string;
   token?: string;
   approvalId?: string;
@@ -33,6 +46,12 @@ export type LobsterRunnerParams = {
   cwd: string;
   timeoutMs: number;
   maxStdoutBytes: number;
+  /**
+   * Optional callback invoked when a deprecated parameter is consumed by the
+   * runner. The tool layer wires this to `api.logger.warn` so deprecated
+   * usage is observable in the gateway log.
+   */
+  onDeprecated?: (param: string) => void;
 };
 
 export type LobsterRunner = {
@@ -246,13 +265,27 @@ export function createEmbeddedLobsterRunner(options?: {
 
           const filePath = await detectWorkflowFile(pipeline, params.cwd);
           if (filePath) {
-            const parsedArgsJson = params.argsJson?.trim() ?? "";
+            // Object-form `args` is canonical (Craig directive 2026-09-28).
+            // The deprecated string-form `argsJson` is still honored for
+            // backward compat but emits a warning every time it's used so
+            // callers can migrate with minimal surprise.
             let args: Record<string, unknown> | undefined;
-            if (parsedArgsJson) {
-              try {
-                args = JSON.parse(parsedArgsJson) as Record<string, unknown>;
-              } catch {
-                throw new Error("run --args-json must be valid JSON");
+            if (
+              params.args !== undefined &&
+              params.args !== null &&
+              typeof params.args === "object" &&
+              !Array.isArray(params.args)
+            ) {
+              args = params.args;
+            } else {
+              const parsedArgsJson = params.argsJson?.trim() ?? "";
+              if (parsedArgsJson) {
+                params.onDeprecated?.("argsJson");
+                try {
+                  args = JSON.parse(parsedArgsJson) as Record<string, unknown>;
+                } catch {
+                  throw new Error("run --args-json must be valid JSON");
+                }
               }
             }
             envelope = await runtime.runToolRequest({ filePath, args, ctx });

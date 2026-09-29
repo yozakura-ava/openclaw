@@ -113,6 +113,108 @@ describe("createEmbeddedLobsterRunner", () => {
     expect(runtime.runToolRequest.mock.calls[0]?.[0].pipeline).toBeUndefined();
   });
 
+  it("accepts object-form args (canonical) without parsing JSON", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+    const { cwd, filePath } = await createWorkflow();
+    const onDeprecated = vi.fn();
+
+    await runner.run(
+      runParams({
+        pipeline: filePath,
+        args: { sprint_id: "2026-09-28-lobster", sprint_doc: "docs/plans/x.md" },
+        cwd,
+        onDeprecated,
+      }),
+    );
+
+    expect(runtime.runToolRequest).toHaveBeenCalledExactlyOnceWith({
+      filePath,
+      args: { sprint_id: "2026-09-28-lobster", sprint_doc: "docs/plans/x.md" },
+      ctx: toolContext(cwd),
+    });
+    // Object form is canonical: no deprecation warning should fire.
+    expect(onDeprecated).not.toHaveBeenCalled();
+  });
+
+  it("emits a deprecation warning when argsJson is used", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+    const { cwd, filePath } = await createWorkflow();
+    const onDeprecated = vi.fn();
+
+    await runner.run(
+      runParams({
+        pipeline: filePath,
+        argsJson: '{"limit":3}',
+        cwd,
+        onDeprecated,
+      }),
+    );
+
+    expect(onDeprecated).toHaveBeenCalledExactlyOnceWith("argsJson");
+    expect(runtime.runToolRequest).toHaveBeenCalledExactlyOnceWith({
+      filePath,
+      args: { limit: 3 },
+      ctx: toolContext(cwd),
+    });
+  });
+
+  it("prefers object-form args over argsJson when both are provided", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+    const { cwd, filePath } = await createWorkflow();
+    const onDeprecated = vi.fn();
+
+    await runner.run(
+      runParams({
+        pipeline: filePath,
+        args: { sprint_id: "args-wins" },
+        argsJson: '{"sprint_id":"argsJson-loses"}',
+        cwd,
+        onDeprecated,
+      }),
+    );
+
+    // Object form takes precedence; argsJson is silently ignored when args is
+    // an object (the canonical path is active, argsJson is a dead branch in
+    // the dispatch). The deprecation warning fires only when argsJson is
+    // actually USED as the source of truth — mixing both forms without
+    // consuming argsJson is the caller's bookkeeping, not the runner's.
+    expect(runtime.runToolRequest).toHaveBeenCalledExactlyOnceWith({
+      filePath,
+      args: { sprint_id: "args-wins" },
+      ctx: toolContext(cwd),
+    });
+    expect(onDeprecated).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed object-form args (array)", async () => {
+    const { runtime, runner } = createRunner();
+    runtime.runToolRequest.mockResolvedValue(success);
+    const { cwd, filePath } = await createWorkflow();
+    const onDeprecated = vi.fn();
+
+    await runner.run(
+      runParams({
+        pipeline: filePath,
+        // Object-form runner does not validate type itself (schema layer does).
+        // Arrays fall through to the argsJson path; since none is provided,
+        // args stays undefined.
+        args: ["not", "an", "object"] as unknown as Record<string, unknown>,
+        cwd,
+        onDeprecated,
+      }),
+    );
+
+    expect(runtime.runToolRequest).toHaveBeenCalledExactlyOnceWith({
+      filePath,
+      args: undefined,
+      ctx: toolContext(cwd),
+    });
+    expect(onDeprecated).not.toHaveBeenCalled();
+  });
+
   it("surfaces missing workflow path errors", async () => {
     const { runtime, runner } = createRunner();
     const cwd = tempDirs.make("openclaw-lobster-runner-");

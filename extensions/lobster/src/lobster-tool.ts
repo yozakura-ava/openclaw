@@ -12,6 +12,15 @@ import {
 } from "./lobster-runner.js";
 type LobsterToolOptions = { runner?: LobsterRunner };
 
+/**
+ * Schema:
+ *   - `args`  (object form) is CANONICAL — aligned with how 2026.9.x upstream
+ *     surfaces tool params (Craig directive 2026-09-28 20:33 EDT).
+ *   - `argsJson` (string form) is DEPRECATED but kept for backward compat. The
+ *     tool logs a runtime warning every time it sees `argsJson` so callers can
+ *     migrate to the object form; the parameter is scheduled for removal in a
+ *     future release.
+ */
 export function createLobsterTool(api: OpenClawPluginApi, options?: LobsterToolOptions) {
   const runner = options?.runner ?? createEmbeddedLobsterRunner();
   return {
@@ -22,7 +31,15 @@ export function createLobsterTool(api: OpenClawPluginApi, options?: LobsterToolO
     parameters: Type.Object({
       action: Type.Enum(["run", "resume"], { type: "string" }),
       pipeline: Type.Optional(Type.String()),
-      argsJson: Type.Optional(Type.String()),
+      args: Type.Optional(
+        Type.Record(Type.String(), Type.Unknown(), { additionalProperties: false }),
+      ),
+      argsJson: Type.Optional(
+        Type.String({
+          description:
+            "DEPRECATED: pass workflow args as the object-form `args` parameter instead. This string form is kept for backward compatibility and will be removed in a future release.",
+        }),
+      ),
       token: Type.Optional(Type.String()),
       approvalId: Type.Optional(Type.String()),
       approve: Type.Optional(Type.Boolean()),
@@ -52,16 +69,30 @@ export function createLobsterTool(api: OpenClawPluginApi, options?: LobsterToolO
         api.logger.debug(`lobster plugin runtime=${api.runtime.version}`);
       }
 
+      const hasArgsObject =
+        typeof params.args === "object" && params.args !== null && !Array.isArray(params.args);
+      const hasArgsJsonString = typeof params.argsJson === "string";
+
+      const onDeprecated = (param: string) => {
+        if (api.logger?.warn) {
+          api.logger.warn(
+            `lobster tool: '${param}' is deprecated; pass workflow args as the object-form 'args' parameter instead (Craig directive 2026-09-28).`,
+          );
+        }
+      };
+
       const runnerParams: LobsterRunnerParams = {
         action,
         ...(typeof params.pipeline === "string" ? { pipeline: params.pipeline } : {}),
-        ...(typeof params.argsJson === "string" ? { argsJson: params.argsJson } : {}),
+        ...(hasArgsObject ? { args: params.args as Record<string, unknown> } : {}),
+        ...(hasArgsJsonString ? { argsJson: params.argsJson as string } : {}),
         ...(typeof params.token === "string" ? { token: params.token } : {}),
         ...(typeof params.approvalId === "string" ? { approvalId: params.approvalId } : {}),
         ...(typeof params.approve === "boolean" ? { approve: params.approve } : {}),
         cwd,
         timeoutMs,
         maxStdoutBytes,
+        onDeprecated,
       };
 
       const envelope = await runner.run(runnerParams);

@@ -152,6 +152,92 @@ describe("lobster plugin tool", () => {
     });
   });
 
+  it("forwards object-form args (canonical) to the runner", async () => {
+    const runner = {
+      run: vi.fn().mockResolvedValue({
+        ok: true,
+        status: "ok",
+        output: [],
+        requiresApproval: null,
+      }),
+    };
+    const warn = vi.fn();
+    const tool = createLobsterTool(fakeApi({ logger: { debug: vi.fn(), warn } }), { runner });
+
+    await tool.execute("call-object-args", {
+      action: "run",
+      pipeline: "noop",
+      args: { sprint_id: "2026-09-28-lobster", sprint_doc: "docs/plans/x.md" },
+    });
+
+    expect(runner.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "run",
+        pipeline: "noop",
+        args: { sprint_id: "2026-09-28-lobster", sprint_doc: "docs/plans/x.md" },
+      }),
+    );
+    expect(runner.run.mock.calls[0]?.[0].argsJson).toBeUndefined();
+    // Canonical form: no deprecation warning expected.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("logs a deprecation warning when argsJson is used", async () => {
+    const runner = {
+      run: vi.fn().mockResolvedValue({
+        ok: true,
+        status: "ok",
+        output: [],
+        requiresApproval: null,
+      }),
+    };
+    const warn = vi.fn();
+    const tool = createLobsterTool(fakeApi({ logger: { debug: vi.fn(), warn } }), { runner });
+
+    await tool.execute("call-deprecated-argsjson", {
+      action: "run",
+      pipeline: "noop",
+      argsJson: '{"limit":3}',
+    });
+
+    expect(runner.run).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "run",
+        pipeline: "noop",
+        argsJson: '{"limit":3}',
+      }),
+    );
+    expect(warn).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("argsJson"));
+    expect(warn.mock.calls[0]?.[0]).toMatch(/deprecated/i);
+  });
+
+  it("prefers object-form args when both args and argsJson are provided", async () => {
+    const runner = {
+      run: vi.fn().mockResolvedValue({
+        ok: true,
+        status: "ok",
+        output: [],
+        requiresApproval: null,
+      }),
+    };
+    const warn = vi.fn();
+    const tool = createLobsterTool(fakeApi({ logger: { debug: vi.fn(), warn } }), { runner });
+
+    await tool.execute("call-both-args", {
+      action: "run",
+      pipeline: "noop",
+      args: { sprint_id: "args-wins" },
+      argsJson: '{"sprint_id":"argsJson-loses"}',
+    });
+
+    const forwarded = runner.run.mock.calls[0]?.[0];
+    expect(forwarded?.args).toEqual({ sprint_id: "args-wins" });
+    // argsJson still gets forwarded so the runner can emit its own
+    // onDeprecated callback (per the runner's argsJson fallback path).
+    expect(forwarded?.argsJson).toBe('{"sprint_id":"argsJson-loses"}');
+    expect(warn).not.toHaveBeenCalled();
+  });
+
   it("rejects malformed numeric run limits before invoking the runner", async () => {
     const runner = { run: vi.fn() };
     const tool = createLobsterTool(fakeApi(), { runner });
