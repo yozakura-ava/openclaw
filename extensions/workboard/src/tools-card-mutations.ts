@@ -16,7 +16,14 @@ type WorkboardCardMutation = (
 export function createWorkboardCardMutations(store: WorkboardStore, ownerId: string) {
   const readParams = async (rawParams: unknown, requireClaim = false) => {
     const record = asRecord(rawParams);
-    const id = readStringParam(record, "id", { required: true });
+    const id =
+      typeof record.id === "string" && record.id.trim() !== ""
+        ? record.id
+        : typeof record.cardId === "string" && record.cardId.trim() !== ""
+          ? record.cardId
+          : (() => {
+              throw new Error("card id is required (provide `id` or `cardId`).");
+            })();
     const token = readStringValue(record.token);
     const card = await store.get(id);
     if (!card) {
