@@ -19,6 +19,7 @@ import {
   getCodexInferenceThread,
   getCodexInferenceThreadQualification,
 } from "./inference-routing.js";
+import { readCodexModelMultiAgentVersion } from "./model-runtime.js";
 import { applyCodexNativeSkillIsolation } from "./native-skill-isolation.js";
 import { attestCodexThreadToolSurface } from "./plugin-thread-attestation.js";
 import {
@@ -348,6 +349,9 @@ export async function tryReuseCodexLiveThread(
           },
           resumeAuthProfileId,
           dynamicToolsFingerprint,
+          binding.preserveNativeModel || binding.connectionScope === "supervision"
+            ? undefined
+            : readCodexModelMultiAgentVersion(params.params.model),
         );
     const ephemeralPolicy = retainedThread.ephemeralPolicy;
     if (
