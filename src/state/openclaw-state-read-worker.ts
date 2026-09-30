@@ -1,5 +1,9 @@
-import { isChannelIngressReadCommand } from "../channels/message/ingress-queue-read-contract.js";
-import { ensureSqliteLibrarySelected } from "../infra/bun-sqlite-library.js";
+import { AsyncLocalStorage } from "node:async_hooks";
+import {
+  ensureSqliteLibrarySelected,
+  getSqliteRuntimeCapabilities,
+} from "../infra/bun-sqlite-library.js";
+import { createRetainedOperation, type RetainedOperation } from "../infra/retained-operation.js";
 import { resolveRuntimeProcessEntrypointUrl } from "../infra/runtime-process-url.js";
 import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
 import { createSqliteLifecycleAggregateError } from "../infra/sqlite-lifecycle-errors.js";
@@ -33,9 +37,40 @@ type ReadPool = ReturnType<
 >;
 type ReadRuntime = { pool?: ReadPool; closing?: Promise<void> };
 
-function readPool(): ReadPool {
-  const state = resolveGlobalSingleton<ReadRuntime>(Symbol.for("openclaw.stateReadWorkers"), () => {
-    const owned: ReadRuntime = {};
+function closeReadResources(pool: ReadPool | undefined, key?: string) {
+  if (!pool) {
+    return undefined;
+  }
+  return getSqliteRuntimeCapabilities().explicitSqliteCloseReleasesNativeResources
+    ? pool.closeResources(key)
+    : pool.rotate();
+}
+
+async function closeReadPool(state: ReadRuntime): Promise<void> {
+  if (state.closing) {
+    return await state.closing;
+  }
+  const pool = state.pool;
+  if (!pool) {
+    return;
+  }
+  const closing = Promise.resolve()
+    .then(() => closeReadResources(pool))
+    .then(() => pool.close())
+    .then(() => {
+      state.pool = undefined;
+    });
+  state.closing = closing;
+  try {
+    await closing;
+  } finally {
+    state.closing = undefined;
+  }
+}
+
+function readRuntimes() {
+  return resolveGlobalSingleton(Symbol.for("openclaw.stateReadWorkers"), () => {
+    const sources = new Map<RetainedNativeWorkerSource, ReadRuntime>();
     registerOpenClawStateDatabaseAsyncResource({
       phase: "after-resources",
       async close(identity) {
@@ -72,7 +107,7 @@ function readPool(): ReadPool {
     throw new WorkerTaskError("Shared-state readers are closing", "unavailable");
   }
   if (!state.pool) {
-    // Publish Bun's process-wide selection before any worker can load SQLite.
+    // Library selection precedes worker creation; each worker inherits its current close fact.
     ensureSqliteLibrarySelected();
     state.pool = createOwnedWorkerTaskPool({
       workerUrl: resolveRuntimeProcessEntrypointUrl("stateRead"),

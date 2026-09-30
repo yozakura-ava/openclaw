@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { ensureSqliteLibrarySelected } from "./bun-sqlite-library.js";
+import { ensureSqliteLibrarySelected, getSqliteRuntimeCapabilities } from "./bun-sqlite-library.js";
 import { formatErrorMessage } from "./errors.js";
 import { compareValidSemver } from "./semver.js";
 import { registerSqliteReaderConnection } from "./sqlite-reader-lifecycle.js";
@@ -14,6 +14,8 @@ const require = createRequire(import.meta.url);
 let validatedSqliteModule: typeof import("node:sqlite") | undefined;
 let extensionLoadingSupported = false;
 let jsonbSupported = false;
+// Unqualified runtimes cannot confirm native disposal until the owning worker exits.
+export let bunSqliteNativeCleanupPending = false;
 
 type NodeSqliteDatabaseOptions = ConstructorParameters<
   typeof import("node:sqlite").DatabaseSync
@@ -111,8 +113,6 @@ export function requireNodeSqlite(): typeof import("node:sqlite") {
   installProcessWarningFilter();
   try {
     ensureSqliteLibrarySelected();
-    // Bun follow-up: Revalidate close/dispose file release after oven-sh/bun#40005 ships.
-    // Bun 1.4.2 retains native statements after close; node:sqlite exposes no finalizer.
     const sqlite = require("node:sqlite") as typeof import("node:sqlite");
     assertSafeSqliteRuntime(sqlite);
     return sqlite;
@@ -150,6 +150,11 @@ export function openNodeSqliteDatabase(
       ? new sqlite.DatabaseSync(resolvedLocation)
       : new sqlite.DatabaseSync(resolvedLocation, options);
   trackSqliteSchema(database, sqlite);
+  if (!getSqliteRuntimeCapabilities().explicitSqliteCloseReleasesNativeResources) {
+    registerNodeSqliteDisposeCallback(database, () => {
+      bunSqliteNativeCleanupPending = true;
+    });
+  }
   registerSqliteReaderConnection(database);
   return database;
 }

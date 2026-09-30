@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { isPromiseLike } from "@openclaw/normalization-core/promise-like";
+import { getSqliteRuntimeCapabilities } from "../infra/bun-sqlite-library.js";
 import { openNodeSqliteDatabase } from "../infra/node-sqlite.js";
 import { SQLITE_IDLE_HANDLE_TTL_MS } from "../infra/sqlite-handle-lifecycle.js";
 import {
@@ -58,7 +59,11 @@ function retireReader(reader: RetainedReader): void {
 }
 
 function scheduleReaderRetirement(reader: RetainedReader): void {
-  if (retainedReaders.get(reader.identity.key) !== reader) {
+  // Unproven close delegates the same TTL to pool retirement after task custody is released.
+  if (
+    !getSqliteRuntimeCapabilities().explicitSqliteCloseReleasesNativeResources ||
+    retainedReaders.get(reader.identity.key) !== reader
+  ) {
     return;
   }
   clearTimeout(reader.idleTimer);

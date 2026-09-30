@@ -19,7 +19,37 @@ async function loadServerStart() {
 /** Starts the gateway server after lazily loading the full server implementation. */
 export async function startGatewayServer(
   port = 18789,
-  opts: import("./server-public.js").GatewayServerOptions = {},
+  opts: GatewayServerOptions = {},
+): ReturnType<typeof import("./server-start.js").startGatewayServerCore> {
+  const { initializeSqliteRuntimeCapabilities } = await import("../infra/bun-sqlite-library.js");
+  await initializeSqliteRuntimeCapabilities();
+  const { acquireGatewayLock } = await import("../infra/gateway-lock.js");
+  const ownedLock = opts.gatewayStateOwner
+    ? null
+    : await acquireGatewayLock({ port, listenerMode: "foreground" });
+  const gatewayStateOwner = opts.gatewayStateOwner ?? ownedLock ?? undefined;
+  try {
+    gatewayStateOwner?.assertDatabaseAccess(resolveOpenClawStateSqlitePath());
+    const server = await startGatewayServerWithRuntime(port, { ...opts, gatewayStateOwner });
+    return {
+      ...server,
+      close: async (closeOptions) => {
+        await server.close(closeOptions);
+        // A failed join retains ownership: another starter must not enter over live work.
+        await ownedLock?.release();
+      },
+    };
+  } catch (error) {
+    if (!(error instanceof GatewayStartupCleanupError)) {
+      await ownedLock?.release();
+    }
+    throw error;
+  }
+}
+
+async function startGatewayServerWithRuntime(
+  port: number,
+  opts: GatewayServerOptions,
 ): ReturnType<typeof import("./server-start.js").startGatewayServerCore> {
   const startupStartedAt = opts.startupStartedAt ?? Date.now();
   let stopDatabaseAdmission: (() => Promise<void>) | undefined;
