@@ -8,17 +8,26 @@ import {
   loadExactSessionEntryReadOnly,
   type SessionEntryLifecycleRemoval,
 } from "../config/sessions/session-accessor.js";
+import {
+  getSessionKysely,
+  toDatabaseOptions,
+} from "../config/sessions/session-accessor.sqlite-scope.js";
 import { readExpiredCronRunEntriesInWorker } from "../config/sessions/session-entry-read-runtime.js";
 import { resolveMaintenanceConfig } from "../config/sessions/store-maintenance-runtime.js";
 import type { CronConfig } from "../config/types.cron.js";
 import { formatErrorMessage } from "../infra/errors.js";
+import { executeSqliteQuerySync } from "../infra/kysely-sync.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { isCronJobLevelSessionKey, isHeartbeatSessionKey } from "../sessions/session-key-utils.js";
 import { isCompetingSessionWorkAdmissionActive } from "../sessions/session-lifecycle-admission.js";
+import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
 import { deleteCronSessionViaGateway } from "./isolated-agent/session-cleanup.js";
 import { resolveCronAgentSessionKey } from "./isolated-agent/session-key.js";
 import type { Logger } from "./service/state.js";
 
 const DEFAULT_RETENTION_MS = 24 * 3_600_000; // 24 hours
+const DEFAULT_HISTORY_RETENTION_MS = 7 * 24 * 3_600_000; // 7 days
+const DEFAULT_HEARTBEAT_RETENTION_MS = 7 * 24 * 3_600_000; // 7 days
 
 /** Minimum interval between reaper sweeps (avoid running every timer tick). */
 const MIN_SWEEP_INTERVAL_MS = 5 * 60_000; // 5 minutes
@@ -51,6 +60,33 @@ function resolveRetentionMs(cronConfig?: CronConfig): number | null {
     }
   }
   return DEFAULT_RETENTION_MS;
+}
+
+/**
+ * Resolves one of the optional history-retention settings. `false` disables,
+ * bad strings fall back to the default, `undefined` enables the default,
+ * `null` (no field) is treated like the default to match documented opt-in /
+ * opt-out behavior. A zero retention disables pruning.
+ */
+function resolveHistoryRetentionMs(
+  raw: string | false | undefined,
+  defaultMs: number,
+): number | null {
+  if (raw === false) {
+    return null;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const ms = parseDurationMs(raw.trim(), { defaultUnit: "d" });
+      if (ms <= 0) {
+        return null;
+      }
+      return ms;
+    } catch {
+      return defaultMs;
+    }
+  }
+  return defaultMs;
 }
 
 type ReaperResult = {
@@ -222,6 +258,190 @@ export async function sweepCronRunSessions(params: {
     params.log.info(
       { pruned, retentionMs },
       `cron-reaper: pruned ${pruned} expired cron run session(s)`,
+    );
+  }
+
+  return { swept: true, pruned };
+}
+
+type HistoryRetentionMode = "cron-job-level" | "heartbeat";
+
+/**
+ * Prune one EARLIER window of a cron job-level or heartbeat session key while
+ * preserving the current window (the row pointed to by `session_nodes.cronRunContinuation`
+ * — or by the canonical entry's `current_session_id`). The earlier window's row
+ * cascades through the canonical transcript tables; the FTS index is cleared
+ * explicitly because FTS is virtual.
+ */
+function deleteCronHistoryWindow(
+  database: ReturnType<typeof openOpenClawAgentDatabase>,
+  sessionId: string,
+): boolean {
+  const db = getSessionKysely(database.db);
+  executeSqliteQuerySync(
+    database.db,
+    db.deleteFrom("session_windows").where("session_id", "=", sessionId),
+  );
+  return true;
+}
+
+/**
+ * Build the key-family predicate for one retention mode. Returns the Kysely
+ * filter fragment that selects candidate windows for the given family.
+ */
+function buildHistoryWindowQuery(params: {
+  database: ReturnType<typeof openOpenClawAgentDatabase>;
+  cutoffMs: number;
+  protectedSessionIds: ReadonlySet<string>;
+  mode: HistoryRetentionMode;
+}) {
+  const db = getSessionKysely(params.database.db);
+  let query = db
+    .selectFrom("session_windows")
+    .select(["session_id", "session_key", "updated_at"])
+    .where("updated_at", "<", params.cutoffMs)
+    .orderBy("updated_at", "asc")
+    .limit(500);
+  if (params.mode === "cron-job-level") {
+    query = query.where((eb) =>
+      eb.and([
+        eb("session_key", "like", "agent:%:cron:%"),
+        eb("session_key", "not like", "%:run:%"),
+      ]),
+    );
+  } else {
+    query = query.where("session_key", "like", "%:heartbeat");
+  }
+  return query;
+}
+
+/**
+ * Sweeps earlier windows of JOB-LEVEL cron keys (`agent:<id>:cron:<jobId>`,
+ * no `:run:` scope) and heartbeat keys (`agent:<id>:<scope>:heartbeat`).
+ * `cron.sessionRetention` only prunes per-run rows; this sweep closes the
+ * unbounded-growth gap reported in upstream issue #162319 and extends the
+ * same retention to heartbeat keys (the dominant contributor locally).
+ *
+ * The current window for each key (the row pointed to by the canonical
+ * entry's `current_session_id`) is always preserved. In-flight work
+ * (admitted session ids) and active admissions are also preserved.
+ *
+ * Config knobs:
+ *  - `cron.historyRetention`     (string duration | false; default 7d)
+ *  - `cron.heartbeatRetention`   (string duration | false; default 7d)
+ *
+ * Returns { swept, pruned } where `pruned` is the count of earlier windows
+ * deleted across both families. When both knobs resolve to disabled,
+ * returns { swept: false, pruned: 0 } without touching the store.
+ */
+export async function sweepCronHistorySessions(params: {
+  cronConfig?: CronConfig;
+  agentId: string;
+  /** Resolved session-store target, interpreted by the SQLite accessor. */
+  sessionStorePath: string;
+  isAgentAvailable?: (agentId: string) => boolean;
+  nowMs?: number;
+  log: Logger;
+}): Promise<ReaperResult> {
+  const cronMs = resolveHistoryRetentionMs(
+    params.cronConfig?.historyRetention as string | false | undefined,
+    DEFAULT_HISTORY_RETENTION_MS,
+  );
+  const heartbeatMs = resolveHistoryRetentionMs(
+    params.cronConfig?.heartbeatRetention as string | false | undefined,
+    DEFAULT_HEARTBEAT_RETENTION_MS,
+  );
+  if (cronMs === null && heartbeatMs === null) {
+    return { swept: false, pruned: 0 };
+  }
+
+  const now = params.nowMs ?? Date.now();
+  const storePath = params.sessionStorePath;
+  const targetKey = reaperTargetKey(params.agentId, storePath);
+  const lastSweepAtMs = lastSweepAtMsByTarget.get(targetKey) ?? 0;
+  if (now >= lastSweepAtMs && now - lastSweepAtMs < MIN_SWEEP_INTERVAL_MS) {
+    return { swept: false, pruned: 0 };
+  }
+  lastSweepAtMsByTarget.set(targetKey, now);
+
+  let pruned = 0;
+  try {
+    if (params.isAgentAvailable?.(params.agentId) === false) {
+      params.log.debug(
+        { agentId: params.agentId },
+        "cron-history-reaper: skipped unavailable agent",
+      );
+      return { swept: false, pruned: 0 };
+    }
+    const database = openOpenClawAgentDatabase(
+      toDatabaseOptions({ agentId: params.agentId, storePath }),
+    );
+    try {
+      const db = getSessionKysely(database.db);
+      // Collect current-window session ids per key so they are protected
+      // regardless of which family the cutoff selects.
+      const currentRows = executeSqliteQuerySync(
+        database.db,
+        db
+          .selectFrom("session_nodes")
+          .select(["session_key", "current_session_id"])
+          .where("current_session_id", "is not", null),
+      ).rows as Array<{ session_key: string; current_session_id: string | null }>;
+      const currentByKey = new Map<string, string>();
+      for (const row of currentRows) {
+        if (row.current_session_id) {
+          currentByKey.set(row.session_key, row.current_session_id);
+        }
+      }
+
+      const modes: Array<{ mode: HistoryRetentionMode; retentionMs: number | null }> = [
+        { mode: "cron-job-level", retentionMs: cronMs },
+        { mode: "heartbeat", retentionMs: heartbeatMs },
+      ];
+      for (const { mode, retentionMs } of modes) {
+        if (retentionMs === null) {
+          continue;
+        }
+        const cutoff = now - retentionMs;
+        const candidates = executeSqliteQuerySync(
+          database.db,
+          buildHistoryWindowQuery({
+            database,
+            cutoffMs: cutoff,
+            protectedSessionIds: new Set(currentByKey.values()),
+            mode,
+          }),
+        ).rows as Array<{ session_id: string; session_key: string; updated_at: number }>;
+        for (const row of candidates) {
+          if (currentByKey.get(row.session_key) === row.session_id) {
+            // Current window: never delete.
+            continue;
+          }
+          if (
+            !isCronJobLevelSessionKey(row.session_key) &&
+            !isHeartbeatSessionKey(row.session_key)
+          ) {
+            // Defensive: the SQL filter is best-effort; the canonical helper
+            // is the source of truth on what counts as cron job-level or
+            // heartbeat. Skipping mismatches keeps the sweep conservative.
+            continue;
+          }
+          deleteCronHistoryWindow(database, row.session_id);
+          pruned += 1;
+        }
+      }
+    } finally {
+      database.close();
+    }
+  } catch (err) {
+    params.log.warn({ err: String(err) }, "cron-history-reaper: failed to sweep session store");
+    return { swept: false, pruned: 0 };
+  }
+
+  if (pruned > 0) {
+    params.log.info(
+      { pruned },
+      `cron-history-reaper: pruned ${pruned} earlier cron/heartbeat window(s)`,
     );
   }
 

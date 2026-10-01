@@ -401,6 +401,24 @@ export const OpenClawSchemaShape = {
        * Default: "24h".
        */
       sessionRetention: z.union([z.string(), z.literal(false)]).optional(),
+      /**
+       * How long to retain earlier windows of JOB-LEVEL cron session keys
+       * (`agent:<id>:cron:<jobId>`, no `:run:` scope) before automatic pruning.
+       * `sessionRetention` only prunes per-run `:run:<id>` rows; this option
+       * targets the base key whose windows accumulate without bound per
+       * upstream issue #162319. Accepts a duration string (e.g. "7d", "24h")
+       * or `false` to disable. Default: "7d".
+       */
+      historyRetention: z.union([z.string(), z.literal(false)]).optional(),
+      /**
+       * How long to retain earlier windows of heartbeat session keys
+       * (e.g. `agent:<id>:main:heartbeat`) before automatic pruning. Heartbeats
+       * accumulate one window per tick and grow without retention; locally we
+       * measured 1,252 windows on `agent:main:main:heartbeat` alone
+       * (50.9% of the main agent's session_windows). Accepts a duration string
+       * (e.g. "7d", "24h") or `false` to disable. Default: "7d".
+       */
+      heartbeatRetention: z.union([z.string(), z.literal(false)]).optional(),
       failureAlert: z
         .strictObject({
           enabled: z.boolean().optional(),
@@ -424,6 +442,32 @@ export const OpenClawSchemaShape = {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["sessionRetention"],
+            message: "invalid duration (use ms, s, m, h, d)",
+          });
+        }
+      }
+      if (val.historyRetention !== undefined && val.historyRetention !== false) {
+        try {
+          parseDurationMs(normalizeStringifiedOptionalString(val.historyRetention) ?? "", {
+            defaultUnit: "d",
+          });
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["historyRetention"],
+            message: "invalid duration (use ms, s, m, h, d)",
+          });
+        }
+      }
+      if (val.heartbeatRetention !== undefined && val.heartbeatRetention !== false) {
+        try {
+          parseDurationMs(normalizeStringifiedOptionalString(val.heartbeatRetention) ?? "", {
+            defaultUnit: "d",
+          });
+        } catch {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["heartbeatRetention"],
             message: "invalid duration (use ms, s, m, h, d)",
           });
         }
