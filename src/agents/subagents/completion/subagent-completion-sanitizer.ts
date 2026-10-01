@@ -116,7 +116,7 @@ const PRIVACY_TIER_TOKEN_RE: RegExp = buildTokenSubstringPattern(PRIVACY_TIER_VA
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type SanitizerHitPattern = "memory_private_path" | "privacy_tier" | "canary";
+type SanitizerHitPattern = "memory_private_path" | "privacy_tier" | "canary";
 
 export interface SanitizerHit {
   /** Detection pattern that fired. */
@@ -270,7 +270,6 @@ function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
   }
   if (typeof value === "string") {
     out.push(...checkString(value, path));
-    return;
   }
   // bool/int/float — no string-scannable surface.
 }
@@ -357,7 +356,7 @@ export function scanEnvelope(envelope: unknown): SanitizerScanResult {
 // ── Audit log ───────────────────────────────────────────────────────────────
 
 /** Default log path: workspace-scoped dispatch sanitizer block log. */
-export function defaultCouncilHandoffLogPath(): string {
+function defaultCouncilHandoffLogPath(): string {
   const workspace = process.env.OPENCLAW_WORKSPACE ?? "/root/.openclaw/workspace";
   return `${workspace.replace(/\/$/, "")}/data/ops/dispatch_sanitizer_blocks.jsonl`;
 }
