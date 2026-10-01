@@ -267,7 +267,6 @@ function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
       const keyPath = path ? `${path}.${k}` : k;
       walkEnvelope(v, keyPath, out);
     }
-    return;
   }
   if (typeof value === "string") {
     out.push(...checkString(value, path));
