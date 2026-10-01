@@ -781,7 +781,15 @@ process.stdout.write(JSON.stringify([
       spawnSync(process.execPath, ["scripts/verify-stable-main-closeout.mjs", ...args, ...extra], {
         cwd: path.resolve("."),
         encoding: "utf8",
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WITHDRAWAL_LOOKUPS: lookups },
+        env: {
+          ...process.env,
+          // Hermetic: pin the repository so the mock gh URL check cannot be
+          // flipped by ambient CI runner env (e.g. GITHUB_REPOSITORY on the
+          // fork) leaking through process.env.
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          PATH: `${bin}:${process.env.PATH}`,
+          WITHDRAWAL_LOOKUPS: lookups,
+        },
       });
 
     const initial = run("allowed");
