@@ -39,9 +39,9 @@ import { CouncilHandoffSanitizationError } from "./subagent-completion-delivery.
 // `admitCorrelatedSubagentSessionDelivery` before the queue is admitted — is verified
 // by the cherry-pick diff on subagent-completion-delivery.ts (see git log ce7451281d9).
 //
-// TODO: re-enable the four admission-flow tests once the v2026.9.7 broker-init
-// infrastructure is available outside the CI environment (or move this suite to a
-// CI-only vitest project that runs after a global broker warm-up).
+// NOTE (follow-up card c7b2c362-dccc-4b5b-8821-ab3d83387c7a): the four admission-flow
+// tests stay skipped until the v2026.9.7 broker-init infrastructure is available
+// outside CI (or this suite moves to a CI-only vitest project after broker warm-up).
 
 vi.mock("../registry/subagent-registry-persistence.js", () => ({
   withSubagentRegistryWriteAuthority: async (
@@ -198,7 +198,7 @@ describe("admitCorrelatedSubagentSessionDelivery council-handoff sanitizer", () 
     expect(rows[0].surface).toBe("council_handoff");
     expect(rows[0].envelope_id).toBe(runId);
     expect(rows[0].hit_count).toBeGreaterThan(0);
-    const patterns = rows[0].hits.map((h: { pattern: string }) => h.pattern).sort();
+    const patterns = rows[0].hits.map((h: { pattern: string }) => h.pattern).toSorted();
     expect(patterns).toContain("memory_private_path");
     expect(patterns).toContain("canary");
   });

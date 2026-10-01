@@ -86,7 +86,9 @@ function buildSanitizationEnvelope(subagent: SubagentRunRecord): Record<string, 
 export function assertCouncilHandoffClean(subagent: SubagentRunRecord): void {
   const envelope = buildSanitizationEnvelope(subagent);
   const result = scanEnvelope(envelope);
-  if (result.clean) return;
+  if (result.clean) {
+    return;
+  }
   logCouncilHandoffBlock(subagent.runId, result.hits);
   throw new CouncilHandoffSanitizationError(subagent.runId, result.hits.length);
 }
