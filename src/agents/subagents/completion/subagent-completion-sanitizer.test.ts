@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildTokenSubstringPattern as _unusedBuildTokenSubstringPattern,
   CANARY_MARKERS,
   CANARY_PREFIX,
   EXCLUDED_NAMESPACES,
@@ -68,7 +67,7 @@ describe("subagent-completion-sanitizer", () => {
           "I read memory/private/canary_journal.md and the response is RELOS-CANARY-JOURNAL-2d4e6a8c.",
       });
       expect(result.clean).toBe(false);
-      const patterns = result.hits.map((h) => h.pattern).sort();
+      const patterns = result.hits.map((h) => h.pattern).toSorted();
       expect(patterns).toContain("memory_private_path");
       expect(patterns).toContain("canary");
     });
@@ -119,11 +118,8 @@ describe("subagent-completion-sanitizer", () => {
   describe("logCouncilHandoffBlock", () => {
     it("writes one JSONL row with surface=council_handoff", () => {
       // Lazy import to avoid binding the fs module when tests don't log.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const fs = require("node:fs") as typeof import("node:fs");
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const path = require("node:path") as typeof import("node:path");
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const os = require("node:os") as typeof import("node:os");
 
       const dir = fs.mkdtempSync(path.join(os.tmpdir(), "council-handoff-log-"));
@@ -145,7 +141,7 @@ describe("subagent-completion-sanitizer", () => {
       const file = fs.readFileSync(logPath, "utf-8");
       const lines = file.trim().split("\n");
       expect(lines.length).toBe(1);
-      const parsed = JSON.parse(lines[0]);
+      const parsed = JSON.parse(lines[0] ?? "");
       expect(parsed.surface).toBe("council_handoff");
       expect(parsed.envelope_id).toBe("run-test-1");
       expect(parsed.hits[0].pattern).toBe("memory_private_path");
