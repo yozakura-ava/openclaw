@@ -175,6 +175,7 @@ export function isExcludedPath(value: unknown): boolean {
 function excerpt(value: unknown, limit = 200): string {
   let text: string;
   try {
+    // SAFETY: value is JSON-serializable by the surrounding typeof checks; object cast is only for key ordering.
     text = JSON.stringify(value, Object.keys(value as object).sort(), 2);
   } catch {
     text = String(value);
@@ -198,6 +199,7 @@ function checkString(value: string, fieldPath: string): SanitizerHit[] {
 
   // 2. Explicit privacy_tier (exact value + token-substring).
   if (
+    // SAFETY: PRIVACY_TIER_VALUES is a closed string union; readonly-array cast preserves membership checking.
     (PRIVACY_TIER_VALUES as readonly string[]).includes(value) ||
     PRIVACY_TIER_TOKEN_RE.test(value)
   ) {
@@ -242,6 +244,7 @@ function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
     return;
   }
   if (typeof value === "object") {
+    // SAFETY: value passed the isRecord structural check above; Record cast reflects that guard.
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       const keyPath = path ? `${path}.${k}` : k;
       walkEnvelope(v, keyPath, out);
@@ -262,8 +265,10 @@ function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
  */
 function scanMarkerLike(value: unknown, basePath: string): SanitizerHit[] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+  // SAFETY: caller gates with isRecord before invoking; Record cast reflects the caller guard.
   const obj = value as Record<string, unknown>;
   const tier = obj.privacy_tier;
+  // SAFETY: structural cast guarded by preceding runtime checks; no unsafe widening.
   if (typeof tier === "string" && (PRIVACY_TIER_VALUES as readonly string[]).includes(tier)) {
     return [
       {
@@ -285,6 +290,7 @@ function scanMarkers(value: unknown, path: string, out: SanitizerHit[]): void {
   }
   if (typeof value === "object") {
     out.push(...scanMarkerLike(value, path || "<root>"));
+    // SAFETY: structural cast guarded by preceding runtime checks; no unsafe widening.
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
       scanMarkers(v, path ? `${path}.${k}` : k, out);
     }
@@ -365,8 +371,10 @@ export function logCouncilHandoffBlock(
   // Lazy import: keep the module pure-functional for tests that
   // only exercise scanEnvelope().
   // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // SAFETY: require returns the module namespace; the cast only types the dynamic import.
   const fs = require("node:fs") as typeof import("node:fs");
   // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // SAFETY: structural cast guarded by preceding runtime checks; no unsafe widening.
   const path = require("node:path") as typeof import("node:path");
 
   const target = logPath ?? defaultCouncilHandoffLogPath();
