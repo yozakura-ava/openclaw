@@ -98,7 +98,9 @@ function buildTokenSubstringPattern(values: readonly string[]): RegExp {
   const escaped: string[] = [];
   for (const v of values) {
     const cleaned = v.replace(/\/$/, "");
-    if (!cleaned) continue;
+    if (!cleaned) {
+      continue;
+    }
     // Escape regex metacharacters; mirrors ``re.escape`` in Python.
     escaped.push(cleaned.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   }
@@ -143,11 +145,19 @@ export interface SanitizerScanResult {
  * positives.
  */
 export function isExcludedPath(value: unknown): boolean {
-  if (value === null || value === undefined) return false;
-  if (typeof value !== "string") return false;
-  if (!value) return false;
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (typeof value !== "string") {
+    return false;
+  }
+  if (!value) {
+    return false;
+  }
   let norm = value;
-  if (norm.startsWith("file://")) norm = norm.slice("file://".length);
+  if (norm.startsWith("file://")) {
+    norm = norm.slice("file://".length);
+  }
   norm = norm.replace(/\\/g, "/");
   const parts = norm
     .split("/")
@@ -156,7 +166,9 @@ export function isExcludedPath(value: unknown): boolean {
   for (const ns of EXCLUDED_NAMESPACES) {
     const nsStripped = ns.replace(/\/$/, "");
     const nsParts = nsStripped.split("/").map((c) => c.toLowerCase());
-    if (parts.length < nsParts.length) continue;
+    if (parts.length < nsParts.length) {
+      continue;
+    }
     for (let i = 0; i <= parts.length - nsParts.length; i++) {
       let ok = true;
       for (let j = 0; j < nsParts.length; j++) {
@@ -165,7 +177,9 @@ export function isExcludedPath(value: unknown): boolean {
           break;
         }
       }
-      if (ok) return true;
+      if (ok) {
+        return true;
+      }
     }
   }
   return false;
@@ -176,11 +190,13 @@ function excerpt(value: unknown, limit = 200): string {
   let text: string;
   try {
     // SAFETY: value is JSON-serializable by the surrounding typeof checks; object cast is only for key ordering.
-    text = JSON.stringify(value, Object.keys(value as object).sort(), 2);
+    text = JSON.stringify(value, Object.keys(value as object).toSorted(), 2);
   } catch {
     text = String(value);
   }
-  if (text.length > limit) return text.slice(0, limit - 3) + "...";
+  if (text.length > limit) {
+    return text.slice(0, limit - 3) + "...";
+  }
   return text;
 }
 
@@ -238,7 +254,9 @@ function checkString(value: string, fieldPath: string): SanitizerHit[] {
 
 /** Recursively walk ``value`` and append hits to ``out``. */
 function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
-  if (value === null || value === undefined) return;
+  if (value === null || value === undefined) {
+    return;
+  }
   if (Array.isArray(value)) {
     value.forEach((item, idx) => walkEnvelope(item, `${path}[${idx}]`, out));
     return;
@@ -264,7 +282,9 @@ function walkEnvelope(value: unknown, path: string, out: SanitizerHit[]): void {
  * Python ``_scan_marker_like``.
  */
 function scanMarkerLike(value: unknown, basePath: string): SanitizerHit[] {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return [];
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return [];
+  }
   // SAFETY: caller gates with isRecord before invoking; Record cast reflects the caller guard.
   const obj = value as Record<string, unknown>;
   const tier = obj.privacy_tier;
@@ -283,7 +303,9 @@ function scanMarkerLike(value: unknown, basePath: string): SanitizerHit[] {
 
 /** Walk the envelope collecting marker-shape hits. */
 function scanMarkers(value: unknown, path: string, out: SanitizerHit[]): void {
-  if (value === null || value === undefined) return;
+  if (value === null || value === undefined) {
+    return;
+  }
   if (Array.isArray(value)) {
     value.forEach((item, idx) => scanMarkers(item, `${path}[${idx}]`, out));
     return;
@@ -370,10 +392,8 @@ export function logCouncilHandoffBlock(
 ): CouncilHandoffBlockRecord {
   // Lazy import: keep the module pure-functional for tests that
   // only exercise scanEnvelope().
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   // SAFETY: require returns the module namespace; the cast only types the dynamic import.
   const fs = require("node:fs") as typeof import("node:fs");
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   // SAFETY: structural cast guarded by preceding runtime checks; no unsafe widening.
   const path = require("node:path") as typeof import("node:path");
 
@@ -383,7 +403,7 @@ export function logCouncilHandoffBlock(
 
   const record: CouncilHandoffBlockRecord = {
     timestamp: nowIso(),
-    envelope_id: String(envelopeId),
+    envelope_id: envelopeId,
     surface: "council_handoff",
     hit_count: hits.length,
     hits: hits.slice(),
