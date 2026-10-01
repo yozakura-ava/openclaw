@@ -28,6 +28,7 @@ import {
   assertSubagentReadContext,
   readFullSubagentRuns,
 } from "../registry/subagent-registry-read-cache.js";
+import type { SubagentRunRecord } from "../registry/subagent-registry.types.js";
 import { compareSubagentRunGeneration } from "../registry/subagent-run-generation.js";
 import {
   admitSubagentCompletionDelivery,
