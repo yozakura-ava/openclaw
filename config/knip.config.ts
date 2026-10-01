@@ -693,6 +693,10 @@ const config = {
     "src/agents/failover/signal.ts": ["exports"],
     "src/context-engine/registry.ts": ["exports", "types"],
     "src/plugins/interactive-registry.ts": ["exports"],
+    // Council-handoff sanitizer: delivery/error seams and pattern internals are consumed by
+    // focused completion tests; production reaches them through the delivery pipeline.
+    "src/agents/subagents/completion/subagent-completion-delivery.ts": ["exports"],
+    "src/agents/subagents/completion/subagent-completion-sanitizer.ts": ["exports"],
     "src/plugins/memory-state.ts": ["exports", "types"],
     "src/plugins/session-discussion-registry.ts": ["exports"],
     // Focused Control UI tests consume these explicit state-machine seams;
