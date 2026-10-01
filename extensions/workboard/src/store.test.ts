@@ -2289,6 +2289,45 @@ describe("WorkboardStore", () => {
     expect(violated.events?.at(-1)).toMatchObject({ kind: "protocol_violation" });
   });
 
+  it("validates only the user-supplied body, ignoring notes/title fields on the input (e297c1c4 class brick)", async () => {
+    // Regression: card 875df04e-1032-4fa0-9a55-9216a55ad642 — mutations on
+    // cards with long notes (~3879 chars) failed with
+    // `comment body must be 2000 characters or fewer (got 3879)` even when
+    // the user passed a short body. Root cause: the addComment validator
+    // passed `input.body` directly; any pollution (notes/title concat) on
+    // that key inflated the length-checked value. Fix reads ONLY the `body`
+    // key from the input record and validates that.
+    const store = createWorkboardSqliteTestStore();
+    const longNotes = "x".repeat(3879);
+    const card = await store.create({ title: "Long-notes card", notes: longNotes });
+
+    // Pass an input object that BOTH contains a short body AND a long notes
+    // value on a different key. The validator must see only the body length.
+    const result = await store.addComment(card.id, {
+      body: "ok",
+      // The following fields simulate caller pollution (notes/title/...)
+      // that should be ignored by the comment-body validator.
+      notes: longNotes,
+      title: longNotes,
+    } as never);
+
+    expect(result.metadata?.comments?.at(-1)?.body).toBe("ok");
+  });
+
+  it("rejects an oversized body even when sibling input fields are also long", async () => {
+    // Counterpart to the regression test above: a body that is genuinely too
+    // long must still be rejected, regardless of other fields on the input.
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Long-notes card", notes: "x".repeat(3879) });
+
+    await expect(
+      store.addComment(card.id, {
+        body: "y".repeat(2001),
+        notes: "x".repeat(3879),
+      } as never),
+    ).rejects.toThrow(/comment body must be 2000 characters or fewer \(got 2001\)/);
+  });
+
   it("keeps concurrent metadata appends from dropping siblings", async () => {
     const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Collect notes" });

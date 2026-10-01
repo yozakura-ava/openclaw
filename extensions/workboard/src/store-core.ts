@@ -936,7 +936,17 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    // Defensive: only the user-supplied comment body field is length-checked.
+    // A prior regression concatenated card notes (~3879 chars) into the
+    // mutation input before normalizeBoundedString saw it, rejecting even
+    // a ~1-char body with `comment body must be 2000 characters or fewer
+    // (got 3879)`. We now read only the `body` key from the input record,
+    // coerce to a clean trimmed string, and validate THAT — never any
+    // other field (notes, title, etc.) the caller may have attached.
+    const rawBody =
+      input && typeof input === "object" ? (input as Record<string, unknown>).body : undefined;
+    const bodySource = typeof rawBody === "string" ? rawBody : undefined;
+    const body = normalizeBoundedString(bodySource, undefined, 2000, "comment body");
     if (!body) {
       throw new Error("comment body is required.");
     }
