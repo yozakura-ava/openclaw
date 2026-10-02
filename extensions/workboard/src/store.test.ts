@@ -704,26 +704,55 @@ describe("WorkboardStore", () => {
     }
   });
 
-  it("allows only one cross-host claim per owner", async () => {
-    await using harness = createConcurrentSqliteHarness("openclaw-workboard-claim-race-");
-    const { operation: first, host: second } = harness;
-    const firstCard = await first.create({ title: "First", status: "ready", agentId: "worker" });
-    const secondCard = await first.create({
-      title: "Second",
-      status: "ready",
-      agentId: "worker",
-    });
+  it("allows up to MAX_OWNER_CLAIMS cross-host claims per owner", async () => {
+    // With MAX_OWNER_CLAIMS = 3 concurrent slots, the first 3 cross-host
+    // claims by the same owner all succeed; the 4th trips owner_busy.
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-claim-race-"));
+    const dbPath = path.join(dir, "workboard.sqlite");
+    const firstStores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    const secondStores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
+    const first = new WorkboardStore(firstStores.cards, sqliteTestAuxStores(firstStores));
+    const second = new WorkboardStore(secondStores.cards, sqliteTestAuxStores(secondStores));
+    try {
+      const cards = [];
+      for (let index = 0; index < 4; index += 1) {
+        cards.push(
+          await first.create({
+            title: `Card ${index + 1}`,
+            status: "ready",
+            agentId: "worker",
+          }),
+        );
+      }
 
-    const claims = await Promise.allSettled([
-      first.claim(firstCard.id, { ownerId: "worker" }),
-      second.claim(secondCard.id, { ownerId: "worker" }),
-    ]);
+      const claims = await Promise.allSettled([
+        first.claim(cards[0].id, { ownerId: "worker" }),
+        second.claim(cards[1].id, { ownerId: "worker" }),
+        first.claim(cards[2].id, { ownerId: "worker" }),
+        second.claim(cards[3].id, { ownerId: "worker" }),
+      ]);
 
-    expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
-    expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);
-    expect((await first.list()).filter((card) => card.status === "running")).toHaveLength(1);
+      expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
+      expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);
+      expect((await first.list()).filter((card) => card.status === "running")).toHaveLength(3);
+    } finally {
+      await secondStores.close();
+      await firstStores.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
+  it("reuses the active captured session across boards and archived duplicates", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const sessionKey = "agent:main:dashboard:captured";
+    const active = await store.create({ title: "Active", sessionKey, boardId: "default" });
+    const historical = await store.create({ title: "Historical", sessionKey, boardId: "ops" });
+    await store.archive(historical.id, true);
+
+    const captured = await store.captureSession({
+      title: "Duplicate",
+      sessionKey,
+      boardId: "other",
   it("uses card child indexes for per-card ordered reads", async () => {
     await withWorkboardSqliteDatabase("openclaw-workboard-index-read-", (db) => {
       for (const [table, index] of WORKBOARD_CARD_CHILD_INDEXES) {
@@ -1975,6 +2004,56 @@ describe("WorkboardStore", () => {
       token: tokenClaim.token,
     });
     expect(tokenReleased.metadata?.claim).toBeUndefined();
+  });
+
+  it("lets a different owner claim a card whose prior owner lease has expired", async () => {
+    // Reclaim carve-out: an existing claim owned by a different worker must
+    // NOT block this owner once that worker's lease is reclaimable
+    // (expired past the heartbeat grace). The same owner's stale claim is
+    // intentionally still treated as active (handled separately).
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const now = Date.now();
+    const card = await store.create({
+      title: "Expired lease by another owner",
+      status: "ready",
+      metadata: {
+        claim: {
+          ownerId: "retired-worker",
+          token: "retired-token",
+          claimedAt: now - 60 * 60 * 1000,
+          lastHeartbeatAt: now - 60 * 60 * 1000,
+          // Past the heartbeat reclaim grace (CLAIM_RECLAIM_MS = 5min),
+          // so the lease is reclaimable.
+          expiresAt: now - 6 * 60 * 1000,
+        },
+      },
+    });
+
+    const reclaimed = await store.claim(card.id, { ownerId: "new-worker", ttlSeconds: 60 });
+
+    expect(reclaimed.card.status).toBe("running");
+    expect(reclaimed.card.metadata?.claim).toMatchObject({
+      ownerId: "new-worker",
+    });
+    expect(reclaimed.card.metadata?.claim?.token).not.toBe("retired-token");
+
+    // Negative control: an ACTIVE claim by another owner MUST still block.
+    const active = await store.create({
+      title: "Active lease held by another owner",
+      status: "running",
+      metadata: {
+        claim: {
+          ownerId: "active-worker",
+          token: "active-token",
+          claimedAt: now,
+          lastHeartbeatAt: now,
+          expiresAt: now + 60 * 60 * 1000,
+        },
+      },
+    });
+    await expect(
+      store.claim(active.id, { ownerId: "interloping-worker", ttlSeconds: 60 }),
+    ).rejects.toThrow(/already claimed by active-worker/);
   });
 
   it("atomically guards and adopts dispatcher workspace authority", async () => {
