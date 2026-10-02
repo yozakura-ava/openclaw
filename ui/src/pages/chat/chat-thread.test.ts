@@ -8,7 +8,6 @@ import type { MessageGroup } from "../../lib/chat/chat-types.ts";
 import { prependUniqueNativeMessages } from "../../lib/chat/history-message-identity.ts";
 import { normalizeMessage } from "../../lib/chat/message-normalizer.ts";
 import * as toolCards from "../../lib/chat/tool-cards.ts";
-import { collectGarbageForTest } from "../../test-helpers/garbage-collection.ts";
 import { coalesceAgentRunFrames } from "./chat-agent-run-grouping.ts";
 import { buildChatItems } from "./chat-thread-build.ts";
 import {
@@ -16,6 +15,7 @@ import {
   type WorkGroupRenderItem as WorkGroupItem,
 } from "./chat-thread-grouping.ts";
 import * as threadItems from "./chat-thread-items.ts";
+import { buildItems, createProps, type CachedChatItemsProps } from "./chat-thread.test-support.ts";
 import {
   buildCachedChatItems,
   coalesceStreamRuns,
@@ -39,30 +39,10 @@ function preparedGroup(key: string, message: unknown): MessageGroup {
   return requireGroup(groupMessages([{ kind: "message", key, message }])[0]);
 }
 
-type CachedChatItemsProps = Parameters<typeof buildCachedChatItems>[0];
 type ChatQueueItem = NonNullable<CachedChatItemsProps["queue"]>[number];
 
 // Display fixtures need provenance markers for inbound-metadata stripping.
 const SENDER_METADATA_BLOCK = `${markInboundContextLabel("Sender:")}\n\`\`\`json\n{"label":"openclaw-control-ui","id":"openclaw-control-ui"}\n\`\`\``;
-
-function createProps(overrides: Partial<CachedChatItemsProps> = {}): CachedChatItemsProps {
-  return {
-    paneId: "pane-a",
-    sessionKey: "main",
-    runId: null,
-    messages: [],
-    toolMessages: [],
-    streamSegments: [],
-    stream: null,
-    streamStartedAt: null,
-    showToolCalls: true,
-    ...overrides,
-  };
-}
-
-function buildItems(overrides: Partial<CachedChatItemsProps> = {}) {
-  return buildCachedChatItems(createProps(overrides));
-}
 
 function chatMessage(
   role: string,
@@ -1937,6 +1917,7 @@ describe("buildCachedChatItems", () => {
 });
 
 describe("tool expansion state", () => {
+<<<<<<< HEAD
   it("releases a closed pane's messages while retaining its disclosure choices", async () => {
     resetChatThreadState();
     class TranscriptMessage {
@@ -1973,6 +1954,8 @@ describe("tool expansion state", () => {
     }
   });
 
+=======
+>>>>>>> 9137cfcc5f4 (perf(ci): run qualified unit tests with native Bun (#159988))
   it("skips the tool-card walk when the item array identity is unchanged", () => {
     resetChatThreadState();
     const group = preparedGroup("assistant-stable", {

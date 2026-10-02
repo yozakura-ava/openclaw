@@ -18,6 +18,7 @@ import {
 } from "../config/sessions/targets.js";
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.js";
+import { initializeSqliteRuntimeCapabilities } from "../infra/bun-sqlite-library.js";
 import { isCronRunSessionKey } from "../sessions/session-key-utils.js";
 import { beginSessionWorkAdmission } from "../sessions/session-lifecycle-admission.js";
 import { closeOpenClawAgentDatabasesAsync } from "../state/openclaw-agent-db-lifecycle.js";
@@ -33,9 +34,11 @@ import { isSameOpenClawAgentDatabasePath } from "../state/openclaw-agent-db.path
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import type { Logger } from "./service/state.js";
 import { sweepCronRunSessions as sweepCronRunSessionsImpl } from "./session-reaper.js";
-import { resetReaperThrottle } from "./session-reaper.test-support.js";
+import { resetReaperThrottle, seedSessionEntries } from "./session-reaper.test-support.js";
 
 const { listSessionEntriesCore, patchSessionEntryCore, replaceSessionEntry } = sessionAccessor;
+const { explicitSqliteCloseReleasesNativeResources: keepsMaintenanceWorker } =
+  await initializeSqliteRuntimeCapabilities();
 
 const taskStatusMocks = vi.hoisted(() => ({
   buildPendingSet: vi.fn<() => Set<string>>(() => new Set()),
@@ -48,6 +51,7 @@ function sweepCronRunSessions(
   return sweepCronRunSessionsImpl({ ...params, agentId: "main" });
 }
 
+<<<<<<< HEAD
 vi.mock("../agents/media-generation-activity.js", () => ({
   buildPendingGeneratedMediaSessionKeySet: taskStatusMocks.buildPendingSet,
 }));
@@ -73,6 +77,8 @@ async function seedSessionEntries(
   }
 }
 
+=======
+>>>>>>> 9137cfcc5f4 (perf(ci): run qualified unit tests with native Bun (#159988))
 function readSessionEntries(storePath: string): Record<string, SessionEntry> {
   return Object.fromEntries(
     listSessionEntriesCore({ agentId: "main", storePath }).map(({ sessionKey, entry }) => [
@@ -427,7 +433,7 @@ describe("sweepCronRunSessions", () => {
     let foregroundRead:
       | ReturnType<typeof sessionEntryReader.readSessionEntriesFromStoreInWorker>
       | undefined;
-    if (!process.versions.bun) {
+    if (keepsMaintenanceWorker) {
       const closeResources = maintenanceLane.pool.closeResources.bind(maintenanceLane.pool);
       vi.spyOn(maintenanceLane.pool, "closeResources").mockImplementationOnce((key) => {
         const closing = closeResources(key);
@@ -447,7 +453,7 @@ describe("sweepCronRunSessions", () => {
     });
 
     expect(result).toEqual({ swept: true, pruned: 1 });
-    if (!process.versions.bun) {
+    if (keepsMaintenanceWorker) {
       expect(foregroundRead).toBeDefined();
       expect(await foregroundRead).toMatchObject({
         entries: [

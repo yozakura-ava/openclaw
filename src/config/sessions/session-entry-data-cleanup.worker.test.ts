@@ -9,6 +9,7 @@ import {
 } from "./session-entry-read-runtime.js";
 import { historyLane, maintenanceLane } from "./session-transcript-worker-resources.js";
 
+<<<<<<< HEAD
 it.each(["batch", "cron"] as const)(
   "checks the captured registry after %s data cleanup",
   async (kind) => {
@@ -55,3 +56,45 @@ it.each(["batch", "cron"] as const)(
     });
   },
 );
+=======
+it("checks the captured registry after cron data cleanup", async () => {
+  await withOpenClawTestState({ label: "readonly-entry-cleanup" }, async ({ env, path }) => {
+    const storePath = path("shared.sqlite");
+    const database = openOpenClawAgentDatabase({ agentId: "main", path: storePath, env });
+    const sessionKey = "agent:main:cron:job:run:cleanup";
+    writeSessionEntry(database, sessionKey, { sessionId: "cleanup-session", updatedAt: 1 });
+    const pool = maintenanceLane.pool;
+    const rotate = pool.rotate.bind(pool);
+    const closeResources = pool.closeResources.bind(pool);
+    let cleanupCalled = false;
+    const invalidateAfterCleanup = () => {
+      if (cleanupCalled) {
+        return;
+      }
+      cleanupCalled = true;
+      invalidateRegisteredAgentDatabasesMemo({ env });
+    };
+    const rotateCleanup = vi.spyOn(pool, "rotate").mockImplementation(async () => {
+      await rotate();
+      invalidateAfterCleanup();
+    });
+    const resourceCleanup = vi.spyOn(pool, "closeResources").mockImplementation(async (key) => {
+      await closeResources(key);
+      invalidateAfterCleanup();
+    });
+    try {
+      const pending = readExpiredCronRunEntriesInWorker({
+        agentId: "main",
+        storePath,
+        env,
+        updatedBefore: 2,
+      });
+      await expect(pending).rejects.toThrow("registry changed");
+      expect(cleanupCalled).toBe(true);
+    } finally {
+      rotateCleanup.mockRestore();
+      resourceCleanup.mockRestore();
+    }
+  });
+});
+>>>>>>> 9137cfcc5f4 (perf(ci): run qualified unit tests with native Bun (#159988))

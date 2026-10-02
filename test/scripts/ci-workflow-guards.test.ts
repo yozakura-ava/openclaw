@@ -9978,10 +9978,17 @@ printf '%s\n' "\${CURL_SUCCESS_IP:-203.0.113.7}"
               ) {
                 expect(includeFile).toBeTruthy();
                 const included = JSON.parse(readFileSync(includeFile!, "utf8"));
+<<<<<<< HEAD
                 const nodeFiles = [
                   "ui/src/pages/chat/chat-pane-retained-presentation.test.ts",
                   "ui/src/pages/chat/chat-thread.test.ts",
                   "ui/src/pages/usage/usage-page-details.test.ts",
+=======
+                const retentionFiles = [
+                  "ui/src/pages/chat/chat-pane-retention.test.ts",
+                  "ui/src/pages/chat/chat-thread-retention.test.ts",
+                  "ui/src/pages/usage/usage-page-retention.test.ts",
+>>>>>>> 9137cfcc5f4 (perf(ci): run qualified unit tests with native Bun (#159988))
                 ];
                 if (childEnv.OPENCLAW_VITEST_RUNTIME === "node") {
                   expect(included.toSorted()).toEqual(nodeFiles);

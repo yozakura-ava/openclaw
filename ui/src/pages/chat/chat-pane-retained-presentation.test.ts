@@ -8,7 +8,13 @@ import type { SessionWorkspaceGetResult } from "../../api/types.ts";
 import { chatInputOwnerForContext } from "../../app/chat-input-owner.ts";
 import { loadSettings, patchSettings } from "../../app/settings.ts";
 import type { SessionCapability } from "../../lib/sessions/index.ts";
+<<<<<<< HEAD
 import { collectGarbageForTest } from "../../test-helpers/garbage-collection.ts";
+=======
+import { createApplicationContextProvider } from "../../test-helpers/application-context.ts";
+import { createMockBoardProvider } from "../../test-helpers/board-provider.ts";
+import { installDialogPolyfill } from "../../test-helpers/modal-dialog.ts";
+>>>>>>> 9137cfcc5f4 (perf(ci): run qualified unit tests with native Bun (#159988))
 import { createStorageMock } from "../../test-helpers/storage.ts";
 import { renderComposerFixture } from "./chat-composer.test-support.ts";
 import type { ChatHistoryResult } from "./chat-history-snapshot.ts";
@@ -46,53 +52,6 @@ describe("chat pane retained presentation lifecycle", () => {
     resetChatComposerState();
     vi.unstubAllGlobals();
   });
-
-  it.each(["connection", "pane"] as const)(
-    "releases reply preview objects at the %s retirement boundary",
-    async (boundary) => {
-      class ReplyPreviewMessage {
-        role = "assistant";
-        content = "Previous connection's answer";
-      }
-      let preview: WeakRef<ReplyPreviewMessage> | undefined;
-      let requests = 0;
-      const client = createGatewayBrowserClientFixture({
-        request: async (method) => {
-          if (method !== "chat.message.get") {
-            return {};
-          }
-          requests += 1;
-          const message = new ReplyPreviewMessage();
-          preview = new WeakRef(message);
-          return { ok: true, message };
-        },
-      });
-      const { pane } = createTestChatPane({ client });
-      pane.requestReplyMessage("source-message");
-      await vi.waitFor(() => expect(pane.readReplyMessage("source-message")).toBeDefined());
-
-      pane.resetOlderMessagesViewport();
-      pane.presented = false;
-      pane.presented = true;
-      const retainedControl = new WeakRef({ unowned: true });
-      await collectGarbageForTest();
-      expect(retainedControl.deref()).toBeUndefined();
-      expect(preview!.deref()).toBeDefined();
-      pane.requestReplyMessage("source-message");
-      expect(requests).toBe(1);
-
-      if (boundary === "connection") {
-        pane.applyGatewaySnapshot({ ...pane.context.gateway.snapshot, phase: "stopped" });
-      } else {
-        pane.disconnectedCallback();
-      }
-      const retiredControl = new WeakRef({ unowned: true });
-      await collectGarbageForTest();
-      expect(retiredControl.deref()).toBeUndefined();
-      expect(preview!.deref()).toBeUndefined();
-      expect(pane.readReplyMessage("source-message")).toBeUndefined();
-    },
-  );
 
   it.each([false, true])(
     "restores dormant sidebar tabs for compact=%s without replacing saved task preferences",
