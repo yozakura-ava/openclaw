@@ -818,8 +818,16 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("preserves ready-card history on idle Gateway dispatch passes", async () => {
+    // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards owned by "main"
+    // so the third slot trips the limit and the ready cards stay untouched.
     const store = createWorkboardSqliteTestStore();
-    await store.create({ title: "Occupied owner", status: "running", agentId: "main" });
+    for (let i = 0; i < 3; i += 1) {
+      await store.create({
+        title: `Occupied owner ${i + 1}`,
+        status: "running",
+        agentId: "main",
+      });
+    }
     const cards = await Promise.all(
       [undefined, { dispatchCount: 225, lastDispatchAt: 1 }].map((automation) =>
         store.create({
@@ -882,7 +890,18 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("counts the active claim owner when checking worker capacity", async () => {
+    // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards claimed by
+    // shared-worker so the ready card trips owner_busy at the 4th slot.
     const store = createWorkboardSqliteTestStore();
+    for (let i = 0; i < 2; i += 1) {
+      const pad = await store.create({
+        title: `Padding worker ${i + 1}`,
+        status: "running",
+        agentId: `alpha-${i}`,
+        workspaceAccess: { unrestricted: true },
+      });
+      await store.claim(pad.id, { ownerId: "shared-worker", token: `pad-${i}` });
+    }
     const running = await store.create({
       title: "Already claimed worker",
       status: "running",
