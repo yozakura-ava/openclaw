@@ -56,6 +56,18 @@ import { waitForChildClose, waitForFile } from "../helpers/process-wait.js";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const SCRIPT = resolve("scripts/full-release-validation-state.mjs");
+
+// Hermeticity: ambient GitHub Actions runner env leaks into both spawned
+// collectors ({...process.env} spreads) and in-process release validation
+// logic (process.env.GITHUB_REPOSITORY / GITHUB_RUN_ATTEMPT reads), flipping
+// the release decision policy expectations on CI re-runs. Pin the ambient
+// environment this test file observes to the fixture baseline.
+delete process.env.GITHUB_TOKEN;
+delete process.env.GITHUB_REPOSITORY;
+delete process.env.GITHUB_ACTIONS;
+process.env.GITHUB_RUN_ATTEMPT ??= "1";
+delete process.env.CI;
+
 const SHA = "a".repeat(40);
 const TARGET_SHA = "b".repeat(40);
 const TRUSTED_MAIN = { fullRef: "refs/heads/main", ref: "main", sha: SHA };
