@@ -1,5 +1,5 @@
 import { WORKBOARD_STATUSES, type WorkboardCard } from "@openclaw/workboard-contract";
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
+import { jsonResult } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
