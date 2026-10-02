@@ -62,6 +62,11 @@ export type GatewayServerOptions = {
   hostLifecycle?: GatewayHostLifecycle;
   /** Internal startup ownership; direct callers own their awaited startup work. */
   startupOperation?: GatewayStartupOperation;
+  /**
+   * Pre-acquired state-database schema lease; bypasses lock acquisition when supplied.
+   * Internal: callers that already own the lease can hand it in to avoid contention checks.
+   */
+  gatewayStateOwner?: import("../infra/gateway-state-owner.js").StateDatabaseSchemaLease;
   /** Exact lifecycle generation projected to connected clients. */
   bootId?: string;
   /**
