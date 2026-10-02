@@ -286,6 +286,14 @@ describe("workboard sqlite batch card read", () => {
         };
       }
       try {
+        // MAX_OWNER_CLAIMS = 3: pad the store with 2 baseline occupied cards
+        // that always consume a slot for the test owner so the discriminating
+        // "occupied" card reaches the 3-slot threshold and trips owner_busy.
+        const owner = scenario.ownerId ?? "slot-owner";
+        const pad0 = { ...fixtureCard(80), status: "running" as const, agentId: owner };
+        const pad1 = { ...fixtureCard(81), status: "running" as const, agentId: owner };
+        await stores.cards.register(pad0.id, { version: 1, card: pad0 });
+        await stores.cards.register(pad1.id, { version: 1, card: pad1 });
         await stores.cards.register(occupied.id, { version: 1, card: occupied });
         await stores.cards.register(target.id, { version: 1, card: target });
         const next = { ...target, updatedAt: target.updatedAt + 1 };

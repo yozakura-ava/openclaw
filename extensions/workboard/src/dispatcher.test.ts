@@ -505,8 +505,16 @@ describe("dispatchAndStartWorkboardCards", () => {
   });
 
   it("preserves ready-card history on idle Gateway dispatch passes", async () => {
+    // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards owned by "main"
+    // so the third slot trips the limit and the ready cards stay untouched.
     const store = createWorkboardSqliteTestStore();
-    await store.create({ title: "Occupied owner", status: "running", agentId: "main" });
+    for (let i = 0; i < 3; i += 1) {
+      await store.create({
+        title: `Occupied owner ${i + 1}`,
+        status: "running",
+        agentId: "main",
+      });
+    }
     const cards = await Promise.all(
       [undefined, { dispatchCount: 225, lastDispatchAt: 1 }].map((automation) =>
         store.create({

@@ -248,6 +248,25 @@ describe("Workboard dispatcher ownership", () => {
       try {
         vi.setSystemTime(10_000);
         const store = createWorkboardSqliteTestStore();
+        // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards claimed by
+        // shared-worker so the stale card is the 3rd slot and the 4th
+        // (ready) gets blocked inside the heartbeat grace.
+        const padding = [];
+        for (let i = 0; i < 2; i += 1) {
+          const pad = await store.create({
+            title: `Cross-board pad ${i + 1}`,
+            status: "running",
+            agentId: "shared-worker",
+            boardId: i % 2 ? "ops" : "infra",
+            workspaceAccess: { unrestricted: true },
+          });
+          await store.claim(pad.id, {
+            ownerId: "shared-worker",
+            token: `pad-token-${i}`,
+            ttlSeconds: 60,
+          });
+          padding.push(pad);
+        }
         const stale = await store.create({
           title: "Abandoned product worker",
           status: "running",
@@ -428,6 +447,21 @@ describe("Workboard dispatcher ownership", () => {
 
   it("serializes concurrent board dispatches for the same worker", async () => {
     const store = createWorkboardSqliteTestStore();
+    // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards claimed by
+    // shared-worker so the second board's dispatch trips owner_busy.
+    for (let i = 0; i < 2; i += 1) {
+      const pad = await store.create({
+        title: `Padding shared worker ${i + 1}`,
+        status: "running",
+        boardId: i % 2 ? "ops" : "infra",
+        agentId: "shared-worker",
+        workspaceAccess: { unrestricted: true },
+      });
+      await store.claim(pad.id, {
+        ownerId: "shared-worker",
+        token: `pad-token-${i}`,
+      });
+    }
     const ops = await store.create({
       title: "Ops shared worker",
       status: "ready",
