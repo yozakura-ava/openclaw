@@ -1,6 +1,7 @@
 import { channel } from "node:diagnostics_channel";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
 import {
+  captureSqliteWorkerClosePolicy,
   ensureSqliteLibrarySelected,
   getSqliteRuntimeCapabilities,
 } from "../../infra/bun-sqlite-library.js";

@@ -148,7 +148,14 @@ export type OpenClawStateReadCommand =
   | { type: "subagents.sessionList" }
   | {
       type: "subagents.runs";
-      scope: { kind: "session"; sessionKey: string } | { kind: "ids"; runIds: readonly string[] };
+      scope:
+        | { kind: "session"; sessionKey: string }
+        | { kind: "ids"; runIds: readonly string[] }
+        | {
+            kind: "descendants";
+            sessionKeys: readonly string[];
+            liveTopology: readonly { childSessionKey: string; requesterSessionKey: string }[];
+          };
     }
   | CronRunRecoveryReadCommand
   | { type: "cron.activeReceiptOwners"; agentId: string }

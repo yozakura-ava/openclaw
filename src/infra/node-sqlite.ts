@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { ensureSqliteLibrarySelected, getSqliteRuntimeCapabilities } from "./bun-sqlite-library.js";
 import { formatErrorMessage } from "./errors.js";
+import { registerNodeSqliteDisposeCallback } from "./kysely-sync-cache-state.js";
 import { compareValidSemver } from "./semver.js";
 import { registerSqliteReaderConnection } from "./sqlite-reader-lifecycle.js";
 import { isSqliteWalResetSafeVersion } from "./sqlite-runtime-version.js";
