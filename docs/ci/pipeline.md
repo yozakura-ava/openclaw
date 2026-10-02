@@ -162,10 +162,8 @@ joined descendant cleanup. Release validation runs the complete Node selection
 before the compatible Bun/Vitest and native Bun portions in that same slot;
 every result remains required. Native execution adds no CI jobs or worker fanout.
 
-The process lane runs `terminal-pty-bun.test.ts` and the spawn-broker
-`event-order.test.ts` and `group-custody.test.ts` files on Bun. The broker tests
-exercise inherited `NODE_OPTIONS` preloads; their Windows exclusions remain.
-Other process files retain Node. The pinned fork supports `Bun.Terminal.pause()` and `resume()`,
+The process lane runs `terminal-pty-bun.test.ts` on Bun and retains its other
+files on Node. The pinned fork supports `Bun.Terminal.pause()` and `resume()`,
 so its native real-PTY cases run on Linux. macOS and Linux select the native PTY
 without Node on builds with that capability, including the pinned fork's macOS
 child-exit fix. Other Bun
