@@ -65,8 +65,11 @@ export type GatewayServerOptions = {
   /**
    * Pre-acquired state-database schema lease; bypasses lock acquisition when supplied.
    * Internal: callers that already own the lease can hand it in to avoid contention checks.
+   * Accepts either a GatewayLockHandle or a StateDatabaseSchemaLease.
    */
-  gatewayStateOwner?: import("../infra/gateway-state-owner.js").StateDatabaseSchemaLease;
+  gatewayStateOwner?:
+    | import("../infra/gateway-lock.js").GatewayLockHandle
+    | import("../infra/gateway-state-owner.js").StateDatabaseSchemaLease;
   /** Exact lifecycle generation projected to connected clients. */
   bootId?: string;
   /**

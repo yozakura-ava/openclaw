@@ -59,6 +59,8 @@ type GatewayLockHandle = {
   run<T>(operation: () => T): T;
 };
 
+export type { GatewayLockHandle };
+
 export type GatewayLockIdentity = {
   pid: number;
   ownerId?: string;
