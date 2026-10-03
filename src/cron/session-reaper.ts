@@ -9,18 +9,20 @@ import {
   type SessionEntryLifecycleRemoval,
 } from "../config/sessions/session-accessor.js";
 import {
-  getSessionKysely,
-  toDatabaseOptions,
-} from "../config/sessions/session-accessor.sqlite-scope.js";
+  createHistoryWindowReclamationPlan,
+  runSqliteSessionReclamation,
+} from "../config/sessions/session-accessor.sqlite-reclamation.js";
+import { toDatabaseOptions } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { readExpiredCronRunEntriesInWorker } from "../config/sessions/session-entry-read-runtime.js";
+import { withSessionHistoryWorkerDatabase } from "../config/sessions/session-transcript-worker-runtime.js";
 import { resolveMaintenanceConfig } from "../config/sessions/store-maintenance-runtime.js";
 import type { CronConfig } from "../config/types.cron.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import { executeSqliteQuerySync } from "../infra/kysely-sync.js";
 import { normalizeAgentId } from "../routing/session-key.js";
-import { isCronJobLevelSessionKey, isHeartbeatSessionKey } from "../sessions/session-key-utils.js";
-import { isCompetingSessionWorkAdmissionActive } from "../sessions/session-lifecycle-admission.js";
-import { openOpenClawAgentDatabase } from "../state/openclaw-agent-db.js";
+import {
+  collectActiveSessionWorkAdmissions,
+  isCompetingSessionWorkAdmissionActive,
+} from "../sessions/session-lifecycle-admission.js";
 import { deleteCronSessionViaGateway } from "./isolated-agent/session-cleanup.js";
 import { resolveCronAgentSessionKey } from "./isolated-agent/session-key.js";
 import type { Logger } from "./service/state.js";
@@ -267,55 +269,6 @@ export async function sweepCronRunSessions(params: {
 type HistoryRetentionMode = "cron-job-level" | "heartbeat";
 
 /**
- * Prune one EARLIER window of a cron job-level or heartbeat session key while
- * preserving the current window (the row pointed to by `session_nodes.cronRunContinuation`
- * — or by the canonical entry's `current_session_id`). The earlier window's row
- * cascades through the canonical transcript tables; the FTS index is cleared
- * explicitly because FTS is virtual.
- */
-function deleteCronHistoryWindow(
-  database: ReturnType<typeof openOpenClawAgentDatabase>,
-  sessionId: string,
-): boolean {
-  const db = getSessionKysely(database.db);
-  executeSqliteQuerySync(
-    database.db,
-    db.deleteFrom("session_windows").where("session_id", "=", sessionId),
-  );
-  return true;
-}
-
-/**
- * Build the key-family predicate for one retention mode. Returns the Kysely
- * filter fragment that selects candidate windows for the given family.
- */
-function buildHistoryWindowQuery(params: {
-  database: ReturnType<typeof openOpenClawAgentDatabase>;
-  cutoffMs: number;
-  protectedSessionIds: ReadonlySet<string>;
-  mode: HistoryRetentionMode;
-}) {
-  const db = getSessionKysely(params.database.db);
-  let query = db
-    .selectFrom("session_windows")
-    .select(["session_id", "session_key", "updated_at"])
-    .where("updated_at", "<", params.cutoffMs)
-    .orderBy("updated_at", "asc")
-    .limit(500);
-  if (params.mode === "cron-job-level") {
-    query = query.where((eb) =>
-      eb.and([
-        eb("session_key", "like", "agent:%:cron:%"),
-        eb("session_key", "not like", "%:run:%"),
-      ]),
-    );
-  } else {
-    query = query.where("session_key", "like", "%:heartbeat");
-  }
-  return query;
-}
-
-/**
  * Sweeps earlier windows of JOB-LEVEL cron keys (`agent:<id>:cron:<jobId>`,
  * no `:run:` scope) and heartbeat keys (`agent:<id>:<scope>:heartbeat`).
  * `cron.sessionRetention` only prunes per-run rows; this sweep closes the
@@ -373,65 +326,38 @@ export async function sweepCronHistorySessions(params: {
       );
       return { swept: false, pruned: 0 };
     }
-    const database = openOpenClawAgentDatabase(
-      toDatabaseOptions({ agentId: params.agentId, storePath }),
-    );
-    try {
-      const db = getSessionKysely(database.db);
-      // Collect current-window session ids per key so they are protected
-      // regardless of which family the cutoff selects.
-      const currentRows = executeSqliteQuerySync(
-        database.db,
-        db
-          .selectFrom("session_nodes")
-          .select(["session_key", "current_session_id"])
-          .where("current_session_id", "is not", null),
-      ).rows as Array<{ session_key: string; current_session_id: string | null }>;
-      const currentByKey = new Map<string, string>();
-      for (const row of currentRows) {
-        if (row.current_session_id) {
-          currentByKey.set(row.session_key, row.current_session_id);
-        }
+    const databaseOptions = toDatabaseOptions({ agentId: params.agentId, storePath });
+    const admissionIdentities = [...(collectActiveSessionWorkAdmissions().get(storePath) ?? [])];
+    const modes: Array<{ mode: HistoryRetentionMode; retentionMs: number | null }> = [
+      { mode: "cron-job-level", retentionMs: cronMs },
+      { mode: "heartbeat", retentionMs: heartbeatMs },
+    ];
+    for (const { mode, retentionMs } of modes) {
+      if (retentionMs === null) {
+        continue;
       }
-
-      const modes: Array<{ mode: HistoryRetentionMode; retentionMs: number | null }> = [
-        { mode: "cron-job-level", retentionMs: cronMs },
-        { mode: "heartbeat", retentionMs: heartbeatMs },
-      ];
-      for (const { mode, retentionMs } of modes) {
-        if (retentionMs === null) {
-          continue;
-        }
-        const cutoff = now - retentionMs;
-        const candidates = executeSqliteQuerySync(
-          database.db,
-          buildHistoryWindowQuery({
-            database,
+      const cutoff = now - retentionMs;
+      const candidates = await withSessionHistoryWorkerDatabase(databaseOptions, (owner) =>
+        owner.readHistoricalEvictionCandidates({
+          admissionIdentities,
+          env: databaseOptions.env ?? process.env,
+          preserveRecentMs: retentionMs,
+        }),
+      );
+      for (const sessionId of candidates) {
+        const result = await runSqliteSessionReclamation({
+          forceInProcess: false,
+          plan: createHistoryWindowReclamationPlan({
             cutoffMs: cutoff,
-            protectedSessionIds: new Set(currentByKey.values()),
-            mode,
+            databaseOptions,
+            historyMode: mode,
+            sessionId,
           }),
-        ).rows as Array<{ session_id: string; session_key: string; updated_at: number }>;
-        for (const row of candidates) {
-          if (currentByKey.get(row.session_key) === row.session_id) {
-            // Current window: never delete.
-            continue;
-          }
-          if (
-            !isCronJobLevelSessionKey(row.session_key) &&
-            !isHeartbeatSessionKey(row.session_key)
-          ) {
-            // Defensive: the SQL filter is best-effort; the canonical helper
-            // is the source of truth on what counts as cron job-level or
-            // heartbeat. Skipping mismatches keeps the sweep conservative.
-            continue;
-          }
-          deleteCronHistoryWindow(database, row.session_id);
+        });
+        if (result.kind === "history-window" && result.value.deleted) {
           pruned += 1;
         }
       }
-    } finally {
-      database.close();
     }
   } catch (err) {
     params.log.warn({ err: String(err) }, "cron-history-reaper: failed to sweep session store");
