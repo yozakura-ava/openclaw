@@ -3757,6 +3757,7 @@ describe("release CI summary child correlation", () => {
     "rederives recorded flakes from authenticated receipt artifacts and the live CI gate: %s",
     async (scenario) => {
       const fixture = trustedMainNpmFixture();
+      const repository = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
       const selected = expectDefined(
         fixture.executionPlan.children.find((child) => child.key === "normalCi"),
         "normal CI child",
@@ -3776,9 +3777,9 @@ describe("release CI summary child correlation", () => {
         targetSha: fixture.targetSha,
         jobId: "501",
         jobName: "checks-node-test-2",
-        jobUrl: `https://github.com/openclaw/openclaw/actions/runs/${selected.runId}/job/501`,
+        jobUrl: `https://github.com/${repository}/actions/runs/${selected.runId}/job/501`,
         conclusion: "failure",
-        trackingUrl: "https://github.com/openclaw/openclaw/issues/789",
+        trackingUrl: `https://github.com/${repository}/issues/789`,
         reason: "Shared test fixture races during cleanup; repair tracked on main.",
         classifiedBy: "release-operator",
         receiptRunId: "890",
@@ -3790,7 +3791,7 @@ describe("release CI summary child correlation", () => {
           ...fixture.parentJob,
           id: 502,
           name: "openclaw/ci-gate",
-          html_url: `https://github.com/openclaw/openclaw/actions/runs/${selected.runId}/job/502`,
+          html_url: `https://github.com/${repository}/actions/runs/${selected.runId}/job/502`,
         },
       ].map((job) => Object.assign(job, { conclusion: "failure" }));
       const composite = composeReleaseAttemptJobs([{ jobs, runAttempt: 1 }], {
@@ -3834,7 +3835,7 @@ describe("release CI summary child correlation", () => {
       const producer = {
         id: 890,
         run_attempt: 1,
-        repository: { full_name: "openclaw/openclaw" },
+        repository: { full_name: repository },
         path: ".github/workflows/full-release-flake-classification.yml",
         event: "workflow_dispatch",
         head_branch: "main",
@@ -3899,7 +3900,7 @@ describe("release CI summary child correlation", () => {
         getRunAttemptJobs: (runId: string) =>
           runId === selected.runId ? jobs : originalJobs(runId),
         loadFlakeClassifications: (request: Parameters<typeof loadFlakeClassifications>[0]) =>
-          loadFlakeClassifications({ ...request, api }),
+          loadFlakeClassifications({ ...request, api, repo: repository }),
       };
       const validation = validateReleaseRunEvidence(
         {
