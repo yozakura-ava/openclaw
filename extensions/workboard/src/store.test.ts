@@ -661,7 +661,9 @@ describe("WorkboardStore", () => {
     }
   });
 
-  it("allows only one cross-host claim per owner", async () => {
+  it("allows up to MAX_OWNER_CLAIMS cross-host claims per owner", async () => {
+    // With MAX_OWNER_CLAIMS = 3 concurrent slots, the first 3 cross-host
+    // claims by the same owner all succeed; the 4th trips owner_busy.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-workboard-claim-race-"));
     const dbPath = path.join(dir, "workboard.sqlite");
     const firstStores = createWorkboardSqliteStores({ dbPath, workerModuleUrl });
@@ -669,21 +671,27 @@ describe("WorkboardStore", () => {
     const first = new WorkboardStore(firstStores.cards, sqliteTestAuxStores(firstStores));
     const second = new WorkboardStore(secondStores.cards, sqliteTestAuxStores(secondStores));
     try {
-      const firstCard = await first.create({ title: "First", status: "ready", agentId: "worker" });
-      const secondCard = await first.create({
-        title: "Second",
-        status: "ready",
-        agentId: "worker",
-      });
+      const cards = [];
+      for (let index = 0; index < 4; index += 1) {
+        cards.push(
+          await first.create({
+            title: `Card ${index + 1}`,
+            status: "ready",
+            agentId: "worker",
+          }),
+        );
+      }
 
       const claims = await Promise.allSettled([
-        first.claim(firstCard.id, { ownerId: "worker" }),
-        second.claim(secondCard.id, { ownerId: "worker" }),
+        first.claim(cards[0].id, { ownerId: "worker" }),
+        second.claim(cards[1].id, { ownerId: "worker" }),
+        first.claim(cards[2].id, { ownerId: "worker" }),
+        second.claim(cards[3].id, { ownerId: "worker" }),
       ]);
 
-      expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(1);
+      expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
       expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);
-      expect((await first.list()).filter((card) => card.status === "running")).toHaveLength(1);
+      expect((await first.list()).filter((card) => card.status === "running")).toHaveLength(3);
     } finally {
       await secondStores.close();
       await firstStores.close();
@@ -2417,6 +2425,56 @@ describe("WorkboardStore", () => {
     expect(tokenReleased.metadata?.claim).toBeUndefined();
   });
 
+  it("lets a different owner claim a card whose prior owner lease has expired", async () => {
+    // Reclaim carve-out: an existing claim owned by a different worker must
+    // NOT block this owner once that worker's lease is reclaimable
+    // (expired past the heartbeat grace). The same owner's stale claim is
+    // intentionally still treated as active (handled separately).
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const now = Date.now();
+    const card = await store.create({
+      title: "Expired lease by another owner",
+      status: "ready",
+      metadata: {
+        claim: {
+          ownerId: "retired-worker",
+          token: "retired-token",
+          claimedAt: now - 60 * 60 * 1000,
+          lastHeartbeatAt: now - 60 * 60 * 1000,
+          // Past the heartbeat reclaim grace (CLAIM_RECLAIM_MS = 5min),
+          // so the lease is reclaimable.
+          expiresAt: now - 6 * 60 * 1000,
+        },
+      },
+    });
+
+    const reclaimed = await store.claim(card.id, { ownerId: "new-worker", ttlSeconds: 60 });
+
+    expect(reclaimed.card.status).toBe("running");
+    expect(reclaimed.card.metadata?.claim).toMatchObject({
+      ownerId: "new-worker",
+    });
+    expect(reclaimed.card.metadata?.claim?.token).not.toBe("retired-token");
+
+    // Negative control: an ACTIVE claim by another owner MUST still block.
+    const active = await store.create({
+      title: "Active lease held by another owner",
+      status: "running",
+      metadata: {
+        claim: {
+          ownerId: "active-worker",
+          token: "active-token",
+          claimedAt: now,
+          lastHeartbeatAt: now,
+          expiresAt: now + 60 * 60 * 1000,
+        },
+      },
+    });
+    await expect(
+      store.claim(active.id, { ownerId: "interloping-worker", ttlSeconds: 60 }),
+    ).rejects.toThrow(/already claimed by active-worker/);
+  });
+
   it("atomically guards and adopts dispatcher workspace authority", async () => {
     const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Legacy dispatch", status: "ready" });
@@ -3306,6 +3364,43 @@ describe("WorkboardStore", () => {
     ).resolves.toMatchObject({
       metadata: { comments: [expect.objectContaining({ body: "owner write" })] },
     });
+  });
+
+  it("admits chunked comments past an expired claim via the recovery path", async () => {
+    // Pair with the live-claim scope test above. addComment now passes
+    // recovery=true through addCommentWithChunking → assertCanMutateClaimedCard,
+    // so the chunking module honors a claim whose grace window has elapsed.
+    // The 4096-byte cap (eb0bd09636a) is preserved end-to-end on the recovery
+    // path: both the single-row and the chunked split branches call
+    // assertCanMutateClaimedCard with recovery=true.
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Recovery admission" });
+    await store.claim(card.id, { ownerId: "main", token: "token-1" });
+
+    // Advance Date.now() past DEFAULT_CLAIM_TTL_MS (30 min) AND CLAIM_RECLAIM_MS
+    // (5 min grace) so isWorkboardClaimReclaimable returns true. The spy is set
+    // up AFTER claim/create, so the persisted timestamps stay on real time.
+    const nowSpy = vi.spyOn(Date, "now");
+    try {
+      nowSpy.mockReturnValue(Date.now() + 36 * 60 * 1000);
+
+      // Other owner's oversized (4097-byte) comment must split AND pass the
+      // expired-claim guard. Without recovery=true in addComment this would
+      // throw "claimed by main"; with recovery=true the split sequence lands
+      // and the comment shows up as two labeled rows.
+      await expect(
+        store.addComment(card.id, { body: "x".repeat(4097) }, { ownerId: "other" }),
+      ).resolves.toMatchObject({
+        metadata: {
+          comments: expect.arrayContaining([
+            expect.objectContaining({ body: "x".repeat(4097 - 20).slice(0, 4076) }),
+            expect.objectContaining({ body: expect.stringMatching(/ \(2\/2\)$/) }),
+          ]),
+        },
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it("lets operators override claims while enforcing agent-scoped moves", async () => {
@@ -5111,4 +5206,3 @@ describe("WorkboardStore", () => {
     );
   });
 });
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

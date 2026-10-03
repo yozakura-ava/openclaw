@@ -114,12 +114,24 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new Error("card workspace authority changed before claim.");
       }
       const existingClaim = guarded.metadata?.claim;
+      // A claim owned by a different worker cannot block this owner from
+      // reclaiming the card once that other worker's lease is reclaimable
+      // (expired past the heartbeat grace). Treat it as inactive so the
+      // owner's own claim path proceeds; the same owner's stale claim still
+      // counts as active and triggers the "already claimed" branch below.
       const activeClaim =
         existingClaim &&
+        existingClaim.ownerId !== ownerId &&
         (isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
           // Direct claims must honor the same running-worker heartbeat grace
           // as dispatcher recovery; otherwise they silently steal live tokens.
-          (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now)))
+          // An EXPIRED claim never blocks its own owner from re-claiming
+          // immediately (fb3854a7 semantics): the heartbeat grace exists to
+          // stop OTHER owners from stealing a live worker's token, not to
+          // lock the original owner out of its own stale claim.
+          (guarded.status === "running" &&
+            !isWorkboardClaimReclaimable(existingClaim, now) &&
+            existingClaim.ownerId !== ownerId))
           ? existingClaim
           : undefined;
       if (cardParentIds(guarded).length > 0 && guarded.status !== "ready" && !activeClaim) {
