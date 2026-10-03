@@ -61,8 +61,10 @@ export function createWorkboardOrchestrationTools(params: {
   ownerId: string;
 }): AnyAgentTool[] {
   const { store, ownerId } = params;
-  const { readScopedCardToolParams, readClaimedCardToolParams, runScopedCardMutation } =
-    createWorkboardCardMutations(store, ownerId);
+  const { readClaimedCardToolParams, runScopedCardMutation } = createWorkboardCardMutations(
+    store,
+    ownerId,
+  );
   return [
     {
       name: "workboard_boards",
