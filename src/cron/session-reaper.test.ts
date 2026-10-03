@@ -1,5 +1,6 @@
 // Cron session reaper tests cover cleanup of sessions created by scheduled runs.
 import fsPromises from "node:fs/promises";
+/* eslint-disable max-lines */
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
@@ -32,8 +33,10 @@ import {
 import { isSameOpenClawAgentDatabasePath } from "../state/openclaw-agent-db.paths.js";
 import { closeOpenClawStateDatabaseForTest } from "../state/openclaw-state-db.js";
 import type { Logger } from "./service/state.js";
-import { sweepCronRunSessions as sweepCronRunSessionsImpl } from "./session-reaper.js";
-import { sweepCronHistorySessions as sweepCronHistorySessionsImpl } from "./session-reaper.js";
+import {
+  sweepCronHistorySessions as sweepCronHistorySessionsImpl,
+  sweepCronRunSessions as sweepCronRunSessionsImpl,
+} from "./session-reaper.js";
 import { resetReaperThrottle } from "./session-reaper.test-support.js";
 
 const { listSessionEntriesCore, patchSessionEntryCore, replaceSessionEntry } = sessionAccessor;
@@ -71,20 +74,25 @@ async function seedSessionWindows(storePath: string, windows: SeededWindow[]): P
       "INSERT OR REPLACE INTO session_windows (session_id, session_key, created_at, updated_at, reason, session_scope, session_entry_provenance) VALUES (?, ?, ?, ?, 'initial', 'conversation', 0)",
     );
     const upsertNode = db.db.prepare(
-      "INSERT INTO session_nodes (session_key, current_session_id, entry_json) VALUES (?, ?, ?) ON CONFLICT(session_key) DO UPDATE SET current_session_id = excluded.current_session_id",
+      "INSERT INTO session_nodes (session_key, current_session_id, entry_json, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_key) DO UPDATE SET current_session_id = excluded.current_session_id, updated_at = excluded.updated_at",
     );
     for (const w of windows) {
+      const currentSessionId =
+        windows.find((candidate) => candidate.sessionKey === w.sessionKey && candidate.isCurrent)
+          ?.sessionId ?? w.sessionId;
+      upsertNode.run(w.sessionKey, currentSessionId, JSON.stringify({}), w.updatedAt);
       insertWindow.run(w.sessionId, w.sessionKey, w.updatedAt, w.updatedAt);
       if (w.isCurrent) {
         upsertNode.run(
           w.sessionKey,
           w.sessionId,
           JSON.stringify({ sessionId: w.sessionId, updatedAt: w.updatedAt }),
+          w.updatedAt,
         );
       }
     }
   } finally {
-    db.close();
+    db.db.close();
   }
 }
 
@@ -97,7 +105,7 @@ function readSessionWindows(storePath: string): Array<{ session_id: string; sess
       )
       .all() as Array<{ session_id: string; session_key: string }>;
   } finally {
-    db.close();
+    db.db.close();
   }
 }
 
@@ -1224,7 +1232,7 @@ describe("sweepCronHistorySessions", () => {
     expect(result.pruned).toBe(0);
 
     const remaining = readSessionWindows(storePath);
-    expect(remaining.map((r) => r.session_id).sort()).toEqual(["run-current", "run-old"]);
+    expect(remaining.map((r) => r.session_id).toSorted()).toEqual(["run-current", "run-old"]);
   });
 
   it("does not prune unrelated session keys", async () => {
@@ -1286,7 +1294,7 @@ describe("sweepCronHistorySessions", () => {
     expect(result.pruned).toBe(1);
 
     const remaining = readSessionWindows(storePath);
-    const ids = remaining.map((r) => r.session_id).sort();
+    const ids = remaining.map((r) => r.session_id).toSorted();
     expect(ids).toEqual(["hb-current", "job-current", "job-old"]);
   });
 
@@ -1309,7 +1317,7 @@ describe("sweepCronHistorySessions", () => {
     expect(result.pruned).toBe(1);
 
     const remaining = readSessionWindows(storePath);
-    expect(remaining.map((r) => r.session_id).sort()).toEqual(["current", "recent"]);
+    expect(remaining.map((r) => r.session_id).toSorted()).toEqual(["current", "recent"]);
   });
 
   it("skips unavailable agent", async () => {

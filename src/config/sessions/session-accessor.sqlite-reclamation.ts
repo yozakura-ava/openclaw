@@ -293,6 +293,52 @@ function reclaimSqliteRowsInTransaction(
     return reclaimSessionMaintenanceInTransaction(plan, callbacks);
   }
 
+  if (plan.kind === "history-window") {
+    const value = runOpenClawAgentWriteTransaction(
+      (transactionDb) => {
+        callbacks.beforeMutation?.();
+        const db = getSessionKysely(transactionDb.db);
+        const row = executeSqliteQuerySync(
+          transactionDb.db,
+          db
+            .selectFrom("session_windows")
+            .select(["session_id", "session_key", "updated_at"])
+            .where("session_id", "=", plan.sessionId),
+        ).rows[0];
+        if (
+          !row ||
+          row.updated_at >= plan.cutoffMs ||
+          (plan.historyMode === "cron-job-level"
+            ? !row.session_key.startsWith("agent:") ||
+              !row.session_key.includes(":cron:") ||
+              row.session_key.includes(":run:")
+            : !row.session_key.endsWith(":heartbeat"))
+        ) {
+          return { deleted: false };
+        }
+        const current = executeSqliteQuerySync(
+          transactionDb.db,
+          db
+            .selectFrom("session_nodes")
+            .select("current_session_id")
+            .where("session_key", "=", row.session_key),
+        ).rows[0];
+        if (current?.current_session_id === row.session_id) {
+          return { deleted: false };
+        }
+        executeSqliteQuerySync(
+          transactionDb.db,
+          db.deleteFrom("session_windows").where("session_id", "=", row.session_id),
+        );
+        callbacks.onCommit?.(transactionDb);
+        return { deleted: true };
+      },
+      plan.databaseOptions,
+      { operationLabel: "session.reclaim.history-window" },
+    );
+    return { kind: plan.kind, value };
+  }
+
   if (plan.kind === "entry") {
     const value = runSqliteSessionDeletionTransaction<DeleteSessionEntryLifecycleResult>(
       (transactionDb) => {
@@ -625,6 +671,22 @@ export function createHistoryEvictionReclamationPlan(params: {
     kind: "history-eviction",
     materializedPlans: params.materializedPlans,
     protectedSessionIds: [...params.protectedSessionIds],
+    sessionId: params.sessionId,
+  };
+}
+
+export function createHistoryWindowReclamationPlan(params: {
+  cutoffMs: number;
+  databaseOptions: OpenClawAgentDatabaseOptions;
+  historyMode: "cron-job-level" | "heartbeat";
+  sessionId: string;
+}): Extract<SqliteSessionReclamationPlan, { kind: "history-window" }> {
+  return {
+    cutoffMs: params.cutoffMs,
+    databaseOptions: resolveSessionReclamationDatabaseOptions(params.databaseOptions),
+    historyMode: params.historyMode,
+    kind: "history-window",
+    materializedPlans: [],
     sessionId: params.sessionId,
   };
 }
