@@ -726,7 +726,8 @@ describe("verify-stable-main-closeout", () => {
     writeFileSync(
       path.join(bin, "gh"),
       `#!/usr/bin/env node
-const expected = 'repos/openclaw/openclaw/commits?sha=${mainSha}&path=appcast.xml&per_page=100';
+const repository = process.env.GITHUB_REPOSITORY ?? 'openclaw/openclaw';
+const expected = \`repos/\${repository}/commits?sha=${mainSha}&path=appcast.xml&per_page=100\`;
 if (process.argv[2] !== 'api' || process.argv[3] !== expected || process.env.WITHDRAWAL_LOOKUPS !== 'allowed') {
   throw new Error('Unexpected GitHub operation: ' + process.argv.slice(2).join(' '));
 }
@@ -781,7 +782,12 @@ process.stdout.write(JSON.stringify([
       spawnSync(process.execPath, ["scripts/verify-stable-main-closeout.mjs", ...args, ...extra], {
         cwd: path.resolve("."),
         encoding: "utf8",
-        env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, WITHDRAWAL_LOOKUPS: lookups },
+        env: {
+          ...process.env,
+          GITHUB_REPOSITORY: "openclaw/openclaw",
+          PATH: `${bin}:${process.env.PATH}`,
+          WITHDRAWAL_LOOKUPS: lookups,
+        },
       });
 
     const initial = run("allowed");

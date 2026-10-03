@@ -99,6 +99,7 @@
       "workboard_notify_advance",
       "workboard_notify_unsubscribe",
       "workboard_promote",
+      "workboard_force_close",
       "workboard_reassign",
       "workboard_reclaim",
       "workboard_dispatch",
@@ -190,6 +191,9 @@
       "optional": true
     },
     "workboard_promote": {
+      "optional": true
+    },
+    "workboard_force_close": {
       "optional": true
     },
     "workboard_reassign": {
