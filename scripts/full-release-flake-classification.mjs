@@ -338,7 +338,7 @@ export async function recordFlakeClassification({ inputs, env = process.env, api
     targets.length === 1 &&
       witnesses.length === 1 &&
       new RegExp(
-        `^Dispatched ci\\.yml: https://github\\.com/openclaw/openclaw/actions/runs/${childRunId} \\(attempt [1-9][0-9]*\\)$`,
+        `^Dispatched ci\\.yml: https://github\\.com/${REPOSITORY_PATTERN}/actions/runs/${childRunId} \\(attempt [1-9][0-9]*\\)$`,
         "u",
       ).test(witnesses[0]),
     "parent target SHA or dispatch witness differs",
