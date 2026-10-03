@@ -12,17 +12,18 @@ import {
 
 const sha = "a".repeat(40);
 const targetSha = "b".repeat(40);
-const jobUrl = "https://github.com/openclaw/openclaw/actions/runs/200/job/300";
-const trackingUrl = "https://github.com/openclaw/openclaw/issues/400";
+const repository = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
+const jobUrl = `https://github.com/${repository}/actions/runs/200/job/300`;
+const trackingUrl = `https://github.com/${repository}/issues/400`;
 const workflow = ".github/workflows/full-release-flake-classification.yml";
 const reason = "Independent reproduction confirms a fixture scheduling race.";
 
 function fixture() {
   const env = {
-    GITHUB_REPOSITORY: "openclaw/openclaw",
+    GITHUB_REPOSITORY: repository,
     GITHUB_REF: "refs/heads/main",
     GITHUB_EVENT_NAME: "workflow_dispatch",
-    GITHUB_WORKFLOW_REF: `openclaw/openclaw/${workflow}@refs/heads/main`,
+    GITHUB_WORKFLOW_REF: `${repository}/${workflow}@refs/heads/main`,
     GITHUB_WORKFLOW_SHA: sha,
     GITHUB_SHA: sha,
     GITHUB_TRIGGERING_ACTOR: "maintainer",
@@ -30,7 +31,7 @@ function fixture() {
     GITHUB_RUN_ATTEMPT: "1",
   };
   const run = {
-    repository: { full_name: "openclaw/openclaw" },
+    repository: { full_name: repository },
     event: "workflow_dispatch",
     head_sha: sha,
   };
@@ -76,7 +77,7 @@ function fixture() {
     "actions/runs/200": child,
     "actions/runs/100/attempts/1": parent,
     "actions/runs/100/attempts/1/jobs?per_page=100&page=1": { total_count: 1, jobs: [dispatch] },
-    "actions/jobs/600/logs": `2026-09-29T10:00:00.000Z   TARGET_SHA: ${targetSha}\n2026-09-29T10:00:00.000Z Dispatched ci.yml: https://github.com/openclaw/openclaw/actions/runs/200 (attempt 1)`,
+    "actions/jobs/600/logs": `2026-09-29T10:00:00.000Z   TARGET_SHA: ${targetSha}\n2026-09-29T10:00:00.000Z Dispatched ci.yml: https://github.com/${repository}/actions/runs/200 (attempt 1)`,
     "issues/400": { number: 400 },
     "actions/runs/500": producer,
   };
@@ -200,7 +201,7 @@ describe("authenticated FRV flake classification", () => {
       "wrong target witness",
       (f: ReturnType<typeof fixture>) => {
         f.responses["actions/jobs/600/logs"] =
-          `  TARGET_SHA: ${targetSha}\nDispatched ci.yml: https://github.com/openclaw/openclaw/actions/runs/201 (attempt 1)`;
+          `  TARGET_SHA: ${targetSha}\nDispatched ci.yml: https://github.com/${repository}/actions/runs/201 (attempt 1)`;
       },
       "dispatch witness",
     ],
