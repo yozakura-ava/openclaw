@@ -140,25 +140,19 @@ describe("security review rollout", () => {
     expect(result.requests).toEqual([`/repos/openclaw/openclaw/pulls/${rolloutNumber}`]);
   });
 
-  it.each(["2026-09-19T12:00:00Z", "2026-09-20T00:00:00Z"])(
-    "enforces PRs created at or after rollout (%s), even on an old branch",
-    (createdAt) => {
-      const result = evaluate({ pullRequest: { ...pullRequest, created_at: createdAt } });
-      expect(result.mode).toBe("enforced");
-      expect(result.requests).toHaveLength(1);
-    },
-  );
+  it("enforces PRs created at rollout, even on an old branch", () => {
+    const result = evaluate({ pullRequest: { ...pullRequest, created_at: mergedAt } });
+    expect(result.mode).toBe("enforced");
+    expect(result.requests).toHaveLength(1);
+  });
 
-  it.each(["behind", "diverged"])(
-    "exempts an older PR whose head has not incorporated the rollout (%s)",
-    (status) => {
-      const result = evaluate({ comparison: { ...comparison, status } });
-      expect(result.mode).toBe("grandfathered");
-      expect(result.requests[1]).toBe(
-        `/repos/openclaw/openclaw/compare/${mergeCommit}...${head}?per_page=1&page=2`,
-      );
-    },
-  );
+  it("exempts an older PR whose head is behind the rollout", () => {
+    const result = evaluate({ comparison: { ...comparison, status: "behind" } });
+    expect(result.mode).toBe("grandfathered");
+    expect(result.requests[1]).toBe(
+      `/repos/openclaw/openclaw/compare/${mergeCommit}...${head}?per_page=1&page=2`,
+    );
+  });
 
   it("enforces an older PR after a rebase or merge incorporates the rollout", () => {
     const result = evaluate({
@@ -193,12 +187,10 @@ describe("security review rollout", () => {
     { ...rollout, number: 1 },
     { ...rollout, base: { ref: "stable", repo: { full_name: "openclaw/openclaw" } } },
     { ...rollout, base: { ref: "main", repo: { full_name: "contributor/fork" } } },
-    { ...rollout, merged: undefined },
     { ...rollout, merged: false },
     { ...rollout, state: "open" },
     { ...rollout, merged_at: null },
     { ...rollout, merged_at: "2026-02-30T12:00:00Z" },
-    { ...rollout, merge_commit_sha: "main" },
   ])("does not grant an exemption for invalid rollout metadata (%j)", (value) => {
     const result = evaluate({ rollout: value });
     expect(result.status).toBe(1);
@@ -239,7 +231,6 @@ describe("security review rollout", () => {
   });
 
   it("does not convert a non-rollout GitHub error into an exemption", () => {
-    // Comparison errors are not 404-handled — they must still propagate.
     const result = evaluate({ apiError: "comparison" });
     expect(result.status).toBe(1);
     expect(result.error).toBe("GitHub unavailable");

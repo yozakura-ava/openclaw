@@ -9,7 +9,7 @@ import { discardSessionPendingInput } from "../../config/sessions/session-pendin
 import { isIncognitoSessionKey, normalizeAgentId } from "../../routing/session-key.js";
 import { parseAgentSessionKey } from "../../sessions/session-key-utils.js";
 import { resolveStateContentionPresentation } from "../../sessions/session-run-error-presentation.js";
-import { createChatAbortOps } from "../chat-abort-ops.js";
+import { captureWorkerInferenceForSession, createChatAbortOps } from "../chat-abort-ops.js";
 import {
   abortChatRunById,
   isChatAbortControllerEntryAbortable,
@@ -21,13 +21,13 @@ import {
   type QueuedChatTurnEntry,
 } from "../chat-queued-turns.js";
 import { chatRunBelongsToAgent } from "../chat-run-owner.js";
-import { pendingChatSendDedupeKey } from "../server-shared.js";
+import { pendingChatSendDedupeKey, type DedupeEntry } from "../server-shared.js";
 import {
   resolveRequestedSessionAgentId,
   tryResolveSessionCompatibilityOwnerAgentId,
 } from "../session-request-agent.js";
 import { loadSessionEntry, resolveSessionStoreKey } from "../session-utils.js";
-import { resolveWorkerInferenceTarget } from "../worker-environments/inference-control-internal.js";
+import { getWorkerInferenceSessionControl } from "../worker-environments/inference-control-internal.js";
 import {
   canRequesterAbortChatRun,
   canRequesterAbortPreRegisteredRun,
@@ -38,7 +38,6 @@ import {
 } from "./chat-abort-authorization.js";
 import {
   abortChatRunsForSessionKeyWithPartials,
-  captureWorkerInferenceForSession,
   abortControlledSubagents,
   descendantAbortError,
 } from "./chat-abort-runtime.js";
@@ -51,7 +50,7 @@ import {
 import { persistAbortedPartials } from "./chat-transcript-persistence.js";
 import { emitSessionsChanged } from "./session-change-event.js";
 import { readGatewayRequestMutationAuthority } from "./session-mutation-guards.js";
-import type { GatewayRequestContext, GatewayRequestHandlerOptions } from "./types.js";
+import type { GatewayRequestHandlerOptions } from "./types.js";
 import { assertValidParams } from "./validation.js";
 
 type ChatAbortLifecycle = {
@@ -308,7 +307,9 @@ export async function handleChatAbortRequestWithLifecycle(
       return;
     }
   }
-  const workerTarget = resolveWorkerInferenceTarget(context.workerEnvironmentService, runId);
+  const workerTarget = getWorkerInferenceSessionControl(
+    context.workerEnvironmentService,
+  )?.resolveSessionTargetForRunId(runId);
   // Broad same-device Stop can name an active run on another session. Capture
   // that original producer's SID before descendant or transcript work yields.
   const workerCancellation = captureWorkerInferenceForSession({
@@ -423,9 +424,7 @@ export async function handleChatAbortRequestWithLifecycle(
     });
   };
   if (!active) {
-    const readPendingRunForAbort = (
-      entry: GatewayRequestContext["dedupe"] extends Map<string, infer T> ? T | undefined : never,
-    ) => {
+    const readPendingRunForAbort = (entry: DedupeEntry | undefined) => {
       for (const sessionKey of new Set([canonicalAbortSessionKey, rawSessionKey])) {
         const payload = readPreRegisteredAgentDedupePayloadForSession({
           entry,
@@ -433,7 +432,6 @@ export async function handleChatAbortRequestWithLifecycle(
           sessionKey,
           agentId: abortAgentId,
           defaultAgentId: compatibilityDefaultAgentId,
-          includeHidden: true,
           requiredSessionId,
         });
         if (payload) {

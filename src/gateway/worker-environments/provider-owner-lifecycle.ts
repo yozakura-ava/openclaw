@@ -100,10 +100,14 @@ export function createWorkerProviderOwnerLifecycle(
     if (sessionId && !runtimeRefresh) {
       // Runtime refresh hands off eligible results before capturing placement authority.
       // Other revocations transfer custody before making the old process unreachable.
-      options.placementStore?.prepareWorkspaceResultOwnerRevocation(
+      await options.placementStore?.prepareWorkspaceResultOwnerRevocation(
         { sessionId, environmentId: record.environmentId, ownerEpoch: record.ownerEpoch },
         new Error(record.lastError ?? "Cloud worker owner revoked before workspace recovery"),
+        () => {
+          requireCurrentOwner(record);
+        },
       );
+      requireCurrentOwner(record);
     }
     // Fence admission without erasing the attachment needed to stop a retained node worker.
     // A crash or failed stop leaves the exact scope available for teardown replay.
@@ -274,13 +278,12 @@ export function createWorkerProviderOwnerLifecycle(
     );
   };
 
-  const cancelRequested = (record: WorkerEnvironmentRecord) =>
-    move(record, "failed", { lastError: "Provisioning canceled before provider allocation" });
-
   const finishDestroy = async (record: WorkerEnvironmentRecord, provider?: WorkerProvider) => {
     let r = record;
     if (r.state === "requested") {
-      return cancelRequested(requireCurrentOwner(r));
+      return move(requireCurrentOwner(r), "failed", {
+        lastError: "Provisioning canceled before provider allocation",
+      });
     }
     // Fence local authority even when the provider is unavailable. stopOwner preserves
     // shared/unknown-host stop acknowledgements before releasing their attachments.
@@ -332,8 +335,7 @@ export function createWorkerProviderOwnerLifecycle(
       retryRequested?: boolean;
     } = {},
   ) => {
-    const stopping = options.isStopping();
-    if (stopping) {
+    if (options.isStopping()) {
       throw serviceError("invalid_state", "Worker environment service is stopping");
     }
     return withLock(environmentId, async () => {

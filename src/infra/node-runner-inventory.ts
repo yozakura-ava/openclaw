@@ -20,6 +20,8 @@ export const NODE_WORKER_ENVIRONMENT_SESSION_VERSION = 1;
 export const NODE_WORKER_STATUS_WAIT_VERSION = 1;
 export const NODE_WORKER_PREPARED_WORKSPACE_VERSION = 1;
 export const NODE_WORKER_HOST_DISABLED_REASON_MAX_LENGTH = 1_024;
+// Couples the lease owner with foreground tree ownership; neither rolls out alone.
+export const NODE_WORKER_WORKSPACE_QUIESCENCE_VERSION = 1;
 
 // Supervisors predating launchToolNames admit this closed vocabulary: OpenClaw 2026.9.6
 // is the only published release that passes the worker-turn launch gate. Retire with the next dialect.
@@ -86,6 +88,7 @@ const WorkerHost = z
       statusWait: z.literal(NODE_WORKER_STATUS_WAIT_VERSION).optional(),
       preparedWorkspace: z.literal(NODE_WORKER_PREPARED_WORKSPACE_VERSION).optional(),
       capturedExecPolicy: z.literal(true).optional(),
+      workspaceQuiescence: z.literal(NODE_WORKER_WORKSPACE_QUIESCENCE_VERSION).optional(),
       launchToolNames: LaunchToolNames.optional(),
       idleRetention: z.literal(true).optional(),
     }).refine(
@@ -139,6 +142,24 @@ export function formatNodeRunnerInventoryIssue(
   return issue.code === "worker-host-unavailable"
     ? `device worker node ${nodeId} cannot host sessions: ${issue.message}`
     : `device worker node ${nodeId} requires an update before it can host sessions; run ${issue.updateCommand}, then reconnect it (for a headless node, run ${issue.headlessReconnectCommand})`;
+}
+
+class NodeRunnerUpdateRequiredError extends Error {
+  readonly code = "node_runner_update_required";
+
+  constructor(nodeId: string) {
+    super(formatNodeRunnerInventoryIssue(nodeId, NODE_RUNNER_UPDATE_REQUIRED_ISSUE));
+    this.name = "NodeRunnerUpdateRequiredError";
+  }
+}
+
+export function createNodeRunnerInventoryIssueError(
+  nodeId: string,
+  issue: NodeRunnerInventoryIssue,
+): Error {
+  return issue.code === "update-required"
+    ? new NodeRunnerUpdateRequiredError(nodeId)
+    : new Error(formatNodeRunnerInventoryIssue(nodeId, issue));
 }
 
 /** Worker execution requires the node to preserve the Gateway's captured exec policy. */

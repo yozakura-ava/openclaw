@@ -192,6 +192,27 @@ Setup failures report the exit code or termination signal, or an actual timeout 
 
 ## Session worktrees
 
+Native `sessions_spawn` children can use a managed worktree while remaining hidden:
+
+```json
+{
+  "runtime": "subagent",
+  "visible": false,
+  "context": "isolated",
+  "projectId": "example-project",
+  "worktree": true,
+  "worktreeName": "review-api",
+  "worktreeBaseRef": "origin/main",
+  "completionTarget": "parent",
+  "cleanup": "keep",
+  "task": "Review the API change and report findings to the parent."
+}
+```
+
+Hidden children use the same session worktree preparation and persisted binding as visible sessions. Acceptance does not wait for checkout and setup; the first agent turn waits until the managed workspace is ready. The child stays a native subagent, retaining its completion routing, sandbox policy, run timeout, and cleanup choice. `cleanup: "delete"` uses session deletion to snapshot the checkout before removal; `"keep"` retains it under the normal idle and archive lifecycle. Session lists and the Worktrees page can inspect the recorded worktree without making the child a sidebar session.
+
+For hidden children, `projectId` requires `worktree: true`. Worktree names and base refs also require `worktree: true`. `projectId` and `cwd` are mutually exclusive. `group`, `projectGitUrl`, and cloud placement profiles remain visible-only; ACP does not accept managed-worktree parameters. See [Sub-agent tool parameters](/tools/subagents/tool-reference#tool-parameters).
+
 For a fresh isolated session without a source repository, call `sessions.create` with `worktree: true` and `worktreeSource: "empty"`. This does not copy the agent workspace or any selected folder. It cannot be combined with `cwd`, project or repository selection, an external catalog, `execNode`, or `worktreeBaseRef`. The Control UI uses this mode for **New workspace** on paired devices and cloud destinations.
 
 Each fresh session has its own OpenClaw-owned backing repository under `<openclaw-state-dir>/worktree-sources/empty`, so Git remotes and history remain isolated between sessions. The existing managed-worktree registry owns allocation, snapshots, restore, and cleanup; no database migration is needed. The backing source remains available while a live worktree or retained snapshot references it and is removed after its final expired snapshot is collected. Git is still required internally. Existing installations adopt this mode only for new explicit empty-workspace requests; existing sessions and their snapshots keep their original source.
@@ -454,6 +475,25 @@ unfinished source and recovery for inspection; do not force another removal,
 reset the index, reattach HEAD, or prune the registration.
 
 ## CLI
+
+`worktrees create` uses the authenticated Gateway that owns the selected local
+state directory when one is running. It requires `operator.admin`, preserves
+source profiles and repository setup, and never redirects a local repository to
+a configured remote Gateway. The command binds the request to that owner's
+incarnation and the captured repository directory. A changed owner, missing
+capability, authentication failure, or uncertain reply never triggers local
+creation. Upgrade an older Gateway or stop it through its service owner and retry
+offline. After an uncertain reply, inspect `worktrees list --json` and the source
+repository before retrying.
+
+Offline creation holds exclusive state-directory lifecycle ownership through Git
+work, database settlement, and cleanup, including interruption. A Gateway starting
+during that operation waits or reports ownership contention. Other worktree
+commands and older CLI/SDK versions retain their existing behavior; this does not
+exclude arbitrary direct writers or a different state root sharing external files.
+The updater and Doctor retain their existing owners and do not require this routing
+capability to upgrade an older installation. No schema or configuration migration
+is required.
 
 ```bash
 openclaw worktrees list [--json]

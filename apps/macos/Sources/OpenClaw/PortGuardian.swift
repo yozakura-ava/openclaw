@@ -1,9 +1,8 @@
 import AppKit
+import Darwin
 import Foundation
 import OSLog
 import Security
-#if canImport(Darwin)
-import Darwin
 
 @_silgen_name("csops")
 private func portGuardianCSOps(
@@ -11,7 +10,6 @@ private func portGuardianCSOps(
     _: UInt32,
     _: UnsafeMutableRawPointer?,
     _: Int) -> Int32
-#endif
 
 actor PortGuardian {
     static let shared = PortGuardian()
@@ -101,9 +99,7 @@ actor PortGuardian {
         do {
             let recordStore = try self.requireRecordStore()
             _ = try recordStore.deleteIfMatches(receipt)
-            if self.ownRecords[receipt.pid] == receipt {
-                self.ownRecords.removeValue(forKey: receipt.pid)
-            }
+            self.relinquishRecord(receipt)
         } catch {
             // Callers remove only after the child exited. Keep the SQLite row for
             // retry, but stop protecting its in-memory receipt from later sweeps.
@@ -184,9 +180,7 @@ actor PortGuardian {
         do {
             let deleted = try Set(recordStore.deleteIfMatches(removals))
             for record in deleted {
-                if self.ownRecords[record.pid] == record {
-                    self.ownRecords.removeValue(forKey: record.pid)
-                }
+                self.relinquishRecord(record)
                 self.logger.info(
                     "retired SSH tunnel receipt (pid \(record.pid, privacy: .public), " +
                         "local port \(record.port, privacy: .public))")
@@ -286,7 +280,6 @@ actor PortGuardian {
     /// The captured process and current receipt must still authorize every signal.
     /// A wait can outlive the orphan or let another owner reclaim its receipt.
     private func terminateOrphanedTunnel(_ orphan: OrphanedTunnel) async -> Bool {
-        #if canImport(Darwin)
         let record = orphan.record
         guard record.pid > 0 else { return false }
         for signal in [SIGTERM, SIGKILL] {
@@ -310,9 +303,6 @@ actor PortGuardian {
             if await Self.waitForProcessExit(orphan) { return true }
         }
         return false
-        #else
-        return false
-        #endif
     }
 
     private static func waitForProcessExit(_ orphan: OrphanedTunnel, timeout: TimeInterval = 1.0) async -> Bool {
@@ -334,7 +324,6 @@ actor PortGuardian {
     }
 
     private static func tunnelProcessInfo(pid: Int32) -> TunnelProcessInfo? {
-        #if canImport(Darwin)
         guard pid > 0 else { return nil }
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
@@ -348,9 +337,6 @@ actor PortGuardian {
             parentPid: info.kp_eproc.e_ppid,
             startedAt: started,
             fullCommand: self.readFullCommand(pid: pid))
-        #else
-        return nil
-        #endif
     }
 
     struct PortReport: Identifiable {
@@ -376,9 +362,7 @@ actor PortGuardian {
 
         var summary: String {
             switch self.status {
-            case let .ok(text): text
-            case let .missing(text): text
-            case let .interference(text, _): text
+            case let .ok(text), let .missing(text), let .interference(text, _): text
             }
         }
     }
@@ -468,14 +452,10 @@ actor PortGuardian {
 
     func isListening(port: Int, pid: Int32? = nil) async -> Bool {
         if let pid {
-            #if canImport(Darwin)
             guard let port = UInt16(exactly: port) else { return false }
             // Tunnel readiness polls this exact child every 100 ms. Inspect its
             // sockets in-process so each poll does not launch lsof and ps.
             return ProcessSocketListenerInspector.isListening(pid: pid, port: port)
-            #else
-            return false
-            #endif
         }
         return await !(self.listeners(on: port)).isEmpty
     }
@@ -562,47 +542,32 @@ actor PortGuardian {
 
         let tunnelUnhealthy = mode == .remote && tunnelHealthy == false
         let reportListeners = listeners.map { listener in
-            var expected = okPredicate(listener)
-            if tunnelUnhealthy, expected { expected = false }
-            return ReportListener(
+            ReportListener(
                 pid: listener.pid,
                 command: listener.command,
                 fullCommand: listener.fullCommand,
                 user: listener.user,
-                expected: expected)
+                expected: okPredicate(listener) && !tunnelUnhealthy)
         }
 
         let offenders = reportListeners.filter { !$0.expected }
-        if tunnelUnhealthy {
-            let list = listeners.map { "\($0.command) (\($0.pid))" }.joined(separator: ", ")
-            let reason = "Port \(port) is served by \(list), but the SSH tunnel is unhealthy."
-            return .init(
-                port: port,
-                expected: expectedDesc,
-                status: .interference(reason, offenders: offenders),
-                listeners: reportListeners)
+        let listed = tunnelUnhealthy || offenders.isEmpty ? reportListeners : offenders
+        let list = listed.map { "\($0.command) (\($0.pid))" }.joined(separator: ", ")
+        let status: PortReport.Status = if tunnelUnhealthy {
+            .interference("Port \(port) is served by \(list), but the SSH tunnel is unhealthy.", offenders: offenders)
+        } else if offenders.isEmpty {
+            .ok("Port \(port) is served by \(list).")
+        } else {
+            .interference("Port \(port) is held by \(list), expected \(expectedDesc).", offenders: offenders)
         }
-        if offenders.isEmpty {
-            let list = listeners.map { "\($0.command) (\($0.pid))" }.joined(separator: ", ")
-            let okText = "Port \(port) is served by \(list)."
-            return .init(
-                port: port,
-                expected: expectedDesc,
-                status: .ok(okText),
-                listeners: reportListeners)
-        }
-
-        let list = offenders.map { "\($0.command) (\($0.pid))" }.joined(separator: ", ")
-        let reason = "Port \(port) is held by \(list), expected \(expectedDesc)."
         return .init(
             port: port,
             expected: expectedDesc,
-            status: .interference(reason, offenders: offenders),
+            status: status,
             listeners: reportListeners)
     }
 
     private static func executablePath(for pid: Int32) -> String? {
-        #if canImport(Darwin)
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
         guard length > 0 else { return nil }
@@ -610,9 +575,6 @@ actor PortGuardian {
         let trimmed = buffer.prefix { $0 != 0 }
         let bytes = trimmed.map { UInt8(bitPattern: $0) }
         return String(bytes: bytes, encoding: .utf8)
-        #else
-        return nil
-        #endif
     }
 
     private func probeGatewayHealthIfNeeded(

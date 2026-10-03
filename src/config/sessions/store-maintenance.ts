@@ -256,14 +256,7 @@ export function pruneStaleEntries(
   const cutoffMs = now - maxAgeMs;
   let pruned = 0;
   for (const [key, entry] of Object.entries(store)) {
-    if (
-      shouldPreserveMaintenanceEntry({
-        key,
-        entry,
-        preserveKeys: opts.preserveKeys,
-        preserveRecentMs: opts.preserveRecentMs,
-      })
-    ) {
+    if (shouldPreserveMaintenanceEntry({ key, entry, ...opts })) {
       continue;
     }
     if (entry?.updatedAt != null && entry.updatedAt < cutoffMs) {
@@ -306,14 +299,7 @@ export function pruneStaleModelRunEntries(
   const cutoffMs = Date.now() - overrideMaxAgeMs;
   let pruned = 0;
   for (const [key, entry] of Object.entries(store)) {
-    if (
-      shouldPreserveMaintenanceEntry({
-        key,
-        entry,
-        preserveKeys: opts.preserveKeys,
-        preserveRecentMs: opts.preserveRecentMs,
-      })
-    ) {
+    if (shouldPreserveMaintenanceEntry({ key, entry, ...opts })) {
       continue;
     }
     if (!isGatewayModelRunSessionKey(key)) {
@@ -573,11 +559,6 @@ function selectSessionEntryCapVictims(
         preserveRecentMs,
       }),
   );
-  const victimCount = Math.min(overflow, eligibleKeys.length);
-  if (victimCount === 0) {
-    return [];
-  }
-
   // Rank the whole eligible roster by its latest activity signal so the sessions untouched for
   // longest are handled first. Reversing first preserves the prior stable-sort behavior: later
   // inserted entries win timestamp ties.
@@ -587,7 +568,7 @@ function selectSessionEntryCapVictims(
       (a, b) =>
         getSessionMaintenanceActivityAt(store[a]) - getSessionMaintenanceActivityAt(store[b]),
     )
-    .slice(0, victimCount);
+    .slice(0, overflow);
 }
 
 export function getActiveSessionMaintenanceWarning(params: {
@@ -620,37 +601,26 @@ export function getActiveSessionMaintenanceWarning(params: {
   const now = params.nowMs ?? Date.now();
   const cutoffMs = now - params.pruneAfterMs;
   const wouldPrune = activeEntry.updatedAt != null ? activeEntry.updatedAt < cutoffMs : false;
-  const keys = Object.keys(params.store);
   const wouldCap = selectSessionEntryCapVictims(
     params.store,
     params.maxEntries,
     params.preserveKeys,
     params.preserveRecentMs,
   ).includes(activeSessionKey);
-  const capOutcome = wouldCap
-    ? isSyntheticSessionMaintenanceKey(activeSessionKey)
-      ? "remove"
-      : "archive"
-    : null;
-
   if (!wouldPrune && !wouldCap) {
     return null;
   }
-
+  const outcome = isSyntheticSessionMaintenanceKey(activeSessionKey) ? "remove" : "archive";
   return {
     activeSessionKey,
     activeUpdatedAt: activeEntry.updatedAt,
-    totalEntries: keys.length,
+    totalEntries: Object.keys(params.store).length,
     pruneAfterMs: params.pruneAfterMs,
     maxEntries: params.maxEntries,
     wouldPrune,
     wouldCap,
-    capOutcome,
-    pruneOutcome: wouldPrune
-      ? isSyntheticSessionMaintenanceKey(activeSessionKey)
-        ? "remove"
-        : "archive"
-      : null,
+    capOutcome: wouldCap ? outcome : null,
+    pruneOutcome: wouldPrune ? outcome : null,
   };
 }
 
