@@ -17,7 +17,7 @@ import {
 } from "../../scripts/render-github-release-notes.mts";
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
-const repository = "openclaw/openclaw";
+const repository = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
 const tag = "v2026.7.1-beta.3";
 const version = "2026.7.1";
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
@@ -253,7 +253,7 @@ describe("GitHub release-note rendering", () => {
           "This release is OpenClaw from the end of July 2026, plus critical security updates, " +
           "reliability and performance fixes, and features like new model support. " +
           "The current latest version of OpenClaw is " +
-          "[2026.9.5](https://github.com/openclaw/openclaw/releases#release-v2026.9.5)\n\n" +
+          `[2026.9.5](https://github.com/${repository}/releases#release-v2026.9.5)\n\n` +
           "## 2026.7.35",
       ),
     ).toBe(true);
@@ -291,7 +291,7 @@ describe("GitHub release-note rendering", () => {
     expect(rendered.body).toContain("- A grouped user-facing fix.");
     expect(rendered.body).toContain("### Complete contribution record");
     expect(rendered.body).toContain(
-      "https://github.com/openclaw/openclaw/blob/v2026.7.1-beta.3/CHANGELOG.md#complete-contribution-record",
+      `https://github.com/${repository}/blob/v2026.7.1-beta.3/CHANGELOG.md#complete-contribution-record`,
     );
     expect(rendered.body).not.toContain("record-only-detail");
     expect(rendered.size.characters).toBeLessThanOrEqual(GITHUB_RELEASE_BODY_MAX_CHARACTERS);
@@ -590,9 +590,9 @@ describe("GitHub release-note rendering", () => {
       targetSha: "a".repeat(40),
       jobId: "457",
       jobName: "checks-node-test-2",
-      jobUrl: "https://github.com/openclaw/openclaw/actions/runs/456/job/457",
+      jobUrl: `https://github.com/${repository}/actions/runs/456/job/457`,
       conclusion: "failure",
-      trackingUrl: "https://github.com/openclaw/openclaw/issues/789",
+      trackingUrl: `https://github.com/${repository}/issues/789`,
       reason: "Shared fixture cleanup races; fixed in parallel on main.",
       classifiedBy: "release-operator",
       receiptRunId: "890",
@@ -616,7 +616,7 @@ describe("GitHub release-note rendering", () => {
       job: "checks-windows-node-test-2",
       conclusion: "failure",
       runId: "456",
-      url: "https://github.com/openclaw/openclaw/actions/runs/456/job/459",
+      url: `https://github.com/${repository}/actions/runs/456/job/459`,
     };
     const validationManifest = {
       runId: "123",
@@ -642,7 +642,7 @@ describe("GitHub release-note rendering", () => {
                 status: "completed",
                 conclusion: "failure",
                 acceptedRunAttempt: 1,
-                url: "https://github.com/openclaw/openclaw/actions/runs/456/job/458",
+                url: `https://github.com/${repository}/actions/runs/456/job/458`,
               },
             ]),
           flakeClassifications: [receipt],
@@ -681,7 +681,7 @@ describe("GitHub release-note rendering", () => {
     expect(verifyGithubReleaseNotes({ ...target, body: advisoryOnly.body }).matches).toBe(true);
     for (const body of [
       rendered.body.replace(receipt.reason, "Unrecorded reason."),
-      rendered.body.replace(receipt.trackingUrl, "https://github.com/openclaw/openclaw/issues/999"),
+      rendered.body.replace(receipt.trackingUrl, `https://github.com/${repository}/issues/999`),
       rendered.body
         .split("\n")
         .filter((line) => !line.includes("Advisory job (recorded-flake)"))
