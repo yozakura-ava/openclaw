@@ -9,6 +9,7 @@ import {
 import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 
 const tempRoots = useAutoCleanupTempDirTracker(afterEach);
+const repository = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
 const targetSha = "a".repeat(40);
 const manifest = {
   workflowName: "Full Release Validation",
@@ -26,7 +27,7 @@ const windowsAdvisory = {
   job: "checks-windows-node-test-2",
   conclusion: "failure",
   runId: "42",
-  url: "https://github.com/openclaw/openclaw/actions/runs/42/job/43",
+  url: `https://github.com/${repository}/actions/runs/42/job/43`,
 };
 const windowsEvidence = {
   ...manifest,
@@ -56,9 +57,9 @@ const flakeReceipt = {
   targetSha,
   jobId: "457",
   jobName: "checks-node-test-2",
-  jobUrl: "https://github.com/openclaw/openclaw/actions/runs/456/job/457",
+  jobUrl: `https://github.com/${repository}/actions/runs/456/job/457`,
   conclusion: "failure",
-  trackingUrl: "https://github.com/openclaw/openclaw/issues/789",
+  trackingUrl: `https://github.com/${repository}/issues/789`,
   reason: "Shared test fixture races during cleanup; repair tracked on main.",
   classifiedBy: "release-operator",
   receiptRunId: "890",
@@ -87,7 +88,7 @@ const flakeEvidence = {
           name: "openclaw/ci-gate",
           status: "completed",
           conclusion: "failure",
-          url: "https://github.com/openclaw/openclaw/actions/runs/456/job/458",
+          url: `https://github.com/${repository}/actions/runs/456/job/458`,
         },
       ],
       flakeClassifications: [flakeReceipt],
