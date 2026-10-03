@@ -1037,6 +1037,7 @@ describe("FRV same-parent recovery", () => {
 
   it("reseals the failed parent without rerunning a classified child or its failed gate", async () => {
     const scenario = rerunScenario({ parentSource: [1, "failure"] });
+    const flakeRepository = process.env.GITHUB_REPOSITORY ?? REPOSITORY;
     const receipt: FlakeClassification = {
       schema: "openclaw.frv-flake-classification.v1",
       parentRunId: "77",
@@ -1047,9 +1048,9 @@ describe("FRV same-parent recovery", () => {
       targetSha: TARGET_SHA,
       jobId: "501",
       jobName: "checks-node-test-2",
-      jobUrl: `https://github.com/${REPOSITORY}/actions/runs/101/job/501`,
+      jobUrl: `https://github.com/${flakeRepository}/actions/runs/101/job/501`,
       conclusion: "failure",
-      trackingUrl: `https://github.com/${REPOSITORY}/issues/789`,
+      trackingUrl: `https://github.com/${flakeRepository}/issues/789`,
       reason: "Shared test fixture races during cleanup; repair tracked on main.",
       classifiedBy: "release-operator",
       receiptRunId: "890",
