@@ -4,7 +4,9 @@ import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { setImmediate } from "node:timers/promises";
 import { createChannelMessageReplyPipeline } from "openclaw/plugin-sdk/channel-outbound";
+import { createTestPluginServiceScheduler } from "openclaw/plugin-sdk/plugin-test-api";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime";
+import { closeOpenClawAgentDatabasesAsync } from "openclaw/plugin-sdk/sqlite-runtime-testing";
 import { useAutoCleanupTempDirTracker } from "openclaw/plugin-sdk/test-env";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TLON_PENDING_APPROVAL_LIMIT, type PendingApproval } from "../settings.js";
@@ -44,7 +46,11 @@ afterEach(async () => {
 async function withMonitor(run: (runtime: RuntimeEnv) => Promise<void>) {
   const controller = new AbortController();
   const runtime = { error: vi.fn(), exit: vi.fn(), log: vi.fn() } satisfies RuntimeEnv;
-  const monitor = monitorTlonProvider({ abortSignal: controller.signal, runtime });
+  const monitor = monitorTlonProvider({
+    scheduler: createTestPluginServiceScheduler(),
+    abortSignal: controller.signal,
+    runtime,
+  });
   // Observe startup failures while the subscription assertion is pending.
   void monitor.catch(() => {});
   try {
@@ -80,7 +86,11 @@ it.each([
   sseClientMock.connect.mockImplementationOnce(async () => connected.resolve());
   ingressMock.receive.mockResolvedValueOnce({ kind: "ignored" });
 
-  const monitor = monitorTlonProvider({ abortSignal: controller.signal, runtime });
+  const monitor = monitorTlonProvider({
+    scheduler: createTestPluginServiceScheduler(),
+    abortSignal: controller.signal,
+    runtime,
+  });
   try {
     await Promise.race([connected.promise, monitor]);
     const subscription = getSubscription("chat");
@@ -139,6 +149,7 @@ describe("monitorTlonProvider authentication retry", () => {
 
     await expect(
       monitorTlonProvider({
+        scheduler: createTestPluginServiceScheduler(),
         abortSignal: controller.signal,
         runtime,
       }),
@@ -403,7 +414,11 @@ it("continues startup after an initial group invite write fails", async () => {
     }
   });
 
-  const monitor = monitorTlonProvider({ abortSignal: controller.signal, runtime });
+  const monitor = monitorTlonProvider({
+    scheduler: createTestPluginServiceScheduler(),
+    abortSignal: controller.signal,
+    runtime,
+  });
   try {
     await vi.waitFor(() => expect(sseClientMock.connect).toHaveBeenCalledOnce());
     expect(sseClientMock.subscribe.mock.calls.map(([subscription]) => subscription)).toEqual(
@@ -421,7 +436,19 @@ it("continues startup after an initial group invite write fails", async () => {
 });
 
 describe("monitorTlonProvider reply prefixes", () => {
-  const tempDirs = useAutoCleanupTempDirTracker(afterEach);
+  const tempDirs = useAutoCleanupTempDirTracker((cleanup) =>
+    afterEach(async () => {
+      // Retire background maintenance before removing its database or changing clocks.
+      for (const dir of tempDirs.dirs) {
+        await closeOpenClawAgentDatabasesAsync(dir);
+      }
+      cleanup();
+      // A case that failed before holding maintenance has no fake clock to inspect.
+      if (vi.isFakeTimers()) {
+        expect.soft(vi.getTimerCount()).toBe(0);
+      }
+    }),
+  );
   it.for([
     { name: "global fallback", root: undefined, account: undefined, expected: "[global] reply" },
     { name: "channel override", root: "[root]", account: undefined, expected: "[root] reply" },
@@ -447,7 +474,7 @@ describe("monitorTlonProvider reply prefixes", () => {
     realUrbitFixture.config = {
       session: { store: join(stateDir, "sessions.json") },
       agents: { list: [{ id: "main", identity: { name: "Test Bot" } }] },
-      messages: { responsePrefix: "[global]" },
+      messages: { responsePrefix: "[global]", visibleReplies: "automatic" },
       channels: {
         tlon: {
           code: "code",
@@ -482,6 +509,7 @@ describe("monitorTlonProvider reply prefixes", () => {
       }),
     );
     const monitor = monitorTlonProvider({
+      scheduler: createTestPluginServiceScheduler(),
       abortSignal: AbortSignal.any([controller.signal, signal]),
       runtime,
     });
@@ -491,6 +519,8 @@ describe("monitorTlonProvider reply prefixes", () => {
         .map(([value]) => value)
         .find((value) => value.app === "chat");
       expect(subscription).toBeDefined();
+      // Hold automatic session maintenance queued so teardown must retire it.
+      vi.useFakeTimers({ toFake: ["setImmediate", "clearImmediate"] });
       await subscription.event({
         whom: "~nec",
         id: `dm-prefix-${name}`,
@@ -740,9 +770,13 @@ describe("monitorTlonProvider shutdown", () => {
     controller.abort();
     const runtime = { error: vi.fn(), exit: vi.fn(), log: vi.fn() } satisfies RuntimeEnv;
 
-    await expect(monitorTlonProvider({ abortSignal: controller.signal, runtime })).rejects.toThrow(
-      "Aborted while waiting to authenticate",
-    );
+    await expect(
+      monitorTlonProvider({
+        scheduler: createTestPluginServiceScheduler(),
+        abortSignal: controller.signal,
+        runtime,
+      }),
+    ).rejects.toThrow("Aborted while waiting to authenticate");
 
     expect(authenticateMock).not.toHaveBeenCalled();
     expect(ingressMock.start).not.toHaveBeenCalled();
@@ -758,7 +792,11 @@ describe("monitorTlonProvider shutdown", () => {
     });
 
     let settled = false;
-    const monitor = monitorTlonProvider({ abortSignal: controller.signal, runtime }).then(() => {
+    const monitor = monitorTlonProvider({
+      scheduler: createTestPluginServiceScheduler(),
+      abortSignal: controller.signal,
+      runtime,
+    }).then(() => {
       settled = true;
     });
     await vi.advanceTimersByTimeAsync(0);
@@ -841,8 +879,12 @@ describe("monitorTlonProvider shutdown", () => {
     const actualAuth = await vi.importActual<typeof import("../urbit/auth.js")>("../urbit/auth.js");
     authenticateMock.mockImplementationOnce(actualAuth.authenticate);
 
-    const pollIntervalSpy = vi.spyOn(globalThis, "setInterval");
-    const monitor = monitorTlonProvider({ abortSignal: controller.signal, runtime });
+    const scheduler = createTestPluginServiceScheduler();
+    const monitor = monitorTlonProvider({
+      scheduler,
+      abortSignal: controller.signal,
+      runtime,
+    });
     if (!abortDuringHandshake) {
       await vi.waitFor(() => expect(ingressMock.start).toHaveBeenCalledOnce());
       controller.abort();
@@ -857,11 +899,7 @@ describe("monitorTlonProvider shutdown", () => {
     ]);
     clearTimeout(deadline);
     if (outcome === "timed out") {
-      for (const [index, [, delay]] of pollIntervalSpy.mock.calls.entries()) {
-        if (delay === 120_000) {
-          clearInterval(pollIntervalSpy.mock.results[index]?.value);
-        }
-      }
+      scheduler.beginClose();
       const realClient = realUrbitFixture.client;
       if (realClient) {
         realClient.stopReceiving();
@@ -871,6 +909,7 @@ describe("monitorTlonProvider shutdown", () => {
     } else {
       realUrbitFixture.client = null;
     }
+    await scheduler.stop();
     expect(requests).toContain("POST /~/login");
     expect(requests.some((request) => request.startsWith("GET /~/scry/"))).toBe(true);
     expect(requests.some((request) => request.startsWith("GET /~/channel/"))).toBe(true);
@@ -886,6 +925,5 @@ describe("monitorTlonProvider shutdown", () => {
       expect(ingressMock.stop).toHaveBeenCalledOnce();
     }
     expect(outcome).toBe("settled");
-    pollIntervalSpy.mockRestore();
   });
 });

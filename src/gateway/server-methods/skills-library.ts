@@ -39,7 +39,7 @@ import {
 } from "../session-sharing.js";
 import { captureGatewayClientUploadCommitGuard } from "../upload-policy.js";
 import type { GatewayRequestHandlerOptions, GatewayRequestHandlers } from "./types.js";
-import { assertValidParams } from "./validation.js";
+import { defineValidatedGatewayHandler } from "./validation.js";
 
 export type SkillLibraryRequestOwner = Pick<
   GatewayRequestHandlerOptions,
@@ -201,7 +201,7 @@ function selectedSession(options: SkillLibraryRequestOwner, sessionKey: string) 
   };
 }
 
-function libraryHandler<P>(
+function libraryHandler<P extends Record<string, unknown>>(
   name: string,
   validate: ProtocolValidator<P>,
   run: (
@@ -210,11 +210,10 @@ function libraryHandler<P>(
     options: GatewayRequestHandlerOptions,
   ) => unknown,
 ): GatewayRequestHandlers[string] {
-  return async (options) => {
-    if (!assertValidParams(options.params, validate, name, options.respond)) {
-      return;
-    }
-    try {
+  return defineValidatedGatewayHandler(
+    name,
+    validate,
+    async (options) => {
       options.respond(
         true,
         await run(
@@ -232,28 +231,24 @@ function libraryHandler<P>(
         ),
         undefined,
       );
-    } catch (error) {
+    },
+    (error) => {
       if (error instanceof SessionMutationAuthorizationChangedError) {
-        options.respond(false, undefined, error.error);
-        return;
+        return error.error;
       }
-      options.respond(
-        false,
-        undefined,
-        error instanceof SkillLibraryError
-          ? errorShape(ErrorCodes.INVALID_REQUEST, error.message, {
-              details: {
-                code: `SKILL_LIBRARY_${error.code}`,
-                ...(error.currentRevision ? { currentRevision: error.currentRevision } : {}),
-              },
-            })
-          : errorShape(
-              ErrorCodes.UNAVAILABLE,
-              "Unable to complete the skill library operation. Review the bundle or retry the request.",
-            ),
-      );
-    }
-  };
+      return error instanceof SkillLibraryError
+        ? errorShape(ErrorCodes.INVALID_REQUEST, error.message, {
+            details: {
+              code: `SKILL_LIBRARY_${error.code}`,
+              ...(error.currentRevision ? { currentRevision: error.currentRevision } : {}),
+            },
+          })
+        : errorShape(
+            ErrorCodes.UNAVAILABLE,
+            "Unable to complete the skill library operation. Review the bundle or retry the request.",
+          );
+    },
+  );
 }
 
 export const skillsLibraryHandlers: GatewayRequestHandlers = {
@@ -347,16 +342,15 @@ export const skillsLibraryHandlers: GatewayRequestHandlers = {
       }
       const existing = await readSkillLibrary(authority, params.skillId, params.expectedRevision);
       const filesByPath = new Map(existing.files.map((file) => [file.path, file]));
-      const selected = new Set<string>();
       const retained = retainFiles.map((path) => {
         const file = filesByPath.get(path);
-        if (!file || selected.has(path)) {
+        if (!file) {
           throw new SkillLibraryError(
             "INVALID_BUNDLE",
             "Retained skill files must name distinct support files in expectedRevision.",
           );
         }
-        selected.add(path);
+        filesByPath.delete(path);
         return file;
       });
       // The save owner rechecks write authority, CAS, and the complete merged bundle.

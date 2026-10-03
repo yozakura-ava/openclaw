@@ -49,8 +49,7 @@ const DEFAULT_LOG_MAX_BYTES = 1_000_000;
 const SUPPORT_EXPORT_CONFIG_MAX_BYTES = 8 * 1024 * 1024;
 const SUPPORT_EXPORT_PREFIX = "openclaw-diagnostics-";
 const SUPPORT_EXPORT_SUFFIX = ".zip";
-type Awaitable<T> = T | Promise<T>;
-type SupportSnapshotReader = () => Awaitable<unknown>;
+type SupportSnapshotReader = () => unknown;
 
 type DiagnosticSupportExportOptions = {
   outputPath?: string;
@@ -797,7 +796,6 @@ export async function writeDiagnosticSupportExport(
   const published = await writeSupportBundleZip({
     outputPath,
     files: artifact.files,
-    compressionLevel: 6,
   });
   return {
     path: published.path,
