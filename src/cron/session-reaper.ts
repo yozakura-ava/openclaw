@@ -8,17 +8,28 @@ import {
   loadExactSessionEntryReadOnly,
   type SessionEntryLifecycleRemoval,
 } from "../config/sessions/session-accessor.js";
+import {
+  createHistoryWindowReclamationPlan,
+  runSqliteSessionReclamation,
+} from "../config/sessions/session-accessor.sqlite-reclamation.js";
+import { toDatabaseOptions } from "../config/sessions/session-accessor.sqlite-scope.js";
 import { readExpiredCronRunEntriesInWorker } from "../config/sessions/session-entry-read-runtime.js";
+import { withSessionHistoryWorkerDatabase } from "../config/sessions/session-transcript-worker-runtime.js";
 import { resolveMaintenanceConfig } from "../config/sessions/store-maintenance-runtime.js";
 import type { CronConfig } from "../config/types.cron.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { normalizeAgentId } from "../routing/session-key.js";
-import { isCompetingSessionWorkAdmissionActive } from "../sessions/session-lifecycle-admission.js";
+import {
+  collectActiveSessionWorkAdmissions,
+  isCompetingSessionWorkAdmissionActive,
+} from "../sessions/session-lifecycle-admission.js";
 import { deleteCronSessionViaGateway } from "./isolated-agent/session-cleanup.js";
 import { resolveCronAgentSessionKey } from "./isolated-agent/session-key.js";
 import type { Logger } from "./service/state.js";
 
 const DEFAULT_RETENTION_MS = 24 * 3_600_000; // 24 hours
+const DEFAULT_HISTORY_RETENTION_MS = 7 * 24 * 3_600_000; // 7 days
+const DEFAULT_HEARTBEAT_RETENTION_MS = 7 * 24 * 3_600_000; // 7 days
 
 /** Minimum interval between reaper sweeps (avoid running every timer tick). */
 const MIN_SWEEP_INTERVAL_MS = 5 * 60_000; // 5 minutes
@@ -51,6 +62,33 @@ function resolveRetentionMs(cronConfig?: CronConfig): number | null {
     }
   }
   return DEFAULT_RETENTION_MS;
+}
+
+/**
+ * Resolves one of the optional history-retention settings. `false` disables,
+ * bad strings fall back to the default, `undefined` enables the default,
+ * `null` (no field) is treated like the default to match documented opt-in /
+ * opt-out behavior. A zero retention disables pruning.
+ */
+function resolveHistoryRetentionMs(
+  raw: string | false | undefined,
+  defaultMs: number,
+): number | null {
+  if (raw === false) {
+    return null;
+  }
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const ms = parseDurationMs(raw.trim(), { defaultUnit: "d" });
+      if (ms <= 0) {
+        return null;
+      }
+      return ms;
+    } catch {
+      return defaultMs;
+    }
+  }
+  return defaultMs;
 }
 
 type ReaperResult = {
@@ -222,6 +260,114 @@ export async function sweepCronRunSessions(params: {
     params.log.info(
       { pruned, retentionMs },
       `cron-reaper: pruned ${pruned} expired cron run session(s)`,
+    );
+  }
+
+  return { swept: true, pruned };
+}
+
+type HistoryRetentionMode = "cron-job-level" | "heartbeat";
+
+/**
+ * Sweeps earlier windows of JOB-LEVEL cron keys (`agent:<id>:cron:<jobId>`,
+ * no `:run:` scope) and heartbeat keys (`agent:<id>:<scope>:heartbeat`).
+ * `cron.sessionRetention` only prunes per-run rows; this sweep closes the
+ * unbounded-growth gap reported in upstream issue #162319 and extends the
+ * same retention to heartbeat keys (the dominant contributor locally).
+ *
+ * The current window for each key (the row pointed to by the canonical
+ * entry's `current_session_id`) is always preserved. In-flight work
+ * (admitted session ids) and active admissions are also preserved.
+ *
+ * Config knobs:
+ *  - `cron.historyRetention`     (string duration | false; default 7d)
+ *  - `cron.heartbeatRetention`   (string duration | false; default 7d)
+ *
+ * Returns { swept, pruned } where `pruned` is the count of earlier windows
+ * deleted across both families. When both knobs resolve to disabled,
+ * returns { swept: false, pruned: 0 } without touching the store.
+ */
+export async function sweepCronHistorySessions(params: {
+  cronConfig?: CronConfig;
+  agentId: string;
+  /** Resolved session-store target, interpreted by the SQLite accessor. */
+  sessionStorePath: string;
+  isAgentAvailable?: (agentId: string) => boolean;
+  nowMs?: number;
+  log: Logger;
+}): Promise<ReaperResult> {
+  const cronMs = resolveHistoryRetentionMs(
+    params.cronConfig?.historyRetention as string | false | undefined,
+    DEFAULT_HISTORY_RETENTION_MS,
+  );
+  const heartbeatMs = resolveHistoryRetentionMs(
+    params.cronConfig?.heartbeatRetention as string | false | undefined,
+    DEFAULT_HEARTBEAT_RETENTION_MS,
+  );
+  if (cronMs === null && heartbeatMs === null) {
+    return { swept: false, pruned: 0 };
+  }
+
+  const now = params.nowMs ?? Date.now();
+  const storePath = params.sessionStorePath;
+  const targetKey = reaperTargetKey(params.agentId, storePath);
+  const lastSweepAtMs = lastSweepAtMsByTarget.get(targetKey) ?? 0;
+  if (now >= lastSweepAtMs && now - lastSweepAtMs < MIN_SWEEP_INTERVAL_MS) {
+    return { swept: false, pruned: 0 };
+  }
+  lastSweepAtMsByTarget.set(targetKey, now);
+
+  let pruned = 0;
+  try {
+    if (params.isAgentAvailable?.(params.agentId) === false) {
+      params.log.debug(
+        { agentId: params.agentId },
+        "cron-history-reaper: skipped unavailable agent",
+      );
+      return { swept: false, pruned: 0 };
+    }
+    const databaseOptions = toDatabaseOptions({ agentId: params.agentId, storePath });
+    const admissionIdentities = [...(collectActiveSessionWorkAdmissions().get(storePath) ?? [])];
+    const modes: Array<{ mode: HistoryRetentionMode; retentionMs: number | null }> = [
+      { mode: "cron-job-level", retentionMs: cronMs },
+      { mode: "heartbeat", retentionMs: heartbeatMs },
+    ];
+    for (const { mode, retentionMs } of modes) {
+      if (retentionMs === null) {
+        continue;
+      }
+      const cutoff = now - retentionMs;
+      const candidates = await withSessionHistoryWorkerDatabase(databaseOptions, (owner) =>
+        owner.readHistoricalEvictionCandidates({
+          admissionIdentities,
+          env: databaseOptions.env ?? process.env,
+          preserveRecentMs: retentionMs,
+        }),
+      );
+      for (const sessionId of candidates) {
+        const result = await runSqliteSessionReclamation({
+          forceInProcess: false,
+          plan: createHistoryWindowReclamationPlan({
+            cutoffMs: cutoff,
+            databaseOptions,
+            historyMode: mode,
+            sessionId,
+          }),
+        });
+        if (result.kind === "history-window" && result.value.deleted) {
+          pruned += 1;
+        }
+      }
+    }
+  } catch (err) {
+    params.log.warn({ err: String(err) }, "cron-history-reaper: failed to sweep session store");
+    return { swept: false, pruned: 0 };
+  }
+
+  if (pruned > 0) {
+    params.log.info(
+      { pruned },
+      `cron-history-reaper: pruned ${pruned} earlier cron/heartbeat window(s)`,
     );
   }
 

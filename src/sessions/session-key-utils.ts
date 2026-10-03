@@ -80,6 +80,47 @@ export function isCronSessionKey(sessionKey: string | undefined | null): boolean
   return normalizeOptionalLowercaseString(parsed.rest)?.startsWith("cron:") === true;
 }
 
+/**
+ * Matches a job-level cron session key (`agent:<id>:cron:<jobId>`) without an
+ * appended `:run:<runId>` scope. Used by retention to prune EARLIER windows of
+ * the same job-level key while keeping the current window alive.
+ *
+ * Returns false for any `:run:`-scoped key, malformed keys, or non-cron keys.
+ * The cron reaper already handles `:run:` rows; this helper targets the
+ * un-scoped base that accumulates without bound per upstream #162319.
+ */
+export function isCronJobLevelSessionKey(sessionKey: string | undefined | null): boolean {
+  const parsed = parseAgentSessionKey(sessionKey);
+  if (!parsed) {
+    return false;
+  }
+  const rest = normalizeOptionalLowercaseString(parsed.rest);
+  if (!rest) {
+    return false;
+  }
+  if (!rest.startsWith("cron:")) {
+    return false;
+  }
+  // Job-level shape: exactly "cron:<jobId>" with no further ":run:" scope.
+  return /^cron:[^:]+$/.test(rest);
+}
+
+/**
+ * Matches a heartbeat session key (e.g. `agent:<id>:main:heartbeat`,
+ * `agent:<id>:dashboard:<id>:heartbeat`). Heartbeat keys accumulate one window
+ * per tick and grow without retention under the current defaults — locally we
+ * measured 1,252 windows on `agent:main:main:heartbeat` alone (50.9% of main's
+ * 3,173 windows). Upstream framing in #162319 mentions cron but not heartbeats;
+ * the same retention path applies. Returns false for any non-heartbeat key.
+ */
+export function isHeartbeatSessionKey(sessionKey: string | undefined | null): boolean {
+  const parsed = parseAgentSessionKey(sessionKey);
+  if (!parsed) {
+    return false;
+  }
+  return normalizeOptionalLowercaseString(parsed.rest)?.endsWith(":heartbeat") === true;
+}
+
 export function isSubagentSessionKey(sessionKey: string | undefined | null): boolean {
   const raw = normalizeOptionalString(sessionKey);
   if (!raw) {

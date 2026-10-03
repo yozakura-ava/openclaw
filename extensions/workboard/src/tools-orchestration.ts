@@ -2,6 +2,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
+import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
 import type { WorkboardStore } from "./store.js";
 import {
@@ -19,6 +20,35 @@ const CardIdSchema = strictObject({
   token: claimTokenField(),
 });
 const ScopedClaimTokenField = claimTokenField("Claim token for claimed cards.");
+
+/**
+ * Card-id resolver for orchestration tools. Accepts either a full UUID or an
+ * 8-char prefix and resolves to the full UUID via the store's list + resolver.
+ * Mirrors `resolveToolCardId` in tools.ts but lives here so the orchestration
+ * tools (specify, decompose, runs, force_close) can resolve 8-char prefixes
+ * without crossing the tools.ts module boundary.
+ */
+async function resolveOrchestrationCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
+  if (typeof rawId !== "string" || rawId.trim() === "") {
+    throw new Error("card id is required.");
+  }
+  const trimmed = rawId.trim();
+  if (trimmed.length >= 9 || /^[0-9a-f]{8}-/.test(trimmed)) {
+    const direct = await store.get(trimmed);
+    if (direct) {
+      return direct.id;
+    }
+  }
+  const cards = await store.list();
+  const result = resolveWorkboardCardByIdOrPrefix(cards, trimmed);
+  if (result.error) {
+    throw new Error(result.error);
+  }
+  if (!result.card) {
+    throw new Error(`card not found: ${trimmed}`);
+  }
+  return result.card.id;
+}
 const OptionalNextStatusField = Type.Optional(
   Type.String({ description: "Optional next status." }),
 );
@@ -31,8 +61,10 @@ export function createWorkboardOrchestrationTools(params: {
   ownerId: string;
 }): AnyAgentTool[] {
   const { store, ownerId } = params;
-  const { readScopedCardToolParams, readClaimedCardToolParams, runScopedCardMutation } =
-    createWorkboardCardMutations(store, ownerId);
+  const { readClaimedCardToolParams, runScopedCardMutation } = createWorkboardCardMutations(
+    store,
+    ownerId,
+  );
   return [
     {
       name: "workboard_boards",
@@ -279,6 +311,33 @@ export function createWorkboardOrchestrationTools(params: {
       },
     },
     {
+      name: "workboard_force_close",
+      label: "Workboard Force Close",
+      description:
+        "Orchestrator-only terminal close for superseded, duplicate, cancelled, or invalid cards.",
+      parameters: strictObject({
+        id: cardIdField(),
+        reason_code: Type.Union([
+          Type.Literal("superseded"),
+          Type.Literal("duplicate"),
+          Type.Literal("cancelled"),
+          Type.Literal("invalid"),
+        ]),
+        explanation: Type.String({ minLength: 20, maxLength: 4000 }),
+        reference_card_id: Type.Optional(cardIdField()),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = asNonArrayRecord(rawParams);
+        const id = await resolveOrchestrationCardId(store, record.id);
+        const card = await store.forceClose(id, {
+          reasonCode: record.reason_code,
+          explanation: record.explanation,
+          referenceCardId: record.reference_card_id,
+        });
+        return redactedCardResult(card);
+      },
+    },
+    {
       name: "workboard_reassign",
       label: "Workboard Reassign",
       description: "Change a card assignee and optionally reset failure state during recovery.",
@@ -340,7 +399,7 @@ export function createWorkboardOrchestrationTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: async (_toolCallId, rawParams) => {
-        const { record, id, scope } = await readScopedCardToolParams(rawParams);
+        const { record, id, scope } = await readClaimedCardToolParams(rawParams);
         return redactedCardResult(await store.addWorkerLog(id, record, scope));
       },
     },
