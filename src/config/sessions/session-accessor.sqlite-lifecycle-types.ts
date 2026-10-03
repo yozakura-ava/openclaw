@@ -139,6 +139,12 @@ export type SqliteSessionReclamationPlan =
       sessionId: string;
     })
   | (SessionReclamationPlanBase & {
+      cutoffMs: number;
+      historyMode: "cron-job-level" | "heartbeat";
+      kind: "history-window";
+      sessionId: string;
+    })
+  | (SessionReclamationPlanBase & {
       deleteParams: ReclamationDeleteParams;
       kind: "historical-generation";
       preparedTargetSnapshot: SqliteLifecycleTargetSnapshot;
@@ -178,6 +184,7 @@ export type SqliteSessionReclamationResult =
       kind: "history-eviction";
       value: { archivedTranscripts: SessionLifecycleArchivedTranscript[]; deleted: boolean };
     }
+  | { kind: "history-window"; value: { deleted: boolean } }
   | {
       kind: "historical-generation";
       value: {
