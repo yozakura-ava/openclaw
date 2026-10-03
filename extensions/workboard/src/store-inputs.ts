@@ -7,14 +7,7 @@ import type {
   WorkboardWorkspaceAccess,
 } from "@openclaw/workboard-contract";
 
-export type {
-  WorkboardBoardSummary,
-  WorkboardCard,
-  WorkboardDiagnostic,
-  WorkboardEvent,
-  WorkboardWorkspace,
-  WorkboardWorkspaceAccess,
-} from "@openclaw/workboard-contract";
+export type { WorkboardBoardSummary, WorkboardCard } from "@openclaw/workboard-contract";
 
 type WorkboardCardInput = {
   title?: unknown;
