@@ -37,7 +37,7 @@ import {
   invertWorkboardWorkspaceMutation,
   sameWorkboardCardState,
 } from "./store-compensation.js";
-import { MAX_CARD_COMMENTS, MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
+import { MAX_CARD_WORKER_LOGS, POSITION_STEP } from "./store-constants.js";
 import type {
   WorkboardBoardInput,
   WorkboardBoardSummary,
@@ -72,6 +72,7 @@ import {
   syncExecutionSessionKey,
   trimMetadataToBudget,
 } from "./store-normalizers.js";
+import { addCommentWithChunking } from "./store-oversized-comment.js";
 import { readCards } from "./store-read.js";
 import { WorkboardStoreRuntime } from "./store-runtime.js";
 
@@ -378,6 +379,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     const boardId = normalizeBoardId(input.boardId);
     const aggregates = await this.store.listStatsAggregates(boardId);
     const byStatus: Partial<Record<WorkboardStatus, number>> = {};
+    // SAFETY: Object.create(null) is intentionally used as a string-keyed aggregate map.
     const byAgent = Object.create(null) as Record<string, number>;
     let oldestReadyAt: number | undefined;
     let updatedAt: number | undefined;
@@ -695,6 +697,7 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
       // Ignore stale lifecycle status writes, but still accept any non-status updates in the patch.
       effectivePatch = { ...patch, status: undefined };
       if (patch.metadata && typeof patch.metadata === "object" && !Array.isArray(patch.metadata)) {
+        // SAFETY: the guard above excludes null and arrays; object metadata is string-keyed.
         const metadataPatch = patch.metadata as Record<string, unknown>;
         const { lifecycleStatusSourceUpdatedAt: _ignored, ...rest } = metadataPatch;
         effectivePatch.metadata = Object.keys(rest).length > 0 ? rest : undefined;
@@ -935,19 +938,18 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     input: WorkboardCommentInput,
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
-    const now = Date.now();
-    const body = normalizeBoundedString(input.body, undefined, 2000, "comment body");
+    const body = normalizeOptionalString(input.body);
     if (!body) {
       throw new Error("comment body is required.");
     }
-    const comment = { id: randomUUID(), body, createdAt: now };
-    return await this.updateMetadata(id, (existing) => {
-      assertCanMutateClaimedCard(existing, scope);
-      return {
-        ...existing.metadata,
-        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
-      };
-    });
+    // Comments are recovery-safe evidence: allow them past an expired claim so
+    // reclaim-then-handoff flows can record context before re-claiming. The
+    // single-row path and the chunked split path both pass `recovery=true`
+    // through to `assertCanMutateClaimedCard`, which honors expired claims
+    // whose grace window has elapsed while still rejecting live claims from
+    // other owners.
+    // SAFETY: WorkboardCoreStore implements the narrow mutation host consumed by the helper.
+    return await addCommentWithChunking(this as never, id, body, scope, true);
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
