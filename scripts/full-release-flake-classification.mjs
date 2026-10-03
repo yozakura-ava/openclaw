@@ -5,14 +5,20 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { inspectActionsArtifactZip, sha256Digest } from "./lib/actions-artifact-archive.mjs";
 
-const REPOSITORY = "openclaw/openclaw";
+const REPOSITORY = process.env.GITHUB_REPOSITORY || "openclaw/openclaw";
 const WORKFLOW = ".github/workflows/full-release-flake-classification.yml";
 const SCHEMA = "openclaw.frv-flake-classification.v1";
 const RECEIPT_FILE = "frv-flake-classification.json";
 const MAX_BYTES = 1024 * 1024;
-const JOB_URL =
-  /^https:\/\/github\.com\/openclaw\/openclaw\/actions\/runs\/([1-9][0-9]*)\/job\/([1-9][0-9]*)$/u;
-const TRACKING_URL = /^https:\/\/github\.com\/openclaw\/openclaw\/(issues|pull)\/([1-9][0-9]*)$/u;
+const REPOSITORY_PATTERN = REPOSITORY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const JOB_URL = new RegExp(
+  `^https://github\\.com/${REPOSITORY_PATTERN}/actions/runs/([1-9][0-9]*)/job/([1-9][0-9]*)$`,
+  "u",
+);
+const TRACKING_URL = new RegExp(
+  `^https://github\\.com/${REPOSITORY_PATTERN}/(issues|pull)/([1-9][0-9]*)$`,
+  "u",
+);
 const execFileAsync = promisify(execFile);
 
 export const RECORDED_FLAKE_DENIED_JOB_PATTERNS = Object.freeze([

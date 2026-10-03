@@ -61,6 +61,7 @@ import { useAutoCleanupTempDirTracker } from "../helpers/temp-dir.js";
 const SCRIPT = resolve("scripts/full-release-validation-state.mjs");
 const SHA = "a".repeat(40);
 const TARGET_SHA = "b".repeat(40);
+const TEST_REPOSITORY = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
 const TRUSTED_MAIN = { fullRef: "refs/heads/main", ref: "main", sha: SHA };
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -1557,13 +1558,13 @@ describe("release decision policy", () => {
       conclusion: "failure",
       status: "completed",
       acceptedRunAttempt: 1,
-      url: "https://github.com/openclaw/openclaw/actions/runs/101/job/1001",
+      url: `https://github.com/${TEST_REPOSITORY}/actions/runs/101/job/1001`,
     };
     const gateJob = {
       ...job,
       ...ciGate,
       conclusion: "failure",
-      url: "https://github.com/openclaw/openclaw/actions/runs/101/job/1003",
+      url: `https://github.com/${TEST_REPOSITORY}/actions/runs/101/job/1003`,
     };
     const receipt: FlakeClassification = {
       schema: "openclaw.frv-flake-classification.v1",
@@ -1577,7 +1578,7 @@ describe("release decision policy", () => {
       jobName: job.name,
       jobUrl: job.url,
       conclusion: "failure",
-      trackingUrl: "https://github.com/openclaw/openclaw/issues/42",
+      trackingUrl: `https://github.com/${TEST_REPOSITORY}/issues/42`,
       reason: "The shared fixture leaks state; repair is tracked on main.",
       classifiedBy: "release-maintainer",
       receiptRunId: "901",
@@ -1624,7 +1625,7 @@ describe("release decision policy", () => {
           html_url: snapshot.url,
           id: 101,
           path: ".github/workflows/ci.yml",
-          repository: { full_name: "openclaw/openclaw" },
+          repository: { full_name: TEST_REPOSITORY },
           run_attempt: 1,
           status,
         }),
@@ -1717,7 +1718,7 @@ describe("release decision policy", () => {
     (scenario) => {
       const { snapshot, job } = recordedFlakeChild();
       if (scenario === "new job ID") {
-        job.url = "https://github.com/openclaw/openclaw/actions/runs/101/job/1002";
+        job.url = `https://github.com/${TEST_REPOSITORY}/actions/runs/101/job/1002`;
       }
       if (scenario === "new attempt") {
         job.acceptedRunAttempt = 2;
@@ -2147,7 +2148,7 @@ describe("release decision policy", () => {
           html_url: original.url,
           id: 101,
           path: ".github/workflows/ci.yml@refs/heads/release-ci/tooling",
-          repository: { full_name: "openclaw/openclaw" },
+          repository: { full_name: TEST_REPOSITORY },
           run_attempt: 2,
           status: "completed",
           triggering_actor: { login: "release-operator" },
@@ -2202,7 +2203,7 @@ describe("release decision policy", () => {
         html_url: planned.url,
         id: 101,
         path: ".github/workflows/ci.yml",
-        repository: { full_name: "openclaw/openclaw" },
+        repository: { full_name: TEST_REPOSITORY },
         run_attempt: 1,
         status: "completed",
         triggering_actor: { login: "github-actions[bot]" },
@@ -2321,7 +2322,7 @@ describe("release decision policy", () => {
           head_sha: "c".repeat(40),
           id: 101,
           path: ".github/workflows/ci.yml",
-          repository: { full_name: "openclaw/openclaw" },
+          repository: { full_name: TEST_REPOSITORY },
           run_attempt: 1,
           status: "completed",
           triggering_actor: { login: "github-actions[bot]" },
@@ -2390,7 +2391,7 @@ describe("release decision policy", () => {
         head_sha: planned.workflowSha,
         id: 101,
         path: ".github/workflows/ci.yml",
-        repository: { full_name: "openclaw/openclaw" },
+        repository: { full_name: TEST_REPOSITORY },
         run_attempt: 2,
         status: "in_progress",
         triggering_actor: { login: "github-actions[bot]" },
@@ -2422,7 +2423,7 @@ describe("release decision policy", () => {
             head_sha: planned.workflowSha,
             id: 101,
             path: ".github/workflows/ci.yml",
-            repository: { full_name: "openclaw/openclaw" },
+            repository: { full_name: TEST_REPOSITORY },
             run_attempt: 1,
             status: "in_progress",
             triggering_actor: { login: "github-actions[bot]" },
