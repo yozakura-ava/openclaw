@@ -32,6 +32,7 @@ function validateFullReleaseValidationEvidence(options: Parameters<typeof valida
 const targetSha = "b".repeat(40);
 const workflowSha = "a".repeat(40);
 const publisherWorkflowSha = "c".repeat(40);
+const repository = process.env.GITHUB_REPOSITORY ?? "openclaw/openclaw";
 const pinnedBranch = `release-ci/${workflowSha.slice(0, 12)}-1783705000000`;
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
@@ -214,9 +215,9 @@ describe("full release validation evidence", () => {
       targetSha,
       jobId: "457",
       jobName: "checks-node-test-2",
-      jobUrl: "https://github.com/openclaw/openclaw/actions/runs/456/job/457",
+      jobUrl: `https://github.com/${repository}/actions/runs/456/job/457`,
       conclusion: "failure",
-      trackingUrl: "https://github.com/openclaw/openclaw/issues/789",
+      trackingUrl: `https://github.com/${repository}/issues/789`,
       reason: "Shared test fixture races during cleanup; repair tracked on main.",
       classifiedBy: "release-operator",
       receiptRunId: "890",
