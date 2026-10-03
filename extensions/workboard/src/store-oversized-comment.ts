@@ -167,6 +167,7 @@ async function addOversizedComment(
           ? `chunks ${written.join(", ")} of ${total} were persisted before the failure`
           : "no chunks were persisted before the failure";
       if (error instanceof Error) {
+        // SAFETY: only the local split-progress diagnostic field is added to an Error instance.
         (error as Error & { splitProgress?: string }).splitProgress = progress;
         throw error;
       }
