@@ -6,10 +6,10 @@
  */
 import { measureGatewayBootstrapStep } from "../cli/startup-trace.js";
 import { resolveOpenClawStateSqlitePath } from "../state/openclaw-state-db.paths.js";
-
-export { truncateCloseReason } from "./server/close-reason.js";
 import type { GatewayServerOptions } from "./server-public.js";
 import { GatewayStartupCleanupError } from "./server-shutdown.js";
+
+export { truncateCloseReason } from "./server/close-reason.js";
 export type { GatewayServer, GatewayServerOptions } from "./server-public.js";
 
 async function loadServerStart() {
