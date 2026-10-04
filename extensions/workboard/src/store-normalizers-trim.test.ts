@@ -29,11 +29,20 @@ describe("trimMetadataToBudget — comment-first trim for over-cap cards", () =>
     }));
     const metadata = makeMetadata({
       comments,
-      attempts: [{ id: "a1", status: "failed" as const, startedAt: 1, updatedAt: 2 }],
+      attempts: [{ id: "a1", status: "failed" as const, startedAt: 1, endedAt: 2 }],
       diagnostics: [
-        { kind: "stale" as const, severity: "warning" as const, message: "d", detectedAt: 1 },
+        {
+          kind: "stranded_ready" as const,
+          severity: "warning" as const,
+          title: "d",
+          detail: "d",
+          firstSeenAt: 1,
+          lastSeenAt: 1,
+          count: 1,
+          actions: [],
+        },
       ],
-      notifications: [{ kind: "completed" as const, message: "n", createdAt: 1, readAt: 2 }],
+      notifications: [{ id: "n1", kind: "completed" as const, message: "n", createdAt: 1 }],
       proof: [{ id: "p1", status: "passed" as const, label: "l", createdAt: 1 }],
     });
 
