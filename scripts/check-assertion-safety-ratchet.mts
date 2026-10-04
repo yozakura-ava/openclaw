@@ -7,6 +7,7 @@ import {
   createNativeTypeScriptParser,
   type NativeTypeScriptParser,
 } from "./lib/native-typescript.mts";
+import { isVerifiedReleaseResync } from "./lib/release-checkpoint-provenance.mts";
 import {
   compareRatchetCounts,
   listRatchetRenames,
@@ -311,8 +312,9 @@ export function main(root = process.cwd(), argv: string[] = process.argv.slice(2
       baseRef && baseBaseline
         ? allowanceWithExistingBaseCounts(root, baseRef, current, baseline)
         : baseline;
-    const expansionAllowance =
-      baseRef && allowedBaseline
+    const expansionAllowance = isVerifiedReleaseResync(root)
+      ? baseline
+      : baseRef && allowedBaseline
         ? allowanceWithExistingBaseCounts(root, baseRef, baseline, allowedBaseline)
         : allowedBaseline;
     const increases = compareRatchetCounts(current, currentAllowance).increased;
