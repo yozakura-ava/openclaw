@@ -12,6 +12,12 @@ export function createExtensionDatabaseWorkersVitestConfig(
     [
       ...databaseWorkerExtensionTestRoots.map((root) => `${root}/**/*.test.ts`),
       ...databaseWorkerExtensionTestFiles,
+      // Test-infra wiring (card 9ab03edf, child 3 of eae39eff): the
+      // top-level cap/chunked/integration test files under tests/workboard/
+      // exercise the public addComment path on the same sqlite-backed
+      // harness the extension tests use. Add them to this config's include
+      // so the scoped vitest run picks them up alongside extensions/workboard.
+      "tests/workboard/**/*.test.ts",
     ],
     {
       dir: "extensions",
