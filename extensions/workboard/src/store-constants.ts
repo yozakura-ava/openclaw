@@ -37,7 +37,18 @@ export function isWorkboardClaimReclaimable(
   claim: WorkboardClaim | undefined,
   now: number,
 ): boolean {
-  return Boolean(claim?.expiresAt && now - claim.expiresAt > CLAIM_RECLAIM_MS);
+  // Sentinel pattern (e.g. dispatcher release-sentinel: ownerId='dispatcher-dispatched',
+  // expiresAt=0) marks the claim as already-expired/transparent so it does not block
+  // the assignee's claim. The previous Boolean(claim?.expiresAt && ...) returned false
+  // for expiresAt=0 because 0 is falsy and short-circuited the conjunction, treating
+  // the sentinel as a live fence. Honor expiresAt <= now as reclaimable, including the
+  // 0 sentinel value, so the assignee can claim through it without manual DB intervention.
+  // Only an unset expiresAt (no lease) keeps the claim non-reclaimable.
+  const expiresAt = claim?.expiresAt;
+  if (expiresAt === undefined || expiresAt === null) {
+    return false;
+  }
+  return now - expiresAt > CLAIM_RECLAIM_MS;
 }
 
 type WorkboardOwnerSlotCard = Pick<WorkboardCard, "status" | "agentId"> & {
