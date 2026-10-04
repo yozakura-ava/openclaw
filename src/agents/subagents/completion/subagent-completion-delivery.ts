@@ -83,7 +83,7 @@ function buildSanitizationEnvelope(subagent: SubagentRunRecord): Record<string, 
  * Returns silently when the envelope is clean. Mirrors
  * ``scripts/dispatch/dispatch_sanitizer.assert_envelope_clean``.
  */
-export function assertCouncilHandoffClean(subagent: SubagentRunRecord): void {
+function assertCouncilHandoffClean(subagent: SubagentRunRecord): void {
   const envelope = buildSanitizationEnvelope(subagent);
   const result = scanEnvelope(envelope);
   if (result.clean) {
