@@ -1,16 +1,18 @@
 import { randomUUID } from "node:crypto";
-import type {
-  WorkboardAttachment,
-  WorkboardBoardMetadata,
-  WorkboardCard,
-  WorkboardDiagnostic,
-  WorkboardExecution,
-  WorkboardExecutionStatus,
-  WorkboardLaunchState,
-  WorkboardMetadata,
-  WorkboardStaleState,
-  WorkboardStatus,
+import {
+  MAX_COMMENT_BODY_LENGTH,
+  type WorkboardAttachment,
+  type WorkboardBoardMetadata,
+  type WorkboardCard,
+  type WorkboardDiagnostic,
+  type WorkboardExecution,
+  type WorkboardExecutionStatus,
+  type WorkboardLaunchState,
+  type WorkboardMetadata,
+  type WorkboardStaleState,
+  type WorkboardStatus,
 } from "@openclaw/workboard-contract";
+import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import {
   buildWorkerContext,
@@ -30,12 +32,14 @@ import {
 } from "./store-card-helpers.js";
 import {
   isWorkboardClaimReclaimable,
+  MAX_CARD_COMMENTS,
   MAX_CARD_NOTIFICATIONS,
   secondsToDurationMs,
 } from "./store-constants.js";
 import type {
   WorkboardBulkInput,
   WorkboardCardPatch,
+  WorkboardCommentInput,
   WorkboardDiagnosticsResult,
   WorkboardDispatchOptions,
   WorkboardDispatchResult,
@@ -191,6 +195,49 @@ function lifecycleExecution(params: {
 
 // Capability layers split review boundaries only; the core still owns persistence and mutation order.
 export class WorkboardStore extends WorkboardNotificationStore {
+  /**
+   * Override of the parent's `addComment` that applies the comment-body cap
+   * post-sanitize using {@link MAX_COMMENT_BODY_LENGTH} as the single source
+   * of truth. The sanitizer (normalizeOptionalString) only trims/normalizes
+   * — it cannot truncate below the cap. After sanitization we make ONE
+   * explicit length check; oversize bodies are rejected with a clear error
+   * rather than silently truncated. Defensive: only the `body` key on the
+   * input record is read, so sibling fields (notes/title) cannot inflate
+   * the length-checked value (e297c1c4 class brick regression guarded).
+   *
+   * Child 1 of eae39eff (card 7011ba05-21de-4ef1-b366-45813c537d6e). Rin
+   * SPEC-CLEARED scope: single source-of-truth cap + sanitizer rework on
+   * the addComment path; chunked storage for bodies above the cap is child
+   * 2 (card 9a97b80d) and is out of scope here.
+   */
+  async addComment(
+    id: string,
+    input: WorkboardCommentInput,
+    scope?: WorkboardMutationScope,
+  ): Promise<WorkboardCard> {
+    const rawBody =
+      input && typeof input === "object" ? (input as Record<string, unknown>).body : undefined;
+    const bodySource = typeof rawBody === "string" ? rawBody : undefined;
+    const body = normalizeOptionalString(bodySource);
+    if (!body) {
+      throw new Error("comment body is required.");
+    }
+    if (body.length > MAX_COMMENT_BODY_LENGTH) {
+      throw new Error(
+        `comment body must be ${MAX_COMMENT_BODY_LENGTH} characters or fewer (got ${body.length}).`,
+      );
+    }
+    const now = Date.now();
+    const comment = { id: randomUUID(), body, createdAt: now };
+    return await this.updateMetadata(id, (existing) => {
+      assertCanMutateClaimedCard(existing, scope);
+      return {
+        ...existing.metadata,
+        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
+      };
+    });
+  }
+
   async prepareExecutionLaunch(
     id: string,
     input: {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   isValidWorkboardBoardId,
+  MAX_COMMENT_BODY_LENGTH,
   WORKBOARD_ATTEMPT_STATUSES,
   WORKBOARD_DIAGNOSTIC_KINDS,
   WORKBOARD_DIAGNOSTIC_SEVERITIES,
@@ -640,7 +641,12 @@ function normalizeComment(value: unknown): WorkboardComment | null {
   }
   const record = value;
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(
+    record.body,
+    undefined,
+    MAX_COMMENT_BODY_LENGTH,
+    "comment body",
+  );
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;

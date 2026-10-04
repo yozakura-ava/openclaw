@@ -77,6 +77,16 @@ export const WORKBOARD_DIAGNOSTIC_SEVERITIES = ["warning", "error", "critical"] 
 export const WORKBOARD_NOTIFICATION_KINDS = ["completed", "failed", "stale"] as const;
 export const WORKBOARD_BOARD_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,79}$/;
 
+/**
+ * Single source of truth for the workboard comment body character cap. The
+ * addComment path applies this cap post-sanitize so no sanitizer path can
+ * truncate a body below this limit; oversized bodies are rejected with a
+ * single explicit length check rather than silently truncated by the
+ * normalizer. Mirrored in `normalizeComment` so storage-side validation
+ * matches the write-side cap without duplicating the literal.
+ */
+export const MAX_COMMENT_BODY_LENGTH = 4096;
+
 export function isValidWorkboardBoardId(value: unknown): value is string {
   return typeof value === "string" && WORKBOARD_BOARD_ID_PATTERN.test(value);
 }
