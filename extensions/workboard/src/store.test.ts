@@ -681,12 +681,16 @@ describe("WorkboardStore", () => {
           }),
         );
       }
+      const [firstCard, secondCard, thirdCard, fourthCard] = cards;
+      if (!firstCard || !secondCard || !thirdCard || !fourthCard) {
+        throw new Error("expected four claim-capacity fixtures");
+      }
 
       const claims = await Promise.allSettled([
-        first.claim(cards[0].id, { ownerId: "worker" }),
-        second.claim(cards[1].id, { ownerId: "worker" }),
-        first.claim(cards[2].id, { ownerId: "worker" }),
-        second.claim(cards[3].id, { ownerId: "worker" }),
+        first.claim(firstCard.id, { ownerId: "worker" }),
+        second.claim(secondCard.id, { ownerId: "worker" }),
+        first.claim(thirdCard.id, { ownerId: "worker" }),
+        second.claim(fourthCard.id, { ownerId: "worker" }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
