@@ -38,6 +38,7 @@ export type SqliteSessionReclamationDiagnostics = {
     | "entry"
     | "lifecycle-artifacts"
     | "history-eviction"
+    | "history-window"
     | "historical-generation"
     | "maintenance-plan"
     | "maintenance-finalize"
