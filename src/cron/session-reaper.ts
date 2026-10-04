@@ -12,7 +12,10 @@ import {
   createHistoryWindowReclamationPlan,
   runSqliteSessionReclamation,
 } from "../config/sessions/session-accessor.sqlite-reclamation.js";
-import { toDatabaseOptions } from "../config/sessions/session-accessor.sqlite-scope.js";
+import {
+  resolveSqliteReadScope,
+  toDatabaseOptions,
+} from "../config/sessions/session-accessor.sqlite-scope.js";
 import { readExpiredCronRunEntriesInWorker } from "../config/sessions/session-entry-read-runtime.js";
 import { withSessionHistoryWorkerDatabase } from "../config/sessions/session-transcript-worker-runtime.js";
 import { resolveMaintenanceConfig } from "../config/sessions/store-maintenance-runtime.js";
@@ -326,7 +329,9 @@ export async function sweepCronHistorySessions(params: {
       );
       return { swept: false, pruned: 0 };
     }
-    const databaseOptions = toDatabaseOptions({ agentId: params.agentId, storePath });
+    const databaseOptions = toDatabaseOptions(
+      resolveSqliteReadScope({ agentId: params.agentId, storePath }),
+    );
     const admissionIdentities = [...(collectActiveSessionWorkAdmissions().get(storePath) ?? [])];
     const modes: Array<{ mode: HistoryRetentionMode; retentionMs: number | null }> = [
       { mode: "cron-job-level", retentionMs: cronMs },
