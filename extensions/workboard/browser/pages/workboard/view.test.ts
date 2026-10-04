@@ -1160,7 +1160,7 @@ describe("renderWorkboard", () => {
     expect(container.textContent).toContain("Wire dashboard tab");
     expect(container.textContent).toContain("Running");
     expect(container.textContent).toContain("Dashboard session");
-    expect(container.querySelectorAll(".workboard-column")).toHaveLength(9);
+    expect(container.querySelectorAll(".workboard-column")).toHaveLength(10);
     expect(container.querySelector(".workboard-card__priority")?.textContent).toContain("High");
   });
 
@@ -1897,15 +1897,15 @@ describe("renderWorkboard", () => {
       }),
     ];
     renderView();
-    expect(container.querySelectorAll(".workboard-column")).toHaveLength(9);
+    expect(container.querySelectorAll(".workboard-column")).toHaveLength(10);
     expect(container.querySelector(".workboard-column--collapsed")).toBeNull();
 
     buttonByLabel(container, "Collapse empty")?.click();
     renderView();
 
     expect(state.emptyColumnMode).toBe("collapse");
-    expect(container.querySelectorAll(".workboard-column")).toHaveLength(9);
-    expect(container.querySelectorAll(".workboard-column--collapsed")).toHaveLength(8);
+    expect(container.querySelectorAll(".workboard-column")).toHaveLength(10);
+    expect(container.querySelectorAll(".workboard-column--collapsed")).toHaveLength(9);
     expect(container.querySelector(".workboard-column--todo")?.classList).not.toContain(
       "workboard-column--collapsed",
     );
