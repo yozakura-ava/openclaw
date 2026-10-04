@@ -47,6 +47,11 @@ import type {
 } from "./store-inputs.js";
 import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
+import {
+  splitOversizedBody,
+  writeChunk,
+  type OversizedCommentHost,
+} from "./store-oversized-comment.js";
 import { readCards } from "./store-read.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
@@ -200,15 +205,19 @@ export class WorkboardStore extends WorkboardNotificationStore {
    * post-sanitize using {@link MAX_COMMENT_BODY_LENGTH} as the single source
    * of truth. The sanitizer (normalizeOptionalString) only trims/normalizes
    * — it cannot truncate below the cap. After sanitization we make ONE
-   * explicit length check; oversize bodies are rejected with a clear error
-   * rather than silently truncated. Defensive: only the `body` key on the
-   * input record is read, so sibling fields (notes/title) cannot inflate
-   * the length-checked value (e297c1c4 class brick regression guarded).
+   * explicit length check; bodies at or below the cap take the single-row
+   * path; bodies above the cap are routed through {@link addOversizedComment}
+   * which splits the body into per-chunk-sanitized+caped labeled
+   * continuations so e297c1c4-class cards can hydrate and mutate again.
+   * Defensive: only the `body` key on the input record is read, so sibling
+   * fields (notes/title) cannot inflate the length-checked value.
    *
-   * Child 1 of eae39eff (card 7011ba05-21de-4ef1-b366-45813c537d6e). Rin
-   * SPEC-CLEARED scope: single source-of-truth cap + sanitizer rework on
-   * the addComment path; chunked storage for bodies above the cap is child
-   * 2 (card 9a97b80d) and is out of scope here.
+   * Child 2 of eae39eff (card 9a97b80d-a0dd-4866-aa4b-cc32954905a9). Rin
+   * SPEC-CLEARED: chunking must NOT bypass the cap — per-chunk sanitize+cap,
+   * sum(chunks) <= MAX_COMMENT_BODY_LENGTH per chunk (never the sum of all
+   * chunks). Sanitize happens BEFORE split so chunk bodies inherit the same
+   * normalizeOptionalString trim/pass as the single-row path; writeChunk
+   * re-validates per-chunk length as a defense-in-depth check.
    */
   async addComment(
     id: string,
@@ -223,9 +232,7 @@ export class WorkboardStore extends WorkboardNotificationStore {
       throw new Error("comment body is required.");
     }
     if (body.length > MAX_COMMENT_BODY_LENGTH) {
-      throw new Error(
-        `comment body must be ${MAX_COMMENT_BODY_LENGTH} characters or fewer (got ${body.length}).`,
-      );
+      return await this.addOversizedComment(id, body, scope);
     }
     const now = Date.now();
     const comment = { id: randomUUID(), body, createdAt: now };
@@ -236,6 +243,55 @@ export class WorkboardStore extends WorkboardNotificationStore {
         comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
       };
     });
+  }
+
+  /**
+   * Split an oversize body into labeled chunks and append each via writeChunk.
+   * Per-chunk sanitize+cap is enforced inside writeChunk — no chunk can ever
+   * exceed MAX_COMMENT_BODY_LENGTH, and sum(chunks) is preserved losslessly
+   * (only an "(N/M)" label suffix is added to each chunk). The single-row
+   * path is preserved unchanged for at-cap bodies; this path is reached only
+   * when body.length > MAX_COMMENT_BODY_LENGTH.
+   */
+  private async addOversizedComment(
+    id: string,
+    body: string,
+    scope: WorkboardMutationScope | undefined,
+  ): Promise<WorkboardCard> {
+    const chunkBodies = splitOversizedBody(body);
+    if (chunkBodies.length <= 1) {
+      // Defensive: splitOversizedBody returned a single chunk (shouldn't
+      // happen given the >-cap gate, but keeps the no-op path safe).
+      return await this.updateMetadata(id, (existing) => {
+        assertCanMutateClaimedCard(existing, scope);
+        return {
+          ...existing.metadata,
+          comments: [
+            ...(existing.metadata?.comments ?? []),
+            { id: randomUUID(), body: chunkBodies[0] ?? body, createdAt: Date.now() },
+          ].slice(-MAX_CARD_COMMENTS),
+        };
+      });
+    }
+    const host = this as unknown as OversizedCommentHost;
+    let latest: WorkboardCard | undefined;
+    const now = Date.now();
+    for (let i = 0; i < chunkBodies.length; i += 1) {
+      latest = await writeChunk(
+        host,
+        id,
+        {
+          id: randomUUID(),
+          body: chunkBodies[i] ?? "",
+          createdAt: now + i,
+        },
+        scope,
+      );
+    }
+    if (!latest) {
+      throw new Error("oversized comment produced no chunks.");
+    }
+    return latest;
   }
 
   async prepareExecutionLaunch(

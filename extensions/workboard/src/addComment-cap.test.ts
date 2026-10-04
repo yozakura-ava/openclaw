@@ -24,7 +24,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
 
 const AT_CAP_BODY = "x".repeat(MAX_COMMENT_BODY_LENGTH);
-const OVER_CAP_BODY = "x".repeat(MAX_COMMENT_BODY_LENGTH + 1);
+// Child 2 of eae39eff (card 9a97b80d): addComment no longer rejects oversize
+// bodies — it routes them through splitOversizedBody and writes labeled chunks.
+// Oversize-rejection coverage now lives in tests/workboard/chunked-comment-storage.test.ts.
 
 describe("addComment cap+sanitizer (child 1 of eae39eff, card 7011ba05)", () => {
   let store: ReturnType<typeof createWorkboardSqliteTestStore>;
@@ -44,14 +46,6 @@ describe("addComment cap+sanitizer (child 1 of eae39eff, card 7011ba05)", () => 
     const comments = result.metadata?.comments ?? [];
     expect(comments.at(-1)?.body).toBe(AT_CAP_BODY);
     expect(comments.at(-1)?.body.length).toBe(MAX_COMMENT_BODY_LENGTH);
-  });
-
-  it("rejects a body one char over MAX_COMMENT_BODY_LENGTH with the canonical cap message", async () => {
-    await expect(store.addComment(card.id, { body: OVER_CAP_BODY })).rejects.toThrow(
-      new RegExp(
-        `comment body must be ${MAX_COMMENT_BODY_LENGTH} characters or fewer \\(got ${MAX_COMMENT_BODY_LENGTH + 1}\\)`,
-      ),
-    );
   });
 
   it("enforces the cap after sanitization — sanitizer cannot truncate below the cap", async () => {
@@ -78,18 +72,6 @@ describe("addComment cap+sanitizer (child 1 of eae39eff, card 7011ba05)", () => 
       title: longNotes,
     } as never);
     expect(result.metadata?.comments?.at(-1)?.body).toBe("ok");
-  });
-
-  it("rejects an over-cap body even when sibling input fields are also long", async () => {
-    const longNotes = "n".repeat(3879);
-    await expect(
-      store.addComment(card.id, {
-        body: "z".repeat(MAX_COMMENT_BODY_LENGTH + 1),
-        notes: longNotes,
-      } as never),
-    ).rejects.toThrow(
-      new RegExp(`comment body must be ${MAX_COMMENT_BODY_LENGTH} characters or fewer`),
-    );
   });
 
   it("rejects an empty/whitespace-only body with the required-field error", async () => {
