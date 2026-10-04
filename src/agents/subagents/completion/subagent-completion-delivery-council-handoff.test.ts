@@ -4,44 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../../test/helpers/temp-dir.js";
 import { resolvePreferredOpenClawTmpDir } from "../../../infra/tmp-openclaw-dir.js";
 import { captureOpenClawStateWorkerContext } from "../../../state/openclaw-state-worker-context.js";
+import { withOpenClawTestState } from "../../../test-utils/openclaw-test-state.js";
 import { createSubagentRunRecord } from "../../subagent-test-fixtures.test-helpers.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
 import { seedSubagentCompletionDelivery } from "./subagent-completion-admission.test-helpers.js";
 import { CouncilHandoffSanitizationError } from "./subagent-completion-delivery.js";
 
-// Wire-up + admission-flow test for the council-handoff sanitizer.
-//
-// The full admission flow (via `admitCorrelatedSubagentSessionDelivery`) requires a
-// pre-initialized SQLite host broker. That broker is initialized globally in the CI
-// environment but is NOT available in fresh-worktree runs. Every sibling test in this
-// directory that goes through the admission flow —
-//   * subagent-completion-admission.cancel-rollback.test.ts
-//   * subagent-completion-admission.expired-receipt.test.ts
-//   * subagent-completion-admission.requester-wake.test.ts
-//   * subagent-completion-admission.store.test.ts
-// — fails identically with `Shared-state admission requires the host broker` when run
-// in isolation in this worktree (verified 2026-09-30). The tests are designed to run
-// under a populated vitest worker that has already opened the broker once.
-//
-// On the v2026.9.7 base (this rebase), the `src/tasks/` test helpers used by the
-// original Rin-approved integration test were also deleted in a refactor (the
-// `TaskRecord`/`resetTaskRegistryForTests` imports that the original test depended on
-// no longer exist), so the integration test must be re-authored against the new
-// `withOpenClawTestState({ scenario: "minimal" })` / `seedSubagentCompletionDelivery`
-// fixtures — which themselves only work with the host broker pre-initialized.
-//
-// To preserve the spirit of the Rin-approved 27/27 test suite (card
-// 7d65dc27-53a6-4603-8c97-e3058720ec36) under the new base, we keep this file but
-// guard the four integration tests with a runtime broker-presence check. The sanitizer
-// logic itself is fully covered by the 23 unit tests in
-// subagent-completion-sanitizer.test.ts (which DO pass: 23/23 green). The production
-// wiring — `assertCouncilHandoffClean(subagent)` is called inside
-// `admitCorrelatedSubagentSessionDelivery` before the queue is admitted — is verified
-// by the cherry-pick diff on subagent-completion-delivery.ts (see git log ce7451281d9).
-//
-// NOTE (follow-up card c7b2c362-dccc-4b5b-8821-ab3d83387c7a): the four admission-flow
-// tests stay skipped until the v2026.9.7 broker-init infrastructure is available
-// outside CI (or this suite moves to a CI-only vitest project after broker warm-up).
+// Wire-up and admission-flow coverage for the council-handoff sanitizer. Each case
+// owns a minimal native state fixture so the worker validates the same persisted
+// completion owner that the test places in the in-memory registry.
 
 vi.mock("../registry/subagent-registry-persistence.js", () => ({
   withSubagentRegistryWriteAuthority: async (
@@ -66,21 +37,6 @@ vi.mock("../../../infra/session-delivery-queue-storage.js", () => ({
 }));
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
-
-/** True iff the host broker has been pre-initialized for this vitest worker. */
-function brokerIsAvailable(): boolean {
-  // Probe by attempting to open a shared state store — if the broker isn't there,
-  // `openSharedStateSqliteWorkerStore` rejects with `Shared-state admission requires
-  // the host broker` exactly as the sibling admission-flow tests see.
-  try {
-    const isMainThreadModule = require("node:worker_threads") as {
-      isMainThread: boolean;
-    };
-    return isMainThreadModule.isMainThread;
-  } catch {
-    return false;
-  }
-}
 
 function buildQueuedPayload() {
   return {
@@ -123,14 +79,12 @@ function makeSubagent(params: { runId: string; resultText: string; taskRunId: st
 describe("admitCorrelatedSubagentSessionDelivery council-handoff sanitizer", () => {
   let workspaceDir: string;
   let logPath: string;
-  let database: unknown;
 
   beforeEach(() => {
     workspaceDir = tempDirs.make("council-handoff-delivery-", resolvePreferredOpenClawTmpDir());
     logPath = path.join(workspaceDir, "data", "ops", "dispatch_sanitizer_blocks.jsonl");
     vi.stubEnv("OPENCLAW_STATE_DIR", workspaceDir);
     vi.stubEnv("OPENCLAW_WORKSPACE", workspaceDir);
-    database = { db: { prepare: () => ({ all: () => [], get: () => undefined }) } };
   });
 
   afterEach(() => {
@@ -140,44 +94,22 @@ describe("admitCorrelatedSubagentSessionDelivery council-handoff sanitizer", () 
   });
 
   async function seedAndAdmit(runId: string, resultText: string) {
-    const subagent = makeSubagent({
-      runId,
-      taskRunId: `task-${runId}`,
-      resultText,
-    });
-    try {
-      seedSubagentCompletionDelivery({
-        subagent,
-        databaseOptions: { database: database as never },
+    return await withOpenClawTestState({ scenario: "minimal" }, async () => {
+      const subagent = makeSubagent({
+        runId,
+        taskRunId: `task-${runId}`,
+        resultText,
       });
-    } catch {
-      // seedSubagentCompletionDelivery may throw `path.resolve(undefined)` if the
-      // database stub doesn't carry a real state path; the sanitizer throw we are
-      // testing happens BEFORE the queue entry is written, so we can ignore the seed
-      // error for the throw-path tests (dirty-path / privacy_tier). The clean-admit
-      // tests below are skipped in non-broker environments via describe.skipIf.
-    }
-    subagentRuns.set(subagent.runId, subagent);
-    const mod = await import("./subagent-completion-delivery.js");
-    return mod.admitCorrelatedSubagentSessionDelivery({
-      runId: subagent.runId,
-      payload: buildQueuedPayload(),
-      queueContext: captureOpenClawStateWorkerContext(),
+      seedSubagentCompletionDelivery({ subagent });
+      subagentRuns.set(subagent.runId, subagent);
+      const mod = await import("./subagent-completion-delivery.js");
+      return mod.admitCorrelatedSubagentSessionDelivery({
+        runId: subagent.runId,
+        payload: buildQueuedPayload(),
+        queueContext: captureOpenClawStateWorkerContext(),
+      });
     });
   }
-
-  // The two REFUSAL tests (sanitizer throws → CouncilHandoffSanitizationError) DO
-  // exercise the wiring: assertCouncilHandoffClean is invoked from inside the
-  // admitCorrelatedSubagentSessionDelivery write-authority callback before any queue
-  // entry can be prepared, so these tests work without the broker being available.
-  // They verify that the sanitizer is wired into the admission boundary and that
-  // its JSONL audit row is written under OPENCLAW_WORKSPACE/data/ops.
-  //
-  // The two ADMITTANCE tests (clean admit / sibling namespaces) require the broker
-  // for the queue-prep + sqlite insert to succeed — without it, every sibling
-  // admission-flow test in this directory fails identically. We gate them on
-  // brokerIsAvailable() so this file stays green in fresh-worktree runs while
-  // preserving the original Rin-approved assertions for the CI environment.
 
   it("refuses admission when the terminal reply carries a memory/private path", async () => {
     const dirtyResult =
@@ -218,8 +150,7 @@ describe("admitCorrelatedSubagentSessionDelivery council-handoff sanitizer", () 
     expect(rows[0].hits.some((h: { pattern: string }) => h.pattern === "privacy_tier")).toBe(true);
   });
 
-  // The two admittance tests require the host broker to be pre-initialized.
-  describe.skipIf(!brokerIsAvailable())("admittance (requires host broker)", () => {
+  describe("admittance", () => {
     it("admits a clean terminal reply without writing an audit row", async () => {
       const runId = "run-clean";
       const result = await seedAndAdmit(runId, "Validated the cron fix; targeted tests passed.");
