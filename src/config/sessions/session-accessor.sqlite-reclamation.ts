@@ -3,6 +3,10 @@ import { normalizeAgentId } from "@openclaw/normalization-core/agent-id";
 import { isGatewayExternallySupervised } from "../../infra/gateway-supervision.js";
 import { executeSqliteQuerySync, getNodeSqliteKysely } from "../../infra/kysely-sync.js";
 import { KeyedAsyncQueue } from "../../plugin-sdk/keyed-async-queue.js";
+import {
+  isCronJobLevelSessionKey,
+  isHeartbeatSessionKey,
+} from "../../sessions/session-key-utils.js";
 import { resolveGlobalSingleton } from "../../shared/global-singleton.js";
 import { readOpenClawAgentDatabaseIdentity } from "../../state/openclaw-agent-db-identity.js";
 import { retainOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
@@ -309,10 +313,8 @@ function reclaimSqliteRowsInTransaction(
           !row ||
           row.updated_at >= plan.cutoffMs ||
           (plan.historyMode === "cron-job-level"
-            ? !row.session_key.startsWith("agent:") ||
-              !row.session_key.includes(":cron:") ||
-              row.session_key.includes(":run:")
-            : !row.session_key.endsWith(":heartbeat"))
+            ? !isCronJobLevelSessionKey(row.session_key)
+            : !isHeartbeatSessionKey(row.session_key))
         ) {
           return { deleted: false };
         }
