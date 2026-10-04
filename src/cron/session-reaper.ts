@@ -300,11 +300,11 @@ export async function sweepCronHistorySessions(params: {
   log: Logger;
 }): Promise<ReaperResult> {
   const cronMs = resolveHistoryRetentionMs(
-    params.cronConfig?.historyRetention as string | false | undefined,
+    params.cronConfig?.historyRetention,
     DEFAULT_HISTORY_RETENTION_MS,
   );
   const heartbeatMs = resolveHistoryRetentionMs(
-    params.cronConfig?.heartbeatRetention as string | false | undefined,
+    params.cronConfig?.heartbeatRetention,
     DEFAULT_HEARTBEAT_RETENTION_MS,
   );
   if (cronMs === null && heartbeatMs === null) {
