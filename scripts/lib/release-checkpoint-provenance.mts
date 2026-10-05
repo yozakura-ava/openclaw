@@ -3,8 +3,8 @@ import { execFileSync } from "node:child_process";
 // This is the immutable upstream checkpoint selected for the 2026.9.9 fork
 // resync.  The tree is pinned separately so a same-looking commit cannot stand
 // in for the verified release commit.
-export const VERIFIED_RELEASE_RESYNC_COMMIT = "d1e6334a2785c032f3256b6eec95e65de113abfc";
-export const VERIFIED_RELEASE_RESYNC_TREE = "e7e85b8e5d71b41a0b9f0061f34b586c7ec51ace";
+export const VERIFIED_RELEASE_RESYNC_COMMIT = "22bacf5c8d46b153d3c8298378f4cb1fcd02bb50";
+export const VERIFIED_RELEASE_RESYNC_TREE = "3602518f1b98bc8ee36ec85878cf4d55b275eef3";
 
 // A resync may carry only the guard and its tests.  In particular, generated
 // files and product source files must remain byte-identical to the checkpoint.
