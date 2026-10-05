@@ -106,7 +106,7 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
     const isAgentAvailable = vi.fn(() => true);
     const { state, sessionStorePath } = await fixture([], {
       nowMs: () => now,
-      cronConfig: { sessionRetention: false },
+      cronConfig: { sessionRetention: false, historyRetention: false, heartbeatRetention: false },
       isAgentAvailable,
     });
     await seedSessions(sessionStorePath);
@@ -116,7 +116,11 @@ describe("CronService - session reaper runs in finally block (#31946)", () => {
       await onTimer(state);
       expect(isAgentAvailable).not.toHaveBeenCalled();
       expect(readExpired).not.toHaveBeenCalled();
-      state.deps.cronConfig = { sessionRetention: "24h" };
+      state.deps.cronConfig = {
+        sessionRetention: "24h",
+        historyRetention: false,
+        heartbeatRetention: false,
+      };
       await onTimer(state);
       expect(isAgentAvailable).toHaveBeenCalledExactlyOnceWith("main");
       expect(readExpired).toHaveBeenCalledOnce();

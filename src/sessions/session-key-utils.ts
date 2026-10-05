@@ -80,6 +80,19 @@ export function isCronSessionKey(sessionKey: string | undefined | null): boolean
   return normalizeOptionalLowercaseString(parsed.rest)?.startsWith("cron:") === true;
 }
 
+/** Matches an unscoped job-level cron key, excluding per-run descendants. */
+export function isCronJobLevelSessionKey(sessionKey: string | undefined | null): boolean {
+  const parsed = parseAgentSessionKey(sessionKey);
+  const rest = normalizeOptionalLowercaseString(parsed?.rest);
+  return rest !== undefined && /^cron:[^:]+$/.test(rest);
+}
+
+/** Matches heartbeat session keys across all agent-owned scopes. */
+export function isHeartbeatSessionKey(sessionKey: string | undefined | null): boolean {
+  const parsed = parseAgentSessionKey(sessionKey);
+  return normalizeOptionalLowercaseString(parsed?.rest)?.endsWith(":heartbeat") === true;
+}
+
 export function isSubagentSessionKey(sessionKey: string | undefined | null): boolean {
   const raw = normalizeOptionalString(sessionKey);
   if (!raw) {

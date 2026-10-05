@@ -9,7 +9,7 @@ import {
 } from "../../process/gateway-work-admission.js";
 import { normalizeAgentId, resolveAgentIdFromSessionKey } from "../../routing/session-key.js";
 import { runInDetachedAsyncContext } from "../../shared/async-work-scope.js";
-import { sweepCronRunSessions } from "../session-reaper.js";
+import { sweepCronRunSessions, sweepCronHistorySessions } from "../session-reaper.js";
 import {
   finishCronRunReceiptInDatabase,
   releaseLocalCronRunReceiptOwnership,
@@ -620,6 +620,21 @@ async function onAdmittedTimer(state: CronServiceState) {
               state.deps.log.warn(
                 { err: String(err), storePath },
                 "cron: session reaper sweep failed",
+              );
+            }
+            try {
+              await sweepCronHistorySessions({
+                agentId,
+                cronConfig: state.deps.cronConfig,
+                sessionStorePath: storePath,
+                isAgentAvailable: state.deps.isAgentAvailable,
+                nowMs,
+                log: state.deps.log,
+              });
+            } catch (err) {
+              state.deps.log.warn(
+                { err: String(err), storePath },
+                "cron: history session reaper sweep failed",
               );
             }
           }

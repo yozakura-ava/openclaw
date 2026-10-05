@@ -352,7 +352,9 @@ export class SqliteReclamationWorker {
       sessionId:
         params.plan.kind === "entry"
           ? params.plan.preparedTargetSnapshot[0]?.entry.sessionId
-          : params.plan.kind === "historical-generation" || params.plan.kind === "history-eviction"
+          : params.plan.kind === "historical-generation" ||
+              params.plan.kind === "history-eviction" ||
+              params.plan.kind === "history-window"
             ? params.plan.sessionId
             : undefined,
       request: (operationId, coordination) => ({

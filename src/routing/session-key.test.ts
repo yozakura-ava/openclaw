@@ -8,7 +8,9 @@ import {
 import { deriveSessionChatTypeFromKey } from "../sessions/session-chat-type-shared.js";
 import {
   getSubagentDepth,
+  isCronJobLevelSessionKey,
   isCronSessionKey,
+  isHeartbeatSessionKey,
   parseCronRunScopeSuffix,
   parseThreadSessionSuffix,
 } from "../sessions/session-key-utils.js";
@@ -151,6 +153,40 @@ describe("isCronSessionKey", () => {
     { key: undefined, expected: false },
   ] as const)("matches cron key %j => $expected", ({ key, expected }) => {
     expect(isCronSessionKey(key)).toBe(expected);
+  });
+});
+
+describe("isCronJobLevelSessionKey", () => {
+  it.each([
+    { key: "agent:main:cron:job-1", expected: true },
+    { key: "agent:reina:cron:b239b2c9-fd52-4ec2-8fa4-03be3f895309", expected: true },
+    { key: "agent:main:cron:job-1:run:run-1", expected: false },
+    { key: "agent:main:cron:job-1:run:run-1:subagent:worker", expected: false },
+    { key: "agent:main:cron:", expected: false },
+    { key: "agent:main:cron:job-1:run:", expected: false },
+    { key: "agent:main:main", expected: false },
+    { key: "cron:job-1", expected: false },
+    { key: undefined, expected: false },
+    { key: "", expected: false },
+  ] as const)("matches cron job-level key %j => $expected", ({ key, expected }) => {
+    expect(isCronJobLevelSessionKey(key)).toBe(expected);
+  });
+});
+
+describe("isHeartbeatSessionKey", () => {
+  it.each([
+    { key: "agent:main:main:heartbeat", expected: true },
+    { key: "agent:reina:dashboard:abc:heartbeat", expected: true },
+    { key: "agent:main:custom:scope:heartbeat", expected: true },
+    { key: "agent:main:main", expected: false },
+    { key: "agent:main:cron:job-1", expected: false },
+    { key: "agent:main:heartbeat", expected: false },
+    { key: "agent:main:heartbeat:extra", expected: false },
+    { key: "agent:main:main:heartbeatx", expected: false },
+    { key: undefined, expected: false },
+    { key: "", expected: false },
+  ] as const)("matches heartbeat key %j => $expected", ({ key, expected }) => {
+    expect(isHeartbeatSessionKey(key)).toBe(expected);
   });
 });
 
