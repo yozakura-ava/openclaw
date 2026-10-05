@@ -13522,14 +13522,14 @@ describe("deploy bundle workflow contracts", () => {
     expect(workflow.on).not.toHaveProperty("pull_request");
     expect(workflow.on).not.toHaveProperty("push");
     expect(source).toContain('node-version: "24.21.0"');
-    expect(source).toContain('ARTIFACT_SHA="" node -e');
+    expect(source).toContain('ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e');
     expect(source).toContain("deploy-bundle-manifest.txt");
     expect(source).toContain("deploy-bundle-checksums.txt");
     expect(source).toContain("Verify bundle provenance and extraction");
     expect(source).toContain("p.artifact_sha=process.env.ARTIFACT_SHA");
     expect(source).toContain("EXPECTED_TARBALL_SHA");
     expect(source).toContain("EXPECTED_PROVENANCE_SHA");
-    expect(source).toContain("--transform 's,^\\./,openclaw/,'");
+    expect(source).toContain("--transform 's,^\\\\./,openclaw/,'");
 
     const steps = expectDefined(workflow.jobs.build_deploy_bundle, "Deploy Bundle job").steps;
     expect(
