@@ -62,7 +62,7 @@ export async function addCommentWithChunking(
   });
 }
 
-export async function addOversizedComment(
+async function addOversizedComment(
   host: OversizedCommentHost,
   id: string,
   body: string,
@@ -156,7 +156,7 @@ export async function addOversizedComment(
           ? `chunks ${written.join(", ")} of ${total} were persisted before the failure`
           : "no chunks were persisted before the failure";
       if (error instanceof Error) {
-        (error as Error & { splitProgress?: string }).splitProgress = progress;
+        Object.assign(error, { splitProgress: progress });
         throw error;
       }
       throw new Error(`oversized comment split failed (${progress}): ${String(error)}`, {

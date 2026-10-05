@@ -940,7 +940,18 @@ export class WorkboardCoreStore extends WorkboardStoreRuntime {
     if (!body) {
       throw new Error("comment body is required.");
     }
-    return await addCommentWithChunking(this as never, id, body, scope);
+    return await addCommentWithChunking(
+      {
+        enqueueMutation: async <T>(run: () => Promise<T>) => await this.enqueueMutation(run),
+        updateLatestCard: async (cardId, buildPatch) =>
+          await this.updateLatestCard(cardId, buildPatch),
+        get: async (cardId) => await this.get(cardId),
+        updateMetadata: async (cardId, mutate) => await this.updateMetadata(cardId, mutate),
+      },
+      id,
+      body,
+      scope,
+    );
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
