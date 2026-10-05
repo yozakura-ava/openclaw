@@ -202,8 +202,15 @@ export function attachQaMockResponsesWebSocketServer(params: {
             };
           }
           for (const [index, event] of events.entries()) {
-            if (dispatched.previewPauseMs && isPreviewCompletion(event, events[index - 1])) {
-              await sleep(dispatched.previewPauseMs);
+            if (
+              (dispatched.previewPauseMs !== undefined || dispatched.completionPause) &&
+              isPreviewCompletion(event, events[index - 1])
+            ) {
+              if (dispatched.completionPause) {
+                await dispatched.completionPause;
+              } else if (dispatched.previewPauseMs !== undefined) {
+                await sleep(dispatched.previewPauseMs);
+              }
             }
             sendEvent(event);
           }

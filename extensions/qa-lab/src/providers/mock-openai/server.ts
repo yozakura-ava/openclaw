@@ -135,6 +135,7 @@ import {
   extractPlannedToolIdentity,
   splitMockStreamingText,
   buildChannelStreamingFixtureEvents,
+  resolveTelegramChannelStreamingPause,
   QA_TELEGRAM_PREPARED_DELIVERY_RE,
   buildAssistantThenToolCallEvents,
   buildAssistantEvents,
@@ -2218,11 +2219,15 @@ export async function startQaMockOpenAiServer(params?: QaMockOpenAiServerOptions
           }
         : {}),
       ...(failure ? { failure } : {}),
-      ...(QA_TELEGRAM_PREPARED_DELIVERY_RE.test(splitMockConversationContext(prompt).current)
-        ? { previewPauseMs: 3_000 }
-        : QA_FINAL_ONLY_MARKER_STREAMING_PROMPT_RE.test(allInputText)
-          ? { previewPauseMs: finalOnlyMarkerPauseMs }
-          : {}),
+      ...(resolveTelegramChannelStreamingPause(prompt) ??
+        (QA_TELEGRAM_PREPARED_DELIVERY_RE.test(splitMockConversationContext(prompt).current)
+          ? { previewPauseMs: 3_000 }
+          : QA_FINAL_ONLY_MARKER_STREAMING_PROMPT_RE.test(allInputText)
+            ? { previewPauseMs: finalOnlyMarkerPauseMs }
+            : {})),
+      ...(params?.telegramChannelStreamingPause && resolveTelegramChannelStreamingPause(prompt)
+        ? { completionPause: Promise.resolve(params.telegramChannelStreamingPause(prompt)) }
+        : {}),
       // Stall one request; later failures let the normal retry budget settle the turn.
       ...(repeatedRequestRecovery &&
       scenarioState.repeatedRequestRecoveryAttempts <= QA_REPEATED_REQUEST_STALL_ATTEMPT
@@ -2373,7 +2378,13 @@ export async function startQaMockOpenAiServer(params?: QaMockOpenAiServerOptions
           dispatched.onResponseSent?.();
           return;
         }
-        await writeSse(res, events, "responses", dispatched.previewPauseMs);
+        await writeSse(
+          res,
+          events,
+          "responses",
+          dispatched.previewPauseMs,
+          dispatched.completionPause,
+        );
         dispatched.onResponseSent?.();
         return;
       }
