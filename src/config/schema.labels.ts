@@ -3,6 +3,7 @@ import { MEDIA_AUDIO_FIELD_LABELS } from "./media-audio-field-metadata.js";
 import { GATEWAY_FIELD_LABELS } from "./schema.gateway-labels.js";
 import { AGENT_MODEL_FIELD_LABELS } from "./schema.labels.agent-models.js";
 import { APPROVAL_FIELD_LABELS } from "./schema.labels.approvals.js";
+import { AUTOMATION_FIELD_LABELS } from "./schema.labels.automation.js";
 import { BROWSER_FIELD_LABELS } from "./schema.labels.browser.js";
 import { SESSION_FIELD_LABELS } from "./schema.labels.session.js";
 import { WORKSPACE_FIELD_LABELS } from "./schema.labels.workspace.js";
@@ -123,6 +124,7 @@ export const FIELD_LABELS: Record<string, string> = {
   ...CLOUD_WORKER_FIELD_LABELS,
   ...DESKTOP_FIELD_LABELS,
   ...GATEWAY_FIELD_LABELS,
+  ...AUTOMATION_FIELD_LABELS,
   tools: "Tools",
   "tools.allow": "Tool Allowlist",
   "tools.deny": "Tool Denylist",
@@ -596,8 +598,6 @@ export const FIELD_LABELS: Record<string, string> = {
   "cron.webhookSsrfPolicy.allowIpv6UniqueLocalRange":
     "Automations Webhook Allow IPv6 Unique Local Range",
   "cron.sessionRetention": "Automations Session Retention",
-  "cron.historyRetention": "Automations History Retention",
-  "cron.heartbeatRetention": "Automations Heartbeat Retention",
   transcripts: "Transcripts",
   "transcripts.enabled": "Transcripts Enabled",
   "transcripts.autoStart": "Transcripts Auto-start Sources",
