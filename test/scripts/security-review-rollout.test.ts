@@ -35,6 +35,7 @@ type Options = {
   pullRequest?: object;
   comparison?: object | null;
   apiError?: "rollout" | "comparison";
+  env?: Record<string, string>;
 };
 
 function evaluate(options: Options = {}) {
@@ -85,7 +86,18 @@ const api = {
   async request(path) {
     requests.push(path);
     const key = path.includes("/pulls/") ? "rollout" : "comparison";
-    if (fixture.apiError === key) throw new Error("GitHub unavailable");
+    if (fixture.apiError === key) {
+      // Simulate a fork scenario for the rollout PR: a 404 means the upstream
+      // rollout PR is not present in the fork's repository. Comparison errors
+      // remain a non-404 generic failure so the existing propagation contract
+      // is still covered.
+      if (key === "rollout") {
+        const err = new Error("Not Found");
+        err.status = 404;
+        throw err;
+      }
+      throw new Error("GitHub unavailable");
+    }
     return fixture[key];
   },
 };
@@ -102,7 +114,7 @@ try {
   );
   const result = spawnSync(process.execPath, [path.join(root, "evaluate.mjs")], {
     encoding: "utf8",
-    env: { PATH: process.env.PATH },
+    env: { PATH: process.env.PATH, ...(options.env ?? {}) },
   });
   expect(result.stderr).toBe("");
   return {
@@ -216,12 +228,20 @@ describe("security review rollout", () => {
     expect(result.error).toContain("Cannot determine security review rollout");
   });
 
-  it.each(["rollout", "comparison"] as const)(
-    "does not convert a GitHub %s error into an exemption",
-    (apiError) => {
-      const result = evaluate({ apiError });
-      expect(result.status).toBe(1);
-      expect(result.error).toBe("GitHub unavailable");
-    },
-  );
+  it("treats a 404 on the rollout PR as fork-vs-upstream mismatch and enforces", () => {
+    // On the fork, the upstream rollout PR does not exist. The lookup 404s; the
+    // script must not fail — it should fall back to enforced mode so security
+    // review still runs and gates on the fork.
+    const result = evaluate({ apiError: "rollout" });
+    expect(result.status).toBe(0);
+    expect(result.mode).toBe("enforced");
+    expect(result.requests).toEqual([`/repos/openclaw/openclaw/pulls/${rolloutNumber}`]);
+  });
+
+  it("does not convert a non-rollout GitHub error into an exemption", () => {
+    // Comparison errors are not 404-handled — they must still propagate.
+    const result = evaluate({ apiError: "comparison" });
+    expect(result.status).toBe(1);
+    expect(result.error).toBe("GitHub unavailable");
+  });
 });
