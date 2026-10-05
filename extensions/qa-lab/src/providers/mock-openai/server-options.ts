@@ -5,4 +5,5 @@ export type QaMockOpenAiServerOptions = {
   modelRefs?: readonly string[];
   repeatedRequestResponsePauseMs?: number;
   repeatedRequestStalledResponsePauseMs?: number;
+  telegramChannelStreamingPause?: (prompt: string) => PromiseLike<void> | void;
 };
