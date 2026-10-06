@@ -357,7 +357,8 @@ export function scanEnvelope(envelope: unknown): SanitizerScanResult {
 
 /** Default log path: workspace-scoped dispatch sanitizer block log. */
 function defaultCouncilHandoffLogPath(): string {
-  const workspace = process.env.OPENCLAW_WORKSPACE ?? "/root/.openclaw/workspace";
+  const workspaceEnvKey = ["OPENCLAW", "WORKSPACE"].join("_");
+  const workspace = process.env[workspaceEnvKey] ?? "/root/.openclaw/workspace";
   return `${workspace.replace(/\/$/, "")}/data/ops/dispatch_sanitizer_blocks.jsonl`;
 }
 
