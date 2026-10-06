@@ -186,7 +186,7 @@ jobs:
           # ARTIFACT_SHA must be an environment assignment before `node`.
           # Passing it after the script makes it a positional Node argument
           # and leaves process.env.ARTIFACT_SHA unset.
-          ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); if (!process.env.ARTIFACT_SHA) throw new Error("ARTIFACT_SHA was not provided"); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2)+"\\n")'
+          ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync("provenance/provenance.json","utf8")); if (!process.env.ARTIFACT_SHA) throw new Error("ARTIFACT_SHA was not provided"); p.artifact_sha=process.env.ARTIFACT_SHA; fs.writeFileSync("provenance/provenance.json", JSON.stringify(p,null,2)+"\n")'
           # Build the final tarball: dist + production node_modules + provenance.
           cp -R provenance staging-tmp/
           tar -czf deploy-bundle.tar.gz \
