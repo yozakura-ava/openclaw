@@ -13509,3 +13509,34 @@ describe("workflow file size", () => {
     ).toEqual([]);
   });
 });
+
+describe("deploy bundle workflow contracts", () => {
+  const source = readFileSync(".github/workflows/deploy-bundle.yml", "utf8");
+  const workflow = parse(source) as {
+    on: Record<string, unknown>;
+    jobs: Record<string, { steps: WorkflowStep[] }>;
+  };
+
+  it("remains dispatch-only and verifies the complete artifact tuple", () => {
+    expect(workflow.on).toHaveProperty("workflow_dispatch");
+    expect(workflow.on).not.toHaveProperty("pull_request");
+    expect(workflow.on).not.toHaveProperty("push");
+    expect(source).toContain('node-version: "24.21.0"');
+    expect(source).toContain('ARTIFACT_SHA="${PAYLOAD_SHA256}" node -e');
+    expect(source).toContain("deploy-bundle-manifest.txt");
+    expect(source).toContain("deploy-bundle-checksums.txt");
+    expect(source).toContain("Verify bundle provenance and extraction");
+    expect(source).toContain("p.artifact_sha=process.env.ARTIFACT_SHA");
+    expect(source).toContain("EXPECTED_TARBALL_SHA");
+    expect(source).toContain("EXPECTED_PROVENANCE_SHA");
+    expect(source).toContain("--transform 's,^\\\\./,openclaw/,'");
+
+    const steps = expectDefined(workflow.jobs.build_deploy_bundle, "Deploy Bundle job").steps;
+    expect(
+      steps.find(({ name }) => name === "Verify bundle provenance and extraction"),
+    ).toBeDefined();
+    expect(
+      steps.find(({ name }) => name === "Upload deploy bundle artifact")?.with?.path,
+    ).toContain("deploy-bundle-manifest.txt");
+  });
+});
