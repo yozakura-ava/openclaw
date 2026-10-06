@@ -93,8 +93,15 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      # The renderer writes generated assets into apps/shared/mermaid/assets.
+      # Build that boundary before the parallel workspace build and exclude
+      # the writer from the second pass. Otherwise declaration-boundary
+      # snapshots can observe the directory appearing mid-compilation.
+      - name: Build Mermaid generated asset boundary
+        run: pnpm --filter '@openclaw/mermaid-renderer...' build
+
       - name: Build full host + extensions
-        run: pnpm -r --include-workspace-root build
+        run: pnpm -r --filter '!@openclaw/mermaid-renderer' --include-workspace-root build
 
       - name: Capture provenance tuple
         id: provenance
