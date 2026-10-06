@@ -17,6 +17,28 @@ describe("config schema regressions", () => {
     expect(OpenClawSchema.safeParse({ cron: { sessionRetention: "1h30m" } }).success).toBe(true);
   });
 
+  it("accepts valid cron.historyRetention durations", () => {
+    expect(OpenClawSchema.safeParse({ cron: { historyRetention: "14d" } }).success).toBe(true);
+    expect(OpenClawSchema.safeParse({ cron: { historyRetention: false } }).success).toBe(true);
+  });
+
+  it("accepts valid cron.heartbeatRetention durations", () => {
+    expect(OpenClawSchema.safeParse({ cron: { heartbeatRetention: "3d" } }).success).toBe(true);
+    expect(OpenClawSchema.safeParse({ cron: { heartbeatRetention: false } }).success).toBe(true);
+  });
+
+  it("rejects invalid cron.historyRetention durations", () => {
+    expect(() => OpenClawSchema.parse({ cron: { historyRetention: "abc" } })).toThrow(
+      /historyRetention|duration/i,
+    );
+  });
+
+  it("rejects invalid cron.heartbeatRetention durations", () => {
+    expect(() => OpenClawSchema.parse({ cron: { heartbeatRetention: "abc" } })).toThrow(
+      /heartbeatRetention|duration/i,
+    );
+  });
+
   it("leaves skipMissedJobs unset when omitted", () => {
     expect(OpenClawSchema.parse({ cron: {} }).cron?.skipMissedJobs).toBeUndefined();
   });

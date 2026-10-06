@@ -119,6 +119,10 @@ export const AUTOMATION_FIELD_HELP: Record<string, string> = {
     "Allows automation webhooks to IPv6 Unique Local Addresses (fc00::/7). Use only with trusted fake-IP proxy environments.",
   "cron.sessionRetention":
     "Controls how long completed automation run sessions are kept before pruning (`24h`, `7d`, `1h30m`, or `false` to disable pruning; a zero duration such as `0h` also disables; default: `24h`). Use shorter retention to reduce storage growth on high-frequency schedules.",
+  "cron.historyRetention":
+    "Controls how long EARLIER windows of job-level automation session keys (`agent:<id>:cron:<jobId>`, no `:run:` scope) are kept before pruning (`7d`, `24h`, or `false` to disable; default: `7d`). `sessionRetention` only prunes per-run rows; this option closes the unbounded-growth gap for the base key per upstream issue #162319. Current windows are always preserved.",
+  "cron.heartbeatRetention":
+    "Controls how long EARLIER windows of heartbeat session keys (`agent:<id>:<scope>:heartbeat`) are kept before pruning (`7d`, `24h`, or `false` to disable; default: `7d`). Heartbeats grow one window per tick and account for ~50% of session_windows on a high-traffic gateway. Current windows are always preserved.",
   transcripts:
     "Core transcript capture settings for meeting notes, recording-capable agent tools, and configured live meeting auto-start sources. Meeting plugins capture durable notes by default; set enabled to false to opt out globally.",
   "transcripts.enabled":

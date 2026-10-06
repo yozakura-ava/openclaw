@@ -135,6 +135,8 @@ describe("config help copy quality", () => {
       name: "documents cron retention formats",
       fields: [
         ["cron.sessionRetention", ["24h", "7d", "1h30m", /false/i]],
+        ["cron.historyRetention", ["7d", "24h", /false/i]],
+        ["cron.heartbeatRetention", ["7d", "24h", /false/i]],
         ["cron.webhookToken", [/token|bearer/i, /secret|env|rotate/i]],
       ],
     },
