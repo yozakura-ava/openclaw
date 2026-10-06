@@ -190,7 +190,7 @@ jobs:
           # Build the final tarball: dist + production node_modules + provenance.
           cp -R provenance staging-tmp/
           tar -czf deploy-bundle.tar.gz \
-            --transform 's,^\\./,openclaw/,' \
+            --transform 's,^\./,openclaw/,' \
             -C staging-tmp .
           TARBALL_SHA256="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
           PROVENANCE_SHA256="$(sha256sum provenance/provenance.json | awk '{print $1}')"
