@@ -224,8 +224,15 @@ describe("workboard sqlite batch card read", () => {
         const target = fixtureCard(2);
         try {
           if (!targetOnly) {
+            // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards owned by
+            // "slot-owner" so the discriminating busy card reaches the 3-slot
+            // threshold and trips owner_busy on the target claim.
             const busy = { ...fixtureCard(0), status: "running" as const, agentId: "slot-owner" };
+            const pad0 = { ...fixtureCard(82), status: "running" as const, agentId: "slot-owner" };
+            const pad1 = { ...fixtureCard(83), status: "running" as const, agentId: "slot-owner" };
             await stores.cards.register(busy.id, { version: 1, card: busy });
+            await stores.cards.register(pad0.id, { version: 1, card: pad0 });
+            await stores.cards.register(pad1.id, { version: 1, card: pad1 });
             await stores.cards.register("card-1", { version: 1, card: fixtureCard(1) });
           }
           await stores.cards.register(target.id, { version: 1, card: target });
@@ -343,6 +350,14 @@ describe("workboard sqlite batch card read", () => {
         };
       }
       try {
+        // MAX_OWNER_CLAIMS = 3: pad the store with 2 baseline occupied cards
+        // that always consume a slot for the test owner so the discriminating
+        // "occupied" card reaches the 3-slot threshold and trips owner_busy.
+        const owner = scenario.ownerId ?? "slot-owner";
+        const pad0 = { ...fixtureCard(80), status: "running" as const, agentId: owner };
+        const pad1 = { ...fixtureCard(81), status: "running" as const, agentId: owner };
+        await stores.cards.register(pad0.id, { version: 1, card: pad0 });
+        await stores.cards.register(pad1.id, { version: 1, card: pad1 });
         await stores.cards.register(occupied.id, { version: 1, card: occupied });
         await stores.cards.register(target.id, { version: 1, card: target });
         const next = { ...target, updatedAt: target.updatedAt + 1 };
@@ -351,7 +366,7 @@ describe("workboard sqlite batch card read", () => {
             target.id,
             { version: 1, card: next },
             target.updatedAt,
-            scenario.ownerId ?? "slot-owner",
+            owner,
             1_000_000,
           ),
         ).resolves.toBe(scenario.expected);
@@ -587,6 +602,85 @@ describe("workboard sqlite batch card read", () => {
         await expect(collection.entries()).rejects.toThrow(SyntaxError);
       } finally {
         raw?.close();
+        await stores.close();
+      }
+    });
+  });
+
+  it("allows up to MAX_OWNER_CLAIMS concurrent slots and rejects the (MAX_OWNER_CLAIMS+1)-th", async () => {
+    // owner_busy must trip at the 4th concurrent claim owned by the same owner;
+    // the first 3 must still succeed. Mixed-owner occupied cards must NOT
+    // consume slots for this owner.
+    const OWNER = "multi-slot-owner";
+    await withStores(async (dbPath) => {
+      const stores = createKernelStores(dbPath);
+      try {
+        // Three owned slots already running for this owner.
+        for (let i = 0; i < 3; i += 1) {
+          const occupied = {
+            ...fixtureCard(10 + i),
+            status: "running" as const,
+            agentId: OWNER,
+          };
+          await stores.cards.register(occupied.id, { version: 1, card: occupied });
+        }
+        // One occupied slot owned by someone else — must NOT count for OWNER.
+        const foreign = {
+          ...fixtureCard(20),
+          status: "running" as const,
+          agentId: "other-owner",
+        };
+        await stores.cards.register(foreign.id, { version: 1, card: foreign });
+
+        const target = fixtureCard(30);
+        await stores.cards.register(target.id, { version: 1, card: target });
+        const next = { ...target, updatedAt: target.updatedAt + 1 };
+
+        await expect(
+          stores.cards.claimIfOwnerAvailable(
+            target.id,
+            { version: 1, card: next },
+            target.updatedAt,
+            OWNER,
+            1_000_000,
+          ),
+        ).resolves.toBe("owner_busy");
+        await expect(stores.cards.lookup(target.id)).resolves.toEqual({
+          version: 1,
+          card: target,
+        });
+      } finally {
+        await stores.close();
+      }
+    });
+
+    // Sanity: with only 2 owned slots, the third claim still succeeds.
+    await withStores(async (dbPath) => {
+      const stores = createKernelStores(dbPath);
+      try {
+        for (let i = 0; i < 2; i += 1) {
+          const occupied = {
+            ...fixtureCard(40 + i),
+            status: "running" as const,
+            agentId: OWNER,
+          };
+          await stores.cards.register(occupied.id, { version: 1, card: occupied });
+        }
+        const target = fixtureCard(50);
+        await stores.cards.register(target.id, { version: 1, card: target });
+        const next = { ...target, updatedAt: target.updatedAt + 1 };
+
+        await expect(
+          stores.cards.claimIfOwnerAvailable(
+            target.id,
+            { version: 1, card: next },
+            target.updatedAt,
+            OWNER,
+            1_000_000,
+          ),
+        ).resolves.toBe("updated");
+        await expect(stores.cards.lookup(target.id)).resolves.toEqual({ version: 1, card: next });
+      } finally {
         await stores.close();
       }
     });

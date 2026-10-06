@@ -61,6 +61,7 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
+  MAX_COMMENT_BODY_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -640,7 +641,12 @@ function normalizeComment(value: unknown): WorkboardComment | null {
   }
   const record = value;
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(
+    record.body,
+    undefined,
+    MAX_COMMENT_BODY_LENGTH,
+    "comment body",
+  );
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
@@ -1333,7 +1339,14 @@ export function trimMetadataToBudget(
   let next = removeUndefinedMetadataFields(metadata);
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
     const currentSize = metadataByteSize(next);
-    if (next.attempts?.length) {
+    // Comments are trimmed FIRST so that over-cap cards (e.g. busy sprint
+    // cards with hundreds of stored comments) can still be hydrated and
+    // mutated. Without this, the trimmer would exhaust every other field
+    // before touching comments, then still fail because comments alone
+    // exceed the 24KB metadata budget (50 rows × ~4KB = ~200KB).
+    if (next.comments?.length) {
+      next = removeUndefinedMetadataFields({ ...next, comments: dropFirst(next.comments) });
+    } else if (next.attempts?.length) {
       next = removeUndefinedMetadataFields({ ...next, attempts: dropFirst(next.attempts) });
     } else if (next.diagnostics?.length) {
       next = removeUndefinedMetadataFields({ ...next, diagnostics: dropFirst(next.diagnostics) });
@@ -1363,13 +1376,7 @@ export function trimMetadataToBudget(
       next = removeUndefinedMetadataFields({ ...next, workerLogs: dropFirst(next.workerLogs) });
     } else if (next.links?.length) {
       const links = dropFirstMatching(next.links, (link) => !isDependencyLink(link));
-      if (links?.length === next.links.length) {
-        next = removeUndefinedMetadataFields({ ...next, comments: dropFirst(next.comments) });
-      } else {
-        next = removeUndefinedMetadataFields({ ...next, links });
-      }
-    } else if (next.comments?.length) {
-      next = removeUndefinedMetadataFields({ ...next, comments: dropFirst(next.comments) });
+      next = removeUndefinedMetadataFields({ ...next, links });
     } else if (options.preserveProofId) {
       throw new Error(`card metadata cannot retain proof: ${options.preserveProofId}`);
     }
