@@ -5,11 +5,18 @@ import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type, type TProperties } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
+import { isWorkboardClaimReclaimable } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 
 function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): boolean {
   const claim = card.metadata?.claim;
+  // Cancel-safe reclaim: a claim past its reclaim grace (expiresAt +
+  // CLAIM_RECLAIM_MS) is already cleared by the dispatcher sweep once the
+  // grace lapses; this lets manual workboard_reclaim / reassign also release
+  // it. Fence integrity preserved: pre-grace claims still fail because
+  // isWorkboardClaimReclaimable returns false until the grace lapses.
+  if (isWorkboardClaimReclaimable(claim, Date.now())) return true;
   return !claim || claim.ownerId === ownerId || safeEqualSecret(token, claim.token);
 }
 
