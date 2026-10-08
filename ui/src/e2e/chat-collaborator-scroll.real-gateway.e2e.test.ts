@@ -299,6 +299,22 @@ async function wheel(page: Page, delta: number) {
   await waitForChatScrollIdle(page);
 }
 
+async function waitForChatFollow(page: Page, renderedText: string, message: string) {
+  // Measure only after the streamed growth renders; smooth follow can outlast the
+  // default one-second poll on loaded CI hosts.
+  await expect
+    .poll(() => page.locator(".chat-pane-cache__pane--active .chat-thread").textContent(), {
+      message,
+      timeout: 15_000,
+    })
+    .toContain(renderedText);
+  await expect
+    .poll(() => chatThreadDistanceFromBottom(page), { message, timeout: 15_000 })
+    .toBeLessThanOrEqual(8);
+  await waitForChatScrollIdle(page);
+  expect(await chatThreadDistanceFromBottom(page), message).toBeLessThanOrEqual(8);
+}
+
 suite.define(() => {
   it("preserves reader intent through remote queue, stream, and persistence", async (context) => {
     await suite.runScenario(context, {
@@ -474,10 +490,11 @@ suite.define(() => {
                     ),
                   )
                   .toBe(true);
-                await waitForChatScrollIdle(reader);
-                await expect
-                  .poll(() => chatThreadDistanceFromBottom(reader))
-                  .toBeLessThanOrEqual(8);
+                await waitForChatFollow(
+                  reader,
+                  mode + " paragraph 14.",
+                  mode + ": own submit follows its assistant stream",
+                );
                 if (mode.startsWith("reading")) {
                   await wheel(reader, -420);
                 }
@@ -625,13 +642,11 @@ suite.define(() => {
                   .toBeLessThanOrEqual(8);
                 await expect.poll(provider.requests).toBe(local.index);
                 await local.append(paragraphs("local-resume-" + mode, 3));
-                await waitForChatScrollIdle(reader);
-                expect
-                  .soft(
-                    await chatThreadDistanceFromBottom(reader),
-                    "local submit follows its assistant stream",
-                  )
-                  .toBeLessThanOrEqual(8);
+                await waitForChatFollow(
+                  reader,
+                  "local-resume-" + mode + " paragraph 3.",
+                  mode + ": local submit follows its assistant stream",
+                );
                 await local.finish();
                 for (const page of pages) {
                   await page
