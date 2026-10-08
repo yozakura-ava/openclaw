@@ -82,9 +82,11 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
   private appliedHeaderHeight = 0;
   private implicitEndAnchorPending: boolean;
   private readonly endAnchor = new TranscriptEndAnchor();
-  readonly layout = new TranscriptLayoutOwner((before, after) =>
-    this.endAnchor.recordLayoutCorrection(before, after),
-  );
+  private readonly recordEndLayoutCorrection = (before: number, after: number) => {
+    this.endAnchor.recordLayoutCorrection(before, after);
+    this.scheduleEndReconcile();
+  };
+  readonly layout = new TranscriptLayoutOwner(this.recordEndLayoutCorrection);
   private readonly followEnd = () => this.scrollToEnd({ source: "auto", behavior: "auto" });
   private pendingScrollFrame: number | null = null;
   private readonly scrollRestoreHost: TranscriptScrollRestoreHost;
@@ -231,6 +233,7 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
             canFollowEnd: () => this.canAutoFollow(),
             isProgrammaticScroll: () => this.isProgrammaticScroll,
             cancelScroll: () => this.cancelScroll(),
+            onLayoutCorrection: this.recordEndLayoutCorrection,
             requestUpdate: () => this.host.requestUpdate(),
             onOffset: () => this.endAnchor.recordViewport(this.scrollElement),
             onComposerLayout: (changed) => this.commitComposerResize(changed),
@@ -349,6 +352,12 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     }
   }
 
+  private scheduleEndReconcile(): void {
+    if (this.connected) {
+      this.endAnchor.scheduleReconcile(() => this.reconcileEndAnchor());
+    }
+  }
+
   update(): void {
     this.layout.connect(this.scrollElement);
     this.entryAnimations.didCommit();
@@ -372,8 +381,8 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
     // Disclosure measurement owns this commit; its sizer lands on the next update.
     if (interactionResizePending) {
       this.endAnchor.cancelReconcile();
-    } else if (this.connected) {
-      this.endAnchor.scheduleReconcile(() => this.reconcileEndAnchor());
+    } else {
+      this.scheduleEndReconcile();
     }
   }
 
@@ -599,7 +608,9 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
       () => this.cancelScroll(),
       () => this.presentation.queueRowMeasure(),
     );
-    if (behavior !== "smooth") {
+    // A smooth journey captures on native arrival. A smooth no-op already at the
+    // end retires itself without a native event, so capture its edge here.
+    if (behavior !== "smooth" || this.offsetState.scrollCommand === null) {
       this.endAnchor.capture(this.scrollElement);
     }
     return true;
@@ -729,7 +740,8 @@ export class ChatSessionVirtualizerHost implements ReactiveControllerHost, ChatT
 
   private syncRows(nextKeys: readonly string[]): void {
     const virtualizer = this.virtualizerController.getVirtualizer();
-    if (this.canAutoFollow() && this.endAnchor.recordViewport(this.scrollElement)) {
+    const atEnd = this.endAnchor.recordViewport(this.scrollElement);
+    if (this.offsetState.pendingInteractionAnchor === null && this.canAutoFollow() && atEnd) {
       this.endAnchor.scheduleRowModelReconcile(() => {
         if (
           !retargetTranscriptEndAfterRows(
