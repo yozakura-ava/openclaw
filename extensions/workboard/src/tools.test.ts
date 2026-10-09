@@ -697,3 +697,103 @@ describe("workboard tools", () => {
     expect(cancelled.card).toMatchObject({ status: "cancelled" });
   });
 });
+
+// Card e525f3f2 regression: 8-char card-id prefixes must resolve on the tool surface.
+// `workboard_read` (read site, tools.ts) and the `requireScopedCard` mutation family
+// (tools-card-mutations.ts) both used `store.get()` directly, so an 8-char prefix
+// threw `card not found: <prefix>` even though the full uuid resolved fine.
+// One read tool + one mutation tool are driven here on purpose: a single-site fix
+// leaves the other half of this block failing.
+describe("workboard tool card-id prefix resolution (e525f3f2)", () => {
+  const TARGET_ID = "a3a7264a-1111-4222-8333-444444444444";
+  const AMBIGUOUS_ID = "a3a7264a-9999-4222-8333-444444444444";
+  const PREFIX = TARGET_ID.slice(0, 8);
+
+  type SeededKeyedStore = ReturnType<typeof createWorkboardSqliteTestHarness>["stores"]["cards"];
+
+  async function seed(keyed: SeededKeyedStore, id: string, title: string) {
+    await keyed.register(id, {
+      version: 1,
+      card: {
+        id,
+        title,
+        status: "todo",
+        priority: "normal",
+        labels: [],
+        position: 1000,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    });
+  }
+
+  function toolsFor(store: ReturnType<typeof createWorkboardSqliteTestHarness>["store"]) {
+    return new Map(
+      createWorkboardTools({ store, context: { agentId: "main" } }).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+  }
+
+  it("resolves an 8-char prefix through workboard_read (read site)", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness();
+    await seed(stores.cards, TARGET_ID, "Prefix target");
+    const tools = toolsFor(store);
+
+    const read = readPayload(
+      await tools.get("workboard_read")?.execute("prefix-read", { id: PREFIX }),
+    );
+    expect(read.card).toMatchObject({ id: TARGET_ID });
+    expect(read.workerContext).toContain("Prefix target");
+  });
+
+  it("resolves an 8-char prefix through workboard_comment (mutation site)", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness();
+    await seed(stores.cards, TARGET_ID, "Prefix mutation target");
+    const tools = toolsFor(store);
+
+    const commented = readPayload(
+      await tools.get("workboard_comment")?.execute("prefix-comment", {
+        id: PREFIX,
+        body: "commented via 8-char prefix",
+      }),
+    );
+    expect(commented.card).toMatchObject({
+      id: TARGET_ID,
+      metadata: { comments: [expect.objectContaining({ body: "commented via 8-char prefix" })] },
+    });
+  });
+
+  it("returns byte-identical payloads for a full uuid and for its 8-char prefix", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness();
+    await seed(stores.cards, TARGET_ID, "Parity target");
+    const tools = toolsFor(store);
+
+    const byUuid = readPayload(
+      await tools.get("workboard_read")?.execute("uuid-read", { id: TARGET_ID }),
+    );
+    const byPrefix = readPayload(
+      await tools.get("workboard_read")?.execute("parity-prefix-read", { id: PREFIX }),
+    );
+    expect(byPrefix.card).toEqual(byUuid.card);
+    expect(byPrefix.workerContext).toEqual(byUuid.workerContext);
+  });
+
+  it("raises an explicit ambiguity error instead of silently picking one card", async () => {
+    const { store, stores } = createWorkboardSqliteTestHarness();
+    await seed(stores.cards, TARGET_ID, "Ambiguity target A");
+    await seed(stores.cards, AMBIGUOUS_ID, "Ambiguity target B");
+    const tools = toolsFor(store);
+
+    await expect(
+      tools.get("workboard_read")?.execute("ambiguous-read", { id: PREFIX }),
+    ).rejects.toThrow(/Ambiguous card id prefix: a3a7264a/);
+    await expect(
+      tools.get("workboard_comment")?.execute("ambiguous-comment", {
+        id: PREFIX,
+        body: "should not be written",
+      }),
+    ).rejects.toThrow(/Ambiguous card id prefix: a3a7264a/);
+  });
+});

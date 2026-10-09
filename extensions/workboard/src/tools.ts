@@ -10,6 +10,7 @@ import {
   createWorkboardCardMutations,
   createWorkboardMoveTool,
   redactedCardResult,
+  resolveWorkboardCardByIdOrPrefix,
   strictObject,
   workspaceField,
 } from "./tools-card-mutations.js";
@@ -214,13 +215,11 @@ export function createWorkboardTools(params: {
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
-        const card = await store.get(id);
-        if (!card) {
-          throw new Error(`card not found: ${id}`);
-        }
+        const card = await resolveWorkboardCardByIdOrPrefix(store, id);
         return jsonResult({
           card: redactClaimToken(card),
-          workerContext: await store.buildWorkerContext(id),
+          // card.id, not the raw prefix: buildWorkerContext looks up by exact id.
+          workerContext: await store.buildWorkerContext(card.id),
         });
       },
     },
