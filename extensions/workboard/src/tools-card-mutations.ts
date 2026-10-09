@@ -4,6 +4,7 @@ import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type, type TProperties } from "typebox";
+import { resolveWorkboardCardByIdOrPrefix as resolveCardByIdOrPrefixInList } from "./card-lookup.js";
 import { redactClaimToken } from "./card-redaction.js";
 import { isWorkboardClaimReclaimable } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
@@ -20,16 +21,49 @@ function canMutateCard(card: WorkboardCard, ownerId: string, token?: string): bo
   return !claim || claim.ownerId === ownerId || safeEqualSecret(token, claim.token);
 }
 
+/**
+ * Single store-taking card resolver shared by every workboard tool id lookup
+ * (`workboard_read`, the `requireScopedCard` mutation family, and the
+ * orchestration tools).
+ *
+ * Exact ids hit `store.get()` first, so a full uuid resolves to the same card
+ * the tools returned before and never pays a board listing. Only an exact miss
+ * falls through to the board listing plus the shared prefix matcher, so an
+ * 8-char prefix resolves instead of throwing `card not found`.
+ *
+ * Returns the CARD, not the id: callers must pass `card.id` downstream. Raw
+ * prefixes fail inside `store.buildWorkerContext` and inside every
+ * `store.move` / `addComment` / `heartbeat` call, which look the card up by
+ * exact id internally.
+ */
+export async function resolveWorkboardCardByIdOrPrefix(
+  store: WorkboardStore,
+  id: string,
+): Promise<WorkboardCard> {
+  const trimmed = id.trim();
+  if (!trimmed) {
+    throw new Error("card id is required.");
+  }
+  const exact = await store.get(trimmed);
+  if (exact) {
+    return exact;
+  }
+  const result = resolveCardByIdOrPrefixInList(await store.list(), trimmed);
+  if (result.card) {
+    return result.card;
+  }
+  // card-lookup owns the messages: an ambiguous prefix raises an explicit
+  // error instead of silently picking one card.
+  throw new Error(result.error ?? `card not found: ${trimmed}`);
+}
+
 export async function requireScopedCard(
   store: WorkboardStore,
   cardId: string,
   ownerId: string,
   token?: string,
 ): Promise<WorkboardCard> {
-  const card = await store.get(cardId);
-  if (!card) {
-    throw new Error(`card not found: ${cardId}`);
-  }
+  const card = await resolveWorkboardCardByIdOrPrefix(store, cardId);
   if (!canMutateCard(card, ownerId, token)) {
     throw new Error(`card is claimed by ${card.metadata?.claim?.ownerId ?? "another agent"}.`);
   }
@@ -90,7 +124,9 @@ export function createWorkboardCardMutations(store: WorkboardStore, ownerId: str
     if (requireClaim && !card.metadata?.claim) {
       throw new Error("card must be claimed before lifecycle completion.");
     }
-    return input;
+    // Downstream store calls match on exact id only, so hand them the resolved
+    // card id rather than the raw prefix the caller supplied.
+    return { ...input, id: card.id };
   };
   const readScopedCardToolParams = (rawParams: unknown) => readParams(rawParams);
   const readClaimedCardToolParams = (rawParams: unknown) => readParams(rawParams, true);

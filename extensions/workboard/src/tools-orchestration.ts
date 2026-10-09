@@ -2,7 +2,6 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import type { AnyAgentTool } from "openclaw/plugin-sdk/plugin-entry";
 import { asNonArrayRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
-import { resolveWorkboardCardByIdOrPrefix } from "./card-lookup.js";
 import { redactClaimToken, redactDispatchResult } from "./card-redaction.js";
 import type { WorkboardStore } from "./store.js";
 import {
@@ -10,6 +9,7 @@ import {
   createWorkboardCardMutations,
   redactedCardResult,
   requireScopedCard,
+  resolveWorkboardCardByIdOrPrefix,
   claimTokenField,
   strictObject,
   workspaceField,
@@ -23,31 +23,17 @@ const ScopedClaimTokenField = claimTokenField("Claim token for claimed cards.");
 
 /**
  * Card-id resolver for orchestration tools. Accepts either a full UUID or an
- * 8-char prefix and resolves to the full UUID via the store's list + resolver.
- * Mirrors `resolveToolCardId` in tools.ts but lives here so the orchestration
- * tools (specify, decompose, runs, force_close) can resolve 8-char prefixes
- * without crossing the tools.ts module boundary.
+ * 8-char prefix and returns the full id. Delegates to the single shared
+ * store-taking resolver so the tool surface, the mutation family and the
+ * orchestration tools cannot drift apart again; the inline list + matcher
+ * implementation that used to live here is gone.
  */
 async function resolveOrchestrationCardId(store: WorkboardStore, rawId: unknown): Promise<string> {
   if (typeof rawId !== "string" || rawId.trim() === "") {
     throw new Error("card id is required.");
   }
-  const trimmed = rawId.trim();
-  if (trimmed.length >= 9 || /^[0-9a-f]{8}-/.test(trimmed)) {
-    const direct = await store.get(trimmed);
-    if (direct) {
-      return direct.id;
-    }
-  }
-  const cards = await store.list();
-  const result = resolveWorkboardCardByIdOrPrefix(cards, trimmed);
-  if (result.error) {
-    throw new Error(result.error);
-  }
-  if (!result.card) {
-    throw new Error(`card not found: ${trimmed}`);
-  }
-  return result.card.id;
+  const card = await resolveWorkboardCardByIdOrPrefix(store, rawId);
+  return card.id;
 }
 const OptionalNextStatusField = Type.Optional(
   Type.String({ description: "Optional next status." }),
