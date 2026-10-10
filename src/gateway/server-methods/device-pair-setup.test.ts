@@ -360,12 +360,6 @@ describe("device.pair.setupCode", () => {
     expect(writeJson).toHaveBeenCalledWith({
       joinUrl,
       command: `npx -y openclaw connect ${joinUrl} --service --session-host`,
-<<<<<<< HEAD
-=======
-      serviceCommand: `npx -y openclaw connect ${joinUrl} --service`,
-      installedCommand: `openclaw connect ${joinUrl} --service --session-host`,
-      versionNote: expect.stringContaining("matching Gateway build"),
->>>>>>> 97b6e87616f
     });
   });
 

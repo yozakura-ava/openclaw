@@ -420,7 +420,6 @@ describe("mutations", () => {
       scopes: ["operator.admin"],
     });
     expect(output()).toContain(joinUrl);
-<<<<<<< HEAD
     expect(output()).toContain(`npx -y openclaw connect ${joinUrl} --service --session-host`);
     expect(output()).toContain("Installs a background node service that can run agent sessions.");
     expect(output()).toContain(`Command-only node: npx -y openclaw connect ${joinUrl} --service`);
@@ -436,36 +435,6 @@ describe("mutations", () => {
     });
     expect(runtime.log).not.toHaveBeenCalled();
   });
-=======
-    expect(output()).toContain(
-      `npx -y openclaw@2026.9.9 connect ${joinUrl} --service --session-host`,
-    );
-    expect(output()).toContain("Installs a background node service that can run agent sessions.");
-    expect(output()).toContain(
-      `Command-only node: npx -y openclaw@2026.9.9 connect ${joinUrl} --service`,
-    );
-    expect(output()).toContain(
-      `Already have OpenClaw installed? Run: openclaw connect ${joinUrl} --service --session-host`,
-    );
-    expect(output()).not.toContain("opaque");
-  });
-  it.each([undefined, "The machine needs a matching Gateway build."])(
-    "returns the Gateway commands in JSON without printing text (%s)",
-    async (versionNote) => {
-      const joinUrl = `https://gateway.example/j/${"b".repeat(22)}`;
-      const commands = {
-        command: `npx -y openclaw@2026.9.9 connect ${joinUrl} --service --session-host`,
-        serviceCommand: `npx -y openclaw@2026.9.9 connect ${joinUrl} --service`,
-        installedCommand: `openclaw connect ${joinUrl} --service --session-host`,
-        ...(versionNote ? { versionNote } : {}),
-      };
-      callGateway.mockResolvedValueOnce({ joinUrl, ...commands });
-      await run("join-code", "--json");
-      expect(runtime.writeJson).toHaveBeenCalledWith({ joinUrl, ...commands });
-      expect(runtime.log).not.toHaveBeenCalled();
-    },
-  );
->>>>>>> 97b6e87616f
 });
 
 describe("local fallback", () => {

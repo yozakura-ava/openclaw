@@ -114,32 +114,17 @@ suite.define(() => {
       const firstRequest = await gateway.waitForRequest("device.pair.setupCode");
       expect(firstRequest.params).toEqual({ includeQr: false, joinUrl: true });
       const dialog = page.locator('openclaw-modal-dialog[label="Connect a machine"]');
-<<<<<<< HEAD
       await dialog
         .getByText(`npx -y openclaw connect '${firstJoinUrl}' --service --session-host`, {
           exact: true,
         })
         .waitFor();
-=======
-      await dialog.getByText(firstCommand, { exact: true }).waitFor();
-      const installed = dialog
-        .locator(".connect-machine-dialog__hint")
-        .filter({ hasText: "Already have OpenClaw installed? Run:" });
-      expect(await installed.locator("code").textContent()).toBe(firstInstalledCommand);
-      expect(await dialog.getByText(versionNote, { exact: true }).count()).toBe(0);
->>>>>>> 97b6e87616f
       expect(
         await dialog
           .locator(".login-gate__command code")
           .first()
           .evaluate((element) => element.scrollWidth <= element.clientWidth),
       ).toBe(true);
-<<<<<<< HEAD
-=======
-      expect(
-        await installed.evaluate((element) => element.scrollWidth <= element.clientWidth),
-      ).toBe(true);
->>>>>>> 97b6e87616f
       const copy = dialog.locator("button.chat-copy-btn").first();
       expect(await dialog.locator("button.chat-copy-btn:visible").count()).toBe(1);
       expect(await copy.getAttribute("aria-label")).toBe("Copy command");
@@ -151,23 +136,10 @@ suite.define(() => {
         .waitFor();
       await dialog.getByText(/This link is single-use and expires at/u).waitFor();
       expect(await dialog.getByRole("button", { name: "Manage devices" }).count()).toBe(1);
-<<<<<<< HEAD
       await dialog.getByText("Command access only (no agent sessions)", { exact: true }).click();
       await dialog
         .getByText(`npx -y openclaw connect '${firstJoinUrl}' --service`, { exact: true })
         .waitFor();
-=======
-      await captureProof(page, "02-connect-dialog.png", {
-        surface: dialog.locator("dialog"),
-        content: [copy, installed],
-      });
-      await dialog.getByText("Command access only (no agent sessions)", { exact: true }).click();
-      await dialog.getByText(firstServiceCommand, { exact: true }).waitFor();
-      await captureProof(page, "02-connect-command-only.png", {
-        surface: dialog.locator("dialog"),
-        content: [dialog.getByText(firstServiceCommand, { exact: true }), installed],
-      });
->>>>>>> 97b6e87616f
       await dialog.getByText("Command access only (no agent sessions)", { exact: true }).click();
 
       await dialog.getByRole("button", { name: "Mint fresh code" }).click();
@@ -179,7 +151,6 @@ suite.define(() => {
         joinUrl: true,
       });
       await dialog
-<<<<<<< HEAD
         .getByText(`npx -y openclaw connect ${secondJoinUrl} --service --session-host`, {
           exact: true,
         })
@@ -272,13 +243,7 @@ suite.define(() => {
       const retry = dialog.getByRole("button", { name: "Mint fresh code" });
       await retry.click();
       await dialog
-<<<<<<< HEAD
         .getByText(`npx -y openclaw connect ${joinUrl} --service --session-host`, { exact: true })
-=======
-        .getByText(`npx -y openclaw@2026.9.30 connect ${joinUrl} --service --session-host`, {
-          exact: true,
-        })
->>>>>>> 97b6e87616f
         .waitFor();
       expect(await gateway.getRequests("device.pair.setupCode")).toHaveLength(2);
     } finally {

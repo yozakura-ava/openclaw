@@ -75,11 +75,7 @@ openclaw devices reject <requestId>
 ### `openclaw devices join-code`
 
 Mint a single-use node onboarding URL with administrator access to the
-<<<<<<< HEAD
 Gateway. Paste the printed `npx -y openclaw connect <url> --service --session-host`
-=======
-Gateway. Paste the printed `npx -y openclaw@<gateway-version> connect <url> --service --session-host`
->>>>>>> 97b6e87616f
 command on the machine to enroll it as a background service that can run agent
 sessions. Use only trusted shared infrastructure; for a command-only node,
 omit `--session-host`. This join URL is not a mobile app setup code; for

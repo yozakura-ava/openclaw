@@ -4,68 +4,32 @@ import { createComponent, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
 <<<<<<< HEAD
 import { renderSessionMenuItem, renderCloudProfileMenuItems } from "./cloud-target.ts";
-=======
-import { mountSolid } from "../../test-helpers/mount-solid.ts";
-import { CloudProfileMenuItems, SessionMenuItem } from "./cloud-target-view.tsx";
-import type { CloudProfileMenuItemsOptions } from "./cloud-target.ts";
->>>>>>> 97b6e87616f
 import {
   projectDevicePlacements,
   resolveAutomaticDevicePlacementDisabledReason,
 } from "./device-placement.ts";
-<<<<<<< HEAD
-=======
-
-function mountSessionItem(
-  item: Parameters<typeof SessionMenuItem>[0]["item"],
-  submitting: boolean,
-  container: HTMLElement,
-) {
-  return mountSolid(() => createComponent(SessionMenuItem, { item, submitting }), { container });
-}
-
-function mountCloudProfiles(initial: CloudProfileMenuItemsOptions, container: HTMLElement) {
-  const [params, setParams] = createSignal(initial);
-  const mounted = mountSolid(
-    () =>
-      createComponent(CloudProfileMenuItems, {
-        get params() {
-          return params();
-        },
-      }),
-    { container },
-  );
-  return {
-    ...mounted,
-    update: (next: CloudProfileMenuItemsOptions) => {
-      setParams(next);
-      flush();
-    },
-  };
-}
->>>>>>> 97b6e87616f
 
 describe("cloud target menu", () => {
   it("renders saved-pairing remediation commands without redeeming a new join URL", () => {
     const container = document.createElement("div");
-    mountSessionItem(
-      {
-        value: "device:disabled",
-        label: "Device",
-        compact: true,
-        disabled: true,
-        checked: false,
-        title: "Hosting disabled",
-        remediation: "enable-session-hosting",
-        onSelect: vi.fn(),
-      },
-      false,
+    render(
+      renderSessionMenuItem(
+        {
+          value: "auto",
+          label: "Auto",
+          compact: true,
+          disabled: true,
+          checked: false,
+          title: resolveAutomaticDevicePlacementDisabledReason(environments, devices),
+          onSelect: vi.fn(),
+        },
+        false,
+      ),
       container,
     );
     const card = container.querySelector('[slot="content"]');
     expect(card?.textContent).toContain(
       "Session hosting is disabled. Run these commands on the paired device:",
-<<<<<<< HEAD
     );
     expect(Array.from(card!.querySelectorAll("code"), (command) => command.textContent)).toEqual([
       "openclaw config set nodeHost.workerRuns.enabled true",
@@ -101,8 +65,6 @@ describe("cloud target menu", () => {
     );
     expect(container.querySelector('[slot="content"]')?.textContent?.trim()).toBe(
       "No devices have session hosting enabled. Connect a machine with session hosting enabled, or enable it on a paired device.",
-=======
->>>>>>> 97b6e87616f
     );
     expect(Array.from(card!.querySelectorAll("code"), (command) => command.textContent)).toEqual([
       "openclaw config set nodeHost.workerRuns.enabled true",
