@@ -438,7 +438,7 @@ function planTerminalCompletion(
     }
     if (!ownsInterruptedRecovery) {
       const endedAt = completeParams.endedAt ?? prepared.now;
-      const outcome = withSubagentOutcomeTiming(
+      const interruptedOutcome = withSubagentOutcomeTiming(
         { status: "error", error: completeParams.outcome.error },
         { startedAt: entry.execution.startedAt, endedAt },
       );
@@ -448,7 +448,7 @@ function planTerminalCompletion(
         ...entry.execution,
         status: "terminal",
         endedAt,
-        outcome,
+        outcome: interruptedOutcome,
         interruptedAt: undefined,
         interruptionReason: "gateway-restart",
         suppressSessionEffects: suppressSessionEffects ? true : undefined,
@@ -460,6 +460,20 @@ function planTerminalCompletion(
       };
       entry.cleanupHandled = false;
       entry.terminalOwner = "interrupted-recovery";
+    }
+    if (!entry.collect && !suppressSessionEffects) {
+      // Unfinished work needs its history even when successful completion would delete it.
+      entry.cleanup = "keep";
+      if (
+        entry.expectsCompletionMessage === false &&
+        entry.completionRequesterSessionId &&
+        entry.completionRequesterLifecycleRevision
+      ) {
+        // Quiet completion does not waive continuation after a restart. Keep the
+        // handoff private and bound to the requester captured before launch.
+        entry.completionTarget = "parent";
+        entry.requesterTurnRunId = undefined;
+      }
     }
   }
   const sessionSuperseded = context.newerGenerationOwnsSession(currentEntry);

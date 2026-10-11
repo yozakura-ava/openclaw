@@ -1,5 +1,6 @@
 // Serializes lifecycle mutations and work admission for logical session identities.
 import { AsyncLocalStorage } from "node:async_hooks";
+import { isAgentRunDirectAbortReason } from "../agents/run-termination.js";
 import { runExclusiveSessionStoreWrite } from "../config/sessions/store-writer.js";
 import type { GatewayContextResolver } from "../gateway/server-methods/types.js";
 import { getAgentRunLifecycleGeneration } from "../infra/agent-run-registry.js";
@@ -387,6 +388,15 @@ export function isSessionWorkAdmissionActive(
   );
 }
 
+function isRestartRecoverableAdmission(admission: SessionWorkAdmission): boolean {
+  // Finished execution can still owe delivery; only a settled explicit stop ends that custody.
+  const abortReason = admission.getAbortReason?.() ?? admission.interrupted;
+  return (
+    admission.phase === "acquired" &&
+    (!admission.isSettling?.() || !isAgentRunDirectAbortReason(abortReason))
+  );
+}
+
 function isSessionWorkAdmissionTargetActive(params: {
   scope: string;
   sessionKey: string;
@@ -402,7 +412,7 @@ function isSessionWorkAdmissionTargetActive(params: {
   return identities.some((identity) =>
     Array.from(ACTIVE_SESSION_WORK_ADMISSIONS.get(identity) ?? []).some(
       (admission) =>
-        admission.phase === "acquired" &&
+        isRestartRecoverableAdmission(admission) &&
         (!params.owners ||
           (params.owners.has(admission) &&
             admission.lifecycleGeneration === getAgentRunLifecycleGeneration())) &&
@@ -494,7 +504,7 @@ export function captureGatewaySessionWorkAdmissions(resolveGatewayContext: Gatew
   const owners = collectSessionWorkAdmissions(
     ACTIVE_SESSION_WORK_ADMISSIONS.keys(),
     (admission) =>
-      admission.phase === "acquired" &&
+      isRestartRecoverableAdmission(admission) &&
       admission.lifecycleGeneration === getAgentRunLifecycleGeneration() &&
       hasGatewayContextOwner(admission, resolveGatewayContext),
   );
@@ -537,6 +547,10 @@ export async function beginSessionWorkAdmission(params: {
   storeWriterIdentities?: Iterable<string | undefined>;
   /** Stable process-wide identity for owners that must be observable while still pending. */
   owner?: symbol;
+  /** The execution owner has committed its terminal outcome; cleanup still retains this lease. */
+  isSettling?: () => boolean;
+  /** Borrow the execution owner's current abort reason, including after admission handoff. */
+  getAbortReason?: () => unknown;
   resolveGatewayContext?: GatewayContextResolver;
   assertAllowed: (signal: AbortSignal) => Promise<void> | void;
   /** Final writer-ordered validation; use when one-time effects must not run during the first check. */
@@ -562,6 +576,8 @@ export async function beginSessionWorkAdmission(params: {
   const admission: SessionWorkAdmission = {
     lifecycleGeneration: getAgentRunLifecycleGeneration(),
     phase: "pending",
+    isSettling: params.isSettling,
+    getAbortReason: params.getAbortReason ?? (() => signal.reason),
     ...(params.owner ? { owner: params.owner } : {}),
     handoffIds: new Set(),
     identities: new Set(identities),
