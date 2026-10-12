@@ -230,7 +230,41 @@
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
-    "properties": {}
+    "properties": {
+      "completionGate": {
+        "type": "object",
+        "description": "Terminal-transition completion gate. Default-off: absent or enabled=false is stock upstream behavior.",
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false,
+            "description": "Master switch. Any non-boolean value is treated as disabled."
+          },
+          "mainRoot": {
+            "type": "string",
+            "description": "Absolute path to the config-declared canonical main checkout root. Never derived from the caller workspace, so a worktree session cannot self-attribute main."
+          },
+          "mainRef": {
+            "type": "string",
+            "default": "main",
+            "description": "Branch or ref whose state is probed."
+          },
+          "rolloutOwner": {
+            "type": "string",
+            "description": "Named owner accountable for the dark rollout window; required before the gate may ever be enabled in production."
+          },
+          "rolloutEndsOn": {
+            "type": "string",
+            "description": "ISO date the dark rollout window closes; enforcement must be re-decided on or after this date."
+          },
+          "deriveScript": {
+            "type": "string",
+            "description": "Absolute path to derive_completion_claim.py. When set, a terminal transition must be backed by an admitted claim from that script; when absent the gate stays the probe-only scaffold. Relative paths are refused."
+          }
+        }
+      }
+    }
   },
   "controlUi": {
     "entry": "dist/control-ui/9ab6c47ba73f23fc3c6efe97126203f55b64120449dabbe9f297caed806d73d2/index.js",
