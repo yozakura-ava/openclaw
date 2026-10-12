@@ -184,6 +184,11 @@ export class SqliteWorkerBroker {
     options.signal?.throwIfAborted();
     options.assertCurrent?.();
     let actor = this.actors.get(key);
+    if (actor?.slot.failed) {
+      // Retained sibling clients must not pin a failed actor to its dead slot.
+      await waitForSqliteOpen(this.lifecycle.retireActor(actor), options.signal);
+      return this.openAdmitted(options, client);
+    }
     let resumeScheduledMaintenance: (() => void) | undefined;
     if (actor?.retirementRequested) {
       if (actor.retirement) {
