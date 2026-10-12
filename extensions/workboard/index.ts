@@ -3,6 +3,7 @@ import { registerWorkboardGatewayMethods } from "./runtime-api.js";
 import { createWorkboardAutomationNudgeService } from "./src/automation-nudge.js";
 import { createWorkboardChangeEventService } from "./src/change-events.js";
 import { registerWorkboardCommand } from "./src/command.js";
+import { guardWorkboardToolsForCompletionGate } from "./src/gate-completion.js";
 import {
   createWorkboardLifecycleService,
   readWorkboardLifecycleSessions,
@@ -114,10 +115,13 @@ export default definePluginEntry({
     );
     api.registerTool(
       (context) =>
-        guardWorkboardToolsForWorkspaceAccess(
-          createWorkboardTools({ context, store }),
+        guardWorkboardToolsForCompletionGate(
+          guardWorkboardToolsForWorkspaceAccess(
+            createWorkboardTools({ context, store }),
+            context,
+            api.runtime.sandbox.resolveWorkspaceAuthority,
+          ),
           context,
-          api.runtime.sandbox.resolveWorkspaceAuthority,
         ),
       {
         names: [...WORKBOARD_TOOL_NAMES],
