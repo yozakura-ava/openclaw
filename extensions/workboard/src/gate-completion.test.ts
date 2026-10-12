@@ -8,13 +8,17 @@ import {
   assertTerminalTransitionAdmitted,
   buildScrubbedGitEnv,
   deriveCompletionClaim,
+  diffClaimsAgainstDerived,
+  extractNumericClaims,
   GATE_CHILD_TIMEOUT_MS,
   GIT_ENV_KEYS_TO_STRIP,
   GIT_ENV_KEY_PREFIXES_TO_STRIP,
   guardWorkboardToolsForCompletionGate,
   isGitEnvKeyToStrip,
   isTerminalWorkboardTransition,
+  parseDerivedNumbers,
   probeCanonicalMainState,
+  readCompletionClaimText,
   resolveCanonicalMainRoot,
   resolveCompletionGateConfig,
 } from "./gate-completion.js";
@@ -387,6 +391,9 @@ describe("claim enforcement wiring (Phase 1)", () => {
         "scripts/gate/derive_completion_claim.py",
         "--allowed-file",
         "tests/x.py",
+        // The record (and its derived_numbers cells) only reaches stdout under
+        // --json; without it the script prints the ADMITTED line instead.
+        "--json",
       ]);
     } finally {
       rmSync(repo, { recursive: true, force: true });
@@ -568,5 +575,334 @@ describe("guardWorkboardToolsForCompletionGate", () => {
       /workboard completion gate refused workboard_complete/,
     );
     expect(calls).toEqual([]);
+  });
+});
+
+describe("derived-numbers same-basis diff (Part B)", () => {
+  let scratch: string;
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "gate-numbers-"));
+  });
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  function stubScript(body: string): string {
+    const path = join(scratch, "derive_stub.py");
+    writeFileSync(path, body, "utf8");
+    return path;
+  }
+
+  /**
+   * Record shaped exactly like derive_completion_claim.py --json stdout:
+   * every cell carries command, command_argv, count_basis, available, value.
+   */
+  function numbersRecord(opts?: {
+    runtimeValue?: number;
+    runtimeAvailable?: boolean;
+    additions?: number;
+    deletions?: number;
+    files?: number;
+    numstatAvailable?: boolean;
+  }): Record<string, unknown> {
+    const runtimeAvailable = opts?.runtimeAvailable ?? true;
+    const numstatAvailable = opts?.numstatAvailable ?? true;
+    return {
+      admitted: true,
+      reason: "ancestry_verified",
+      derived_numbers: {
+        schema_version: 1,
+        build_sha: "a".repeat(40),
+        authority: "gate-published",
+        cells: {
+          runtime_cases: {
+            count_basis: "runtime_cases",
+            command: "pytest --collect-only -q tests",
+            command_argv: ["pytest", "--collect-only", "-q", "tests"],
+            scope: "tests",
+            value: opts?.runtimeValue ?? 30,
+            available: runtimeAvailable,
+            predicate: runtimeAvailable ? "runtime_cases_derived" : "runtime_cases_unavailable",
+            detail: runtimeAvailable ? "30 test(s) collected under tests" : "",
+            error: runtimeAvailable ? "" : "pytest --collect-only exited 5: collection failed",
+          },
+          diff_numstat: {
+            count_basis: "diff_numstat",
+            command: `git --no-optional-locks diff --numstat ${"a".repeat(40)}^1 ${"a".repeat(40)}`,
+            command_argv: ["git", "--no-optional-locks", "diff", "--numstat"],
+            diff_base: "first_parent",
+            additions: opts?.additions ?? 120,
+            deletions: opts?.deletions ?? 30,
+            files_touched: opts?.files ?? 4,
+            available: numstatAvailable,
+            predicate: numstatAvailable ? "diff_numstat_derived" : "diff_numstat_unavailable",
+            detail: numstatAvailable ? "+120/-30 across 4 file(s)" : "",
+            error: numstatAvailable ? "" : "exit 128: bad revision",
+          },
+        },
+        unavailable: [
+          ...(runtimeAvailable ? [] : ["runtime_cases"]),
+          ...(numstatAvailable ? [] : ["diff_numstat"]),
+        ],
+        complete: runtimeAvailable && numstatAvailable,
+      },
+    };
+  }
+
+  function scriptPrinting(record: Record<string, unknown>): string {
+    // Embedded as a quoted Python string literal: raw JSON is not valid Python
+    // source (`true`/`false`/`null` are not literals).
+    const literal = JSON.stringify(JSON.stringify(record));
+    return `import sys\nsys.stdout.write(${literal})\n`;
+  }
+
+  describe("parseDerivedNumbers", () => {
+    it("indexes both published cells by count_basis with their commands", () => {
+      const parsed = parseDerivedNumbers(numbersRecord());
+
+      expect(parsed).toBeDefined();
+      expect(Object.keys(parsed!.cells).toSorted()).toEqual(["diff_numstat", "runtime_cases"]);
+      expect(parsed!.cells.runtime_cases!.metrics.value).toBe(30);
+      expect(parsed!.cells.runtime_cases!.command).toBe("pytest --collect-only -q tests");
+      expect(parsed!.cells.diff_numstat!.metrics).toMatchObject({
+        additions: 120,
+        deletions: 30,
+        files_touched: 4,
+      });
+      expect(parsed!.complete).toBe(true);
+    });
+
+    it("returns undefined when the script published no command-of-record", () => {
+      expect(parseDerivedNumbers({ admitted: true, reason: "ancestry_verified" })).toBeUndefined();
+      expect(parseDerivedNumbers(undefined)).toBeUndefined();
+    });
+  });
+
+  describe("extractNumericClaims", () => {
+    it("reads basis-tagged claims and the numstat +/- pair", () => {
+      const claims = extractNumericClaims(
+        "runtime_cases=30 and diff_numstat=+120/-30 over diff_numstat.files_touched=4",
+      );
+
+      expect(claims).toEqual([
+        { basis: "runtime_cases", metric: "value", value: 30, source: "runtime_cases=30" },
+        { basis: "diff_numstat", metric: "additions", value: 120, source: "diff_numstat=+120/-30" },
+        { basis: "diff_numstat", metric: "deletions", value: 30, source: "diff_numstat=+120/-30" },
+        {
+          basis: "diff_numstat",
+          metric: "files_touched",
+          value: 4,
+          source: "diff_numstat.files_touched=4",
+        },
+      ]);
+    });
+
+    it("ignores bare numbers that name no basis", () => {
+      expect(extractNumericClaims("30/30 tests passed, QG PASS, 120 insertions")).toEqual([]);
+      expect(extractNumericClaims(undefined)).toEqual([]);
+      expect(extractNumericClaims("")).toEqual([]);
+    });
+  });
+
+  describe("readCompletionClaimText", () => {
+    it("joins the completion summary and the proof note", () => {
+      expect(
+        readCompletionClaimText({
+          id: "card-1",
+          summary: "runtime_cases=30",
+          proof: { note: "QG PASS" },
+        }),
+      ).toBe("runtime_cases=30\nQG PASS");
+      expect(readCompletionClaimText({ id: "card-1" })).toBeUndefined();
+      expect(readCompletionClaimText(undefined)).toBeUndefined();
+    });
+
+    it("reads only the proof note when no summary is present", () => {
+      expect(readCompletionClaimText({ proof: { note: "runtime_cases=30" } })).toBe(
+        "runtime_cases=30",
+      );
+    });
+  });
+
+  describe("diffClaimsAgainstDerived", () => {
+    it("admits a claim that matches its own basis", () => {
+      const diff = diffClaimsAgainstDerived(
+        extractNumericClaims("runtime_cases=30"),
+        parseDerivedNumbers(numbersRecord()),
+      );
+
+      expect(diff).toEqual({ admitted: true, signals: [] });
+    });
+
+    it("refuses a same-basis mismatch with the basis in the predicate", () => {
+      const diff = diffClaimsAgainstDerived(
+        extractNumericClaims("runtime_cases=31"),
+        parseDerivedNumbers(numbersRecord()),
+      );
+
+      expect(diff.admitted).toBe(false);
+      expect(diff).toMatchObject({ code: "numbers_mismatch:runtime_cases" });
+      expect(diff.admitted === false && diff.message).toContain("pytest --collect-only -q tests");
+    });
+
+    it("signals basis_diverged without refusing when the number is right but mislabelled", () => {
+      const diff = diffClaimsAgainstDerived(
+        extractNumericClaims("runtime_cases=4"),
+        parseDerivedNumbers(numbersRecord()),
+      );
+
+      expect(diff.admitted).toBe(true);
+      expect(diff.admitted === true && diff.signals[0]).toMatch(/^basis_diverged:/);
+      expect(diff.admitted === true && diff.signals[0]).toContain("diff_numstat");
+    });
+
+    it("refuses an unavailable cell even when the number matches another basis", () => {
+      const derived = parseDerivedNumbers(numbersRecord({ runtimeAvailable: false, files: 4 }))!;
+      expect(derived.cells.runtime_cases!.available).toBe(false);
+
+      const diff = diffClaimsAgainstDerived(extractNumericClaims("runtime_cases=4"), derived);
+
+      expect(diff.admitted).toBe(false);
+      expect(diff).toMatchObject({ code: "numbers_unavailable_vs_claimed" });
+      expect(diff.admitted === false && diff.message).toContain("runtime_cases_unavailable");
+    });
+
+    it("refuses a claim whose metric its own basis never publishes", () => {
+      const diff = diffClaimsAgainstDerived(
+        extractNumericClaims("diff_numstat=120"),
+        parseDerivedNumbers(numbersRecord()),
+      );
+
+      expect(diff.admitted).toBe(false);
+      expect(diff).toMatchObject({ code: "numbers_mismatch:diff_numstat" });
+    });
+
+    it("refuses when the script published no derived_numbers at all", () => {
+      const diff = diffClaimsAgainstDerived(extractNumericClaims("runtime_cases=30"), undefined);
+
+      expect(diff).toMatchObject({ admitted: false, code: "numbers_unavailable_vs_claimed" });
+    });
+
+    it("ignores a basis the gate does not publish", () => {
+      const diff = diffClaimsAgainstDerived(
+        extractNumericClaims("lint_errors=7"),
+        parseDerivedNumbers(numbersRecord()),
+      );
+
+      expect(diff).toEqual({ admitted: true, signals: [] });
+    });
+
+    it("admits a payload with no numeric claims at all", () => {
+      expect(diffClaimsAgainstDerived([], parseDerivedNumbers(numbersRecord()))).toEqual({
+        admitted: true,
+        signals: [],
+      });
+    });
+  });
+
+  describe("deriveCompletionClaim end to end", () => {
+    async function run(
+      record: Record<string, unknown>,
+      claimText?: string,
+    ): Promise<{
+      admitted: boolean;
+      code?: string;
+      message?: string;
+      signals?: string[];
+      reason?: string;
+    }> {
+      const repo = gitRepo();
+      const script = stubScript(scriptPrinting(record));
+      try {
+        return (await deriveCompletionClaim({
+          scriptPath: script,
+          evidence: { cardId: "card-1", buildSha: "a".repeat(40), allowedFiles: [] },
+          mainRoot: repo,
+          mainRef: "main",
+          ...(claimText === undefined ? {} : { claimText }),
+        })) as never;
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }
+
+    it("admits a matching claim with no signals", async () => {
+      const verdict = await run(numbersRecord(), "runtime_cases=30; QG PASS");
+
+      expect(verdict).toEqual({ admitted: true, reason: "claim:ancestry_verified" });
+    });
+
+    it("refuses a drifted count", async () => {
+      const verdict = await run(numbersRecord(), "runtime_cases=29");
+
+      expect(verdict.admitted).toBe(false);
+      expect(verdict.code).toBe("numbers_mismatch:runtime_cases");
+    });
+
+    it("refuses when the claimed basis was never derivable", async () => {
+      const verdict = await run(numbersRecord({ runtimeAvailable: false }), "runtime_cases=30");
+
+      expect(verdict.admitted).toBe(false);
+      expect(verdict.code).toBe("numbers_unavailable_vs_claimed");
+    });
+
+    it("admits with a basis_diverged signal on the verdict record", async () => {
+      const verdict = await run(numbersRecord(), "runtime_cases=4");
+
+      expect(verdict.admitted).toBe(true);
+      expect(verdict.reason).toBe("claim:ancestry_verified");
+      expect(verdict.signals?.[0]).toMatch(/^basis_diverged:/);
+    });
+
+    it("leaves claim-free completions byte-identical to the scaffold shape", async () => {
+      const verdict = await run(numbersRecord(), "card done, QG PASS, no numbers here");
+
+      expect(verdict).toEqual({ admitted: true, reason: "claim:ancestry_verified" });
+    });
+  });
+
+  describe("assertTerminalTransitionAdmitted numbers wiring", () => {
+    async function completeWith(
+      record: Record<string, unknown>,
+      params: Record<string, unknown>,
+    ): Promise<{ admitted: boolean; code?: string; signals?: string[] }> {
+      const repo = gitRepo();
+      const script = stubScript(scriptPrinting(record));
+      try {
+        return (await assertTerminalTransitionAdmitted(
+          "workboard_complete",
+          { id: "card-1", buildSha: "a".repeat(40), ...params },
+          contextWith({ enabled: true, mainRoot: repo, mainRef: "main", deriveScript: script }),
+        )) as never;
+      } finally {
+        rmSync(repo, { recursive: true, force: true });
+      }
+    }
+
+    it("diffs the completion summary against the published cell", async () => {
+      const verdict = await completeWith(numbersRecord(), { summary: "runtime_cases=30" });
+
+      expect(verdict).toEqual({ admitted: true, reason: "claim:ancestry_verified" });
+    });
+
+    it("diffs the proof note when the summary carries no numbers", async () => {
+      const verdict = await completeWith(numbersRecord(), {
+        summary: "all good",
+        proof: { status: "passed", note: "runtime_cases=99" },
+      });
+
+      expect(verdict.admitted).toBe(false);
+      expect(verdict.code).toBe("numbers_mismatch:runtime_cases");
+    });
+
+    it("diffs the numstat pair asserted in the proof note", async () => {
+      const verdict = await completeWith(numbersRecord(), {
+        proof: { note: "diff_numstat=+120/-30 across diff_numstat.files_touched=4" },
+      });
+
+      expect(verdict).toEqual({ admitted: true, reason: "claim:ancestry_verified" });
+    });
   });
 });
