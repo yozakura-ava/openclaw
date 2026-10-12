@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { accessSync, constants } from "node:fs";
 import { promisify } from "node:util";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { asOptionalRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
@@ -287,6 +288,15 @@ export async function deriveCompletionClaim(params: {
       admitted: false,
       code: "derive_script_not_absolute",
       message: `completionGate.deriveScript must be an absolute path, got "${scriptPath}".`,
+    };
+  }
+  try {
+    accessSync(scriptPath, constants.F_OK);
+  } catch {
+    return {
+      admitted: false,
+      code: "derive_script_failed",
+      message: `completion gate: derive script not found: "${scriptPath}".`,
     };
   }
   const argv = [
