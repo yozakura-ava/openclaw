@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
@@ -7,8 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   assertTerminalTransitionAdmitted,
   buildScrubbedGitEnv,
+  deriveCompletionClaim,
+  GATE_CHILD_TIMEOUT_MS,
   GIT_ENV_KEYS_TO_STRIP,
+  GIT_ENV_KEY_PREFIXES_TO_STRIP,
   guardWorkboardToolsForCompletionGate,
+  isGitEnvKeyToStrip,
   isTerminalWorkboardTransition,
   probeCanonicalMainState,
   resolveCanonicalMainRoot,
@@ -91,13 +95,302 @@ describe("isTerminalWorkboardTransition", () => {
     ["workboard_force_close", { id: "card-1" }, true],
     ["workboard_move", { id: "card-1", status: "done" }, true],
     ["workboard_move", { id: "card-1", status: " DONE " }, true],
+    ["workboard_move", { id: "card-1", status: "cancelled" }, true],
+    ["workboard_move", { id: "card-1", status: " Cancelled " }, true],
     ["workboard_move", { id: "card-1", status: "review" }, false],
+    ["workboard_move", { id: "card-1", status: "todo" }, false],
     ["workboard_move", { id: "card-1" }, false],
     ["workboard_move", undefined, false],
     ["workboard_comment", { id: "card-1", body: "done" }, false],
     ["workboard_list", {}, false],
   ])("detects terminal transition for %s %j", (toolName, rawParams, expected) => {
     expect(isTerminalWorkboardTransition(toolName, rawParams)).toBe(expected);
+  });
+
+  it("guards both terminal statuses reached through the only moving tool", () => {
+    // done/cancelled are only reachable via workboard_move in the guarded set;
+    // workboard_complete and workboard_force_close are terminal by tool name.
+    const guarded = new Set(["workboard_complete", "workboard_force_close"]);
+    expect(guarded.has("workboard_move")).toBe(false);
+    for (const status of ["done", "cancelled"]) {
+      expect(isTerminalWorkboardTransition("workboard_move", { status })).toBe(true);
+    }
+  });
+});
+
+describe("GIT_CONFIG_* env-scrub gap (Rin finding 1)", () => {
+  it("strips the config-injection family and the object-directory redirects", () => {
+    const scrubbed = buildScrubbedGitEnv({
+      GIT_DIR: "/repo/.git",
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "status.showUntrackedFiles",
+      GIT_CONFIG_VALUE_0: "no",
+      GIT_CONFIG_KEY_7: "core.fsmonitor",
+      GIT_CONFIG_VALUE_7: "/evil/hook",
+      GIT_CONFIG_GLOBAL: "/evil/globalconfig",
+      GIT_CONFIG_SYSTEM: "/etc/evilconfig",
+      GIT_COMMON_DIR: "/repo/.git/commondir",
+      GIT_OBJECT_DIRECTORY: "/evil/objects",
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: "/evil/alt-objects",
+      PATH: "/usr/bin",
+    });
+
+    for (const key of GIT_ENV_KEYS_TO_STRIP) {
+      expect(scrubbed[key], `${key} must be stripped`).toBeUndefined();
+    }
+    for (const key of Object.keys(scrubbed)) {
+      expect(isGitEnvKeyToStrip(key), `${key} must not survive the scrub`).toBe(false);
+    }
+    expect(scrubbed.PATH).toBe("/usr/bin");
+  });
+
+  it("matches the config-injection families by prefix", () => {
+    expect(GIT_ENV_KEY_PREFIXES_TO_STRIP).toContain("GIT_CONFIG_KEY_");
+    expect(GIT_ENV_KEY_PREFIXES_TO_STRIP).toContain("GIT_CONFIG_VALUE_");
+    expect(isGitEnvKeyToStrip("GIT_CONFIG_KEY_42")).toBe(true);
+    expect(isGitEnvKeyToStrip("GIT_CONFIG_VALUE_42")).toBe(true);
+    expect(isGitEnvKeyToStrip("GIT_CONFIGURABLE")).toBe(false);
+    expect(isGitEnvKeyToStrip("PATH")).toBe(false);
+  });
+
+  it("a poisoned GIT_CONFIG_COUNT cannot blank the status output", async () => {
+    // Regression pin for the proven fail-open: status.showUntrackedFiles=no was
+    // injected through the parent env and blanked the gate's dirty probe.
+    const repo = gitRepo();
+    const previous = { ...process.env };
+    try {
+      execFileSync("sh", ["-c", `printf 'dirty\\n' >> "${join(repo, "dirty.txt")}"`]);
+      process.env.GIT_CONFIG_COUNT = "1";
+      process.env.GIT_CONFIG_KEY_0 = "status.showUntrackedFiles";
+      process.env.GIT_CONFIG_VALUE_0 = "no";
+
+      const state = await probeCanonicalMainState({ mainRoot: repo, mainRef: "main" });
+
+      expect(state.dirty, "injected config must not suppress the dirty probe").toBe(true);
+    } finally {
+      process.env = previous;
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("bounds every child process with a timeout", () => {
+    expect(GATE_CHILD_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(GATE_CHILD_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+describe("configSchema declares completionGate (Rin finding 3)", () => {
+  const manifest = JSON.parse(
+    readFileSync(new URL("../openclaw.plugin.json", import.meta.url), "utf8"),
+  ) as { configSchema: { additionalProperties?: boolean; properties: Record<string, unknown> } };
+
+  it("would hard-fail plugin load if completionGate stayed undeclared", () => {
+    // configSchema is additionalProperties:false, so an undeclared completionGate
+    // key fails validatePluginConfig and takes all workboard tools offline.
+    expect(manifest.configSchema.additionalProperties).toBe(false);
+    expect(Object.keys(manifest.configSchema.properties)).toContain("completionGate");
+  });
+
+  it("declares every gate key the resolver reads", () => {
+    const gate = manifest.configSchema.properties.completionGate as {
+      properties: Record<string, unknown>;
+    };
+    expect(Object.keys(gate.properties).sort()).toEqual([
+      "deriveScript",
+      "enabled",
+      "mainRef",
+      "mainRoot",
+      "rolloutEndsOn",
+      "rolloutOwner",
+    ]);
+  });
+});
+
+describe("claim enforcement wiring (Phase 1)", () => {
+  let scratch: string;
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), "gate-derive-"));
+  });
+
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  function stubScript(body: string): string {
+    const path = join(scratch, "derive_stub.py");
+    writeFileSync(path, body, "utf8");
+    return path;
+  }
+
+  it("admits when the claim script reports an admitted claim", async () => {
+    const repo = gitRepo();
+    const script = stubScript(
+      'import json,sys\nprint(json.dumps({"admitted": True, "reason": "ancestry_verified"}))\nsys.exit(0)\n',
+    );
+    try {
+      const verdict = await deriveCompletionClaim({
+        scriptPath: script,
+        evidence: { cardId: "card-1", buildSha: "deadbeef", allowedFiles: ["f.py"] },
+        mainRoot: repo,
+        mainRef: "main",
+      });
+      expect(verdict).toEqual({ admitted: true, reason: "claim:ancestry_verified" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("maps the script's own refusal exit code to a refusal", async () => {
+    const repo = gitRepo();
+    const script = stubScript(
+      'import sys\nsys.stderr.write("REFUSED [file_presence:f.py] blob drift\\n")\nsys.exit(3)\n',
+    );
+    try {
+      const verdict = await deriveCompletionClaim({
+        scriptPath: script,
+        evidence: { cardId: "card-1", buildSha: "deadbeef", allowedFiles: ["f.py"] },
+        mainRoot: repo,
+        mainRef: "main",
+      });
+      expect(verdict.admitted).toBe(false);
+      expect(verdict).toMatchObject({ code: "claim_refused" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed on a probe failure exit code, naming the predicate", async () => {
+    const repo = gitRepo();
+    const script = stubScript(
+      'import sys\nsys.stderr.write("REFUSED [main_ref_unresolvable] no such ref\\n")\nsys.exit(5)\n',
+    );
+    try {
+      const verdict = await deriveCompletionClaim({
+        scriptPath: script,
+        evidence: { cardId: "card-1", buildSha: "deadbeef", allowedFiles: [] },
+        mainRoot: repo,
+        mainRef: "main",
+      });
+      expect(verdict).toMatchObject({ code: "claim_main_ref_unresolvable" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("fails closed when the script is missing", async () => {
+    const repo = gitRepo();
+    try {
+      const verdict = await deriveCompletionClaim({
+        scriptPath: join(scratch, "does-not-exist.py"),
+        evidence: { cardId: "card-1", buildSha: "deadbeef", allowedFiles: [] },
+        mainRoot: repo,
+        mainRef: "main",
+      });
+      expect(verdict.admitted).toBe(false);
+      expect(verdict).toMatchObject({ code: "derive_script_failed" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a relative derive script instead of resolving it from CWD", async () => {
+    const repo = gitRepo();
+    try {
+      const verdict = await deriveCompletionClaim({
+        scriptPath: "scripts/gate/derive_completion_claim.py",
+        evidence: { cardId: "card-1", buildSha: "deadbeef", allowedFiles: [] },
+        mainRoot: repo,
+        mainRef: "main",
+      });
+      expect(verdict).toMatchObject({ code: "derive_script_not_absolute" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("stays scaffold-only when deriveScript is not configured", async () => {
+    const repo = gitRepo();
+    try {
+      const verdict = await assertTerminalTransitionAdmitted(
+        "workboard_complete",
+        { id: "card-1" },
+        contextWith({ enabled: true, mainRoot: repo }),
+      );
+      expect(verdict).toEqual({ admitted: true, reason: "scaffold-probe-passed" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses when the transition carries no card id to derive from", async () => {
+    const repo = gitRepo();
+    const script = stubScript("import sys\nsys.exit(0)\n");
+    try {
+      const verdict = await assertTerminalTransitionAdmitted(
+        "workboard_move",
+        { status: "cancelled", buildSha: "deadbeef" },
+        contextWith({ enabled: true, mainRoot: repo, deriveScript: script }),
+      );
+      expect(verdict).toMatchObject({ code: "missing_claim_evidence" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses when the transition carries no build anchor", async () => {
+    const repo = gitRepo();
+    const script = stubScript("import sys\nsys.exit(0)\n");
+    try {
+      const verdict = await assertTerminalTransitionAdmitted(
+        "workboard_complete",
+        { id: "card-1", allowedFiles: ["f.py"] },
+        contextWith({ enabled: true, mainRoot: repo, deriveScript: script }),
+      );
+      expect(verdict).toMatchObject({ code: "missing_build_identity" });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards card id, build sha and allowed files to the script", async () => {
+    const repo = gitRepo();
+    const recorder = join(scratch, "argv.json");
+    const script = stubScript(
+      `import json,sys\n` +
+        `open(${JSON.stringify(recorder)}, "w").write(json.dumps(sys.argv[1:]))\n` +
+        `sys.exit(0)\n`,
+    );
+    try {
+      const verdict = await assertTerminalTransitionAdmitted(
+        "workboard_move",
+        {
+          id: "card-42",
+          status: "done",
+          buildSha: "a".repeat(40),
+          allowedFiles: ["scripts/gate/derive_completion_claim.py", "tests/x.py"],
+        },
+        contextWith({ enabled: true, mainRoot: repo, mainRef: "main", deriveScript: script }),
+      );
+      expect(verdict.admitted).toBe(true);
+      const argv = JSON.parse(readFileSync(recorder, "utf8")) as string[];
+      expect(argv).toEqual([
+        "--card-id",
+        "card-42",
+        "--main-root",
+        repo,
+        "--main-ref",
+        "main",
+        "--build-sha",
+        "a".repeat(40),
+        "--allowed-file",
+        "scripts/gate/derive_completion_claim.py",
+        "--allowed-file",
+        "tests/x.py",
+      ]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 
