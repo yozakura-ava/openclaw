@@ -306,6 +306,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       {
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
+        preserveNotificationId: notifications.at(-1)?.id,
       },
     );
   }
