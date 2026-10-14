@@ -9,7 +9,6 @@ import {
   maxAsk,
   minSecurity,
   normalizeExecAsk,
-  requireValidExecTarget,
   resolveExecApprovalsFromFile,
   resolveExecModePolicy,
 } from "../infra/exec-approvals.js";
@@ -62,6 +61,7 @@ import {
   resolveExecElevatedMode,
   resolveExecReviewerDefaults,
 } from "./bash-tools.exec-support.js";
+import { resolveRequestedExecTarget } from "./bash-tools.exec-target.js";
 import type {
   ExecToolApprovalReview,
   ExecToolDefaults,
@@ -298,7 +298,7 @@ export function createExecTool(
           );
         }
       }
-      const requestedTarget = requireValidExecTarget(params.host);
+      const requestedTarget = resolveRequestedExecTarget(params);
       const target = resolveExecTarget({
         configuredTarget: defaults?.host,
         requestedTarget,
