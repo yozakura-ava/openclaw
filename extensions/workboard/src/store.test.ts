@@ -225,6 +225,16 @@ async function withWorkboardSqliteDatabase(
 }
 
 describe("WorkboardStore", () => {
+  it("completes a card with a 164-character execution run ID", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const runId = "r".repeat(164);
+    const card = await store.create({ title: "Long run", status: "running", runId });
+
+    await store.complete(card.id, { summary: "Verified" });
+
+    expect(await store.get(card.id)).toMatchObject({ status: "done", runId });
+  });
+
   it("emits monotonic committed changes, ignores no-ops, and isolates listener failures", async () => {
     const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const changes = vi.fn();
