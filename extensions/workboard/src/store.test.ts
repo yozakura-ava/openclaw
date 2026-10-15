@@ -753,6 +753,18 @@ describe("WorkboardStore", () => {
       title: "Duplicate",
       sessionKey,
       boardId: "other",
+    });
+
+    expect(captured.id).toBe(active.id);
+    expect(captured.metadata?.automation?.boardId).toBe("default");
+    expect((await store.list()).filter((card) => !card.metadata?.archivedAt)).toEqual([active]);
+
+    await store.archive(active.id, true);
+    const restored = await store.captureSession({ title: "Restore", sessionKey, boardId: "other" });
+    expect([active.id, historical.id]).toContain(restored.id);
+    expect(restored.metadata?.archivedAt).toBeUndefined();
+  });
+
   it("uses card child indexes for per-card ordered reads", async () => {
     await withWorkboardSqliteDatabase("openclaw-workboard-index-read-", (db) => {
       for (const [table, index] of WORKBOARD_CARD_CHILD_INDEXES) {
@@ -2918,11 +2930,7 @@ describe("WorkboardStore", () => {
       // throw "claimed by main"; with recovery=true the split sequence lands
       // and the comment shows up as two labeled rows.
       await expect(
-        store.addComment(
-          card.id,
-          { body: "x".repeat(4097) },
-          { ownerId: "other" },
-        ),
+        store.addComment(card.id, { body: "x".repeat(4097) }, { ownerId: "other" }),
       ).resolves.toMatchObject({
         metadata: {
           comments: expect.arrayContaining([
