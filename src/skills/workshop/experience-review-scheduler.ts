@@ -4,6 +4,7 @@ import type { TranscriptEntryAnchor } from "../../config/sessions/transcript-ent
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { isExpectedRunCancellation } from "../../process/expected-run-cancellation.js";
 import { isIncognitoSessionKey } from "../../routing/session-key.js";
 import { runInDetachedAsyncContext } from "../../shared/async-work-scope.js";
 import type { RunSkillUsage } from "../runtime/run-usage.js";
@@ -141,7 +142,11 @@ export function createSkillExperienceReviewScheduler(deps: ExperienceReviewSched
           reviewInFlight = false;
         }
       })().catch((error: unknown) => {
-        log.warn(`skill experience review failed: ${formatErrorMessage(error)}`);
+        if (isExpectedRunCancellation(error)) {
+          log.debug(`skill experience review cancelled: ${formatErrorMessage(error)}`);
+        } else {
+          log.warn(`skill experience review failed: ${formatErrorMessage(error)}`);
+        }
         if (pendingBySession.get(key) === pending && pending.generation === generation) {
           pendingBySession.delete(key);
         }
