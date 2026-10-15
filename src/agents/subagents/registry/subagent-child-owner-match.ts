@@ -1,5 +1,16 @@
 import { normalizeAgentIdStrict } from "../../../routing/session-key.js";
 
+export function resolveSubagentChildAgentId(entry: {
+  childSessionKey?: string;
+  childAgentId?: string;
+}): string | undefined {
+  if (entry.childAgentId === undefined) {
+    return undefined;
+  }
+  const owner = normalizeAgentIdStrict(entry.childAgentId);
+  return owner.ok ? owner.value : undefined;
+}
+
 // Leaf module: registry memory, queries, and generation helpers import this, so it
 // must not depend on config or agent-scope (that closes an import cycle).
 export function matchesSubagentChildSessionOwner(
