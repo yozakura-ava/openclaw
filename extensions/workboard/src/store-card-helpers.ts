@@ -344,7 +344,6 @@ export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
   }
   return next;
 }
-
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
@@ -359,11 +358,7 @@ export function assertCanMutateClaimedCard(
   }
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
-  // Recovery callers (e.g. addComment evidence writes during reclaim-then-handoff)
-  // may proceed against an EXPIRED claim whose grace window has elapsed. The
-  // heartbeat grace in store-workflow.ts still blocks OTHER owners from stealing
-  // a live token; recovery only lets the operator past a claim whose owner has
-  // already walked away.
+  // Recovery permits only expired claims past the heartbeat grace window.
   if (
     claim.ownerId !== ownerId &&
     !safeEqualSecret(token, claim.token) &&
@@ -372,12 +367,10 @@ export function assertCanMutateClaimedCard(
     throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }
-
 export function retryBudgetExhausted(card: WorkboardCard): boolean {
   const maxRetries = card.metadata?.automation?.maxRetries;
   return Boolean(maxRetries && (card.metadata?.failureCount ?? 0) > maxRetries);
 }
-
 export function mergeDiagnostics(
   previous: readonly WorkboardDiagnostic[] | undefined,
   next: WorkboardDiagnostic[],
