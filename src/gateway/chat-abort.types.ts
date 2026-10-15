@@ -65,6 +65,7 @@ export type ChatAbortControllerEntry = {
   /** Bounded private timeout settlement while the aborted producer unwinds. */
   pendingTimeoutCompletion?: { expiresAtMs: number; settle: () => void };
   /** False after the owning reply run commits a terminal outcome. */
+  terminalOutcomeObserved?: boolean;
   isAbortable?: (entry: ChatAbortControllerEntry) => boolean;
   /** Runs once when this registration is actually removed. */
   onRemoved?: () => void;
