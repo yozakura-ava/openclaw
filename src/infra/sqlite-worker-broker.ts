@@ -64,6 +64,10 @@ const MAX_QUEUED_COMMAND_BYTES = 64 * 1024 * 1024;
 export const SQLITE_WORKER_MAX_REQUESTS_PER_WORKER = 128;
 const SQLITE_WORKER_MAX_QUEUED_BYTES = 256 * 1024 * 1024;
 
+function waitForSqliteOpen<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
+  return racePromiseWithAbortSignal(pending, signal, (aborted) => aborted.reason);
+}
+
 export class SqliteWorkerBroker {
   private readonly explicitSqliteCloseReleasesNativeResources = captureSqliteWorkerClosePolicy();
   // WAL readers on independent actors can progress on separate threads without blocking writers.
