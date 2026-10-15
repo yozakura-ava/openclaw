@@ -36,7 +36,10 @@ import {
 import type { SubagentRunSqliteRow } from "../registry/subagent-registry.store.row.js";
 import { readSubagentRunRow } from "../registry/subagent-registry.store.sqlite.js";
 import type { SubagentRunRecord } from "../registry/subagent-registry.types.js";
-import { compareSubagentRunGeneration } from "../registry/subagent-run-generation.js";
+import {
+  compareSubagentRunGeneration,
+  isSubagentRunGenerationCandidate,
+} from "../registry/subagent-run-generation.js";
 import { mutateSubagentCompletionInDatabase } from "./subagent-completion-mutation.kernel.js";
 import type {
   SubagentCompletionMutation,
@@ -111,7 +114,15 @@ export function admitSubagentCompletionInWorker(
       ).rows;
       for (const row of siblings) {
         const candidate = rowToSubagentRunRecord(row);
-        if (!candidate || compareSubagentRunGeneration(candidate, expected) > 0) {
+        if (
+          !candidate ||
+          (isSubagentRunGenerationCandidate(
+            candidate,
+            expected.childSessionKey,
+            expected.childAgentId,
+          ) &&
+            compareSubagentRunGeneration(candidate, expected) > 0)
+        ) {
           throw new Error("subagent completion owner was replaced before admission");
         }
       }
