@@ -235,6 +235,8 @@ export type SessionWriterDeliveryAuthority = {
 };
 
 export type ReplyPayloadMetadata = {
+  /** Host-generated status/error notice, not model-authored answer content. */
+  hostNotice?: true;
   /** Raw parsing classified the text as silent before removing its control token. */
   silentReply?: true;
   /** The model failed after a committed recovery compaction in the same turn. */
