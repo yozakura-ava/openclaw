@@ -639,7 +639,11 @@ export function createAgentDatabaseNativeGeneration(
   return {
     failure: () =>
       openingFailure ??
-      (openedStore && !isSqliteWorkerStoreAvailable(openedStore) ? "native" : undefined),
+      (openedStore && !isSqliteWorkerStoreAvailable(openedStore)
+        ? preparationPublished
+          ? "lost"
+          : "native"
+        : undefined),
     isPrepared() {
       assertCurrent();
       return preparationPublished;
