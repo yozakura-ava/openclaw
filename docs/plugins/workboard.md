@@ -521,8 +521,12 @@ If an active linked session stops reporting recent activity, Workboard marks the
 
 Lifecycle writes are owned by the Gateway-side Workboard plugin, so they do
 not depend on an open browser tab. Agent and subagent completion hooks persist
-terminal outcomes immediately. A bounded session sweep runs once per minute to
-reconcile active, idle, missing, and stale session state. Each store mutation
+terminal outcomes immediately. A recovery sweep runs once per minute and reads only the
+sessions linked to active cards, sharing each read across cards with the same link.
+Settled cards stop polling unless they retain pending lifecycle state. Provisional
+Workboard links share one configured-agent roster per sweep and check exact candidates; ambiguous
+or incomplete results leave the card unchanged. Legacy unqualified links use a bounded
+search. Each store mutation
 emits the normal `plugin.workboard.changed` invalidation, so an open Workboard tab
 reloads the canonical card instead of writing its own lifecycle projection.
 
