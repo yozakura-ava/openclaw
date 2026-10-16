@@ -7,6 +7,7 @@ import { buildSkillSnapshot } from "../skills/loading/workspace-skill-prompt.js"
 import { writeWorkspaceSkills } from "../skills/test-support/e2e-test-helpers.js";
 import { withTempDir } from "../test-utils/temp-dir.js";
 import { finalizeAgentToolAvailability } from "./agent-tool-availability.js";
+import { prepareEmbeddedSkills } from "./embedded-agent-runner/skill-runtime.js";
 import { prepareInstalledSkillCatalog } from "./installed-skill-runtime.js";
 import { createInstalledSkillTools } from "./tools/installed-skill-tools.js";
 
@@ -94,6 +95,32 @@ describe("eligible vs prompt-visible skill sets", () => {
       });
       expect((hiddenSearch.details.skills as Array<{ name: string }>).map((s) => s.name)).toContain(
         hiddenName,
+      );
+    });
+  });
+
+  it("keeps hidden skills non-invocable at the Code Mode surface", async () => {
+    await withTempDir("installed-skill-code-mode-", async (workspaceDir) => {
+      const snapshot = await buildReproSnapshot(workspaceDir);
+      const prepared = await prepareEmbeddedSkills({
+        attempt: { config: {}, skillsSnapshot: snapshot },
+        effectiveWorkspace: workspaceDir,
+        sandbox: undefined,
+        sessionAgentId: AGENT_ID,
+        includeCodeModeSkills: true,
+        applySkillEnvironment: false,
+      });
+
+      // Surface-level guard: deleting the modelInvocable filter in skill-runtime.ts
+      // puts every hidden skill into codeModeSkills and fails this assertion.
+      const codeModeNames = prepared.codeModeSkills.map((skill) => skill.name);
+      expect(codeModeNames.length).toBeGreaterThan(0);
+      for (const name of hiddenNames) {
+        expect(codeModeNames).not.toContain(name);
+      }
+      // And the readable superset is unaffected: hidden skills stay in the catalog.
+      expect(prepared.installedSkills.map((skill) => skill.name).sort()).toEqual(
+        [...allNames].sort(),
       );
     });
   });
