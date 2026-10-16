@@ -8,6 +8,11 @@ import { ToolInputError } from "./tools/common.js";
 export type InstalledSkill = CodeModeSkill & {
   /** Prompt-listed instructions retain the shipped Code Mode whole-read contract. */
   promptListed?: boolean;
+  /**
+   * Hidden skills stay readable and searchable, but stay off every model-invoking
+   * surface (Code Mode presentation). Absent means invocable.
+   */
+  modelInvocable?: boolean;
   assertCurrent?: () => void;
   /** The owner must bound I/O before allocating the returned content. */
   readSearchContent?: (maxBytes: number, signal?: AbortSignal) => Promise<string>;

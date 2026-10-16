@@ -27,5 +27,10 @@ export type SessionSkillSnapshot = {
   resolvedSkills?: Skill[];
   /** Runtime-only model-discoverable catalog before prompt budgeting; never persisted. */
   discoverySkills?: Skill[];
+  /**
+   * Runtime-only complete eligible catalog, including skills hidden from the model
+   * prompt. Skill tools resolve this set; persistence projections strip it.
+   */
+  eligibleSkills?: Skill[];
   version?: number;
 };
