@@ -332,8 +332,46 @@ Each branch is the title of an accordion below.
     - `heartbeat skipped` reason `quiet-hours` → outside configured active hours.
     - `heartbeat skipped` reason `empty-heartbeat-file` → heartbeat monitor scratch contains only blank, comment, header, fence, or empty-checklist scaffolding.
     - `heartbeat skipped` reason `alerts-disabled` → `showOk`, `showAlerts`, and `useIndicator` are all off.
-    - `requests-in-flight` → main lane busy; heartbeat wake deferred.
     - `unknown accountId` → heartbeat delivery target account does not exist.
+
+    ### Heartbeat admission refusals
+
+    Admission runs before the turn starts. Each fence records its own skip
+    reason, so the reason in `automations runs` names the cause without reading
+    the bundle:
+
+    | Skip reason | Meaning | State |
+    | --- | --- | --- |
+    | `main-lane-busy` | The `main` command lane has queued work. | In-memory; clears on drain |
+    | `cron-in-progress` | An active cron job, or a busy `cron`/`cron-nested`/`hook-dispatch` lane, competes for the wake. | Global; transient |
+    | `agent-run-active` | Another reply or embedded run on the same agent owns the turn. | In-memory |
+    | `session-recovery-blocked` | The agent's main-session recovery row is `blocked`. | Persisted; survives restarts |
+    | `session-recovery-recoverable` | The agent's main-session recovery row is `recoverable`. | Persisted; survives restarts |
+    | `session-recovery-delivery-active` | A restart-recovery delivery from this gateway run still owns the session row. | Persisted |
+    | `pending-final-delivery` | A final-delivery replay is pending inside its 30s deferral window. | Persisted; transient |
+    | `session-run-active` | The exact target session has an active reply or embedded run. | In-memory |
+    | `session-lane-busy` | The target session's own command lane has queued work. | In-memory |
+    | `requests-in-flight` | Legacy token from the post-admission dispatch fence; means the turn lost ownership. | In-memory |
+
+    The `session-recovery-*` reasons also record the stuck lane and the sanctioned
+    repair, for example:
+
+    ```
+    heartbeat skipped: session-recovery-blocked agent=sakura session=agent:sakura:main status=blocked repair=sessions.recover
+    ```
+
+    Unlike every other row, a `session-recovery-*` refusal is durable: it repeats
+    on each tick and does not clear on restart. Repair it explicitly — recovery
+    charges one of the session's durable attempts and resumes the interrupted
+    turn, so it never runs automatically:
+
+    ```bash
+    openclaw gateway call sessions.describe --params '{"sessionKey":"<sessionKey>"}'
+    openclaw gateway call sessions.recover --params '{"sessionKey":"<sessionKey>"}'
+    ```
+
+    Sending a new message to that session reconciles the same state. Verify the
+    next tick in `openclaw automations runs <jobId>`.
 
     Deep pages: [Cron and heartbeat delivery](/gateway/troubleshooting#cron-and-heartbeat-delivery), [Scheduled tasks: Troubleshooting](/automation/cron-jobs#troubleshooting), [Heartbeat](/gateway/heartbeat)
 
