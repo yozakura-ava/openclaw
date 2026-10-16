@@ -35,6 +35,7 @@ import {
 } from "./heartbeat-runner.test-utils.js";
 import {
   HEARTBEAT_SKIP_CRON_IN_PROGRESS,
+  HEARTBEAT_SKIP_MAIN_LANE_BUSY,
   requestHeartbeatAndWait,
   setHeartbeatWakeHandler,
 } from "./heartbeat-wake.js";
@@ -416,7 +417,7 @@ describe("Heartbeat event routing", () => {
         },
       });
       if (busy) {
-        expect(result).toMatchObject({ status: "skipped", reason: "requests-in-flight" });
+        expect(result).toMatchObject({ status: "skipped", reason: HEARTBEAT_SKIP_MAIN_LANE_BUSY });
         expect(replySpy).not.toHaveBeenCalled();
         expect(peekSystemEvents(queueKey)).toEqual(queuedBefore);
         expect(readSessionStoreForTest(storePath)[queueKey]).toBeDefined();

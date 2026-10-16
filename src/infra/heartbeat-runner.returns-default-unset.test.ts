@@ -33,6 +33,7 @@ import {
   seedHeartbeatScratchForTest,
   seedSessionStore,
 } from "./heartbeat-runner.test-utils.js";
+import { HEARTBEAT_SKIP_AGENT_RUN_ACTIVE } from "./heartbeat-skip-reasons.js";
 import {
   resolveHeartbeatDeliveryTarget,
   resolveHeartbeatDeliveryTargetWithSessionRoute,
@@ -616,7 +617,7 @@ describe("runHeartbeatOnce", () => {
         }),
       });
 
-      expect(res).toEqual({ status: "skipped", reason: "requests-in-flight" });
+      expect(res).toEqual({ status: "skipped", reason: HEARTBEAT_SKIP_AGENT_RUN_ACTIVE });
       expect(replySpy).not.toHaveBeenCalled();
       expect(sendWhatsApp).not.toHaveBeenCalled();
     },

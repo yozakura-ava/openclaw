@@ -51,6 +51,18 @@ import {
   resolveHeartbeatSession,
   resolveStaleHeartbeatIsolatedSessionKey,
 } from "./heartbeat-runner-session.js";
+import {
+  formatHeartbeatSkipReason,
+  HEARTBEAT_SKIP_AGENT_RUN_ACTIVE,
+  HEARTBEAT_SKIP_CRON_IN_PROGRESS,
+  HEARTBEAT_SKIP_MAIN_LANE_BUSY,
+  HEARTBEAT_SKIP_PENDING_FINAL_DELIVERY,
+  HEARTBEAT_SKIP_SESSION_LANE_BUSY,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_BLOCKED,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_DELIVERY,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_RECOVERABLE,
+  HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
+} from "./heartbeat-skip-reasons.js";
 import { isHeartbeatEnabledForAgent, resolveHeartbeatIntervalMs } from "./heartbeat-summary.js";
 import { resolveHeartbeatVisibility } from "./heartbeat-visibility.js";
 import {
@@ -60,8 +72,6 @@ import {
 } from "./heartbeat-wake-policy.js";
 import {
   areHeartbeatsEnabled,
-  HEARTBEAT_SKIP_CRON_IN_PROGRESS,
-  HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
   type HeartbeatScheduledTask,
   type HeartbeatWakeIntent,
   type HeartbeatWakeSource,
@@ -102,13 +112,27 @@ function hasActiveRunForSession(
   return Boolean(normalizedSessionKey) && listSessionKeys().includes(normalizedSessionKey);
 }
 
-function skippedHeartbeatStage<T extends string>(reason: T, startedAt: number) {
+function skippedHeartbeatStage<T extends string>(reason: T, startedAt: number, message?: string) {
   emitHeartbeatEvent({
     status: "skipped",
     reason,
+    // Operator-facing companion to the machine-stable reason code.
+    ...(message === undefined ? {} : { message }),
     durationMs: Date.now() - startedAt,
   });
   return { kind: "skipped", reason } as const;
+}
+
+/** Operator-facing repair instruction for a main-session recovery refusal. */
+function sessionRecoveryRepairHint(agentId: string, sessionKey: string | undefined): string {
+  const target = sessionKey ?? agentId;
+  return (
+    `Main-session recovery is holding agent ${agentId}` +
+    `${sessionKey === undefined ? "" : ` (session ${sessionKey})`}. ` +
+    `Run: openclaw gateway call sessions.recover --params '${JSON.stringify({ sessionKey: target })}' ` +
+    "(or send a new message to that session). Recovery charges one durable attempt and resumes the " +
+    "interrupted turn, so it is operator-initiated only."
+  );
 }
 
 export type HeartbeatRunOptions = {
@@ -190,13 +214,13 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     return skippedHeartbeatStage(preflight.skipReason, startedAt);
   }
 
-  const skippedBusyStage = (reason: string) => {
+  const skippedBusyStage = (reason: string, message?: string) => {
     // Only pre-execution guards can retire an event-free monitor occurrence.
     // Missing preflight, coalesced work, and previously admitted turns retain their retry.
     if (preflight?.pendingEventEntries.length === 0 && scheduledTasks.length === 0) {
       deferSessionEventWakePoll();
     }
-    return skippedHeartbeatStage(reason, startedAt);
+    return skippedHeartbeatStage(reason, startedAt, message);
   };
 
   // A command result belongs to its waiting session, not the agent's ambient
@@ -209,7 +233,7 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     preflight.pendingEventEntries.some((event) => isExecCompletionEvent(event.text));
   const getSize = opts.deps?.getQueueSize ?? getQueueSize;
   if (!isSessionExecCompletion && getSize(CommandLane.Main) > 0) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+    return skippedBusyStage(HEARTBEAT_SKIP_MAIN_LANE_BUSY);
   }
 
   // Cron executions awaiting heartbeat settlement are idle owners, not competing work.
@@ -252,7 +276,7 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     (hasActiveRunForAgent(agentId, listActiveReplyRuns) ||
       hasActiveRunForAgent(agentId, listActiveEmbeddedRuns))
   ) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+    return skippedBusyStage(HEARTBEAT_SKIP_AGENT_RUN_ACTIVE);
   }
 
   // Phase 2: Stronger heartbeat deferral while a final delivery replay is pending.
@@ -287,13 +311,39 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
       (run) =>
         run.runId === activeRestartRecoveryRunId && run.lifecycleGeneration === lifecycleGeneration,
     ) === true;
-  if (
-    (mainSessionRecovery?.kind === "observed" &&
-      (mainSessionRecovery.view.status === "blocked" ||
-        mainSessionRecovery.view.status === "recoverable")) ||
-    hasCurrentRestartRecoveryDelivery
-  ) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+  const recoveryStatus =
+    mainSessionRecovery?.kind === "observed" ? mainSessionRecovery.view.status : undefined;
+  const recoveryRefusal =
+    recoveryStatus === "blocked"
+      ? { token: HEARTBEAT_SKIP_SESSION_RECOVERY_BLOCKED, status: recoveryStatus }
+      : recoveryStatus === "recoverable"
+        ? { token: HEARTBEAT_SKIP_SESSION_RECOVERY_RECOVERABLE, status: recoveryStatus }
+        : hasCurrentRestartRecoveryDelivery
+          ? { token: HEARTBEAT_SKIP_SESSION_RECOVERY_DELIVERY, status: "delivering" }
+          : undefined;
+  if (recoveryRefusal) {
+    // This row is persisted, so the refusal survives restarts and repeats on
+    // every tick until an operator repairs it. Name the agent, the session key,
+    // and the sanctioned repair in the record itself; never recover
+    // automatically, because recovery charges one durable attempt and resumes
+    // an interrupted turn.
+    const detail = [
+      `agent=${agentId}`,
+      recentSessionKey === undefined ? undefined : `session=${recentSessionKey}`,
+      `status=${recoveryRefusal.status}`,
+      "repair=sessions.recover",
+    ]
+      .filter((part): part is string => part !== undefined)
+      .join(" ");
+    log.warn(`heartbeat admission refused: main-session recovery ${recoveryRefusal.status}`, {
+      agentId,
+      sessionKey: recentSessionKey,
+      status: recoveryRefusal.status,
+    });
+    return skippedBusyStage(
+      formatHeartbeatSkipReason(recoveryRefusal.token, detail),
+      sessionRecoveryRepairHint(agentId, recentSessionKey),
+    );
   }
   const HEARTBEAT_DEFER_WINDOW_MS = 30_000;
   const pendingFinalDeliveryText =
@@ -309,7 +359,7 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     recentSessionEntry?.updatedAt &&
     startedAt - recentSessionEntry.updatedAt < HEARTBEAT_DEFER_WINDOW_MS
   ) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+    return skippedBusyStage(HEARTBEAT_SKIP_PENDING_FINAL_DELIVERY);
   }
 
   // Preflight centralizes trigger classification, event inspection, and monitor-scratch gating.
@@ -327,14 +377,14 @@ export async function resolveHeartbeatWakeStage(opts: HeartbeatRunOptions) {
     ? (key: string) => hasActiveRunForSession(key, listActiveEmbeddedRuns)
     : (key: string) => resolveActiveEmbeddedRunSessionId(key) !== undefined;
   if (isReplyRunActive(sessionKey) || isEmbeddedRunActive(sessionKey)) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+    return skippedBusyStage(HEARTBEAT_SKIP_SESSION_RUN_ACTIVE);
   }
 
   // Do not interrupt an active streaming turn. Payload/admitted work retries;
   // an event-free, never-started monitor poll waits for its next persisted tick.
   const sessionLaneKey = resolveEmbeddedSessionLane(sessionKey);
   if (getSize(sessionLaneKey) > 0) {
-    return skippedBusyStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT);
+    return skippedBusyStage(HEARTBEAT_SKIP_SESSION_LANE_BUSY);
   }
 
   return {
@@ -503,7 +553,7 @@ export async function prepareHeartbeatRunStage(wake: ReadyHeartbeatWake) {
             isolatedBaseSessionKey,
           });
     if (isReplyRunActive(isolatedSessionKey) || isEmbeddedRunActive(isolatedSessionKey)) {
-      return skippedHeartbeatStage(HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT, startedAt);
+      return skippedHeartbeatStage(HEARTBEAT_SKIP_SESSION_RUN_ACTIVE, startedAt);
     }
     const staleIsolatedEntry = staleIsolatedSessionKey
       ? loadExactSessionEntry({
