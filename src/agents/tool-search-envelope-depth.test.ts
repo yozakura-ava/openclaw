@@ -6,6 +6,7 @@
 // only checked "it threw" would pass against the original bug.
 import { Type } from "typebox";
 import { describe, expect, it, vi } from "vitest";
+import { mcpTool } from "./code-mode.test-support.js";
 import { readToolSearchCallArgs } from "./tool-search-request.js";
 import {
   createToolSearchCatalogRef,
@@ -182,6 +183,94 @@ describe("envelope depth unwrapping (Mode A) — per shape", () => {
   }
 });
 
+describe("envelope purity gate (arch review F1)", () => {
+  // F1: at cap 2 the loop used to descend into any level holding a record-valued
+  // args/input key, silently deleting a payload's OWN `input` field. These tests
+  // are the regression net for that silent field loss.
+
+  it("keeps a payload's own record-valued input field when a sibling key is present", async () => {
+    // Pre-patch this call delivered {input:{query:'x'}, other:2} intact. The
+    // post-cap-2 loop descended a second time and delivered {query:'x', other:2},
+    // deleting `input` with no error.
+    const target = fakeTool(
+      "envelope_probe",
+      Type.Object(
+        { input: Type.Object({ query: Type.String() }), other: Type.Number() },
+        { additionalProperties: false },
+      ),
+    );
+    const { callTool } = createHarness([target]);
+    expect(callTool).toBeDefined();
+
+    await callTool!.execute("f1-payload-input", {
+      id: "envelope_probe",
+      args: { input: { query: "x" }, other: 2 },
+    });
+
+    expect(target.execute).toHaveBeenCalledOnce();
+    // Exact equality: anything "fixed" by dropping a field fails here.
+    expect(vi.mocked(target.execute).mock.calls[0]?.[1]).toEqual({
+      input: { query: "x" },
+      other: 2,
+    });
+  });
+
+  it("drops nothing from a mixed envelope-plus-payload level", async () => {
+    const target = fakeTool(
+      "mixed_probe",
+      Type.Object(
+        { args: Type.Object({ m: Type.String() }), other: Type.Number() },
+        { additionalProperties: false },
+      ),
+    );
+    const { callTool } = createHarness([target]);
+    expect(callTool).toBeDefined();
+
+    await callTool!.execute("f1-mixed", {
+      id: "mixed_probe",
+      args: { args: { m: "x" }, other: 1 },
+    });
+
+    expect(target.execute).toHaveBeenCalledOnce();
+    // A mixed level is payload, not an envelope: both keys survive.
+    expect(vi.mocked(target.execute).mock.calls[0]?.[1]).toEqual({
+      args: { m: "x" },
+      other: 1,
+    });
+  });
+
+  it("leaves an mcp-source tool's input property unmutated (no validation net)", async () => {
+    // tool-search-runtime.ts gates input validation on `entry.source ===
+    // "openclaw"`, so an MCP tool gets no schema check downstream. This is the
+    // path where silent field loss would reach an external tool uncaught.
+    const executeSpy = vi.fn(async (_toolCallId, input) => jsonResult({ input }));
+    const target = mcpTool({
+      name: "remote_envelope_probe",
+      serverName: "remote",
+      toolName: "envelope_probe",
+      parameters: Type.Object(
+        { input: Type.Object({ query: Type.String() }), limit: Type.Number() },
+        { additionalProperties: false },
+      ),
+      execute: executeSpy,
+    });
+    const { callTool, catalog } = createHarness([target]);
+    const entry = catalog?.entries[0];
+    expect(entry?.source).toBe("mcp");
+    if (!entry) {
+      throw new Error("expected an mcp catalog entry");
+    }
+
+    await callTool!.execute("f1-mcp", {
+      id: entry.id,
+      args: { input: { query: "x" }, limit: 5 },
+    });
+
+    expect(executeSpy).toHaveBeenCalledOnce();
+    expect(executeSpy.mock.calls[0]?.[1]).toEqual({ input: { query: "x" }, limit: 5 });
+  });
+});
+
 describe("selector/payload id collision (Mode B)", () => {
   const CARD = "3242ea23-650d-45a0-8cc6-85c867b040b9";
 
@@ -237,7 +326,11 @@ describe("selector/payload id collision (Mode B)", () => {
     expect(vi.mocked(target.execute).mock.calls[0]?.[1]).toEqual({ id: CARD, body: "x" });
   });
 
-  it("keeps a card UUID on the no-catalog-match fallback path", () => {
+  // Library-level argument composition only, NOT dispatch coverage: an unmatched
+  // selector never reaches payload composition in a real dispatch, because
+  // findEntry resolves the tool before anything validates or executes. This test
+  // pins the no-catalog composition delta for direct library callers.
+  it("keeps a card UUID on the no-catalog-match fallback path (library-level composition)", () => {
     // No catalog: nothing confirmed `id` as routing metadata, so it stays payload.
     const { id, input } = readToolSearchCallArgs({ id: CARD, body: "note" });
 
