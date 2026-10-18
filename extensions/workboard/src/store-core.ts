@@ -7,7 +7,8 @@ import type {
   WorkboardStatus,
 } from "@openclaw/workboard-contract";
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
-import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeActor } from "./actor-attribution.js";
 import type { PersistedWorkboardCard } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import { WorkboardBoardStore } from "./store-boards.js";
@@ -48,10 +49,12 @@ import {
   normalizeBoardId,
   normalizeBoundedString,
   normalizeExecution,
+  normalizeLabels,
   normalizeLinkType,
   normalizeMetadata,
   normalizeNotes,
   normalizePriority,
+  normalizeRunId,
   normalizeStatus,
   normalizeStringList,
   normalizeTemplateId,
@@ -62,7 +65,6 @@ import {
 } from "./store-normalizers.js";
 import { addCommentWithChunking } from "./store-oversized-comment.js";
 import { readCards } from "./store-read.js";
-import { normalizeCappedStringList } from "./store-string-lists.js";
 
 type WorkboardMutationJournalEntry = {
   before?: WorkboardCard;
@@ -123,8 +125,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   }
 
   async compensateWorkspaceMutation(before: WorkboardCard, after: WorkboardCard): Promise<void> {
-    await this.enqueueMutation(() =>
-      this.rollbackUpdatedCard(before, after, invertWorkboardWorkspaceMutation),
+    await this.enqueueMutation(
+      async () => await this.rollbackUpdatedCard(before, after, invertWorkboardWorkspaceMutation),
     );
   }
 
@@ -324,7 +326,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     assertOwnerCurrent?: () => void,
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(
-      () => this.withCardCompensation(() => this.createDirect(input, scope)),
+      async () =>
+        await this.withCardCompensation(async () => await this.createDirect(input, scope)),
       assertOwnerCurrent,
     );
   }
@@ -379,7 +382,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     const notes = normalizeNotes(input.notes);
     const agentId = normalizeOptionalString(input.agentId);
     const sessionKey = normalizeOptionalString(input.sessionKey);
-    const runId = normalizeOptionalString(input.runId);
+    const runId = normalizeRunId(input.runId);
     const sourceUrl = normalizeOptionalString(input.sourceUrl);
     const normalizedExecution = normalizeExecution(input.execution);
     const execution =
@@ -423,7 +426,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       title: normalizeTitle(input.title),
       status,
       priority: normalizePriority(input.priority, "normal"),
-      labels: normalizeCappedStringList(input.labels, "labels"),
+      labels: normalizeLabels(input.labels),
       position,
       createdAt: now,
       updatedAt: now,
@@ -560,8 +563,13 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       ) {
         // Ignore stale lifecycle status writes, but still accept any non-status updates in the patch.
         effectivePatch = { ...patch, status: undefined };
-        if (isRecord(patch.metadata)) {
-          const { lifecycleStatusSourceUpdatedAt: _ignored, ...rest } = patch.metadata;
+        if (
+          patch.metadata &&
+          typeof patch.metadata === "object" &&
+          !Array.isArray(patch.metadata)
+        ) {
+          const metadataPatch = patch.metadata as Record<string, unknown>;
+          const { lifecycleStatusSourceUpdatedAt: _ignored, ...rest } = metadataPatch;
           effectivePatch.metadata = Object.keys(rest).length > 0 ? rest : undefined;
         }
         const hasSemanticPatch = Object.entries(effectivePatch).some(
@@ -642,11 +650,14 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
             ? existing.notes
             : normalizeNotes(effectivePatch.notes),
         status,
-        priority: normalizePriority(effectivePatch.priority, existing.priority),
+        priority:
+          effectivePatch.priority === undefined
+            ? existing.priority
+            : normalizePriority(effectivePatch.priority, existing.priority),
         labels:
           effectivePatch.labels === undefined
             ? existing.labels
-            : normalizeCappedStringList(effectivePatch.labels, "labels"),
+            : normalizeLabels(effectivePatch.labels),
         agentId:
           effectivePatch.agentId === undefined
             ? existing.agentId
@@ -655,7 +666,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         runId:
           effectivePatch.runId === undefined
             ? existing.runId
-            : normalizeOptionalString(effectivePatch.runId),
+            : normalizeRunId(effectivePatch.runId),
         sourceUrl:
           effectivePatch.sourceUrl === undefined
             ? existing.sourceUrl
@@ -807,13 +818,14 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     if (!body) {
       throw new Error("comment body is required.");
     }
+    const actor = normalizeActor(input);
     // Comments are recovery-safe evidence: allow them past an expired claim so
     // reclaim-then-handoff flows can record context before re-claiming. The
     // single-row path and the chunked split path both pass `recovery=true`
     // through to `assertCanMutateClaimedCard`, which honors expired claims
     // whose grace window has elapsed while still rejecting live claims from
     // other owners.
-    return await addCommentWithChunking(this as never, id, body, scope, true);
+    return await addCommentWithChunking(this as never, id, body, scope, true, actor);
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {
@@ -847,10 +859,11 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     childId: string,
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
-    return await this.enqueueMutation(() =>
-      this.withCardCompensation(() =>
-        this.linkCardsDirect(parentId, childId, Date.now(), { scope }),
-      ),
+    return await this.enqueueMutation(
+      async () =>
+        await this.withCardCompensation(
+          async () => await this.linkCardsDirect(parentId, childId, Date.now(), { scope }),
+        ),
     );
   }
 
@@ -890,19 +903,28 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     if (await this.dependsOn(parent.id, child.id)) {
       throw new Error("dependency link would create a cycle.");
     }
-    const linkTo = (card: WorkboardCard, targetCardId: string, type: "parent" | "child") => {
-      const links = card.metadata?.links ?? [];
-      return links.some((link) => link.type === type && link.targetCardId === targetCardId)
-        ? links
-        : appendLinkPreservingDependencies(links, {
-            id: randomUUID(),
-            type,
-            targetCardId,
-            createdAt: now,
-          });
-    };
-    const nextParentLinks = linkTo(parent, child.id, "child");
-    const nextChildLinks = linkTo(child, parent.id, "parent");
+    const parentLinks = parent.metadata?.links ?? [];
+    const childLinks = child.metadata?.links ?? [];
+    const nextParentLinks = parentLinks.some(
+      (link) => link.type === "child" && link.targetCardId === child.id,
+    )
+      ? parentLinks
+      : appendLinkPreservingDependencies(parentLinks, {
+          id: randomUUID(),
+          type: "child" as const,
+          targetCardId: child.id,
+          createdAt: now,
+        });
+    const nextChildLinks = childLinks.some(
+      (link) => link.type === "parent" && link.targetCardId === parent.id,
+    )
+      ? childLinks
+      : appendLinkPreservingDependencies(childLinks, {
+          id: randomUUID(),
+          type: "parent" as const,
+          targetCardId: parent.id,
+          createdAt: now,
+        });
     await this.updateCard(
       await this.requireCard(parent.id),
       {

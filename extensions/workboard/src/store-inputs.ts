@@ -48,7 +48,12 @@ export type WorkboardUpdateCardOptions = {
   ownerSlot?: { ownerId: string; now: number };
   preserveProofId?: string;
 };
-export type WorkboardCommentInput = { body?: unknown };
+export type WorkboardCommentInput = {
+  body?: unknown;
+  /** Attribution passthrough; normalized fail-closed (see actor-attribution.ts). */
+  actorId?: unknown;
+  actorKind?: unknown;
+};
 export type WorkboardLinkInput = {
   type?: unknown;
   targetCardId?: unknown;
@@ -62,6 +67,9 @@ export type WorkboardProofInput = {
   command?: unknown;
   url?: unknown;
   note?: unknown;
+  /** Attribution passthrough; normalized fail-closed (see actor-attribution.ts). */
+  actorId?: unknown;
+  actorKind?: unknown;
 };
 export type WorkboardArtifactInput = {
   label?: unknown;

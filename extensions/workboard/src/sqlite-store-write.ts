@@ -172,6 +172,11 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     id: (entry) => entry.id,
     card_id: () => card.id,
     body: (entry) => entry.body,
+    // Attribution must survive this DELETE-then-INSERT rewrite, which runs on
+    // EVERY card write - including unrelated mutations such as a label or
+    // status change made long after the comment was authored.
+    actor_id: (entry) => bindNull((entry as { actorId?: unknown }).actorId),
+    actor_kind: (entry) => bindNull((entry as { actorKind?: unknown }).actorKind),
     created_at: (entry) => entry.createdAt,
     updated_at: (entry) => bindNull(entry.updatedAt),
   });
@@ -192,6 +197,8 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     command: (entry) => bindNull(entry.command),
     url: (entry) => bindNull(entry.url),
     note: (entry) => bindNull(entry.note),
+    actor_id: (entry) => bindNull((entry as { actorId?: unknown }).actorId),
+    actor_kind: (entry) => bindNull((entry as { actorKind?: unknown }).actorKind),
     created_at: (entry) => entry.createdAt,
   });
   insertChildren(db, "workboard_card_artifacts", card.id, metadata?.artifacts, {
