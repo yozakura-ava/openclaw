@@ -801,8 +801,10 @@ export function normalizeProofInput(
   const command = normalizeBoundedString(input.command, undefined, 1000, "proof command");
   const url = normalizeBoundedString(input.url, undefined, 2000, "proof URL");
   const note = normalizeBoundedString(input.note, undefined, 2000, "proof note");
-  // Proof records live in metadata.proof (no dedicated table), so attribution
-  // round-trips wholesale with the record. Normalized fail-closed: an
+  // Proof records are persisted in the workboard_card_proof child table
+  // (readMetadata rebuilds metadata.proof from it) and rewritten on every card
+  // write, so attribution only round-trips because the actor columns were
+  // added to that table. Normalized fail-closed: an
   // unresolved actor contributes no fields at all. normalizeProof() routes
   // through here on the read path, which is what preserves proof authorship.
   const actor = normalizeActor(input);
