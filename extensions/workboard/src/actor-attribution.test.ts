@@ -9,6 +9,7 @@ import { DatabaseSync } from "node:sqlite";
 import { expectDefined } from "@openclaw/normalization-core";
 import type { OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { describe, expect, it } from "vitest";
+import type { AttributedWorkboardComment } from "./actor-attribution.js";
 import { normalizeActor } from "./actor-attribution.js";
 import { createWorkboardSqliteTestHarness } from "./test/sqlite-store.js";
 import { createWorkboardTools } from "./tools.js";
@@ -159,6 +160,48 @@ describe("workboard comment attribution round-trip", () => {
     });
   });
 
+  it("WIPE-REGRESSION: a system proof row written straight to sqlite survives a plugin write", async () => {
+    // Same hazard, same out-of-band writers, different child table. Proof rows
+    // are rebuilt from workboard_card_proof on every read, so an out-of-band
+    // proof row would be nulled out by the next plugin write just as a comment
+    // row would.
+    const { store, dbPath } = createWorkboardSqliteTestHarness();
+    const card = await store.create({ title: "system proof writer" });
+
+    const raw = new DatabaseSync(dbPath);
+    raw
+      .prepare(
+        `INSERT INTO workboard_card_proof
+           (id, card_id, ordinal, status, label, command, url, note, actor_id, actor_kind, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "system-proof-1",
+        card.id,
+        0,
+        "passed",
+        "alert-bridge proof",
+        null,
+        null,
+        "written directly by alert-bridge",
+        "alert-bridge",
+        "system",
+        1,
+      );
+    raw.close();
+
+    await store.addLink(card.id, { url: "https://example.com/after", title: "after" });
+
+    const proofs = (await store.get(card.id))?.metadata?.proof ?? [];
+    expect(proofs).toHaveLength(1);
+    expect(proofs[0]).toMatchObject({
+      id: "system-proof-1",
+      note: "written directly by alert-bridge",
+      actorId: "alert-bridge",
+      actorKind: "system",
+    });
+  });
+
   it("preserves attribution across an oversized split comment", async () => {
     const store = createWorkboardSqliteTestHarness().store;
     const card = await store.create({ title: "oversized" });
@@ -242,7 +285,13 @@ describe("actor id form compatibility", () => {
         id: card.id,
         body: "rin comment",
       });
-      const comment = (await store.get(card.id))?.metadata?.comments?.[0];
+      // The shared contract types `WorkboardComment` without actor fields and
+      // is deliberately not widened by this card (scope is
+      // extensions/workboard/**), so the read site needs the local
+      // intersection. Runtime carries the fields; only the type does not.
+      const comment = (await store.get(card.id))?.metadata?.comments?.[0] as
+        | AttributedWorkboardComment
+        | undefined;
       expect(comment?.actorId).toBe(agentId);
       expect(RIN_ACTOR_RE.test(String(comment?.actorId))).toBe(true);
     }
