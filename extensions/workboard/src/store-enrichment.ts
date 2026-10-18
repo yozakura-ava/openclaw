@@ -44,8 +44,10 @@ export class WorkboardEnrichmentStore extends WorkboardCoreStore {
     scope?: WorkboardMutationScope,
   ): Promise<WorkboardCard> {
     const now = Date.now();
-    // Proof rows live in metadata.proof (no proofs table), so attribution
-    // round-trips wholesale with the record and needs no column migration.
+    // Proof rows live in the workboard_card_proof child table and
+    // readMetadata rebuilds metadata.proof from it, so attribution only
+    // survives a rewrite because the actor columns were added to that table
+    // alongside the comment columns.
     const proof = normalizeProofInput(input, now);
     return await this.updateMetadata(
       id,
