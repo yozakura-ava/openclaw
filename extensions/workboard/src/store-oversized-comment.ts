@@ -12,6 +12,11 @@
  */
 import { randomUUID } from "node:crypto";
 import type { WorkboardCard, WorkboardMetadata } from "@openclaw/workboard-contract";
+import {
+  actorFields,
+  type AttributedWorkboardComment,
+  type WorkboardActor,
+} from "./actor-attribution.js";
 import { assertCanMutateClaimedCard, splitCommentBody } from "./store-card-helpers.js";
 import {
   MAX_CARD_COMMENTS,
@@ -45,6 +50,8 @@ interface AddCommentHost extends OversizedCommentHost {
  * @param recovery when true, allow the write to proceed against an EXPIRED
  *   claim whose grace window has elapsed. Used by reclaim-then-handoff flows
  *   to record context before re-claiming. Defaults to false (strict).
+ * @param actor resolved writer identity, or undefined for an unattributed
+ *   write. Omitted attribution persists as NULL — identity is never invented.
  */
 export async function addCommentWithChunking(
   host: AddCommentHost,
@@ -52,12 +59,18 @@ export async function addCommentWithChunking(
   body: string,
   scope: WorkboardMutationScope | undefined,
   recovery = false,
+  actor?: WorkboardActor,
 ): Promise<WorkboardCard> {
   const now = Date.now();
   if (body.length > MAX_COMMENT_BODY_LENGTH) {
-    return await addOversizedComment(host, id, body, scope, now, recovery);
+    return await addOversizedComment(host, id, body, scope, now, recovery, actor);
   }
-  const comment = { id: randomUUID(), body, createdAt: now };
+  const comment: AttributedWorkboardComment = {
+    id: randomUUID(),
+    body,
+    createdAt: now,
+    ...actorFields(actor),
+  };
   return await host.updateMetadata(id, (existing) => {
     assertCanMutateClaimedCard(existing, scope, recovery);
     return {
@@ -74,6 +87,7 @@ export async function addOversizedComment(
   scope: WorkboardMutationScope | undefined,
   now: number,
   recovery = false,
+  actor?: WorkboardActor,
 ): Promise<WorkboardCard> {
   return await host.enqueueMutation(async () => {
     // Reserve space for "(N/M)" continuation labels so no labeled chunk
@@ -84,7 +98,12 @@ export async function addOversizedComment(
     const total = rawChunks.length;
     if (total < 2) {
       // Single-chunk edge case (whitespace boundary produced one oversized chunk).
-      const comment = { id: randomUUID(), body: rawChunks[0] ?? body, createdAt: now };
+      const comment: AttributedWorkboardComment = {
+        id: randomUUID(),
+        body: rawChunks[0] ?? body,
+        createdAt: now,
+        ...actorFields(actor),
+      };
       const single = await host.updateLatestCard(id, (current) => ({
         metadata: {
           ...current.metadata,
@@ -139,10 +158,11 @@ export async function addOversizedComment(
     let lastCard: WorkboardCard | undefined;
     try {
       for (const [index, chunk] of labeledChunks.entries()) {
-        const comment = {
+        const comment: AttributedWorkboardComment = {
           id: randomUUID(),
           body: chunk,
           createdAt: now + index,
+          ...actorFields(actor),
         };
         const result = await host.updateLatestCard(id, (current) => {
           assertCanMutateClaimedCard(current, scope, recovery);

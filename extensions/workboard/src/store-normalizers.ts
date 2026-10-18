@@ -17,7 +17,6 @@ import {
   type WorkboardAttachment,
   type WorkboardAutomation,
   type WorkboardClaim,
-  type WorkboardComment,
   type WorkboardDiagnostic,
   type WorkboardDiagnosticAction,
   type WorkboardDiagnosticKind,
@@ -49,6 +48,12 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
+import {
+  actorFields,
+  normalizeActor,
+  type AttributedWorkboardComment,
+  type AttributedWorkboardProof,
+} from "./actor-attribution.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -523,7 +528,7 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
   };
 }
 
-function normalizeComment(record: Record<string, unknown>): WorkboardComment | null {
+function normalizeComment(record: Record<string, unknown>): AttributedWorkboardComment | null {
   const id = normalizeOptionalString(record.id);
   const body = normalizeBoundedString(
     record.body,
@@ -536,7 +541,17 @@ function normalizeComment(record: Record<string, unknown>): WorkboardComment | n
     return null;
   }
   const updatedAt = normalizeTimestamp(record.updatedAt, 0);
-  return { id, body, createdAt, ...(updatedAt ? { updatedAt } : {}) };
+  // Attribution must survive the metadata read normalizer, which whitelists
+  // every other field; dropping it here is what silently erased authorship on
+  // the next unrelated card write.
+  const actor = normalizeActor(record);
+  return {
+    id,
+    body,
+    createdAt,
+    ...(updatedAt ? { updatedAt } : {}),
+    ...actorFields(actor),
+  };
 }
 
 function normalizeLink(record: unknown): WorkboardLink | null {
@@ -807,11 +822,16 @@ export function normalizeProofInput(
   input: WorkboardProofInput,
   now: number,
   id?: string,
-): WorkboardProof {
+): AttributedWorkboardProof {
   const label = normalizeBoundedString(input.label, undefined, 160, "proof label");
   const command = normalizeBoundedString(input.command, undefined, 1000, "proof command");
   const url = normalizeBoundedString(input.url, undefined, 2000, "proof URL");
   const note = normalizeBoundedString(input.note, undefined, 2000, "proof note");
+  // Proof records live in metadata.proof (no dedicated table), so attribution
+  // round-trips wholesale with the record. Normalized fail-closed: an
+  // unresolved actor contributes no fields at all. normalizeProof() routes
+  // through here on the read path, which is what preserves proof authorship.
+  const actor = normalizeActor(input);
   return {
     id: id ?? randomUUID(),
     status: normalizeEnumValue(input.status, WORKBOARD_PROOF_STATUSES, "unknown"),
@@ -820,6 +840,7 @@ export function normalizeProofInput(
     ...(command ? { command } : {}),
     ...(url ? { url } : {}),
     ...(note ? { note } : {}),
+    ...actorFields(actor),
   };
 }
 

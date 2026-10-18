@@ -17,6 +17,7 @@ import {
   iterateSqliteQuerySync,
   sqliteStringSet,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import type { AttributedWorkboardComment, AttributedWorkboardProof } from "./actor-attribution.js";
 export type Row = Record<string, unknown>;
 
 export function jsonValue(value: unknown): string | null {
@@ -288,6 +289,13 @@ function readMetadata(
       body: requiredString(child, "body"),
       createdAt: requiredNumber(child, "created_at"),
       updatedAt: numberValue(child, "updated_at"),
+      // Attribution round-trip. stringValue returns undefined for NULL, and
+      // definedFields strips undefined keys, so an unattributed row reads back
+      // as a comment carrying no actor fields at all.
+      actorId: stringValue(child, "actor_id"),
+      actorKind: stringValue(child, "actor_kind") as
+        | AttributedWorkboardComment["actorKind"]
+        | undefined,
     });
   });
   const links = childRows(db, "workboard_card_links", cardId, preloaded).map((child) => {
@@ -311,6 +319,10 @@ function readMetadata(
       command: stringValue(child, "command"),
       url: stringValue(child, "url"),
       note: stringValue(child, "note"),
+      actorId: stringValue(child, "actor_id"),
+      actorKind: stringValue(child, "actor_kind") as
+        | AttributedWorkboardProof["actorKind"]
+        | undefined,
     });
   });
   const artifacts = childRows(db, "workboard_card_artifacts", cardId, preloaded).map((child) => {

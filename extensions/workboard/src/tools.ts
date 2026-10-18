@@ -18,6 +18,25 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
 }
 
+/**
+ * Resolve the writer identity for attribution.
+ *
+ * The tool `execute` signature carries no per-call context, so identity comes
+ * from the registration-time context that index.ts hands to
+ * `createWorkboardTools` - the same source `contextOwner` already uses for
+ * claim ownership.
+ *
+ * When no context exists at all, this returns `undefined` rather than
+ * `contextOwner`'s "agent" placeholder: a fabricated identity is worse than an
+ * absent one, so unattributed writes persist as NULL (fail-closed).
+ */
+function resolveCommentActor(ctx: OpenClawPluginToolContext | undefined) {
+  if (!ctx) {
+    return undefined;
+  }
+  return { actorId: contextOwner(ctx), actorKind: "agent" as const };
+}
+
 function readParentIds(value: unknown): string[] {
   if (value == null) {
     return [];
@@ -100,6 +119,7 @@ export function createWorkboardTools(params: {
 }): AnyAgentTool[] {
   const { store } = params;
   const ownerId = contextOwner(params.context);
+  const commentActor = resolveCommentActor(params.context);
   const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
     createWorkboardCardMutations(store, ownerId);
   const tools: AnyAgentTool[] = [
@@ -277,7 +297,7 @@ export function createWorkboardTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: scopedCardMutation((id, record, scope) =>
-        store.addComment(id, { body: record.body }, scope),
+        store.addComment(id, { body: record.body, ...(commentActor ?? {}) }, scope),
       ),
     },
     {
@@ -303,7 +323,7 @@ export function createWorkboardTools(params: {
         const card = hasArtifact
           ? await store.addProofWithArtifact(
               id,
-              record,
+              { ...record, ...(commentActor ?? {}) },
               {
                 label: record.label,
                 path: record.artifactPath,
@@ -311,7 +331,7 @@ export function createWorkboardTools(params: {
               },
               scope,
             )
-          : await store.addProof(id, record, scope);
+          : await store.addProof(id, { ...record, ...(commentActor ?? {}) }, scope);
         return redactedProofResult(card);
       },
     },
