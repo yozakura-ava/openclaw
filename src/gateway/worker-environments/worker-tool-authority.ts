@@ -111,11 +111,14 @@ export function resolveWorkerToolAuthority(params: {
     workspaceDir: turn.bootstrapWorkspaceDir ?? turn.workspaceDir,
     assertCurrent: params.assertCurrent,
   });
-  presentation.skills = installedSkills.map(({ name, description, location }) => ({
-    name,
-    description,
-    location,
-  }));
+  // The presentation is a model-invoking surface; hidden skills stay readable only.
+  presentation.skills = installedSkills
+    .filter((skill) => skill.modelInvocable !== false)
+    .map(({ name, description, location }) => ({
+      name,
+      description,
+      location,
+    }));
   return {
     capabilityProfile,
     policy: corePolicy,

@@ -152,6 +152,12 @@ export type SkillSnapshot = {
   resolvedSkills?: Skill[];
   /** Runtime-only model-discoverable skills before prompt budgeting; excludes hidden skills. */
   discoverySkills?: Skill[];
+  /**
+   * Runtime-only complete eligible skills, including ones hidden from the model prompt.
+   * Skill tools resolve this set so pointer-following works for hidden skills; the
+   * prompt directory keeps using the prompt-visible projection.
+   */
+  eligibleSkills?: Skill[];
   /** Present only when a session merges skills from distinct agent and execution roots. */
   skillRoots?: {
     agentWorkspaceDir: string;

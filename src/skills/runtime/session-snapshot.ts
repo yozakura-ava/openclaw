@@ -243,6 +243,7 @@ export async function resolveReusableWorkspaceSkillSnapshot(
           ...params.existingSnapshot,
           resolvedSkills: rebuilt.resolvedSkills,
           discoverySkills: rebuilt.discoverySkills,
+          eligibleSkills: rebuilt.eligibleSkills,
         }
       : rebuilt;
   if (!snapshot || !projectionIsCurrent()) {

@@ -147,6 +147,35 @@ describe("resolveWorkerToolAuthority", () => {
     );
   });
 
+  // Card ece9ecfa: the presentation is a model-invoking surface. Surface-level guard --
+  // deleting the modelInvocable filter in worker-tool-authority.ts admits the hidden
+  // skill here and fails this assertion, while the readable catalog stays complete.
+  it("keeps hidden eligible skills off the presentation surface", () => {
+    const visible = createFixtureSkillEntry("visible-guide").skill;
+    const hidden = {
+      ...createFixtureSkillEntry("hidden-guide").skill,
+      disableModelInvocation: true,
+    };
+    const skillsSnapshot = {
+      prompt: "",
+      skills: [{ name: visible.name }, { name: hidden.name }],
+      discoverySkills: [visible],
+      eligibleSkills: [visible, hidden],
+    };
+
+    const resolved = resolveWorkerToolAuthority({
+      modelRef: { provider: "openai", model: "gpt-test" },
+      placement: { agentId: "main", sessionKey: "agent:main:worker-hidden-skills" },
+      turn: turn({ skillsSnapshot } as Partial<SessionPlacementTurnParams>),
+      assertCurrent: () => {},
+    });
+
+    expect(resolved.presentation.skills.map((skill) => skill.name)).toEqual([visible.name]);
+    expect(resolved.installedSkills.map((skill) => skill.name).sort()).toEqual(
+      [visible.name, hidden.name].sort(),
+    );
+  });
+
   it.each([
     { name: "default", tools: {}, allowed: true },
     {

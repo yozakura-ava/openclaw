@@ -58,6 +58,7 @@ export async function buildSkillSnapshot(
       : {}),
     resolvedSkills: prepared.skills.map((skill) => byName.get(skill.name)!),
     discoverySkills: resolvedSkills,
+    eligibleSkills: eligible.map((entry) => entry.skill),
     version: opts?.snapshotVersion,
     promptFormatVersion: WORKSPACE_SKILLS_PROMPT_FORMAT_VERSION,
   };

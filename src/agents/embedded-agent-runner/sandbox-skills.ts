@@ -153,12 +153,14 @@ export function resolveSandboxSkillRuntimeInputs(params: {
     let selectedSnapshot =
       params.skillsSnapshot &&
       !params.skillsSnapshot.prompt.trim() &&
-      !params.skillsSnapshot.discoverySkills?.length
+      !params.skillsSnapshot.discoverySkills?.length &&
+      !params.skillsSnapshot.eligibleSkills?.length
         ? params.skillsSnapshot
         : undefined;
     if (
       snapshot &&
-      (snapshot.librarySelections?.length || (snapshot.discoverySkills && skillUsagePaths?.length))
+      (snapshot.librarySelections?.length ||
+        ((snapshot.discoverySkills || snapshot.eligibleSkills) && skillUsagePaths?.length))
     ) {
       const usageBySkillName = indexFirstByKey(skillUsagePaths ?? [], (usage) => usage.skillName);
       const mapSkill = (skill: NonNullable<SkillSnapshot["resolvedSkills"]>[number]) => {
@@ -179,6 +181,13 @@ export function resolveSandboxSkillRuntimeInputs(params: {
       const discoverySkills = snapshot.discoverySkills
         ?.filter((skill) => usageBySkillName.has(skill.name))
         .map(mapSkill);
+      // The eligible set feeds skills_read/skills_search, so it must honor the same
+      // delivery boundary as discovery: never-delivered skills are dropped and
+      // delivered ones are remapped to their container paths. Leaving it on the
+      // ...snapshot spread would hand the catalog host paths and withheld skills.
+      const eligibleSkills = snapshot.eligibleSkills
+        ?.filter((skill) => usageBySkillName.has(skill.name))
+        .map(mapSkill);
       if (!resolvedSkills) {
         throw new Error("Selected skill snapshot must be hydrated before sandbox delivery.");
       }
@@ -186,6 +195,7 @@ export function resolveSandboxSkillRuntimeInputs(params: {
         ...snapshot,
         resolvedSkills,
         discoverySkills,
+        eligibleSkills,
         prompt: formatSkillsForPromptBounded({ skills: resolvedSkills, preserveOrder: true }),
       };
     }

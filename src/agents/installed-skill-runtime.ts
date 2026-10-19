@@ -21,11 +21,14 @@ export function prepareInstalledSkillCatalog(params: {
   if (!snapshot) {
     return [];
   }
-  const candidates = snapshot.discoverySkills ?? snapshot.resolvedSkills ?? [];
+  const candidates =
+    snapshot.eligibleSkills ?? snapshot.discoverySkills ?? snapshot.resolvedSkills ?? [];
   const promptListed = new Set(
     resolveCodeModeSkills({ skillsPrompt: snapshot.prompt, candidates }).map((skill) => skill.name),
   );
-  const fallback = snapshot.discoverySkills ? undefined : promptListed;
+  // Legacy snapshots without a model-discoverable set cannot name hidden skills, so
+  // their catalog falls back to the prompt projection instead of guessing identities.
+  const fallback = snapshot.eligibleSkills || snapshot.discoverySkills ? undefined : promptListed;
   const keys = new Map(snapshot.skills.map((skill) => [skill.name, skill.skillKey]));
   const unavailableOwners = hasUnavailableSkillSecretOwners();
   const workspace = !sandbox?.enabled
@@ -34,7 +37,6 @@ export function prepareInstalledSkillCatalog(params: {
   return candidates
     .filter(
       (skill) =>
-        !skill.disableModelInvocation &&
         (!fallback || fallback.has(skill.name)) &&
         // Legacy snapshots cannot identify renamed secret owners reliably.
         (!unavailableOwners || keys.get(skill.name) !== undefined) &&
@@ -89,6 +91,7 @@ export function prepareInstalledSkillCatalog(params: {
       return {
         name: skill.name,
         promptListed: promptListed.has(skill.name),
+        modelInvocable: !skill.disableModelInvocation,
         description: [skill.description, skill.locationNote].filter(Boolean).join("\n"),
         location: resolveSkillReadPath(skill),
         source: {

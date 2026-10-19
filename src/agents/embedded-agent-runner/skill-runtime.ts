@@ -143,7 +143,10 @@ export async function prepareEmbeddedSkills(params: {
       sandbox: params.sandbox,
       assertCurrent: params.assertCurrent,
     });
-    const codeModeSkills = params.includeCodeModeSkills ? installedSkills : [];
+    // Hidden skills stay readable through skills_read/skills_search, never invocable.
+    const codeModeSkills = params.includeCodeModeSkills
+      ? installedSkills.filter((skill) => skill.modelInvocable !== false)
+      : [];
     // Host read exceptions use exact eligible resources without changing model visibility.
     // Sandboxes keep their existing materialized paths; never resolve host library pins there.
     const skillReadResources = params.sandbox?.enabled

@@ -279,6 +279,9 @@ describe("SQLite session row persistence", () => {
         skillFilter: ["demo"],
         resolvedSkills,
         discoverySkills: resolvedSkills,
+        // eligibleSkills is runtime-only too: a strip regression for this field alone
+        // must turn this test red, so it is present in the fixture and absent below.
+        eligibleSkills: resolvedSkills,
         version: 7,
       },
     };
@@ -305,5 +308,6 @@ describe("SQLite session row persistence", () => {
     });
     expect(entry.skillsSnapshot?.resolvedSkills).toBe(resolvedSkills);
     expect(entry.skillsSnapshot?.discoverySkills).toBe(resolvedSkills);
+    expect(entry.skillsSnapshot?.eligibleSkills).toBe(resolvedSkills);
   });
 });
