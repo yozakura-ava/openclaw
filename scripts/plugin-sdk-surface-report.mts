@@ -189,7 +189,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +11: ten service-lifetime type exports and the owner-bound scheduler resolver.
       // +1: owner-approved async watched-session preparation with retained sync compatibility.
       // +2: Workboard worker availability and A2A host-notice classification.
-      3646,
+      // -1: this line's public graph emits 3645/2110 (verified by guarded surface-report runs at compat base 81d049448a0 AND head a7382daf91d, 2026-10-19); upstream pin 3646/2111 (#172064) counts one export absent from the 2026.10.3 line — parity tracked in [DEBT] card.
+      3645,
       env,
     ),
     publicFunctionExports: readPluginSdkSurfaceBudgetEnv(
@@ -199,7 +200,8 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // +1: resolvePluginServiceScheduler borrows an existing service/account/CLI owner.
       // +1: owner-approved async watched-session preparation with retained sync compatibility.
       // +2: the same worker-availability and host-notice functions.
-      2111,
+      // -1: this line's public graph emits 3645/2110 (verified by guarded surface-report runs at compat base 81d049448a0 AND head a7382daf91d, 2026-10-19); upstream pin 3646/2111 (#172064) counts one export absent from the 2026.10.3 line — parity tracked in [DEBT] card.
+      2110,
       env,
     ),
     publicDeprecatedExports: readPluginSdkSurfaceBudgetEnv(
