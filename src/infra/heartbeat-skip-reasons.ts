@@ -37,7 +37,7 @@ const LEGACY_WORK_IN_FLIGHT_SKIP_TOKEN = "requests-in-flight";
 const ACTIVE_RUN_SKIP_TOKEN = "active-run";
 
 /** Read the machine-stable token from a possibly detail-suffixed reason. */
-export function heartbeatSkipReasonToken(reason: string): string {
+function heartbeatSkipReasonToken(reason: string): string {
   const trimmed = reason.trim();
   const separator = trimmed.indexOf(" ");
   return separator === -1 ? trimmed : trimmed.slice(0, separator);
