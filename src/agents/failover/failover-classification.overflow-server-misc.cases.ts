@@ -204,7 +204,10 @@ export const overflowServerMiscCases = [
       message:
         "OpenAI API error (500): 500 The server had an error while processing your request. Sorry about that!",
     },
-    expected: null,
+    // JUSTIFICATION: inferSignalStatus now falls back to extractProviderWrappedHttpStatus,
+    // so the provider-wrapped (500) is seen and an OpenAI 500 classifies as server_error
+    // (retry-worthy) instead of "not a failover signal" (null).
+    expected: reason("server_error"),
   },
   {
     id: "retry-azure-502",
@@ -213,7 +216,9 @@ export const overflowServerMiscCases = [
       provider: "azure-openai",
       message: "Azure OpenAI API error (502): Bad gateway from upstream",
     },
-    expected: reason("timeout"),
+    // JUSTIFICATION: the wrapped (502) now supplies the status, so 502 Bad Gateway reports
+    // server_error rather than matching the body-text timeout rule; retry semantics are unchanged.
+    expected: reason("server_error"),
   },
   {
     id: "retry-mistral-503",

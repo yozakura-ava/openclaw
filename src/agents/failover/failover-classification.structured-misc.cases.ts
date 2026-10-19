@@ -39,7 +39,9 @@ export const structuredMiscCases = [
       message:
         "Google Generative AI API error (400): Request contains an invalid argument. [code=INVALID_ARGUMENT]",
     },
-    expected: null,
+    // JUSTIFICATION: the wrapped (400) now supplies the status, so INVALID_ARGUMENT reports
+    // format (request-shape) rather than staying unclassified; it is still never auth.
+    expected: reason("format"),
   },
   {
     id: "patterns-bedrock-generic-model-not-ready",
