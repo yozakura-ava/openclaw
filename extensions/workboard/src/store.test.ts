@@ -725,12 +725,16 @@ describe("WorkboardStore", () => {
         );
       }
 
-      const claims = await Promise.allSettled([
-        first.claim(cards[0].id, { ownerId: "worker" }),
-        second.claim(cards[1].id, { ownerId: "worker" }),
-        first.claim(cards[2].id, { ownerId: "worker" }),
-        second.claim(cards[3].id, { ownerId: "worker" }),
-      ]);
+      // Index the freshly created cards instead of reaching into `cards` at
+      // fixed offsets: the loop above guarantees four entries, so a slice plus
+      // index parity keeps the cross-host split without possibly-undefined reads.
+      const claims = await Promise.allSettled(
+        cards
+          .slice(0, 4)
+          .map((card, index) =>
+            (index % 2 === 0 ? first : second).claim(card.id, { ownerId: "worker" }),
+          ),
+      );
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
       expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);
