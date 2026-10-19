@@ -80,7 +80,7 @@ export async function addCommentWithChunking(
   });
 }
 
-export async function addOversizedComment(
+async function addOversizedComment(
   host: OversizedCommentHost,
   id: string,
   body: string,
@@ -182,6 +182,7 @@ export async function addOversizedComment(
           ? `chunks ${written.join(", ")} of ${total} were persisted before the failure`
           : "no chunks were persisted before the failure";
       if (error instanceof Error) {
+        // SAFETY: Errors thrown from the chunked write path carry splitProgress; attaching it here preserves the resume point.
         (error as Error & { splitProgress?: string }).splitProgress = progress;
         throw error;
       }

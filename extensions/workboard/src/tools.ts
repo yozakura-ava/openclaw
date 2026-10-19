@@ -297,7 +297,7 @@ export function createWorkboardTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: scopedCardMutation((id, record, scope) =>
-        store.addComment(id, { body: record.body, ...(commentActor ?? {}) }, scope),
+        store.addComment(id, { body: record.body, ...commentActor }, scope),
       ),
     },
     {
@@ -323,7 +323,7 @@ export function createWorkboardTools(params: {
         const card = hasArtifact
           ? await store.addProofWithArtifact(
               id,
-              { ...record, ...(commentActor ?? {}) },
+              { ...record, ...commentActor },
               {
                 label: record.label,
                 path: record.artifactPath,
@@ -331,7 +331,7 @@ export function createWorkboardTools(params: {
               },
               scope,
             )
-          : await store.addProof(id, { ...record, ...(commentActor ?? {}) }, scope);
+          : await store.addProof(id, { ...record, ...commentActor }, scope);
         return redactedProofResult(card);
       },
     },

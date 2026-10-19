@@ -189,7 +189,9 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     // Attribution must survive this DELETE-then-INSERT rewrite, which runs on
     // EVERY card write - including unrelated mutations such as a label or
     // status change made long after the comment was authored.
+    // SAFETY: insertChildren entries are decoded card children; the generic entry type omits the optional attribution columns, so reading them needs a local widening.
     actor_id: (entry) => bindNull((entry as { actorId?: unknown }).actorId),
+    // SAFETY: Same attribution contract as actor_id: bindNull persists NULL when the child carries no actor.
     actor_kind: (entry) => bindNull((entry as { actorKind?: unknown }).actorKind),
     created_at: (entry) => entry.createdAt,
     updated_at: (entry) => bindNull(entry.updatedAt),
@@ -211,7 +213,9 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     command: (entry) => bindNull(entry.command),
     url: (entry) => bindNull(entry.url),
     note: (entry) => bindNull(entry.note),
+    // SAFETY: Same decoded-child attribution contract as the comments table; bindNull persists NULL when absent.
     actor_id: (entry) => bindNull((entry as { actorId?: unknown }).actorId),
+    // SAFETY: Same decoded-child attribution contract as the comments table; bindNull persists NULL when absent.
     actor_kind: (entry) => bindNull((entry as { actorKind?: unknown }).actorKind),
     created_at: (entry) => entry.createdAt,
   });
