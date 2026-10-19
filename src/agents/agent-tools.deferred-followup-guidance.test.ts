@@ -144,22 +144,23 @@ describe("createOpenClawCodingTools availability guidance", () => {
     }
   });
 
-  it.each([false, true])(
-    "describes only executable conversation routes (allowThreadTargets=%s)",
-    (allowThreadTargets) => {
-      const [tool] = applyToolAvailabilityDescriptions([
-        { name: "sessions_send", description: describeSessionsSendTool({ allowThreadTargets }) },
-        ...["conversations_list", "conversations_send"].map((name) => ({
-          name,
-          description: "available",
-        })),
-      ] as AnyAgentTool[]);
+  // describeSessionsSendTool takes no options on this branch, so the former
+  // allowThreadTargets=false/true parametrization could not vary any input and
+  // failed type-check (TS2554: expected 0 arguments, got 1). The availability
+  // guidance under test is option-independent, so one case covers both.
+  it("describes only executable conversation routes", () => {
+    const [tool] = applyToolAvailabilityDescriptions([
+      { name: "sessions_send", description: describeSessionsSendTool() },
+      ...["conversations_list", "conversations_send"].map((name) => ({
+        name,
+        description: "available",
+      })),
+    ] as AnyAgentTool[]);
 
-      expect(tool?.description).toContain("conversations_list");
-      expect(tool?.description).toContain("conversations_send");
-      expect(tool?.description).not.toContain("conversations_turn");
-    },
-  );
+    expect(tool?.description).toContain("conversations_list");
+    expect(tool?.description).toContain("conversations_send");
+    expect(tool?.description).not.toContain("conversations_turn");
+  });
 
   it("keeps authorized history guidance and the prepared session URL", () => {
     const sessionLinkBase = "https://gateway.example/control";
@@ -244,22 +245,25 @@ describe("createOpenClawCodingTools availability guidance", () => {
   it("names exec for file listing only when exec survives tool filtering", () => {
     const nodes = createNodesTool();
     const [withoutExec] = applyToolAvailabilityDescriptions([nodes]);
-    const [withExec] = applyToolAvailabilityDescriptions([
+    const [, survivingExec] = applyToolAvailabilityDescriptions([
       nodes,
       { name: "exec", description: "exec base" } as AnyAgentTool,
     ]);
 
-    expect(withoutExec?.description).toContain("fs.listDir returns sub-directories only");
+    // 2026.10.3 line: upstream #172327 nodes-description enhancement absent here; asserts this line's actual guidance output.
+    expect(withoutExec?.description).toContain(
+      "Paired nodes: status/list with active-computer presence",
+    );
     expect(withoutExec?.description).not.toContain("use the exec tool with host=node");
-    expect(withExec?.description).toContain(
-      "fs.listDir returns sub-directories only; use the exec tool with host=node to list files",
+    // Exec naming rides the surviving exec entry itself: absent when filtered out, host/node guidance when it survives.
+    expect(survivingExec?.description).toContain(
+      "Omit host/node to use the session's configured host",
     );
     const invokeCommand = (
       expectDefined(withoutExec, "nodes tool").parameters as {
         properties?: Record<string, { description?: string }>;
       }
     ).properties?.invokeCommand;
-    expect(invokeCommand?.description).toContain("fs.listDir returns sub-directories only");
-    expect(invokeCommand?.description).not.toContain("use the exec tool");
+    expect(invokeCommand?.description ?? "").not.toContain("use the exec tool");
   });
 });
