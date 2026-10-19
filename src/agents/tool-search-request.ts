@@ -60,6 +60,7 @@ function readEnvelopeLevel(value: Record<string, unknown>): EnvelopeLevel | unde
 function isPureEnvelopeLevel(record: Record<string, unknown>): boolean {
   return Object.keys(record).every(
     (key) =>
+      // SAFETY: key is always a string from Object.keys; the cast only narrows it to the wrapper-key union for includes().
       TOOL_SEARCH_WRAPPER_KEYS.includes(key as (typeof TOOL_SEARCH_WRAPPER_KEYS)[number]) ||
       (key.startsWith("args.") && key.length > 5),
   );

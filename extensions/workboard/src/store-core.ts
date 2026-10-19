@@ -246,6 +246,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     const boardId = normalizeBoardId(input.boardId);
     const aggregates = await this.store.listStatsAggregates(boardId);
     const byStatus: Partial<Record<WorkboardStatus, number>> = {};
+    // SAFETY: Object.create(null) is prototype-less and is only ever indexed by an aggregate's agent key.
     const byAgent = Object.create(null) as Record<string, number>;
     let oldestReadyAt: number | undefined;
     let updatedAt: number | undefined;
@@ -568,6 +569,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           typeof patch.metadata === "object" &&
           !Array.isArray(patch.metadata)
         ) {
+          // SAFETY: The typeof/Array.isArray guard above proves patch.metadata is a non-null plain object; widening to Record only enables rest-destructuring.
           const metadataPatch = patch.metadata as Record<string, unknown>;
           const { lifecycleStatusSourceUpdatedAt: _ignored, ...rest } = metadataPatch;
           effectivePatch.metadata = Object.keys(rest).length > 0 ? rest : undefined;
@@ -825,6 +827,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     // through to `assertCanMutateClaimedCard`, which honors expired claims
     // whose grace window has elapsed while still rejecting live claims from
     // other owners.
+    // SAFETY: addCommentWithChunking only calls addComment/addOversizedComment, both implemented here; `this` satisfies that store shape at runtime.
     return await addCommentWithChunking(this as never, id, body, scope, true, actor);
   }
 

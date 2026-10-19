@@ -293,6 +293,7 @@ function readMetadata(
       // definedFields strips undefined keys, so an unattributed row reads back
       // as a comment carrying no actor fields at all.
       actorId: stringValue(child, "actor_id"),
+      // SAFETY: Comment rows persist the actor_kind the store wrote; stringValue returns undefined for NULL.
       actorKind: stringValue(child, "actor_kind") as
         | AttributedWorkboardComment["actorKind"]
         | undefined,
@@ -320,6 +321,7 @@ function readMetadata(
       url: stringValue(child, "url"),
       note: stringValue(child, "note"),
       actorId: stringValue(child, "actor_id"),
+      // SAFETY: Proof rows persist the actor_kind the store wrote; stringValue returns undefined for NULL.
       actorKind: stringValue(child, "actor_kind") as
         | AttributedWorkboardProof["actorKind"]
         | undefined,

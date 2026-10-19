@@ -23,7 +23,7 @@ const MAX_ACTOR_ID_LENGTH = 160;
  */
 export type WorkboardActorKind = "agent" | "system";
 
-export const WORKBOARD_ACTOR_KINDS: readonly WorkboardActorKind[] = ["agent", "system"];
+const WORKBOARD_ACTOR_KINDS: readonly WorkboardActorKind[] = ["agent", "system"];
 
 /** A fully-resolved identity. Both fields are present or the record has none. */
 export type WorkboardActor = {
