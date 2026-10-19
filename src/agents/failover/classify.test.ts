@@ -305,7 +305,9 @@ it("does not classify unrelated Google invalid arguments as auth", () => {
   const message =
     "Google Generative AI API error (400): Request contains an invalid argument. [code=INVALID_ARGUMENT]";
   expect(isAuthErrorMessage(message)).toBe(false);
-  expect(classifyFailoverReason(message)).toBeNull();
+  // inferSignalStatus reads the provider-wrapped (400), so the row now reports the
+  // request-shape reason. The invariant under test is "never auth", not "unclassified".
+  expect(classifyFailoverReason(message)).toBe("format");
 });
 
 it("classifies the GLM overload body as overloaded", () => {
