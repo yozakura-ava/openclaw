@@ -9,6 +9,10 @@ import { runWithGatewayDetachedWorkAdmission } from "../process/gateway-work-adm
 import { parseAgentSessionKey } from "../routing/session-key.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { normalizeHeartbeatWakeReason } from "./heartbeat-reason.js";
+import {
+  isHeartbeatBusySkipReason,
+  isHeartbeatWorkInFlightSkipReason,
+} from "./heartbeat-skip-reasons.js";
 import type { HeartbeatRunResult, HeartbeatWakeRequest } from "./heartbeat-wake-contracts.js";
 import {
   getSystemEventStorePath,
@@ -75,17 +79,14 @@ const RETRY_MS = 1_000;
 export const SESSION_EVENT_IDLE_RETRY_MS = 60_000;
 const MAX_ACTIVE_TARGETS = 4;
 const GLOBAL_TARGET = "::";
-const RETRY_REASONS = new Set([
-  "active-run",
-  "requests-in-flight",
-  "cron-in-progress",
-  "preempted",
-  "channel-not-ready",
-]);
+// Busy admission refusals are classified by token in ./heartbeat-skip-reasons.js,
+// so a detail-suffixed record (e.g. `session-recovery-blocked agent=... repair=...`)
+// retries exactly like the bare token it was recorded under.
+const RETRY_REASONS = new Set(["preempted", "channel-not-ready"]);
 const GUARD_REASONS = new Set(["not-due", "min-spacing", "flood"]);
 
 export function isRetryableSessionEventWakeReason(reason: string): boolean {
-  return RETRY_REASONS.has(reason);
+  return isHeartbeatBusySkipReason(reason) || RETRY_REASONS.has(reason);
 }
 
 function priority(wake: SessionEventWakeRequest): number {
@@ -156,7 +157,7 @@ function shouldRetain(
   result: Extract<SessionEventWakeResult, { status: "skipped" }>,
 ): boolean {
   return (
-    RETRY_REASONS.has(result.reason) ||
+    isRetryableSessionEventWakeReason(result.reason) ||
     (GUARD_REASONS.has(result.reason) &&
       Boolean(
         wake.tasks?.length ||
@@ -337,7 +338,7 @@ function createSessionEventWakeRuntime() {
       result &&
       (result.reason === "preempted" ||
         result.reason === "channel-not-ready" ||
-        ((result.reason === "requests-in-flight" || result.reason === "active-run") &&
+        (isHeartbeatWorkInFlightSkipReason(result.reason) &&
           (wake.intent === "scheduled" || wake.intent === "task")));
     const guard = idleGrace || (result && GUARD_REASONS.has(result.reason));
     const delay =

@@ -42,9 +42,18 @@ import {
   withTempHeartbeatSandbox,
 } from "./heartbeat-runner.test-utils.js";
 import {
+  HEARTBEAT_SKIP_AGENT_RUN_ACTIVE,
   HEARTBEAT_SKIP_CRON_IN_PROGRESS,
-  HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
-} from "./heartbeat-wake.js";
+  HEARTBEAT_SKIP_MAIN_LANE_BUSY,
+  HEARTBEAT_SKIP_PENDING_FINAL_DELIVERY,
+  HEARTBEAT_SKIP_SESSION_LANE_BUSY,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_BLOCKED,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_DELIVERY,
+  HEARTBEAT_SKIP_SESSION_RECOVERY_RECOVERABLE,
+  HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
+} from "./heartbeat-skip-reasons.js";
+// Legacy admission token; the post-admission dispatch fence still emits it.
+import { HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT } from "./heartbeat-wake.js";
 import { resetSystemEventsForTest, enqueueSystemEvent, peekSystemEvents } from "./system-events.js";
 
 vi.mock("jiti", () => ({ createJiti: () => () => ({}) }));
@@ -119,10 +128,33 @@ function heartbeatCase(test: (fixture: ReturnType<typeof createCase>) => Promise
 function expectBusy(
   result: Awaited<ReturnType<typeof runHeartbeatOnce>>,
   replySpy: HeartbeatReplySpy,
-  reason: string = HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT,
+  reason: string,
 ) {
   expect(result).toEqual({ status: "skipped", reason });
   expect(getLastHeartbeatEvent()).toMatchObject({ ...result, durationMs: expect.any(Number) });
+  expect(replySpy).not.toHaveBeenCalled();
+}
+
+/**
+ * A persisted main-session recovery row refuses the wake on every tick until an
+ * operator repairs it, so the record must name the agent, the session key, the
+ * recovery status, and the sanctioned repair path.
+ */
+function expectSessionRecoveryRefusal(
+  result: Awaited<ReturnType<typeof runHeartbeatOnce>>,
+  replySpy: HeartbeatReplySpy,
+  token: string,
+  status: string,
+) {
+  expect(result.status).toBe("skipped");
+  const reason = result.status === "skipped" ? result.reason : "";
+  expect(reason.startsWith(`${token} `)).toBe(true);
+  expect(reason).toContain("agent=main");
+  expect(reason).toContain("session=agent:main:main");
+  expect(reason).toContain(`status=${status}`);
+  expect(reason).toContain("repair=sessions.recover");
+  expect(getLastHeartbeatEvent()).toMatchObject({ status: "skipped", reason });
+  expect(getLastHeartbeatEvent()?.message).toContain("openclaw gateway call sessions.recover");
   expect(replySpy).not.toHaveBeenCalled();
 }
 function recoveryDelivery(
@@ -160,7 +192,12 @@ describe("heartbeat runner busy ownership", () => {
         abortedLastRun: true,
         mainRestartRecovery: { cycleId: "restart-cycle", revision: 1, chargedAttempts: 0 },
       });
-      expectBusy(await run({ intent: "scheduled" }), replySpy);
+      expectSessionRecoveryRefusal(
+        await run({ intent: "scheduled" }),
+        replySpy,
+        HEARTBEAT_SKIP_SESSION_RECOVERY_RECOVERABLE,
+        "recoverable",
+      );
     }),
   );
 
@@ -180,7 +217,12 @@ describe("heartbeat runner busy ownership", () => {
           },
         },
       });
-      expectBusy(await run({ intent: "immediate" }), replySpy);
+      expectSessionRecoveryRefusal(
+        await run({ intent: "immediate" }),
+        replySpy,
+        HEARTBEAT_SKIP_SESSION_RECOVERY_BLOCKED,
+        "blocked",
+      );
     }),
   );
 
@@ -192,7 +234,12 @@ describe("heartbeat runner busy ownership", () => {
         replySpy.mockResolvedValue({ text: "HEARTBEAT_OK" });
         const result = await run({ intent });
         if (intent === "scheduled") {
-          expectBusy(result, replySpy);
+          expectSessionRecoveryRefusal(
+            result,
+            replySpy,
+            HEARTBEAT_SKIP_SESSION_RECOVERY_DELIVERY,
+            "delivering",
+          );
         } else {
           expect(result.status).toBe("ran");
           expect(replySpy).toHaveBeenCalledOnce();
@@ -217,7 +264,7 @@ describe("heartbeat runner busy ownership", () => {
 
   it.each([
     { content: "# Heartbeat scratch\n\n## Tasks\n\n", reason: "empty-heartbeat-file" },
-    { content: "- Check status\n", reason: HEARTBEAT_SKIP_REQUESTS_IN_FLIGHT },
+    { content: "- Check status\n", reason: HEARTBEAT_SKIP_MAIN_LANE_BUSY },
   ])("handles scheduled scratch before busy queues: $reason", async ({ content, reason }) =>
     heartbeatCase(async ({ seed, run, replySpy }) => {
       await seed();
@@ -299,7 +346,13 @@ describe("heartbeat runner busy ownership", () => {
             },
           );
           if (busy.startsWith("session")) {
-            expectBusy(result, replySpy);
+            expectBusy(
+              result,
+              replySpy,
+              busy === "session"
+                ? HEARTBEAT_SKIP_SESSION_LANE_BUSY
+                : HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
+            );
             expect(peekSystemEvents(sessionKey)).toEqual([text]);
           } else {
             expect(result.status).toBe("ran");
@@ -316,7 +369,7 @@ describe("heartbeat runner busy ownership", () => {
   );
 
   it(
-    "returns requests-in-flight when a reply run is still active after queues drain",
+    "returns agent-run-active when a reply run is still active after queues drain",
     heartbeatCase(async ({ seed, run, replySpy }) => {
       const sessionKey = await seed();
       const operation = createReplyOperation({
@@ -326,7 +379,7 @@ describe("heartbeat runner busy ownership", () => {
       });
       operation.setPhase("running");
       try {
-        expectBusy(await run(), replySpy);
+        expectBusy(await run(), replySpy, HEARTBEAT_SKIP_AGENT_RUN_ACTIVE);
       } finally {
         operation.complete();
       }
@@ -477,7 +530,7 @@ describe("heartbeat runner busy ownership", () => {
           createdAt: Date.now(),
         },
       });
-      expectBusy(await run(), replySpy);
+      expectBusy(await run(), replySpy, HEARTBEAT_SKIP_PENDING_FINAL_DELIVERY);
     }),
   );
 

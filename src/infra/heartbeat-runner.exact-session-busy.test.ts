@@ -16,6 +16,7 @@ import {
   type HeartbeatRunOptions,
 } from "./heartbeat-runner-execution.js";
 import { seedSessionStore, withTempHeartbeatSandbox } from "./heartbeat-runner.test-utils.js";
+import { HEARTBEAT_SKIP_SESSION_RUN_ACTIVE } from "./heartbeat-skip-reasons.js";
 
 const sessionKey = "agent:main:main";
 const isolatedSessionKey = `${sessionKey}:heartbeat`;
@@ -219,14 +220,17 @@ describe("heartbeat exact-session busy checks", () => {
         // Register after the real asynchronous owner yields, before its busy fence.
         const close = registerRun(kind, key, `late-${kind}`);
         try {
-          expect(await pending).toEqual({ kind: "skipped", reason: "requests-in-flight" });
+          expect(await pending).toEqual({
+            kind: "skipped",
+            reason: HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
+          });
           expect(loadExactSessionEntry(scope)?.entry).toEqual(entryBefore);
           if (isolatedSession) {
             expect(loadExactSessionEntry(scope)).toBeUndefined();
           }
           expect(getLastHeartbeatEvent()).toMatchObject({
             status: "skipped",
-            reason: "requests-in-flight",
+            reason: HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
           });
         } finally {
           close();
@@ -244,7 +248,7 @@ describe("heartbeat exact-session busy checks", () => {
             ...opts,
             deps: { ...opts.deps, isReplyRunActive: () => false },
           }),
-        ).toEqual({ kind: "skipped", reason: "requests-in-flight" });
+        ).toEqual({ kind: "skipped", reason: HEARTBEAT_SKIP_SESSION_RUN_ACTIVE });
       } finally {
         close();
       }
@@ -298,7 +302,10 @@ describe("heartbeat exact-session busy checks", () => {
           const pending = prepareHeartbeatRunStage(wake);
           if (lateKeys) {
             keys = lateKeys;
-            expect(await pending).toEqual({ kind: "skipped", reason: "requests-in-flight" });
+            expect(await pending).toEqual({
+              kind: "skipped",
+              reason: HEARTBEAT_SKIP_SESSION_RUN_ACTIVE,
+            });
             expect(
               loadExactSessionEntry({ agentId: "main", storePath, sessionKey: isolatedSessionKey }),
             ).toBeUndefined();
