@@ -27,15 +27,12 @@ export async function listRetainedDeletedAgentIdsForCleanup(
 ): Promise<ReadonlySet<string>> {
   const reply = await executeExistingOpenClawStateRead(
     { env },
-    { type: "agentDatabaseDeletion.snapshot", purpose: "runtime" },
+    { type: "agentDeletionJournal.retainedIds" },
   );
-  if (reply && (!reply.ok || reply.type !== "agentDatabaseDeletion.snapshot")) {
+  if (reply && (!reply.ok || reply.type !== "agentDeletionJournal.retainedIds")) {
     throw new Error("Retained agent deletion read failed during plugin cleanup.");
   }
-  const retained = reply?.snapshot.retainedDeletions;
-  return new Set(
-    retained?.status === "present" ? retained.entries.map((entry) => entry.agentId) : [],
-  );
+  return new Set(reply?.agentIds ?? []);
 }
 
 type Target = { agentId: string; path: string };
