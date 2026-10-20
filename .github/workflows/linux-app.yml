@@ -380,6 +380,7 @@ jobs:
 
   test-windows-power:
     name: Test Windows power lifecycle
+    if: github.repository == 'openclaw/openclaw'
     # Match the optional Windows desktop-test bundle runner.
     runs-on: windows-2022
     timeout-minutes: 45

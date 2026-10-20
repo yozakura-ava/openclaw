@@ -24,7 +24,7 @@ env:
 
 jobs:
   admission:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.repository == 'openclaw/openclaw' && github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-24.04
     timeout-minutes: 3
     permissions:
@@ -53,7 +53,7 @@ jobs:
 
   windows:
     needs: admission
-    if: ${{ !cancelled() && needs.admission.result == 'success' }}
+    if: ${{ github.repository == 'openclaw/openclaw' && !cancelled() && needs.admission.result == 'success' }}
     concurrency:
       group: ${{ github.event_name == 'workflow_dispatch' && needs.admission.outputs.group || format('testbox-validation-{0}-{1}', github.workflow, github.run_id) }}
       cancel-in-progress: false

@@ -65,8 +65,9 @@ async function runTsgoCoreTestShards(
   // reconstruct that aggregate peak, including callers that request CI overlap.
   const isRootPartition = (graph: { config: string }) =>
     TSGO_ROOT_TEST_SHARDS.some((root) => root.config === graph.config);
-  const hasRootPartitions = executionGraphs.some(isRootPartition);
-  const concurrency = hasRootPartitions ? 1 : (options.concurrency ?? 1);
+  // Every compiler segment has its own 6-GiB scope in CI. Keep the queue serial
+  // so two fresh checker heaps cannot exceed the job envelope at the same time.
+  const concurrency = 1;
   const env = resolveLocalCheckEnv(options.env ?? process.env);
   const evidenceMode = env.OPENCLAW_CI_STATIC_EVIDENCE === "1" && process.platform !== "win32";
   const id = randomUUID();

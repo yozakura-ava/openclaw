@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   promote_signed_windows_installers:
+    if: github.repository == 'openclaw/openclaw'
     name: Promote signed Windows installers
     runs-on: windows-latest
     timeout-minutes: 30
