@@ -47,13 +47,8 @@ import {
   type GatewayMethodOperatorScope,
 } from "../../lib/gateway-methods.ts";
 import { IdentityAvatarController } from "../../lib/identity-avatar-loader.ts";
-import {
-  loadModelCatalog,
-  modelCatalogRefreshError,
-  readAgentModelCatalog,
-  subscribeModelCatalogCache,
-  subscribeModelCatalogChanges,
-} from "../../lib/model-catalog-store.ts";
+import { ModelCatalogReader } from "../../lib/model-catalog-reader.ts";
+import { modelCatalogRefreshError } from "../../lib/model-catalog-store.ts";
 import { parseAgentSessionKey } from "../../lib/sessions/session-key.ts";
 import { GatewayPageController } from "../../lit/gateway-page-controller.ts";
 import { OpenClawLightDomElement } from "../../lit/openclaw-element.ts";
@@ -109,11 +104,32 @@ class AgentsPage
   @state() toolsEffectiveError: string | null = null;
   @state() toolsEffectiveResult: ToolsEffectiveResult | null = null;
   get modelCatalog() {
-    return readAgentModelCatalog(this.connected ? this.client : null, this.agentsSelectedId);
+    return this.modelReader.snapshot;
   }
   @state() chatModelCatalogStatus = createPanelRefreshStatus();
-  private chatModelCatalogPending: Promise<unknown> | null = null;
-  private chatModelCatalogRequest: AbortController | null = null;
+  private catalogRecoveryPending = false;
+  private readonly modelReader = new ModelCatalogReader(
+    () => {
+      if (this.modelReader.pending) {
+        this.chatModelCatalogStatus = beginPanelRefresh(this.chatModelCatalogStatus);
+      }
+      this.requestUpdate();
+    },
+    {
+      onResult: (result) => {
+        const error = modelCatalogRefreshError(result);
+        this.settleModelCatalog(
+          error
+            ? failPanelRefresh(completePanelRefresh(), new Error(error), this.gateway.snapshot)
+            : completePanelRefresh(),
+        );
+      },
+      onError: (error) =>
+        this.settleModelCatalog(
+          failPanelRefresh(this.chatModelCatalogStatus, error, this.gateway.snapshot),
+        ),
+    },
+  );
   @state() agentFilesLoading = false;
   @state() agentFilesError: string | null = null;
   @state() agentFilesList: AgentsFilesListResult | null = null;
@@ -141,10 +157,6 @@ class AgentsPage
   private applyingRouteSelection = false;
   private routeSelectionSuperseded = false;
   private readonly boundSources = new Set<"agents" | "agentIdentity" | "sessions">();
-  private chatModelCatalogSubscription: {
-    isCurrent: () => boolean;
-    unsubscribe: () => void;
-  } | null = null;
   private normalizedLocation = "";
   private githubProfileId: string | null = null;
   private readonly configEditor = {
@@ -171,26 +183,17 @@ class AgentsPage
       this.selectionDrafts.observeGateway(gatewaySnapshot);
       this.syncGatewayState();
       if (becameAvailable && !becameConnected) {
-        const subscription = this.chatModelCatalogSubscription;
-        void Promise.resolve(this.chatModelCatalogPending).then(() => {
-          const snapshot = this.gateway.snapshot;
-          const status = this.chatModelCatalogStatus;
-          if (
-            subscription?.isCurrent() &&
-            snapshot &&
-            isGatewayAvailable(snapshot) &&
-            (status.awaitingGateway || status.error !== null)
-          ) {
-            this.ensureModelCatalog({ refresh: true });
-          }
-        });
+        if (this.modelReader.pending) {
+          this.catalogRecoveryPending = true;
+        } else {
+          this.recoverModelCatalog();
+        }
       }
     },
     ensureInitialData: () => this.ensureInitialData(),
   });
   private readonly subscriptions = new SubscriptionsController(this)
     .watchStore(() => this.context?.config)
-    .watch(() => this.client, subscribeModelCatalogCache)
     .effect(
       () => this.context?.settingsAgentSelection,
       (selection) => {
@@ -616,82 +619,40 @@ class AgentsPage
   }
 
   private resetModelCatalog() {
-    this.chatModelCatalogRequest?.abort();
-    this.chatModelCatalogRequest = null;
-    this.chatModelCatalogSubscription?.unsubscribe();
-    this.chatModelCatalogSubscription = null;
+    this.modelReader.clear();
+    this.catalogRecoveryPending = false;
     this.chatModelCatalogStatus = createPanelRefreshStatus();
-    this.chatModelCatalogPending = null;
+  }
+
+  private settleModelCatalog(status: ReturnType<typeof createPanelRefreshStatus>) {
+    this.chatModelCatalogStatus = status;
+    if (this.catalogRecoveryPending) {
+      this.catalogRecoveryPending = false;
+      this.recoverModelCatalog();
+    }
+  }
+
+  private recoverModelCatalog() {
+    const status = this.chatModelCatalogStatus;
+    if (
+      isGatewayAvailable(this.context.gateway.snapshot) &&
+      (status.awaitingGateway || status.error)
+    ) {
+      this.ensureModelCatalog({ refresh: true });
+    }
   }
 
   private ensureModelCatalog(options: { refresh?: boolean } = {}) {
-    const client = this.client;
     const agentId = this.agentsSelectedId;
-    if (!client || !this.connected || !agentId) {
+    if (!this.client || !this.connected || !agentId) {
       return;
     }
-    if (!this.chatModelCatalogSubscription?.isCurrent()) {
-      this.resetModelCatalog();
-      const generation = this.requestGeneration;
-      const gateway = this.context?.gateway;
-      const agents = this.context?.agents;
-      const subscription = {
-        isCurrent: () =>
-          this.chatModelCatalogSubscription === subscription &&
-          this.context?.gateway === gateway &&
-          this.isCurrentRequest(client, generation, agentId, { agents }),
-        unsubscribe: subscribeModelCatalogChanges(this.context.gateway, () => {
-          if (!subscription.isCurrent()) {
-            return;
-          }
-          this.chatModelCatalogRequest?.abort();
-          this.chatModelCatalogRequest = null;
-          this.chatModelCatalogPending = null;
-          this.ensureModelCatalog({ refresh: true });
-        }),
-      };
-      this.chatModelCatalogSubscription = subscription;
+    if (this.modelReader.bind(this.context.gateway, { agentId })) {
+      this.chatModelCatalogStatus = createPanelRefreshStatus();
     }
-    if (
-      this.chatModelCatalogPending ||
-      (!options.refresh && this.chatModelCatalogStatus.hasLoaded)
-    ) {
-      return;
+    if (!this.modelReader.pending && (options.refresh || !this.chatModelCatalogStatus.hasLoaded)) {
+      void this.modelReader.read();
     }
-    const subscription = this.chatModelCatalogSubscription;
-    const controller = new AbortController();
-    this.chatModelCatalogRequest = controller;
-    const ownsRequest = () =>
-      subscription?.isCurrent() && this.chatModelCatalogRequest === controller;
-    this.chatModelCatalogStatus = beginPanelRefresh(this.chatModelCatalogStatus);
-    const pending = loadModelCatalog(client, { agentId, signal: controller.signal })
-      .then(
-        (result) => {
-          if (!ownsRequest()) {
-            return;
-          }
-          const error = modelCatalogRefreshError(result);
-          this.chatModelCatalogStatus = error
-            ? failPanelRefresh(completePanelRefresh(), new Error(error), this.gateway.snapshot)
-            : completePanelRefresh();
-        },
-        (error: unknown) => {
-          if (ownsRequest()) {
-            this.chatModelCatalogStatus = failPanelRefresh(
-              this.chatModelCatalogStatus,
-              error,
-              this.gateway.snapshot,
-            );
-          }
-        },
-      )
-      .finally(() => {
-        if (this.chatModelCatalogPending === pending) {
-          this.chatModelCatalogPending = null;
-          this.chatModelCatalogRequest = null;
-        }
-      });
-    this.chatModelCatalogPending = pending;
   }
 
   private async loadAgentFiles(agentId: string, force = false) {
