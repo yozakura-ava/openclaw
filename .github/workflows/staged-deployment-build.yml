@@ -72,7 +72,6 @@ jobs:
             dist/
             dist-runtime/
             packages/*/dist/
-            .artifacts/build-all-cache/
 
   package:
     name: Create deployment package
