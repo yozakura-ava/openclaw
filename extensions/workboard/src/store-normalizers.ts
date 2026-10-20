@@ -201,6 +201,32 @@ export function normalizePriority(value: unknown, fallback: WorkboardPriority): 
   return normalizeEnumValue(value, WORKBOARD_PRIORITIES, fallback, "priority");
 }
 
+export function normalizeLabels(value: unknown, fallback: string[] = []): string[] {
+  if (value == null) {
+    return fallback;
+  }
+  const entries =
+    typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : undefined;
+  if (!entries) {
+    throw new Error("labels must be an array or comma-separated string.");
+  }
+  const labels: string[] = [];
+  for (const entry of entries) {
+    const label = normalizeOptionalString(entry);
+    if (!label || labels.includes(label)) {
+      continue;
+    }
+    if (label.length > 40) {
+      throw new Error("labels must be 40 characters or fewer.");
+    }
+    labels.push(label);
+    if (labels.length >= 12) {
+      break;
+    }
+  }
+  return labels;
+}
+
 export function normalizeStringList(value: unknown, fieldName: string, maxLength = 80): string[] {
   if (value == null) {
     return [];
