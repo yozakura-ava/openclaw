@@ -212,7 +212,11 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
   protected async updateMetadata(
     id: string,
     mutate: (existing: WorkboardCard) => WorkboardMetadata,
-    options: { preserveProofId?: string; expectedUpdatedAt?: number } = {},
+    options: {
+      preserveProofId?: string;
+      preserveNotificationId?: string;
+      expectedUpdatedAt?: number;
+    } = {},
   ): Promise<WorkboardCard> {
     return await this.enqueueMutation(async () => {
       const result = await this.updateLatestCard(
@@ -609,6 +613,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         allowAutomationLaunch: options.allowAutomationLaunch,
         allowDependencyLinks: options.allowMetadataDependencyLinks !== false,
         preserveProofId: options.preserveProofId,
+        preserveNotificationId: options.preserveNotificationId,
       });
       if (status !== existing.status && !hasFreshLifecycleStatusSource) {
         // Status patches often spread existing metadata. Only a newly supplied

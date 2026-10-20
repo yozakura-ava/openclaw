@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   WorkboardAttachment,
   WorkboardCard,
+  WorkboardMetadata,
   WorkboardNotification,
   WorkboardWorkerLog,
 } from "@openclaw/workboard-contract";
@@ -23,6 +24,7 @@ import { WorkboardCoreStore } from "./store-core.js";
 import type {
   WorkboardArtifactInput,
   WorkboardAttachmentInput,
+  WorkboardCardPatch,
   WorkboardMutationScope,
   WorkboardProofInput,
   WorkboardProtocolViolationInput,
@@ -38,6 +40,49 @@ import {
 } from "./store-normalizers.js";
 
 export class WorkboardEnrichmentStore extends WorkboardCoreStore {
+  protected finishRun(
+    card: WorkboardCard,
+    status: "done" | "blocked",
+    now: number,
+    reason?: string,
+  ): WorkboardCardPatch & { metadata: WorkboardMetadata } {
+    const execution =
+      card.execution?.status === "running"
+        ? { ...card.execution, status, updatedAt: now }
+        : card.execution;
+    return {
+      status,
+      ...(execution ? { execution } : {}),
+      metadata: {
+        ...card.metadata,
+        claim: undefined,
+        attempts: closeRunningAttempts(
+          card.metadata?.attempts,
+          now,
+          status === "done" ? "succeeded" : "blocked",
+          reason,
+        ),
+        failureCount: status === "done" ? 0 : (card.metadata?.failureCount ?? 0) + 1,
+      },
+    };
+  }
+
+  protected appendNotification(
+    metadata: WorkboardMetadata | undefined,
+    now: number,
+    notification: Omit<WorkboardNotification, "id" | "createdAt" | "sequence">,
+  ): WorkboardNotification[] {
+    return [
+      ...(metadata?.notifications ?? []),
+      {
+        id: randomUUID(),
+        createdAt: now,
+        sequence: this.nextNotificationSequence(now),
+        ...notification,
+      },
+    ].slice(-MAX_CARD_NOTIFICATIONS);
+  }
+
   async addProof(
     id: string,
     input: WorkboardProofInput,

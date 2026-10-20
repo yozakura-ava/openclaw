@@ -914,6 +914,7 @@ export function normalizeMetadata(
     allowArchivedAt?: boolean;
     allowAutomationLaunch?: boolean;
     preserveProofId?: string;
+    preserveNotificationId?: string;
   } = {},
 ): WorkboardMetadata {
   if (!isRecord(value)) {
@@ -1150,7 +1151,7 @@ export function appendLinkPreservingDependencies(
 
 export function trimMetadataToBudget(
   metadata: WorkboardMetadata,
-  options: { preserveProofId?: string } = {},
+  options: { preserveProofId?: string; preserveNotificationId?: string } = {},
 ): WorkboardMetadata {
   let next = removeUndefinedMetadataFields(metadata);
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
@@ -1175,9 +1176,15 @@ export function trimMetadataToBudget(
           ? (next.proof?.findIndex(
               (proof) => !options.preserveProofId || proof.id !== options.preserveProofId,
             ) ?? -1)
-          : key === "links"
-            ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
-            : 0;
+          : key === "notifications"
+            ? (next.notifications?.findIndex(
+                (notification) =>
+                  !options.preserveNotificationId ||
+                  notification.id !== options.preserveNotificationId,
+              ) ?? -1)
+            : key === "links"
+              ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
+              : 0;
       if (index < 0) {
         continue;
       }
@@ -1193,6 +1200,11 @@ export function trimMetadataToBudget(
     if (metadataByteSize(next) >= currentSize) {
       if (options.preserveProofId) {
         throw new Error(`card metadata cannot retain proof: ${options.preserveProofId}`);
+      }
+      if (options.preserveNotificationId) {
+        throw new Error(
+          `card metadata cannot retain notification: ${options.preserveNotificationId}`,
+        );
       }
       break;
     }

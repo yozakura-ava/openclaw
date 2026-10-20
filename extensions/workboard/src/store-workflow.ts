@@ -276,6 +276,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       ...(cardSessionKey(existing) ? { sessionKey: cardSessionKey(existing) } : {}),
       ...(cardRunId(existing) ? { runId: cardRunId(existing) } : {}),
     });
+    const notification = notifications.at(-1);
     return await this.updateCard(
       await this.requireCard(id),
       {
@@ -301,7 +302,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       {
         enforceStatusHolds: true,
         preserveProofId: proofId ?? proof?.id,
-        preserveNotificationId: notification.id,
+        preserveNotificationId: notification?.id,
       },
     );
   }
