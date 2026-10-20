@@ -7,13 +7,8 @@ import { createCliTimeoutError } from "../cli-runner/no-output-timeout-policy.js
 import { FailoverError } from "../failover-error.js";
 import { renderFailoverCodeUserCopy } from "../failover/user-copy.js";
 import {
-<<<<<<< HEAD
   createAgentAttemptLifecycleCallbacks,
   type AgentAttemptLifecycleState,
-=======
-  type AgentAttemptLifecycleState,
-  createAgentAttemptLifecycleCallbacks,
->>>>>>> 97b6e87616f
 } from "./attempt-callbacks.js";
 import { createAgentCommandLifecycle } from "./lifecycle.js";
 

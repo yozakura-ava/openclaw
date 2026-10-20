@@ -3,12 +3,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { resolveIngressWorkspaceOverrideForSessionRun } from "../../agents/spawned-context.js";
 import { managedWorktrees } from "../../agents/worktrees/service.js";
-<<<<<<< HEAD
 import type { OpenClawConfig } from "../../config/config.js";
 import { captureRuntimeConfigAsyncReader } from "../../config/io.js";
-=======
-import { captureRuntimeConfigAsyncReader, type OpenClawConfig } from "../../config/config.js";
->>>>>>> 97b6e87616f
 import {
   loadSessionEntry,
   upsertSessionEntryCore,
@@ -16,11 +12,7 @@ import {
 import { resolveWorkerPlacementSessionTarget } from "../../gateway/server-worker-placement-session-target.js";
 import { createWorktreeSpawnRepositoryFixture } from "../../gateway/server.sessions.create-worktree-spawn.test-support.js";
 import { createGatewaySession } from "../../gateway/session-create-service.js";
-<<<<<<< HEAD
 import { resolveGatewaySessionStoreTargetWithStore } from "../../gateway/session-utils-store-lookup.js";
-=======
-import { resolveGatewaySessionStoreTargetInWorker } from "../../gateway/session-utils-store-worker.js";
->>>>>>> 97b6e87616f
 import { resolveCanonicalSessionEntryFromStoreKeys } from "../../gateway/session-utils-store.js";
 import { prepareSessionWorktree } from "../../gateway/session-worktree-preparation.js";
 import { registerProjectRegistry } from "../../projects/project-registry.js";
@@ -115,15 +107,9 @@ describe("reply reset with a native session worktree", () => {
           cwd: retained?.spawnedCwd,
         }),
       ).toBe(runWorkspace);
-<<<<<<< HEAD
       const placement = await resolveWorkerPlacementSessionTarget({
         sessionRuntime: {
           resolveGatewaySessionStoreTargetWithStore,
-=======
-      using placement = await resolveWorkerPlacementSessionTarget({
-        sessionRuntime: {
-          resolveGatewaySessionStoreTargetInWorker,
->>>>>>> 97b6e87616f
           resolveCanonicalSessionEntryFromStoreKeys,
           managedWorktrees,
         },

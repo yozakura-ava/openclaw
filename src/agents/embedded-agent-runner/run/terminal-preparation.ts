@@ -70,13 +70,6 @@ export function prepareEmbeddedRunTerminal(input: {
 }) {
   const { runParams, attempt } = input;
   const replyDeliveryState = resolveSourceReplyDelivery(attempt, input.replyDeliveryState);
-<<<<<<< HEAD
-=======
-  const sourceReplyDeliveryState = resolveSourceReplyDelivery(
-    attempt,
-    input.sourceReplyDeliveryState ?? input.replyDeliveryState,
-  );
->>>>>>> 97b6e87616f
   const { timedOutDuringCompaction, timedOutDuringToolExecution } = projectAgentRunAttemptTerminal(
     attempt.terminal,
   );
@@ -196,7 +189,6 @@ export function prepareEmbeddedRunTerminal(input: {
       successfulToolNames: resolveSuccessfulToolNames(attempt),
       assistantTranscriptIdempotencyKey: attempt.assistantTranscriptIdempotencyKey,
       sourceReplyDelivered: replyDeliveryState === "delivered" ? true : undefined,
-<<<<<<< HEAD
       rerouted: isProviderModelRerouted(requestedModelRef, effectiveModelRef),
 =======
       rerouted: isProviderModelRerouted(requestedModelRef, effectiveModelRef, runParams.config),
@@ -236,12 +228,7 @@ export function prepareEmbeddedRunTerminal(input: {
     reasoningLevel: runParams.reasoningLevel,
     thinkingLevel: runParams.thinkLevel,
     toolResultFormat: input.resolvedToolResultFormat,
-<<<<<<< HEAD
     didDeliverSourceReplyViaMessageTool: replyDeliveryState === "delivered",
-=======
-    didDeliverSourceReplyViaMessageTool: sourceReplyDeliveryState === "delivered",
-    sourceReplyDeliveryState,
->>>>>>> 97b6e87616f
     sourceReplyDeliveryMode: runParams.sourceReplyDeliveryMode,
     agentId: runParams.agentId,
     runId: runParams.runId,

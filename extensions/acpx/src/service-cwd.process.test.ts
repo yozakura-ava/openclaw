@@ -12,13 +12,10 @@ const ownerAgentScript = fileURLToPath(
   new URL("../../../test/fixtures/acp/owner-agent.mjs", import.meta.url),
 );
 
-<<<<<<< HEAD
 function fixtureSession(sessionKey: string) {
   return { sessionKey, agent: "fixture", mode: "persistent" as const };
 }
 
-=======
->>>>>>> 97b6e87616f
 it("probes without a default workspace and launches sessions in their requested cwd", async () => {
   await withOpenClawTestState(
     {

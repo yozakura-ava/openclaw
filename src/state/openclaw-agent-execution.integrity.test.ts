@@ -162,6 +162,22 @@ function createNativeSource(assertCurrent: () => void): AgentDatabaseRequestExec
   };
 }
 
+function createNativeSource(assertCurrent: () => void): AgentDatabaseRequestExecutionSource {
+  return {
+    assertCurrent,
+    createAdmission: (binding) => () => ({
+      nativeLocations: binding.nativeLocations,
+      admission: createSqliteWorkerOperationAdmission((request, grant) => {
+        binding.authorize(request);
+        assertCurrent();
+        if (!grant()) {
+          throw new Error("Native integrity fixture lost its retained admission");
+        }
+      }, binding.attachment),
+    }),
+  };
+}
+
 it.each(["confirmed close", "native exit"] as const)(
   "uses native close evidence before recovering an agent lease (%s)",
   async (outcome) => {

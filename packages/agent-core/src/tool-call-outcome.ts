@@ -132,16 +132,6 @@ export function resolveToolResultContentSource(
   return resultContentSource ? { resultContentSource } : {};
 }
 
-<<<<<<< HEAD
-=======
-export function createToolExecutionErrorResult(error: unknown): AgentToolResult<unknown> {
-  const result = createErrorToolResult(coerceErrorMessage(error));
-  return typeof error === "object" && error !== null
-    ? copyInternalToolResultState(error, result)
-    : result;
-}
-
->>>>>>> 97b6e87616f
 export function createErrorToolResult(
   message: string,
   details: unknown = {},

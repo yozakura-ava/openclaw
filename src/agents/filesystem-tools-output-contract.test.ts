@@ -211,12 +211,7 @@ describe("filesystem tool output contracts", () => {
     for (let page = 0; page < 8; page++) {
       const result = await tool.execute(`read-page-${page}`, args);
       expectContract(tool, result.details);
-<<<<<<< HEAD
       const details = result.details as ReadToolDetails;
-=======
-      // SAFETY: expectContract validated details against the read tool's output schema.
-      const details = result.details as ReadPageDetails;
->>>>>>> 97b6e87616f
       if (details.kind !== "text" && details.kind !== "truncated") {
         throw new Error("Expected file text");
       }

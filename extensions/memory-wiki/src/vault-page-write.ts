@@ -41,7 +41,6 @@ export async function readExistingWikiPage(
   }
 }
 
-<<<<<<< HEAD
 function isMissingWikiPageError(error: unknown): boolean {
   return error instanceof FsSafeError && error.code === "not-found";
 }

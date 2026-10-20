@@ -824,9 +824,6 @@ const config = {
     "src/agents/harness/context-engine-turn-outbox.ts": ["exports"],
     // Focused Crabbox tests inspect retained private diagnostics; production consumes them in-module.
     "extensions/qa-lab/src/mantis/crabbox-runtime.ts": ["exports"],
-=======
-    "src/agents/harness/context-engine-turn-outbox.kernel.worker.ts": ["exports"],
->>>>>>> 97b6e87616f
     // Runtime reason values are exported now so protocol schemas can derive from one tuple later.
     "src/agents/failover/signal.ts": ["exports"],
     "src/context-engine/registry.ts": ["exports", "types"],

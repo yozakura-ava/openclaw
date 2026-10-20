@@ -230,7 +230,6 @@ describe("chat metadata ownership", () => {
         });
         const abort = () => release.resolve();
         signal.addEventListener("abort", abort, { once: true });
-<<<<<<< HEAD
         let request;
         try {
           await harness.runtime.refresh();

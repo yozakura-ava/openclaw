@@ -519,18 +519,11 @@ describe("controlUi.sessionPullRequests.subscribe", () => {
     });
     try {
       const respond = vi.fn<RespondFn>();
-<<<<<<< HEAD
       const handler = expectDefined(
         createControlUiHandlers(vi.fn())["controlUi.sessionPullRequests.subscribe"],
         "subscription handler",
       );
       await handler(
-=======
-      await expectDefined(
-        createControlUiHandlers(vi.fn())["controlUi.sessionPullRequests.subscribe"],
-        "subscription handler",
-      )(
->>>>>>> 97b6e87616f
         requestOptions({ sessionKeys: ["agent:main:main"] }, respond, {
           client: { connId: "conn-control-ui" },
           context: {

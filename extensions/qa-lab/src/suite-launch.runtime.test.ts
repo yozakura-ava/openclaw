@@ -29,12 +29,14 @@ import {
 } from "./test-file-scenario-runner.test-support.js";
 
 const {
+  crablineRuntimeLoads,
   prepareDockerE2eEnvironment,
   replaceFileAtomicMock,
   runPluginCommandWithTimeout,
   runQaFlowSuite,
   runQaTestFileScenarios,
 } = vi.hoisted(() => ({
+  crablineRuntimeLoads: vi.fn(),
   prepareDockerE2eEnvironment: vi.fn(),
   replaceFileAtomicMock: vi.fn(),
   runPluginCommandWithTimeout: vi.fn(),
@@ -42,6 +44,11 @@ const {
   runQaTestFileScenarios:
     vi.fn<typeof import("./test-file-scenario-runner.js").runQaTestFileScenarios>(),
 }));
+
+vi.mock("@openclaw/crabline", async (importOriginal) => {
+  crablineRuntimeLoads();
+  return await importOriginal<typeof import("@openclaw/crabline")>();
+});
 
 vi.mock("./suite.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./suite.js")>()),

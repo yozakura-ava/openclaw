@@ -38,11 +38,7 @@ describe("talk config validation fail-closed behavior", () => {
       };
       const talk = scope === "speech" ? selection : { realtime: selection };
       await withTempHomeConfig({ agents: { entries: { main: {} } }, talk }, async () => {
-<<<<<<< HEAD
         const config = getRuntimeConfig({ skipPluginValidation: true, pin: false });
-=======
-        const config = loadConfig({ skipPluginValidation: true, pin: false });
->>>>>>> 97b6e87616f
         const resolveProvider =
           scope === "speech"
             ? resolveConfiguredTalkSpeechProviderId

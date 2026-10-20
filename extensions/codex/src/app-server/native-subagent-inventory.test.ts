@@ -277,15 +277,6 @@ describe("native pending assignment inventory through registered monitor admissi
       expect(ready).toBe(true);
       expect(restoredWrites).toBe(2);
       expect(f.store.readNativeSubagentAssignments?.(f.identity, f.historyOwner())).toEqual(
-=======
-      expect(conflictingRead).not.toHaveBeenCalled();
-      releaseWrite.resolve();
-      await parent.ready;
-      expect(ready).toBe(true);
-      expect(conflictingRead).not.toHaveBeenCalled();
-      expect(parent.listPendingChildren()).toHaveLength(2);
-      expect(await f.store.readNativeSubagentAssignments?.(f.identity, f.historyOwner())).toEqual(
->>>>>>> 97b6e87616f
         assignments.map((assignment) => expect.objectContaining(assignment)),
       );
     } finally {

@@ -1,10 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-<<<<<<< HEAD
-=======
-import * as stateWorker from "../../state/openclaw-state-worker-store.js";
->>>>>>> 97b6e87616f
 import {
   createOpenClawTestState,
   type OpenClawTestState,

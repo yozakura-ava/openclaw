@@ -349,11 +349,7 @@ describe("openai completions DSML", () => {
       output,
       model,
       { push: (event) => events.push(event as CapturedStreamEvent) },
-<<<<<<< HEAD
       { mode: "direct", beforeContentBlock() {}, provisionalCommentaryTags: new Map() },
-=======
-      { mode: "direct", beforeContentBlock() {} },
->>>>>>> 97b6e87616f
     );
     expect(output.stopReason).toBe("stop");
     expect(output.content).toEqual(contentVisible ? [{ type: "text", text: content }] : []);

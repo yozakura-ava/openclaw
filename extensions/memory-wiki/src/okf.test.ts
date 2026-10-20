@@ -36,11 +36,7 @@ async function createImport(bundleName: string) {
   const { config } = await createVault({ rootDir: path.join(rootDir, "vault") });
   const run = (nowMs = Date.UTC(2026, 5, 12, 10, 0, 0)) =>
     importMemoryWikiOkfBundle({ config, bundlePath, nowMs });
-<<<<<<< HEAD
   return { rootDir, bundlePath, config, run };
-=======
-  return { bundlePath, config, run };
->>>>>>> 97b6e87616f
 }
 
 async function writeOkfBundle(rootDir: string) {
