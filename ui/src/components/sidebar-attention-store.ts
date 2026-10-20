@@ -325,6 +325,8 @@ export class SidebarAttentionStoreController implements StoreController {
             const cron = createInitialCronState<CronCompactJob>({ client, connected: true });
             cron.canRefresh = canRefreshCron;
             cron.cronAgentId = agentScope.scopeId;
+            // The Inbox consumes the whole inventory, rather than one table page.
+            cron.cronJobsLimit = 200;
             await Promise.all([loadCompactCronJobsPage(cron), loadCronStatus(cron)]);
             while (
               canRefreshCron() &&
