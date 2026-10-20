@@ -80,8 +80,7 @@ export type AgentDatabaseFileExecutionOwner = {
 };
 
 export type AgentDatabaseNativeGeneration = {
-  /** Established worker loss permits later native replacement; fatal opening failure does not. */
-  failure(): "open-refused" | "native" | "lost" | undefined;
+  failure(): "open-refused" | "native" | undefined;
   isPrepared(): boolean;
   captureClaim(): AgentDatabaseGenerationClaim;
   run<T>(

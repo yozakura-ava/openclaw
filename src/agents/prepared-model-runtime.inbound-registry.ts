@@ -17,10 +17,7 @@ import type {
   PreparedModelRuntimeInput,
   PreparedModelRuntimePluginGeneration,
 } from "./prepared-model-runtime.types.js";
-import {
-  loadAgentRuntimePluginRegistryHandle,
-  loadAgentRuntimePluginRegistryHandleAsync,
-} from "./runtime-plugins.js";
+import { loadAgentRuntimePluginRegistryHandle } from "./runtime-plugins.js";
 
 type PreparedInboundRegistryInput = Pick<
   PreparedModelRuntimeInput,
@@ -176,7 +173,7 @@ export function prepareWorkspacePluginRegistries(
   basePluginIds?: readonly string[],
   loadRuntimeRegistry:
     | PreparedModelRuntimeBuildResources["load"]
-    | typeof loadAgentRuntimePluginRegistryHandleAsync = loadAgentRuntimePluginRegistryHandleAsync,
+    | typeof loadAgentRuntimePluginRegistryHandle = loadAgentRuntimePluginRegistryHandle,
 ): PreparedWorkspacePluginRegistries | Promise<PreparedWorkspacePluginRegistries> {
   // Passive reads stay runtime-free; executable probes carry explicit scope.
   if (input.readOnly && !input.loadRuntimePlugins && !input.runtimePluginSelections) {

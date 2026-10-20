@@ -247,7 +247,6 @@ function fixture(
       verify: async () => Date.now() + params.leaseMs,
       renew: async () => Date.now() + params.leaseMs,
       assertResponsive: mocks.forbidden,
-      holdOwnerFence: mocks.forbidden,
       close: mocks.forbidden,
       stop: async () => {
         await cleanup.close();

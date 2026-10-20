@@ -31,29 +31,19 @@ export function sendFailure(
 
 export function sendReplyResult(
   receipt: { runId: string; sessionKey: string; watched?: boolean },
-  result: { replyText?: string; replyTruncated?: true; sourceReplyDelivered?: boolean },
+  result: { replyText?: string; sourceReplyDelivered?: boolean },
 ) {
-  const { replyText: reply, replyTruncated, sourceReplyDelivered } = result;
-  if (!reply) {
-    return jsonResult({
-      ...receipt,
-      status: "no_reply" as const,
-      message: sourceReplyDelivered
-        ? "The target delivered its final reply directly to its source conversation. Do not resend."
-        : "No visible reply or pending delivery. Continue or retry if needed.",
-    });
-  }
+  const { replyText: reply, sourceReplyDelivered } = result;
   return jsonResult({
     ...receipt,
-    status: "ok" as const,
-    delivery: { status: "skipped" as const },
-    ...(replyTruncated
-      ? {
-          replyTruncated,
-          note: "The reply may be truncated. Ask the target for the missing section or a file containing the full reply; do not repeat the original task.",
-        }
-      : {}),
-    reply,
+    ...(reply
+      ? { status: "ok" as const, delivery: { status: "skipped" as const }, reply }
+      : {
+          status: "no_reply" as const,
+          message: sourceReplyDelivered
+            ? "The target delivered its final reply directly to its source conversation. Do not resend."
+            : "No visible reply or pending delivery. Continue or retry if needed.",
+        }),
   });
 }
 

@@ -32,10 +32,8 @@ vi.mock("../plugins/plugin-metadata-snapshot.js", () => ({
   loadPluginMetadataSnapshot: hoisted.loadPluginMetadataSnapshot,
 }));
 
-// mock-isolation: registry planning tests own loaded values and must not execute plugin code.
 vi.mock("../plugins/loader.js", () => ({
   loadPluginRegistryHandle: hoisted.loadPluginRegistryHandle,
-  loadOpenClawPluginsAsync: async (...args: unknown[]) => hoisted.loadPluginRegistryHandle(...args),
 }));
 
 vi.mock("./harness/runtime-plugin-load-plan.js", () => ({

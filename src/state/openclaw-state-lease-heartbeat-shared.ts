@@ -14,7 +14,6 @@ export const leaseHeartbeatState = {
   expiresAt: 3,
   lastRenewedAt: 4,
   startupPhase: 5,
-  ownerFence: 6,
   starting: 0n,
   ready: 1n,
   closed: 2n,

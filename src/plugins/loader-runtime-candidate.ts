@@ -2,7 +2,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describeRootFileOpenFailure } from "../infra/boundary-file-read.js";
 import { resolveRealpathOrAbsolute } from "../infra/boundary-path.js";
-import type { DeferredPluginMigration } from "../infra/deferred-plugin-migrations.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { compareOpenClawReleaseVersions } from "../infra/npm-registry-spec.js";
 import { resolveCompatibilityHostVersion } from "../version.js";
@@ -106,8 +105,7 @@ export function prepareRuntimePluginConfig(
   return preparedConfig.validation;
 }
 
-export function* loadRuntimePluginCandidate(params: {
-  pendingStateMigration?: DeferredPluginMigration;
+export function loadRuntimePluginCandidate(params: {
   candidate: PluginCandidate;
   manifestRecord: PluginManifestRecord;
   context: PluginLoadCacheContext;
@@ -120,7 +118,7 @@ export function* loadRuntimePluginCandidate(params: {
   logger: PluginLogger;
   state: PluginLoadLoopState;
   preparedConfig: PreparedPluginConfig;
-}): Generator<() => Promise<void>, void> {
+}): void {
   const { candidate, manifestRecord, context, state } = params;
   const cliMetadata = params.options.mode === "cli-metadata";
   const { registry } = params.registryBuilder;
@@ -147,19 +145,6 @@ export function* loadRuntimePluginCandidate(params: {
     finish();
   };
   const recovery = params.options.moduleRecoveries?.get(pluginId);
-  if (enableState.enabled && params.pendingStateMigration && !recovery) {
-    // Doctor's separate contract loader owns repair; neither full nor fallback CLI
-    // metadata entrypoints may evaluate against data that has not migrated yet.
-    const message = recordPluginConfiguredUnavailable({
-      registry,
-      record,
-      seenIds: state.seenIds,
-      pendingStateMigration: params.pendingStateMigration,
-      env: context.env,
-    });
-    params.logger.warn(message);
-    return;
-  }
   const pluginRoot = recovery ? candidate.rootDir : resolveRealpathOrAbsolute(candidate.rootDir);
   const degradedPluginForId = findActiveDegradedPlugin(pluginId);
   const degradedPlugin =
@@ -211,7 +196,6 @@ export function* loadRuntimePluginCandidate(params: {
     });
   };
   const missingDependencyHint = resolveExternalPluginRuntimeDependencyRepairHint({
-    origin: candidate.origin,
     pluginId,
     packageName: candidate.packageName,
     packageBuild: candidate.packageManifest?.build,
@@ -330,9 +314,7 @@ export function* loadRuntimePluginCandidate(params: {
       record.memorySlotSelected = true;
     }
   }
-  const beforeConfigValidation = performance.now();
   const validatedConfig = prepareRuntimePluginConfig(params);
-  const configValidationMs = performance.now() - beforeConfigValidation;
   if (!validatedConfig.ok) {
     params.logger.error(
       `[plugins] ${record.id} invalid config: ${validatedConfig.error.join(", ")}`,
@@ -345,7 +327,6 @@ export function* loadRuntimePluginCandidate(params: {
     return;
   }
 
-  const beforeArtifactPreparation = performance.now();
   const artifactParams = {
     pluginId,
     rootDir: pluginRoot,
@@ -463,7 +444,6 @@ export function* loadRuntimePluginCandidate(params: {
   // Preserve the artifact that actually ran; metadata does not complete runtime registration.
   const artifactSelection = bindPluginRuntimeArtifactSelection(record, {
     ...artifactParams,
-    source: candidate.source,
     runtimeEntry: recovery
       ? runtimeCandidateEntry
       : resolvePluginRuntimeExecutionArtifact(runtimeCandidateEntry),
@@ -499,12 +479,10 @@ export function* loadRuntimePluginCandidate(params: {
   }
 
   let moduleLoadMs = 0;
-  let modulePreparationMs = 0;
   let beforeRegister: number | undefined;
   let failurePhase: "load" | "register" = "load";
   let failed = false;
   const beforeModuleLoad = performance.now();
-  const artifactPreparationMs = beforeModuleLoad - beforeArtifactPreparation;
   try {
     // Top-level code may execute before module evaluation throws, so record the
     // import attempt before invoking the loader.
@@ -513,23 +491,6 @@ export function* loadRuntimePluginCandidate(params: {
     }
     state.pluginLoadAttemptCount++;
     params.logger.debug?.(`[plugins] loading ${record.id} from ${safeSource}`);
-    if (!recovery && candidate.origin !== "bundled") {
-      // Host callers await acquisition after selection and policy checks. Synchronous
-      // CLI consumers skip this step and use the same loader's inline acquisition.
-      yield async () => {
-        const started = performance.now();
-        try {
-          await params.loadPluginModule.prepare(safeSource, {
-            record,
-            rootDir: moduleRoot,
-            registry,
-            standalone: manifestRecord.manifestPath === candidate.source,
-          });
-        } finally {
-          modulePreparationMs = performance.now() - started;
-        }
-      };
-    }
     const loadPluginModule = (source: string) => {
       if (recovery) {
         let instance = getPluginInstance(record);
@@ -618,7 +579,7 @@ export function* loadRuntimePluginCandidate(params: {
       const wrongLoaderError = formatBundledChannelWrongLoaderError(record.kind);
       if (wrongLoaderError) {
         params.logger.error(
-          `[plugins] ${record.id} ${wrongLoaderError}; check that plugin is loaded via bundled channel discovery, not legacy plugin loader`,
+          `[plugins] ${record.id} ${wrongLoaderError}; ensure plugin is loaded via bundled channel discovery, not legacy plugin loader`,
         );
         pushPluginLoadError(wrongLoaderError);
       } else {
@@ -707,10 +668,7 @@ export function* loadRuntimePluginCandidate(params: {
     const registerMs =
       beforeRegister === undefined ? undefined : performance.now() - beforeRegister;
     detailPluginStartupTrace(params.options.startupTrace, record.id, [
-      ["configValidationMs", configValidationMs],
-      ["artifactPreparationMs", artifactPreparationMs],
       ["loadMs", moduleLoadMs || elapsed],
-      ["modulePreparationMs", modulePreparationMs],
       ["loadFailedCount", failed && failurePhase === "load" ? 1 : 0],
       ...(registerMs === undefined
         ? []

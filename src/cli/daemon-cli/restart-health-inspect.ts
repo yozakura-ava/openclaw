@@ -90,10 +90,6 @@ export async function inspectGatewayRestart(params: {
         ...params.probeContext,
         ...(params.configuredProbe ? { configuredProbe: params.configuredProbe } : {}),
         env,
-        allowHttpVerification:
-          Boolean(expectedVersion) &&
-          params.requirePluginHealth === false &&
-          params.requireChannelHealth === false,
         timeoutMs: remainingTimeoutMs(params.probeTimeoutMs),
         ...(signal ? { signal } : {}),
       }),
@@ -210,7 +206,6 @@ export async function inspectGatewayRestart(params: {
     gatewayVersion,
     gatewayBuildId,
     probeError,
-    authenticationError,
     staleConnection,
     activatedPluginErrors,
     unavailablePlugins,
@@ -229,7 +224,6 @@ export async function inspectGatewayRestart(params: {
       ...(gatewayBuildId !== undefined ? { gatewayBuildId } : {}),
       ...(startupPhase ? { startupPhase } : {}),
       ...(probeError ? { probeError } : {}),
-      ...(authenticationError ? { authenticationError } : {}),
       ...(staleConnection ? { staleConnection } : {}),
       ...(activatedPluginErrors?.length ? { activatedPluginErrors } : {}),
       ...(unavailablePlugins?.length ? { unavailablePlugins } : {}),

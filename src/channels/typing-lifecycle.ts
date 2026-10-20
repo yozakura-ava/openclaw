@@ -24,12 +24,7 @@ export function createTypingKeepaliveLoop(params: { intervalMs: number; onTick: 
       return;
     }
     timer = setInterval(() => {
-      // Nothing awaits the timer, so a rejecting onTick would reach the process as an
-      // unhandled rejection. Report it and keep the loop running.
-      tick().catch((err: unknown) => {
-        const reason = err instanceof Error ? err.message : String(err);
-        console.warn(`[typing] keepalive tick failed: ${reason}`);
-      });
+      void tick();
     }, params.intervalMs);
     timer.unref?.();
   };

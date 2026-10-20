@@ -130,6 +130,8 @@ describe("agent harness scheduled tool projection", () => {
 
     const result = await alias.execute("call-1", {
       command: "echo safe",
+      host: "node",
+      node: "remote",
       security: "full",
       ask: "off",
     });

@@ -63,7 +63,6 @@ async function runMaintenanceScope<T>(
     signal: owner.signal,
     assertOwned: assertCurrent,
     assertOwnedInTransaction: assertCurrent,
-    holdWriteFence: owner.holdWriteFence,
     ...(owner.renew
       ? {
           renew() {

@@ -125,19 +125,14 @@ async function readApprovalsFile(filePath: string): Promise<string> {
 }
 
 async function resolveTargetNodeId(opts: ExecApprovalsCliOpts): Promise<string | null> {
-  const nodeTarget = normalizeOptionalString(opts.node) ?? "";
-  if (opts.gateway && nodeTarget) {
-    // Reject the ambiguous pair so a targeted --node write cannot silently
-    // fall back to the gateway approvals policy.
-    throw new Error("Pass only one of --gateway or --node.");
-  }
   if (opts.gateway) {
     return null;
   }
-  if (!nodeTarget) {
+  const raw = normalizeOptionalString(opts.node) ?? "";
+  if (!raw) {
     return null;
   }
-  return await resolveCliNodeId(opts, nodeTarget);
+  return await resolveCliNodeId(opts, raw);
 }
 
 async function loadSnapshot(

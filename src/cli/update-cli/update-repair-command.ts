@@ -37,7 +37,6 @@ import {
 } from "../../infra/update-run-record.js";
 import { assertUpdateRecoveryAdmission } from "../../infra/update-run-recovery-admission.js";
 import { DEFAULT_UPDATE_STEP_TIMEOUT_MS } from "../../infra/update-run-timeouts.js";
-import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { assertOpenClawStateWriteAllowedAtPath } from "../../state/openclaw-state-ownership.js";
@@ -196,20 +195,6 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
       [...recoveryRuns, ...historicalRuns, ...history.postCoreRuns].map((run) => run.runId),
     ),
   ];
-  const finalizeRepair = async () => {
-    try {
-      // Driver death is a historical fact; maintenance completion is acknowledged separately.
-      await reconcileAbandonedUpdateRunsAsync({ runIds: recoveryRunIds }, options);
-    } catch (error) {
-      if (hasCommandProcessCleanupError(error)) {
-        throw error;
-      }
-      defaultRuntime.error(
-        `Warning: Update history reconciliation could not complete: ${String(error)}`,
-      );
-    }
-    return await updateFinalizeCommand(opts, recoveryRunIds, handoff ?? undefined);
-  };
 
   if (
     handoff ||
@@ -221,12 +206,12 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
     history.postCoreRuns.length > 0 ||
     history.incomplete
   ) {
-    return await finalizeRepair();
+    return await updateFinalizeCommand(opts, recoveryRunIds, handoff ?? undefined);
   }
 
   const snapshot = await readConfigFileSnapshot({ skipPluginValidation: true });
   if (!snapshot.valid) {
-    return await finalizeRepair();
+    return await updateFinalizeCommand(opts, recoveryRunIds);
   }
   const context = await resolveGatewayRestartProbeContext(env);
   const port = resolveGatewayPort(context.config, env);
@@ -256,7 +241,7 @@ export async function updateRepairCommand(opts: UpdateFinalizeOptions): Promise<
     http.healthz !== 200 ||
     http.readyz !== 200
   ) {
-    return await finalizeRepair();
+    return await updateFinalizeCommand(opts, recoveryRunIds);
   }
 
   // Health probes await network I/O. Recheck current rows before the ledger's

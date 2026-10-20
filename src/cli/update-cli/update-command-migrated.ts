@@ -65,7 +65,6 @@ export async function inspectActivatedUpdateState(
       root: result.root ?? null,
       nodeRunner: params.packageUpdateNodeRunner,
       timeoutMs: params.timeoutMs,
-      includeRetainedAgentPaths: true,
     });
     const shared = current.find((entry) => entry.path === resolveOpenClawStateSqlitePath(env));
     const sharedVersion = shared ? resolveUpdateStateContentVersion(shared) : undefined;
@@ -73,7 +72,6 @@ export async function inspectActivatedUpdateState(
       ? current.filter(
           (entry) =>
             entry !== shared &&
-            !shared?.retainedAgentPaths?.includes(entry.path) &&
             entry.userVersion !== null &&
             entry.userVersion !== candidateSchemaVersions.agent,
         )

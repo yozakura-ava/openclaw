@@ -23,7 +23,6 @@ export async function createOperatorRecoveryFixture(params: {
   config: OpenClawConfig;
   sessionKey?: string;
   sessionId?: string;
-  parentSessionKey?: string | null;
   scopes?: string[];
   device?: PairedDevice;
   tokenlessDevice?: boolean;
@@ -103,8 +102,7 @@ export async function createOperatorRecoveryFixture(params: {
     updatedAt: 1,
     lifecycleRevision: "original-lifecycle",
     // Dashboard grouping is ancestry, not delegated execution.
-    parentSessionKey:
-      params.parentSessionKey === null ? undefined : (params.parentSessionKey ?? "agent:main:main"),
+    parentSessionKey: "agent:main:main",
     spawnDepth: 0,
     restartRecoveryDeliveryRunId: target.recoveryRunId,
     restartRecoveryDeliverySourceRunId: target.sourceRunId,

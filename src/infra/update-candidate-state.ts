@@ -70,7 +70,6 @@ const UpdateStateSchemaVersionsSchema = z.array(
     path: z.string(),
     userVersion: z.number().nullable(),
     contentVersion: z.number().optional(),
-    retainedAgentPaths: z.array(z.string()).optional(),
   }),
 );
 export type UpdateStateSchemaVersion = z.infer<typeof UpdateStateSchemaVersionsSchema>[number];
@@ -83,7 +82,6 @@ type StateInput = {
   stateDir: string;
   config: OpenClawConfigWithLegacyRoster;
   env?: NodeJS.ProcessEnv;
-  includeRetainedAgentPaths?: true;
   sourceBundledPlugins?: UpdateCandidateBundledSource;
 };
 type CandidateStateDatabase = Pick<
@@ -193,7 +191,7 @@ function collectRegisteredPaths(
       source,
       typeof agentId === "string" && agentId.length > 0 ? { role: "agent", agentId } : undefined,
     );
-    return { stored, source, agentId };
+    return { stored, source };
   });
 }
 
@@ -353,24 +351,17 @@ export async function readUpdateCandidateStateInventoryInProcess(
   return measure();
 }
 
-async function readSharedDatabaseVersion(
+function readSharedDatabaseVersion(
   location: string,
   shared: string,
   files: Map<string, StateDatabaseDiscovery>,
-  input: StateInput,
-): Promise<Omit<UpdateStateSchemaVersion, "path">> {
+): Omit<UpdateStateSchemaVersion, "path"> {
   const db = openNodeSqliteDatabase(location, { readOnly: true });
   try {
-    const registered = collectRegisteredPaths(db, shared, files);
-    let held: string[] = [];
-    if (input.includeRetainedAgentPaths) {
-      const { readUpdateHeldAgentPaths } = await import("./update-candidate-state.retained.js");
-      held = readUpdateHeldAgentPaths(db, shared, files.values(), registered, input);
-    }
+    collectRegisteredPaths(db, shared, files);
     return {
       userVersion: readSqliteUserVersion(db),
       contentVersion: readStateSchemaContentVersion(db),
-      ...(held.length ? { retainedAgentPaths: held } : {}),
     };
   } finally {
     db.close();
@@ -393,9 +384,9 @@ export async function discoverUpdateStateSchemaInspectionInProcess(
   }
   const sharedVersion = await withStateDatabaseSnapshot(
     shared,
-    async (location) => ({
+    (location) => ({
       path: shared,
-      ...(await readSharedDatabaseVersion(location, shared, files, input)),
+      ...readSharedDatabaseVersion(location, shared, files),
     }),
     input.stagingRoot,
     input.onProgress,
@@ -422,8 +413,11 @@ export async function readUpdateStateSchemaVersionsInProcess(
   for (const [identity, discovery] of files) {
     const file = discovery.spellings[0];
     if (identity === sharedIdentity && input.inspectionPlan) {
-      const { path: _path, ...version } = input.inspectionPlan.sharedVersion;
-      inspected.set(identity, version);
+      const { userVersion, contentVersion } = input.inspectionPlan.sharedVersion;
+      inspected.set(identity, {
+        userVersion,
+        ...(contentVersion === undefined ? {} : { contentVersion }),
+      });
       continue;
     }
     input.onProgress?.({
@@ -446,7 +440,7 @@ export async function readUpdateStateSchemaVersionsInProcess(
       identity,
       await withStateDatabaseSnapshot(
         file,
-        (location) => readSharedDatabaseVersion(location, shared, files, input),
+        (location) => readSharedDatabaseVersion(location, shared, files),
         input.stagingRoot,
         input.onProgress,
       ),
@@ -488,7 +482,7 @@ async function discoverLegacyUpdateStateSchemaInspection(
     }
     const sharedVersion = {
       path: shared,
-      ...(await readSharedDatabaseVersion(snapshot.location, shared, files, params.input)),
+      ...readSharedDatabaseVersion(snapshot.location, shared, files),
     };
     return { files: [...files], sharedVersion };
   });

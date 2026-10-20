@@ -183,19 +183,16 @@ function pruneDecisionFactsAfterInsert(
   if (remaining === 0) {
     return;
   }
-  // The first overflow tuple bounds a range scan without materializing retained IDs.
-  const overflowBoundary = kysely
+  const retainedIds = kysely
     .selectFrom("execution_decision_facts")
-    .select(["occurred_at", "receipt_id"])
+    .select("receipt_id")
     .orderBy("occurred_at", "desc")
     .orderBy("receipt_id", "desc")
-    .offset(limits.maxRows)
-    .limit(1)
-    .$asTuple("occurred_at", "receipt_id");
+    .limit(limits.maxRows);
   const overflowIds = kysely
     .selectFrom("execution_decision_facts")
     .select("receipt_id")
-    .where((eb) => eb(eb.refTuple("occurred_at", "receipt_id"), "<=", overflowBoundary))
+    .where("receipt_id", "not in", retainedIds)
     .orderBy("occurred_at", "asc")
     .orderBy("receipt_id", "asc")
     .limit(remaining);

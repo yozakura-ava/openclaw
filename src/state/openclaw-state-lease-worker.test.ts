@@ -22,9 +22,7 @@ it.each(["renewed", "replaced", "expired", "refused"] as const)(
     const db = new DatabaseSync(databasePath);
     const peer = new DatabaseSync(databasePath);
     const identity = { scope: "synthetic", key: "verify", owner: "original" };
-    const observation = new BigInt64Array(
-      new SharedArrayBuffer((leaseHeartbeatState.ownerFence + 1) * BigInt64Array.BYTES_PER_ELEMENT),
-    );
+    const observation = new BigInt64Array(new SharedArrayBuffer(48));
     const database: OpenClawStateDatabase = {
       db,
       path: databasePath,
