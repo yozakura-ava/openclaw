@@ -161,6 +161,11 @@ class GatewaySwitchFixture(GatewayFixture):
         def click(label, role=("button", "push button", "toggle button")):
             node = wait(label, role, predicate=in_active_window)
             component = node.get_component_iface()
+            if component is None:
+                action = node.get_action_iface()
+                if action is not None and action.get_n_actions() > 0 and action.do_action(0):
+                    return
+                raise RuntimeError(f"Could not activate {label!r}: no component or action interface")
             component.scroll_to(Atspi.ScrollType.ANYWHERE)
             bounds = component.get_extents(Atspi.CoordType.SCREEN)
             self.chrome.command("xdotool", "mousemove", str(bounds.x + bounds.width // 2),
