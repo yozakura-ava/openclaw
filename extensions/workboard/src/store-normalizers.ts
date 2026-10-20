@@ -122,7 +122,7 @@ export function normalizeNotificationSubscription(
   const boardId = normalizeBoardId(input.boardId) ?? "default";
   const cardId = normalizeBoundedString(input.cardId, undefined, 120, "card id");
   const sessionKey = normalizeBoundedString(input.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(input.runId, undefined, 160, "run id");
+  const runId = normalizeRunId(input.runId);
   const target = normalizeBoundedString(input.target, undefined, 240, "notification target");
   if (!cardId && !sessionKey && !runId && !target) {
     throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
@@ -179,6 +179,11 @@ export function normalizeBoundedString(
     );
   }
   return normalized;
+}
+
+/** Run identities may be longer than ordinary user-facing identifiers. */
+export function normalizeRunId(value: unknown): string | undefined {
+  return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
 }
 
 export function capText(value: string | undefined, max: number): string | undefined {
@@ -369,7 +374,7 @@ function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined 
     return undefined;
   }
   const requestedSessionKey = normalizeBoundedOptionalString(value.requestedSessionKey, 240);
-  const provisionalRunId = normalizeBoundedOptionalString(value.provisionalRunId, 160);
+  const provisionalRunId = normalizeRunId(value.provisionalRunId);
   const preparedAt = normalizeLaunchTimestamp(value.preparedAt);
   if (!requestedSessionKey || !provisionalRunId || preparedAt === undefined) {
     return undefined;
@@ -381,7 +386,7 @@ function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined 
   if (value.phase === "accepted") {
     const acceptedAt = normalizeLaunchTimestamp(value.acceptedAt);
     const acceptedSessionKey = normalizeBoundedOptionalString(value.acceptedSessionKey, 240);
-    const acceptedRunId = normalizeBoundedOptionalString(value.acceptedRunId, 160);
+    const acceptedRunId = normalizeRunId(value.acceptedRunId);
     return acceptedAt === undefined || !acceptedSessionKey
       ? undefined
       : {
@@ -450,7 +455,7 @@ function normalizeEvent(record: Record<string, unknown>): WorkboardEvent | null 
   const fromStatus = normalizeEnumValue(record.fromStatus, WORKBOARD_STATUSES, undefined);
   const toStatus = normalizeEnumValue(record.toStatus, WORKBOARD_STATUSES, undefined);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   return {
     id,
     kind,
@@ -474,7 +479,7 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
   }
   const endedAt = normalizeTimestamp(record.endedAt, 0);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   const error = normalizeBoundedString(record.error, undefined, 800, "attempt error");
   const engine = normalizeBoundedString(record.engine, undefined, 160, "attempt engine");
   const model = normalizeBoundedString(record.model, undefined, 160, "attempt model");
@@ -623,7 +628,7 @@ export function workerLogEntry(
       ? record.level
       : "info";
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(record.runId, undefined, 160, "run id");
+  const runId = normalizeRunId(record.runId);
   return {
     id: id ?? randomUUID(),
     level,
@@ -780,7 +785,7 @@ function normalizeNotification(record: Record<string, unknown>): WorkboardNotifi
     return null;
   }
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(record.runId, undefined, 120, "run id");
+  const runId = normalizeRunId(record.runId);
   return {
     id,
     kind,
@@ -1007,7 +1012,7 @@ export function normalizeExecution(record: unknown): WorkboardExecution | undefi
   const model = normalizeBoundedString(record.model, undefined, 160, "execution model");
   const normalizedId = normalizeOptionalString(record.id);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   if (!normalizedId && !engine && !model && !sessionKey && !runId) {
     return undefined;
   }
