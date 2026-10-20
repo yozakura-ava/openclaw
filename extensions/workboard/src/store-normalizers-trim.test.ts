@@ -42,7 +42,7 @@ describe("trimMetadataToBudget — comment-first trim for over-cap cards", () =>
           actions: [],
         },
       ],
-      notifications: [{ kind: "completed" as const, message: "n", createdAt: 1 }],
+      notifications: [{ id: "n1", kind: "completed" as const, message: "n", createdAt: 1 }],
       proof: [{ id: "p1", status: "passed" as const, label: "l", createdAt: 1 }],
     });
 
