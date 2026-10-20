@@ -25,7 +25,7 @@ run_scoped env OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 OPENCLAW_PRESERVE_CLI_STARTUP_
   --config tsdown.ai.config.ts
 run_scoped env OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 OPENCLAW_PRESERVE_CLI_STARTUP_METADATA=1 \
   node --import ./scripts/tsx.mjs scripts/tsdown-build.mts \
-  --config tsdown.config.ts --filter openclaw-unified
+  --config tsdown.config.ts --filter openclaw-unified --concurrency 1
 run_scoped env OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=1 OPENCLAW_PRESERVE_CLI_STARTUP_METADATA=1 \
   node --import ./scripts/tsx.mjs scripts/tsdown-build.mts \
   --config tsdown.config.ts --filter openclaw-packages
