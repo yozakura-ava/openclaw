@@ -59,10 +59,8 @@ function publicationFixture({
   );
   for (const source of [
     "scripts/render-github-release-notes.mts",
-    "scripts/tsx.mjs",
-    "scripts/lib/tsx-cli-shim.mjs",
-    "scripts/lib/local-check-runtime.mts",
     "scripts/openclaw-npm-extended-stable-release.mjs",
+    "scripts/plugin-sdk-api-release-evidence.mjs",
     "scripts/lib/release-changelog.mjs",
     "scripts/lib/release-notes-compaction.mjs",
     "scripts/lib/release-version.mjs",
@@ -74,9 +72,7 @@ function publicationFixture({
     join(repository, "scripts/full-release-validation-policy.mjs"),
     join(root, ".release-harness/scripts/full-release-validation-policy.mjs"),
   );
-  // Publication installs tooling in the harness, then links the frozen target cwd to it.
-  symlinkSync(join(repository, "node_modules"), join(root, ".release-harness/node_modules"), "dir");
-  symlinkSync(".release-harness/node_modules", join(root, "node_modules"), "dir");
+  symlinkSync(join(repository, "node_modules"), join(root, "node_modules"), "dir");
   return { root, repository, targetSha };
 }
 

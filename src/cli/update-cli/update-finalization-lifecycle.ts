@@ -95,6 +95,7 @@ export class UpdateFinalizationLifecycle {
   private reportTimeout?: () => void;
   private failureObservation?: UpdateRunResult;
   private failureReason?: string;
+  private readonly recordedWarningCounts = new Map<"doctor" | "plugins", number>();
 
   constructor(
     private readonly json: boolean,
@@ -195,10 +196,33 @@ export class UpdateFinalizationLifecycle {
     }
   }
 
+  /** Records the phase's complete current warning list, retiring rows a shorter list drops. */
   recordWarnings(warnings: readonly string[], phase: "doctor" | "plugins" = "doctor"): void {
     warnings.forEach((detail, index) => {
       this.record(`warning:finalize:${phase}:${index}`, "completed", Date.now(), detail);
     });
+    const recorded = this.recordedWarningCounts.get(phase) ?? 0;
+    this.recordedWarningCounts.set(phase, warnings.length);
+    if (!this.runId) {
+      return;
+    }
+    // Reports render only completed warning rows; retired rows stay as bounded history.
+    for (let index = warnings.length; index < recorded; index += 1) {
+      try {
+        recordUpdateRunStep(
+          this.runId,
+          {
+            step: `warning:finalize:${phase}:${index}`,
+            status: "skipped",
+            endedAtMs: Date.now(),
+            detail: "Settled or superseded later in this update.",
+          },
+          this.ledgerOptions,
+        );
+      } catch {
+        defaultRuntime.error("[update finalize] Could not retire a settled warning.");
+      }
+    }
   }
 
   recordDoctorStep(step: UpdateStepResult): void {
@@ -368,16 +392,29 @@ export class UpdateFinalizationLifecycle {
         failure.message = `Update finalization timed out in ${phase} after ${budgetMs}ms`;
         deadline.start(failure, budgetMs);
       }
-      const result = await deadline.run(() =>
-        withCommandProcessScope(async (stop) => {
-          stopPhaseChildren = stop;
-          scope.assertCurrent();
-          return await output.run(() => run(scope));
-        }, scope.signal),
+      const result = await deadline.run(
+        () =>
+          withCommandProcessScope(async (stop) => {
+            stopPhaseChildren = stop;
+            scope.assertCurrent();
+            return await output.run(() => run(scope));
+          }, scope.signal),
+        // Optional cache failure can settle during cancellation; unjoined work
+        // and cleanup errors still refuse finalization in the deadline owner.
+        phase === "completionCache" ? (cacheResult) => cacheResult === "failed" : undefined,
       );
       await withCommandProcessScope(async () => {
         await custody?.restore?.(result);
       });
+      if (deadline.failure) {
+        this.record(
+          `warning:finalize:${phase}:deadline`,
+          "completed",
+          Date.now(),
+          deadline.failure.message,
+        );
+        this.reportTimeout = undefined;
+      }
       const completed = outcome?.(result) ?? "completed";
       end(
         typeof completed === "string" ? completed : completed.outcome,
@@ -393,21 +430,16 @@ export class UpdateFinalizationLifecycle {
       const doctorFailure = collectNestedErrorCandidates(error).find(
         (cause): cause is UpdateDoctorError => cause instanceof UpdateDoctorError,
       );
-      const facts = failure
-        ? [
-            createUpdateFailureFact({
-              check: phase,
-              code: "finalization-timeout",
-              message: failure.message,
-            }),
-          ]
-        : doctorFailure
+      const facts =
+        !failure && doctorFailure
           ? collectUpdateDoctorFailureFacts(error)
           : [
               createUpdateFailureFact({
                 check: phase,
-                code: extractErrorCode(error) ?? "finalization-failed",
-                message: formatErrorMessage(error),
+                code: failure
+                  ? "finalization-timeout"
+                  : (extractErrorCode(error) ?? "finalization-failed"),
+                message: failure ? failure.message : formatErrorMessage(error),
               }),
             ];
       const deferred =

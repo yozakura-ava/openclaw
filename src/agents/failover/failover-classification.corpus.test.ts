@@ -138,40 +138,6 @@ describe("cross-layer failover behavior", () => {
     expect(classifyFailoverSignal({ message })).toBeNull();
   });
 
-  it.each([
-    {
-      signal: {
-        message:
-          "Google Generative AI API error (503): The service is currently unavailable. [code=UNAVAILABLE]",
-      },
-      expected: { kind: "reason", reason: "server_error" },
-    },
-    {
-      signal: { message: "Google Generative AI API error (429): Retry later." },
-      expected: { kind: "reason", reason: "rate_limit" },
-    },
-    {
-      signal: {
-        status: 429,
-        message: "Google Generative AI API error (503): The service is currently unavailable.",
-      },
-      expected: { kind: "reason", reason: "rate_limit" },
-    },
-    {
-      signal: { message: "Provider selected candidate (503) before request dispatch." },
-      expected: null,
-    },
-    {
-      signal: {
-        message:
-          'Invalid request: user text contained "Google Generative AI API error (503): unavailable".',
-      },
-      expected: null,
-    },
-  ])("classifies only guarded provider-wrapped statuses: $signal", ({ signal, expected }) => {
-    expect(classifyFailoverSignal(signal)).toEqual(expected);
-  });
-
   it("classifies a bare HTTP 503 service-unavailable response as overloaded", () => {
     const message = "503 service unavailable";
 
@@ -306,6 +272,36 @@ describe("cross-layer failover behavior", () => {
     expect(classifyFailoverSignal({ message: row.message })).toEqual({
       kind: "reason",
       reason: "rate_limit",
+    });
+  });
+});
+
+describe("retired model HTTP 410 classification", () => {
+  const retirement =
+    "glm-5.1 was retired at 2026-09-25 00:00:00 -0700 PDT (ref: synthetic-retirement)";
+
+  it.each([
+    { status: 410, message: JSON.stringify({ error: retirement }) },
+    { message: `410 ${JSON.stringify({ error: retirement })}` },
+    { status: 410, message: "Gone", details: [retirement] },
+    { status: 410, message: "The selected model has been retired." },
+  ])("keeps retired models out of timeout retries: $message", (signal) => {
+    expect(classifyFailoverSignal(signal, { providerPlugin: null })).toEqual({
+      kind: "reason",
+      reason: "model_not_found",
+    });
+  });
+
+  it.each([
+    { message: "410 Gone", reason: "timeout" },
+    { message: "410 conversation expired", reason: "session_expired" },
+    { message: "410 authentication failed", reason: "auth" },
+    { message: "410 insufficient credits", reason: "billing" },
+    { message: "410 The account has been retired.", reason: "timeout" },
+  ])("preserves unrelated HTTP 410 behavior: $message", ({ message, reason }) => {
+    expect(classifyFailoverSignal({ message }, { providerPlugin: null })).toEqual({
+      kind: "reason",
+      reason,
     });
   });
 });

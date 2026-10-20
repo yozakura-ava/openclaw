@@ -74,6 +74,7 @@ import type {
   WorkboardAttachmentInput,
   WorkboardNotificationSubscribeInput,
   WorkboardProofInput,
+  WorkboardWorkerLogInput,
 } from "./store-inputs.js";
 import { isAbsoluteWorkspacePath } from "./workspace-path.js";
 
@@ -180,6 +181,7 @@ export function normalizeBoundedString(
   return normalized;
 }
 
+/** Run identities may be longer than ordinary user-facing identifiers. */
 export function normalizeRunId(value: unknown): string | undefined {
   return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
 }
@@ -192,23 +194,11 @@ export function capText(value: string | undefined, max: number): string | undefi
 }
 
 export function normalizeStatus(value: unknown, fallback: WorkboardStatus): WorkboardStatus {
-  if (typeof value !== "string" || !value.trim()) {
-    return fallback;
-  }
-  if ((WORKBOARD_STATUSES as readonly string[]).includes(value)) {
-    return value as WorkboardStatus;
-  }
-  throw new Error(`status must be one of: ${WORKBOARD_STATUSES.join(", ")}.`);
+  return normalizeEnumValue(value, WORKBOARD_STATUSES, fallback, "status");
 }
 
 export function normalizePriority(value: unknown, fallback: WorkboardPriority): WorkboardPriority {
-  if (typeof value !== "string" || !value.trim()) {
-    return fallback;
-  }
-  if ((WORKBOARD_PRIORITIES as readonly string[]).includes(value)) {
-    return value as WorkboardPriority;
-  }
-  throw new Error(`priority must be one of: ${WORKBOARD_PRIORITIES.join(", ")}.`);
+  return normalizeEnumValue(value, WORKBOARD_PRIORITIES, fallback, "priority");
 }
 
 export function normalizeLabels(value: unknown, fallback: string[] = []): string[] {
@@ -458,8 +448,15 @@ function normalizeEnumValue<T extends string, TFallback extends T | undefined>(
   value: unknown,
   allowed: readonly T[],
   fallback: TFallback,
+  fieldName?: string,
 ): T | TFallback {
-  return typeof value === "string" && allowed.includes(value as T) ? (value as T) : fallback;
+  if (typeof value === "string" && allowed.includes(value as T)) {
+    return value as T;
+  }
+  if (fieldName && typeof value === "string" && value.trim()) {
+    throw new Error(`${fieldName} must be one of: ${allowed.join(", ")}.`);
+  }
+  return fallback;
 }
 
 export function normalizeLinkType(value: unknown, fallback: WorkboardLinkType): WorkboardLinkType {
@@ -484,8 +481,7 @@ function normalizeEvent(record: Record<string, unknown>): WorkboardEvent | null 
   const fromStatus = normalizeEnumValue(record.fromStatus, WORKBOARD_STATUSES, undefined);
   const toStatus = normalizeEnumValue(record.toStatus, WORKBOARD_STATUSES, undefined);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  // Historical events retain identities admitted before the run-ID limit.
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   return {
     id,
     kind,
@@ -509,7 +505,7 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
   }
   const endedAt = normalizeTimestamp(record.endedAt, 0);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   const error = normalizeBoundedString(record.error, undefined, 800, "attempt error");
   const engine = normalizeBoundedString(record.engine, undefined, 160, "attempt engine");
   const model = normalizeBoundedString(record.model, undefined, 160, "attempt model");
@@ -644,6 +640,15 @@ function normalizeWorkerLog(record: Record<string, unknown>): WorkboardWorkerLog
   if (!id || !message || !createdAt) {
     return null;
   }
+  return workerLogEntry(record, message, createdAt, id);
+}
+
+function workerLogEntry(
+  record: WorkboardWorkerLogInput,
+  message: string,
+  createdAt: number,
+  id?: string,
+): WorkboardWorkerLog {
   const level =
     record.level === "warning" || record.level === "error" || record.level === "info"
       ? record.level
@@ -651,7 +656,7 @@ function normalizeWorkerLog(record: Record<string, unknown>): WorkboardWorkerLog
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
   const runId = normalizeRunId(record.runId);
   return {
-    id,
+    id: id ?? randomUUID(),
     level,
     message,
     createdAt,
@@ -1166,19 +1171,29 @@ export function trimMetadataToBudget(
       if (!entries?.length) {
         continue;
       }
-      const preserveId = key === "proof" ? options.preserveProofId : options.preserveNotificationId;
       const index =
-        key === "proof" || key === "notifications"
-          ? (next[key]?.findIndex((entry) => entry.id !== preserveId) ?? -1)
-          : key === "links"
-            ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
-            : 0;
+        key === "proof"
+          ? (next.proof?.findIndex(
+              (proof) => !options.preserveProofId || proof.id !== options.preserveProofId,
+            ) ?? -1)
+          : key === "notifications"
+            ? (next.notifications?.findIndex(
+                (notification) =>
+                  !options.preserveNotificationId ||
+                  notification.id !== options.preserveNotificationId,
+              ) ?? -1)
+            : key === "links"
+              ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
+              : 0;
       if (index < 0) {
         continue;
       }
       next = removeUndefinedMetadataFields({
         ...next,
-        [key]: entries.filter((_, entryIndex) => entryIndex !== index),
+        [key]:
+          key === "proof" || key === "links"
+            ? entries.filter((_, entryIndex) => entryIndex !== index)
+            : entries.slice(1),
       });
       break;
     }

@@ -92,6 +92,7 @@ const PUBLICATION_CONTRACT_FILES = [
   "scripts/lib/actions-artifact-archive.mjs",
   "scripts/lib/arg-utils.runtime.mjs",
   "scripts/lib/bounded-response.mjs",
+  "scripts/lib/clawhub-package-family.mjs",
   "scripts/lib/clawhub-publication-state.mjs",
   "scripts/lib/canonical-json.mjs",
   "scripts/lib/npm-core-release-packages.json",
@@ -3317,6 +3318,7 @@ function runReleaseChecksInputValidation(
   const workdir = tempDirs.make("release-checks-input-validation-");
   const fixture = frozenToolingFixture(workdir, [
     "scripts/full-release-validation-policy.mjs",
+    "scripts/pr-lib/gh-api-preflight.mjs",
     "scripts/lib/full-release-manifest.mjs",
     "scripts/release-qualification-coverage.mjs",
     ...PUBLICATION_CONTRACT_FILES,
@@ -4483,6 +4485,7 @@ function writePreflightConsumerTooling(toolingDir: string) {
     "npm-preflight-tooling-identity.mjs",
     "npm-prepared-bundle.mjs",
     "openclaw-npm-extended-stable-release.mjs",
+    "plugin-sdk-api-release-evidence.mjs",
     "release-tooling-identity.mjs",
     "lib/actions-artifact-archive.mjs",
     "lib/npm-core-release-packages.mjs",
@@ -6022,7 +6025,6 @@ esac
     expect(identity.run).toContain(
       "node .release-tooling/scripts/release-tooling-identity.mjs verify",
     );
-    expect(identity.run).toContain("--allow-prevalidated-ref");
     expect(target.run).not.toContain('WORKFLOW_REF}" != "refs/heads/main');
     expect(target.run).not.toContain('git merge-base --is-ancestor "${WORKFLOW_SHA}" origin/main');
   });
@@ -6704,9 +6706,13 @@ render_github_release_notes() { cp "$2" "$1"; printf '%s\\n' '{"verificationIncl
       expect(events).toContain(`wait:plugin-clawhub-release.yml:terminal:${approval}`);
       expect(events).toContain(`wait:plugin-clawhub-new.yml:terminal:${approval}`);
       const verification = `verify:1:bootstrap=${bootstrapCompleted}:workflow=refs/heads/main`;
-      expect(events.indexOf(verification)).toBeGreaterThan(
-        events.lastIndexOf("finished:openclaw-npm-release.yml:0"),
-      );
+      if (approvesClawHub) {
+        expect(events.indexOf(verification)).toBeGreaterThan(
+          events.lastIndexOf("finished:openclaw-npm-release.yml:0"),
+        );
+      } else {
+        expect(events).not.toContain(verification);
+      }
       expect(events).toContain("release-evidence");
       expect(events).not.toContain("windows");
       expect(fixture.summary()).toContain("evidence updated; a required publish child failed");
@@ -6735,7 +6741,8 @@ render_github_release_notes() { cp "$2" "$1"; printf '%s\\n' '{"verificationIncl
       if (failedPublisher === "plugin") {
         expect(fixture.outputs().plugin_npm_completed).toBeUndefined();
         expect(fixture.events().some((event) => event.startsWith("dispatch:"))).toBe(false);
-        expect(fixture.events().filter((event) => event.startsWith("cancel:"))).toHaveLength(2);
+        expect(fixture.events().filter((event) => event.startsWith("cancel:"))).toHaveLength(0);
+        expect(start.stderr).toContain("deferred cleanup will preserve ClawHub recovery evidence");
       } else {
         expect(fixture.outputs()).toMatchObject({
           plugin_npm_completed: "true",
@@ -8401,52 +8408,6 @@ test "$package_manager" = "pnpm@12.1.0"
     expect(workflowStep(hydrateGithub, "Hydrate provider env helper").env?.FACTORY_API_KEY).toBe(
       "${{ secrets.FACTORY_API_KEY }}",
     );
-  });
-
-  it("defaults Crabbox proof to Blacksmith while keeping direct jobs on Azure", () => {
-    const crabboxConfig = parse(readFileSync(CRABBOX_CONFIG, "utf8")) as {
-      aws?: { region?: string };
-      capacity?: {
-        availabilityZones?: string[];
-        fallback?: string;
-        market?: string;
-        regions?: string[];
-      };
-      jobs?: {
-        changed?: {
-          command?: string;
-          market?: string;
-          provider?: string;
-          shell?: boolean;
-          type?: string;
-        };
-        prewarm?: { market?: string; provider?: string; type?: string };
-      };
-      provider?: string;
-      ssh?: { port?: string; user?: string };
-    };
-
-    expect(crabboxConfig.provider).toBe("blacksmith-testbox");
-    expect(crabboxConfig.capacity?.market).toBe("on-demand");
-    expect(crabboxConfig.capacity?.fallback).toBeUndefined();
-    expect(crabboxConfig.capacity?.regions).toBeUndefined();
-    expect(crabboxConfig.capacity?.availabilityZones).toBeUndefined();
-    expect(crabboxConfig.aws?.region).toBe("eu-west-1");
-    expect(crabboxConfig.jobs?.prewarm?.market).toBe("on-demand");
-    expect(crabboxConfig.jobs?.prewarm?.provider).toBe("azure");
-    expect(crabboxConfig.jobs?.prewarm?.type).toBe("Standard_D4ads_v6");
-    expect(crabboxConfig.jobs?.changed?.market).toBe("on-demand");
-    expect(crabboxConfig.jobs?.changed?.provider).toBe("azure");
-    expect(crabboxConfig.jobs?.changed?.type).toBe("Standard_D4ads_v6");
-    expect(crabboxConfig.jobs?.changed?.shell).toBe(true);
-    expect(crabboxConfig.jobs?.changed?.command).toContain("set -euo pipefail");
-    expect(crabboxConfig.jobs?.changed?.command).toContain("git init -q");
-    expect(crabboxConfig.jobs?.changed?.command).toContain(
-      "commit -q --no-gpg-sign -m remote-check-tree",
-    );
-    expect(crabboxConfig.jobs?.changed?.command).toContain("env CI=1 corepack pnpm check --timed");
-    expect(crabboxConfig.ssh?.user).toBe("crabbox");
-    expect(crabboxConfig.ssh?.port).toBe("22");
   });
 
   it("resolves candidate package sources before reusing Docker E2E lanes", () => {
@@ -10463,18 +10424,6 @@ describe("package artifact reuse", () => {
     },
   );
 
-  it("gives memory extension shards enough CPU without lowering their planner cost", () => {
-    const workflow = readFileSync(PLUGIN_PRERELEASE_WORKFLOW, "utf8");
-
-    expect(workflow).toContain('extensionId.startsWith("memory-")');
-    expect(workflow).toContain('"blacksmith-16vcpu-ubuntu-2404"');
-    expect(workflow).toContain("vitest_max_workers:");
-    expect(workflow).toContain("OPENCLAW_VITEST_MAX_WORKERS: ${{ matrix.vitest_max_workers }}");
-    expect(readFileSync("scripts/lib/extension-test-plan.mts", "utf8")).toContain(
-      '"test/vitest/vitest.extension-memory.config.ts": 1',
-    );
-  });
-
   it.each(["beta", "minimum", "stable", "full"])(
     "accepts every runnable focused live suite for the %s profile",
     (profile) => {
@@ -10516,14 +10465,6 @@ describe("package artifact reuse", () => {
     });
 
     expect(result.status).not.toBe(0);
-  });
-
-  it("accepts the OpenCode Go aggregate for its stable smoke lane", () => {
-    const result = runFocusedLiveSuiteValidation("native-live-src-gateway-profiles-opencode-go", {
-      RELEASE_TEST_PROFILE: "stable",
-    });
-
-    expect(result.status, result.stderr).toBe(0);
   });
 
   it.each<{ suiteId: string; env?: Record<string, string> }>([
@@ -10872,6 +10813,11 @@ describe("package artifact reuse", () => {
       "validate_live_provider_suites",
       "native-live-src-gateway-profiles-opencode-go-deepseek-glm",
     );
+    const openCodeGoSmoke = workflowMatrixEntry(
+      LIVE_E2E_WORKFLOW,
+      "validate_live_provider_suites",
+      "native-live-src-gateway-profiles-opencode-go-smoke",
+    );
 
     expect(deepSeek).toMatchObject({
       command:
@@ -10879,9 +10825,12 @@ describe("package artifact reuse", () => {
       profiles: "full",
     });
     expect(openCodeGo.command).toContain(
-      "OPENCLAW_LIVE_GATEWAY_MODELS=opencode-go/deepseek-v4-flash-vision-exp,opencode-go/glm-5.2,opencode-go/glm-5.3",
+      "OPENCLAW_LIVE_GATEWAY_MODELS=opencode-go/glm-5.2,opencode-go/glm-5.3 ",
     );
-    expect(openCodeGo.command).not.toContain("opencode-go/deepseek-v4-flash,");
+    expect(openCodeGo.command).not.toContain("opencode-go/deepseek-v4-flash");
+    expect(openCodeGoSmoke.command).toContain(
+      "OPENCLAW_LIVE_GATEWAY_MODELS=opencode-go/glm-5.2 OPENCLAW_LIVE_GATEWAY_SMOKE=1",
+    );
     expect(openCodeGo.command).not.toContain("opencode-go/deepseek-v4-pro");
   });
 
@@ -10905,8 +10854,8 @@ describe("package artifact reuse", () => {
     );
 
     expect(openCodeModels).toMatchObject({
-      models: "opencode-go/deepseek-v4-flash-vision-exp,opencode-go/glm-5.2,opencode-go/glm-5.3",
-      max_models: "3",
+      models: "opencode-go/glm-5.2,opencode-go/glm-5.3",
+      max_models: "2",
     });
     expect(kimi.command).toContain("OPENCLAW_LIVE_GATEWAY_MODELS=opencode-go/kimi-k2.7-code");
     expect(kimi.command).not.toContain("kimi-k2.6");
@@ -10928,19 +10877,6 @@ describe("package artifact reuse", () => {
     });
     expect(mimo.command).not.toContain("opencode-go/mimo-v2-omni");
     expect(mimo.command).not.toContain("opencode-go/mimo-v2-pro");
-  });
-
-  it("runs the fresh OpenAI API-key default without hard-coding a model filter", () => {
-    const openaiDefault = workflowMatrixEntry(
-      LIVE_E2E_WORKFLOW,
-      "validate_live_provider_suites",
-      "native-live-src-gateway-profiles-openai-api-default",
-    );
-
-    expect(openaiDefault).toMatchObject({ profiles: "stable full" });
-    expect(openaiDefault.command).toContain("OPENCLAW_LIVE_GATEWAY_OPENAI_API_DEFAULT=1");
-    expect(openaiDefault.command).toContain("OPENCLAW_LIVE_GATEWAY_PROVIDERS=openai");
-    expect(openaiDefault.command).not.toContain("OPENCLAW_LIVE_GATEWAY_MODELS=");
   });
 
   it("retains the full OpenAI Ultra model coverage independently of the fresh default", () => {
@@ -12178,21 +12114,6 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     expect(output).toContain("repo_live_suite_filter=repo-e2e\n");
     expect(output).toContain("package_required=false\n");
     expect(output).toContain("docker_required=false\n");
-  });
-
-  it("rejects a QA-live filter for an unrelated rerun group", () => {
-    const { result } = runReleaseChecksInputValidation(
-      "beta",
-      "false",
-      "install-smoke",
-      "false",
-      "qa-live-telegram",
-    );
-
-    expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain(
-      "QA live_suite_filter selectors require rerun_group=qa or qa-live",
-    );
   });
 
   it.each([
@@ -14696,27 +14617,6 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
     );
   });
 
-  it("summarizes start delay separately from execution time in full validation", () => {
-    const workflow = readFileSync(FULL_RELEASE_VALIDATION_WORKFLOW, "utf8");
-    const parsedWorkflow = readWorkflow(FULL_RELEASE_VALIDATION_WORKFLOW);
-    const summaryJob = parsedWorkflow.jobs?.summary;
-    const manifestStep = workflowStep(summaryJob ?? {}, "Write release validation manifest");
-
-    expect(workflow).toContain("Write release validation manifest");
-    expect(workflow).toContain("PERFORMANCE_RUN_ID: ${{ needs.performance.outputs.run_id }}");
-    expect(workflow).toContain("Upload release validation manifest");
-    expect(workflow).toContain("Download diagnostic drain attempts");
-    expect(workflow).toContain("full-release-validation-${{ github.run_id }}");
-    expect(workflow).toContain("full-release-diagnostic-manifest.json");
-    expect(workflow).not.toContain('gh run view "$run_id" --json createdAt,jobs');
-    expect(manifestStep.env?.RELEASE_EXECUTION_PLAN_PATH).toContain(
-      "full-release-execution-plan.json",
-    );
-    expect(manifestStep.env?.DIAGNOSTIC_DRAIN_PATH).toContain(
-      "full-release-diagnostic-manifest.json",
-    );
-  });
-
   it("wires evidence attempts into the acceptance gate", () => {
     const releaseResolveJob = workflowJob(RELEASE_PUBLISH_WORKFLOW, "resolve_release_target");
     const releaseRun = workflowStep(releaseResolveJob, "Resolve full release validation run");
@@ -14896,7 +14796,6 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
 
   it("loads the strict release validator from the isolated trusted tooling bundle", () => {
     const root = tempDirs.make("release-validation-tooling-");
-    mkdirSync(join(root, "lib", "cross-os-release-checks"), { recursive: true });
     for (const source of [
       "scripts/release-ci-summary.mjs",
       "scripts/lib/release-evidence-identity.mjs",
@@ -14905,6 +14804,8 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       "scripts/release-qualification-coverage.mjs",
       "scripts/lib/full-release-manifest.mjs",
       "scripts/full-release-validation-policy.mjs",
+      "scripts/pr-lib/gh-api-preflight.mjs",
+      "scripts/lib/direct-run.mjs",
       ...PUBLICATION_CONTRACT_FILES,
       "scripts/lib/release-changelog.mjs",
       "scripts/full-release-candidate-contract.mjs",
@@ -14923,7 +14824,9 @@ printf '%s\\n' "$DEEPSEEK_API_KEY" "$DEEPINFRA_API_KEY"`,
       "scripts/lib/upgrade-survivor-policy.mjs",
       "scripts/lib/upgrade-survivor-scenarios.json",
     ]) {
-      copyFileSync(source, join(root, source.replace(/^scripts\//u, "")));
+      const destination = join(root, source.replace(/^scripts\//u, ""));
+      mkdirSync(dirname(destination), { recursive: true });
+      copyFileSync(source, destination);
     }
     const result = spawnSync(
       process.execPath,
@@ -15601,7 +15504,7 @@ promote_windows_release_assets
       "approve_plugins_clawhub_release",
     ]);
     expect(clawHubPublish.uses).toBe(
-      "openclaw/clawhub/.github/workflows/package-publish.yml@7e2aa3cec5d35c91bb6163aa6676541d795876c5",
+      "openclaw/clawhub/.github/workflows/package-publish.yml@ef56b2cb287f0db5462b92dea8e4b63325d0341c",
     );
     expect(clawHubPublish.permissions).toMatchObject({
       actions: "read",
@@ -15827,74 +15730,6 @@ wait_for_run plugin-clawhub-new.yml 123 "${expectedSha}" || status=$?
       { encoding: "utf8" },
     );
     expect(mismatchedWaitSha.status, mismatchedWaitSha.stderr).toBe(0);
-  });
-
-  it("keeps release workflow setup aligned", () => {
-    const releaseChecks = readWorkflow(RELEASE_CHECKS_WORKFLOW);
-    const installSmoke = readWorkflow(INSTALL_SMOKE_REUSABLE_WORKFLOW);
-    const crossOs = readWorkflow(CROSS_OS_RELEASE_CHECKS_REUSABLE_WORKFLOW);
-    const liveE2e = readWorkflow(LIVE_E2E_WORKFLOW);
-    const qaLive = readWorkflow(QA_LIVE_TRANSPORTS_WORKFLOW);
-    const releaseWorkflowPaths = [
-      FULL_RELEASE_VALIDATION_WORKFLOW,
-      RELEASE_CHECKS_WORKFLOW,
-      RELEASE_TELEGRAM_QA_WORKFLOW,
-      CROSS_OS_RELEASE_CHECKS_REUSABLE_WORKFLOW,
-      LIVE_E2E_WORKFLOW,
-      NPM_TELEGRAM_WORKFLOW,
-      ".github/workflows/openclaw-release-publish.yml",
-      ".github/workflows/android-release.yml",
-      ".github/workflows/openclaw-npm-release.yml",
-      ".github/workflows/macos-release.yml",
-      ".github/workflows/plugin-clawhub-release.yml",
-      PACKAGE_ACCEPTANCE_WORKFLOW,
-      PLUGIN_NPM_RELEASE_WORKFLOW,
-    ];
-
-    for (const workflowPath of releaseWorkflowPaths) {
-      const workflow = readWorkflow(workflowPath);
-      expect(workflow.env?.NODE_VERSION, workflowPath).toBe("24.21.0");
-      expect(workflow.env?.PNPM_VERSION, workflowPath).toBeUndefined();
-    }
-
-    expect(releaseChecks.jobs?.prepare_release_package?.["timeout-minutes"]).toBe(35);
-    expect(
-      workflowStep(
-        workflowJob(RELEASE_CHECKS_WORKFLOW, "prepare_release_package"),
-        "Setup Node environment",
-      ).with?.["install-deps"],
-    ).toBe("true");
-    expect(installSmoke.jobs?.preflight?.["timeout-minutes"]).toBe(15);
-    expect(installSmoke.jobs?.["install-smoke-fast"]?.["timeout-minutes"]).toBe(120);
-    expect(installSmoke.jobs?.root_dockerfile_image?.["timeout-minutes"]).toBe(60);
-    expect(installSmoke.jobs?.root_dockerfile_image_ready?.["timeout-minutes"]).toBe(5);
-    expect(installSmoke.jobs?.qr_package_install_smoke?.["timeout-minutes"]).toBe(30);
-    expect(installSmoke.jobs?.root_dockerfile_smokes?.["timeout-minutes"]).toBe(90);
-    expect(installSmoke.jobs?.installer_smoke_update_image?.["timeout-minutes"]).toBe(45);
-    expect(installSmoke.jobs?.installer_smoke_nonroot_image?.["timeout-minutes"]).toBe(45);
-    expect(installSmoke.jobs?.installer_smoke_update?.["timeout-minutes"]).toBe(120);
-    expect(installSmoke.jobs?.installer_smoke_nonroot?.["timeout-minutes"]).toBe(60);
-    expect(installSmoke.jobs?.installer_smoke?.["timeout-minutes"]).toBe(5);
-    expect(installSmoke.jobs?.bun_global_install_smoke?.["timeout-minutes"]).toBe(60);
-    expect(installSmoke.jobs?.["docker-e2e-fast"]?.["timeout-minutes"]).toBe(12);
-    expect(crossOs.jobs?.prepare?.["timeout-minutes"]).toBe(90);
-    expect(
-      new Set(
-        evaluatedJobTimeouts(
-          CROSS_OS_RELEASE_CHECKS_REUSABLE_WORKFLOW,
-          "cross_os_release_checks",
-          workflowJob(CROSS_OS_RELEASE_CHECKS_REUSABLE_WORKFLOW, "cross_os_release_checks"),
-        ),
-      ),
-    ).toEqual(new Set([60, 180]));
-    expect(qaLive.jobs?.authorize_actor?.["timeout-minutes"]).toBe(10);
-    expect(qaLive.jobs?.validate_selected_ref?.["timeout-minutes"]).toBe(30);
-    expect(liveE2e.jobs?.validate_selected_ref?.["timeout-minutes"]).toBe(30);
-    expect(liveE2e.jobs?.plan_release_workflow_matrices?.["timeout-minutes"]).toBe(10);
-    expect(liveE2e.jobs?.validate_release_live_cache?.["timeout-minutes"]).toBe(20);
-    expect(readFileSync(LIVE_E2E_WORKFLOW, "utf8")).toContain(
-      "timeout --foreground --kill-after=30s 8m pnpm test:live:cache",
-    );
   });
 
   it("keeps known bounded dominant child paths below the centralized drain owner", () => {

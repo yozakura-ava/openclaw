@@ -28,7 +28,6 @@ import {
   buildCronSchedule,
 } from "./form-schedule.ts";
 import { loadCronJobsPage } from "./jobs.ts";
-import { getCronJobPayload } from "./payload.ts";
 import { cronRunNotStartedMessage } from "./run-feedback.ts";
 import { clearCronRunsPage, loadCronRuns, retireCronRunsRequest } from "./runs.ts";
 import type { CronFieldErrors, CronFormState, CronState } from "./types.ts";
@@ -36,7 +35,6 @@ import { resolveCronWebhookDeliveryError } from "./webhook-url.ts";
 
 export { loadCronScopeStats } from "./scope.ts";
 export { loadCronJobsPage } from "./jobs.ts";
-export { getCronJobPayload } from "./payload.ts";
 export { resolveConfiguredCronModelSuggestions } from "./model-suggestions.ts";
 
 const CRON_CHANNEL_LAST = "last";
@@ -474,7 +472,8 @@ function isReadOnlyCronPayload(payload: CronPayload | null, declarationKey?: str
 
 function jobToForm(job: CronJob, prev: CronFormState): CronFormState {
   const failureAlert = typeof job.failureAlert === "object" ? job.failureAlert : undefined;
-  const payload = getCronJobPayload(job);
+  const payload = job.payload;
+  const agentTurn = payload.kind === "agentTurn" ? payload : undefined;
   const payloadLocked = isReadOnlyCronPayload(payload, job.declarationKey);
   if (!isCronFormSessionTarget(job.sessionTarget)) {
     throw new TypeError(`Invalid cron session target: ${job.sessionTarget}`);
@@ -499,21 +498,21 @@ function jobToForm(job: CronJob, prev: CronFormState): CronFormState {
     triggerOnce: job.trigger?.once === true,
     sessionTarget: job.sessionTarget,
     wakeMode: job.wakeMode,
-    payloadKind: payload?.kind ?? DEFAULT_CRON_FORM.payloadKind,
+    payloadKind: payload.kind,
     payloadLocked,
     payloadText:
-      payload?.kind === "systemEvent"
+      payload.kind === "systemEvent"
         ? payload.text
-        : payload?.kind === "agentTurn"
+        : payload.kind === "agentTurn"
           ? payload.message
-          : payload?.kind === "command"
+          : payload.kind === "command"
             ? payload.argv.join(" ")
-            : payload?.kind === "script"
+            : payload.kind === "script"
               ? payload.script
               : "",
-    payloadModel: payload?.kind === "agentTurn" ? (payload.model ?? "") : "",
-    payloadThinking: payload?.kind === "agentTurn" ? (payload.thinking ?? "") : "",
-    payloadLightContext: payload?.kind === "agentTurn" ? payload.lightContext === true : false,
+    payloadModel: agentTurn?.model ?? "",
+    payloadThinking: agentTurn?.thinking ?? "",
+    payloadLightContext: agentTurn?.lightContext === true,
     deliveryMode: hasCanonicalCronDeliveryMode(job.delivery) ? (job.delivery?.mode ?? "none") : "",
     deliveryChannel: job.delivery?.channel ?? CRON_CHANNEL_LAST,
     deliveryTo: job.delivery?.to ?? "",
@@ -534,24 +533,17 @@ function jobToForm(job: CronJob, prev: CronFormState): CronFormState {
     failureAlertDeliveryMode: failureAlert?.mode ?? "",
     failureAlertAccountId: failureAlert?.accountId ?? "",
     timeoutSeconds:
-      payload?.kind === "agentTurn" && typeof payload.timeoutSeconds === "number"
-        ? String(payload.timeoutSeconds)
-        : "",
+      typeof agentTurn?.timeoutSeconds === "number" ? String(agentTurn.timeoutSeconds) : "",
   };
 
   if (job.schedule.kind === "at") {
     next.scheduleAt = formatDateTimeLocal(job.schedule.at);
   } else if (job.schedule.kind === "every") {
-    const parsed = parseEverySchedule(job.schedule.everyMs);
-    next.everyAmount = parsed.everyAmount;
-    next.everyUnit = parsed.everyUnit;
+    Object.assign(next, parseEverySchedule(job.schedule.everyMs));
   } else if (job.schedule.kind === "cron") {
     next.cronExpr = job.schedule.expr;
     next.cronTz = job.schedule.tz ?? "";
-    const staggerFields = parseStaggerSchedule(job.schedule.staggerMs);
-    next.scheduleExact = staggerFields.scheduleExact;
-    next.staggerAmount = staggerFields.staggerAmount;
-    next.staggerUnit = staggerFields.staggerUnit;
+    Object.assign(next, parseStaggerSchedule(job.schedule.staggerMs));
   }
   // Process-backed schedule kinds are shown read-only in the list and have no
   // editable schedule form fields; leave the cron/at/every fields at their defaults.
@@ -616,11 +608,8 @@ function normalizePersistedDeliveryChannel(
   options: { preserveLast?: boolean } = {},
 ) {
   const channel = value.trim();
-  if (!channel) {
+  if (!channel || (channel === CRON_CHANNEL_LAST && !options.preserveLast)) {
     return undefined;
-  }
-  if (channel === CRON_CHANNEL_LAST) {
-    return options.preserveLast ? CRON_CHANNEL_LAST : undefined;
   }
   return channel;
 }
@@ -700,7 +689,7 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
       ? requireCronConfigRevision(editingJob.configRevision)
       : undefined;
     const sourceJob = editingJob ?? state.cronCloningJob;
-    const sourcePayload = sourceJob ? getCronJobPayload(sourceJob) : null;
+    const sourcePayload = sourceJob?.payload ?? null;
     // Form fields cannot represent process commands, anchors, or full timestamp precision.
     const schedule =
       sourceJob && hasUnchangedCronSchedule(form, sourceJob)
@@ -724,39 +713,37 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
       selectedDeliveryMode === "announce"
         ? normalizedDeliveryAccountId || (editingJob?.delivery?.accountId ? null : undefined)
         : undefined;
-    const delivery =
-      selectedDeliveryMode && selectedDeliveryMode !== "none"
-        ? {
-            mode: selectedDeliveryMode,
-            channel:
-              selectedDeliveryMode === "announce"
-                ? normalizePersistedDeliveryChannel(form.deliveryChannel, {
-                    preserveLast: Boolean(editingJob?.delivery?.channel),
-                  })
-                : undefined,
-            to:
-              form.deliveryTo.trim() ||
-              (selectedDeliveryMode === "announce" && editingJob?.delivery?.to ? null : undefined),
-            accountId: deliveryAccountId,
-            bestEffort: form.deliveryBestEffort,
-            ...(form.deliveryThreadId !== undefined ? { threadId: form.deliveryThreadId } : {}),
-            ...(selectedDeliveryMode === "announce" && form.deliveryCompletionDestination
-              ? { completionDestination: form.deliveryCompletionDestination }
-              : {}),
-            ...(form.deliveryFailureDestination
-              ? { failureDestination: form.deliveryFailureDestination }
-              : {}),
-          }
-        : selectedDeliveryMode === "none"
-          ? ({
-              mode: "none",
-              ...(form.deliveryBestEffort ? { bestEffort: true } : {}),
-              ...(form.deliveryThreadId !== undefined ? { threadId: form.deliveryThreadId } : {}),
-              ...(form.deliveryFailureDestination
-                ? { failureDestination: form.deliveryFailureDestination }
-                : {}),
-            } as const)
-          : undefined;
+    const delivery = selectedDeliveryMode
+      ? {
+          mode: selectedDeliveryMode,
+          ...(selectedDeliveryMode === "none"
+            ? form.deliveryBestEffort
+              ? { bestEffort: true }
+              : {}
+            : {
+                channel:
+                  selectedDeliveryMode === "announce"
+                    ? normalizePersistedDeliveryChannel(form.deliveryChannel, {
+                        preserveLast: Boolean(editingJob?.delivery?.channel),
+                      })
+                    : undefined,
+                to:
+                  form.deliveryTo.trim() ||
+                  (selectedDeliveryMode === "announce" && editingJob?.delivery?.to
+                    ? null
+                    : undefined),
+                accountId: deliveryAccountId,
+                bestEffort: form.deliveryBestEffort,
+              }),
+          ...(form.deliveryThreadId !== undefined ? { threadId: form.deliveryThreadId } : {}),
+          ...(selectedDeliveryMode === "announce" && form.deliveryCompletionDestination
+            ? { completionDestination: form.deliveryCompletionDestination }
+            : {}),
+          ...(form.deliveryFailureDestination
+            ? { failureDestination: form.deliveryFailureDestination }
+            : {}),
+        }
+      : undefined;
     const failureAlert = buildFailureAlert(form, sourceJob?.failureAlert, Boolean(editingJob));
     const triggerScript = form.triggerScript.trim();
     const trigger = form.triggerEnabled
@@ -951,17 +938,11 @@ export function startCronEdit(state: CronState, job: CronJob) {
 
 function buildCloneName(name: string, existingNames: Set<string>) {
   const base = name.trim() || "Job";
-  const first = `${base} copy`;
-  if (!existingNames.has(normalizeLowercaseStringOrEmpty(first))) {
-    return first;
-  }
-  let index = 2;
-  while (index < 1000) {
-    const next = `${base} copy ${index}`;
+  for (let index = 1; index < 1000; index += 1) {
+    const next = index === 1 ? `${base} copy` : `${base} copy ${index}`;
     if (!existingNames.has(normalizeLowercaseStringOrEmpty(next))) {
       return next;
     }
-    index += 1;
   }
   return `${base} copy ${Date.now()}`;
 }

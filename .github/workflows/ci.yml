@@ -229,7 +229,7 @@ jobs:
       run_ios_lifecycle_tests: ${{ steps.manifest.outputs.run_ios_lifecycle_tests }}
       ios_simulator_selection: ${{ steps.manifest.outputs.ios_simulator_selection }}
       run_ios_screenshots: ${{ steps.changed_scope.outputs.run_ios_screenshots }}
-      run_android_screenshots: ${{ steps.changed_scope.outputs.run_android_screenshots }}
+      run_android_screenshots: ${{ steps.manifest.outputs.run_android_screenshots }}
       run_android_job: ${{ steps.manifest.outputs.run_android_job }}
       run_android_access_native: ${{ steps.manifest.outputs.run_android_access_native }}
       use_compatible_android_ci: ${{ steps.manifest.outputs.use_compatible_android_ci }}
@@ -1693,6 +1693,7 @@ jobs:
             pre-commit run --config "$PRE_COMMIT_CONFIG_PATH" zizmor --files "${workflow_files[@]}"
 
       - name: Audit production dependencies
+        if: github.event_name == 'workflow_dispatch' && (startsWith(inputs.dispatch_id, 'full-release-validation-') || startsWith(inputs.dispatch_id, 'release-native-android-'))
         run: node .ci-harness/scripts/ci-production-audit.mjs
 
       - name: Setup differential guard dependencies
@@ -3200,7 +3201,7 @@ jobs:
       - *linux_node_checkout_step
       - name: Initialize RunsOn
         if: matrix.runner == 'runson-c8i-8xlarge' && runner.environment == 'self-hosted'
-        uses: runs-on/action@dfae4d98c5537a0dc7bbb7e6b9211f30ba240f6d # v2
+        uses: runs-on/action@17b59092eb37ebfdbb034460892887c09100eaa3 # v2.5.0
 
       - name: Record RunsOn allocation
         if: matrix.runner == 'runson-c8i-8xlarge' && runner.environment == 'self-hosted'
@@ -3661,15 +3662,15 @@ jobs:
             { [ "$TASK" = "test-types" ] || [ "$TASK" = "prod-types" ]; }; then
             source .ci-harness/scripts/ci-static-step.sh tsgo
             if [ -n "${CI_CORE_TYPE_GRAPHS_JSON:-}" ] && [ "$CI_CORE_TYPE_GRAPHS_JSON" != "[]" ]; then
-              core_type_command=(node scripts/run-tsgo-core-test-shards.mjs)
+              core_type_command=(scripts/ci-run-scoped-build.sh node scripts/run-tsgo-core-test-shards.mjs)
               if [ "$CI_CORE_TYPE_CONCURRENCY" = "2" ]; then
                 core_type_command=(env -u OPENCLAW_LOCAL_CHECK "${core_type_command[@]}")
               fi
               run_static_check "${core_type_command[@]}" \
-                --ci-graphs-json "$CI_CORE_TYPE_GRAPHS_JSON" --concurrency "$CI_CORE_TYPE_CONCURRENCY"
+                --ci-graphs-json "$CI_CORE_TYPE_GRAPHS_JSON" --concurrency 1
             fi
             if [ -n "${CI_TYPE_GRAPHS_JSON:-}" ] && [ "$CI_TYPE_GRAPHS_JSON" != "[]" ]; then
-              run_static_check node scripts/run-tsgo-core-test-shards.mjs --ci-graphs-json "$CI_TYPE_GRAPHS_JSON"
+              run_static_check scripts/ci-run-scoped-build.sh node scripts/run-tsgo-core-test-shards.mjs --ci-graphs-json "$CI_TYPE_GRAPHS_JSON"
             fi
             finish_static_checks
           fi
@@ -3750,7 +3751,7 @@ jobs:
               pnpm check:bundled-channel-config-metadata
               ;;
             prod-types)
-              pnpm tsgo:prod
+              scripts/ci-run-scoped-build.sh pnpm tsgo:prod
               ;;
             lint)
               # The i18n verify covers keys extracted from every ui/ source,
@@ -3880,16 +3881,16 @@ jobs:
               if [ "$HOSTED_RUNNER_STRIPES" = "true" ] &&
                 grep -q -- '--stripe' scripts/run-tsgo-core-test-shards.mts 2>/dev/null; then
                 if [ "$FROZEN_TARGET" = "true" ]; then
-                  env -u OPENCLAW_LOCAL_CHECK node scripts/run-tsgo-core-test-shards.mjs --stripe "5/5" --concurrency 2
+                  scripts/ci-run-scoped-build.sh env -u OPENCLAW_LOCAL_CHECK node scripts/run-tsgo-core-test-shards.mjs --stripe "5/5" --concurrency 1
                 elif grep -q -- '--root-stripe' scripts/run-tsgo-core-test-shards.mts; then
                   root_covered=true
                 fi
-                pnpm tsgo:extensions:test
+                scripts/ci-run-scoped-build.sh pnpm tsgo:extensions:test
               elif [ -n "${CHANGED_CORE_TEST_PATHS_JSON:-}" ]; then
-                env -u OPENCLAW_LOCAL_CHECK node scripts/run-tsgo-core-test-shards.mjs --changed-paths-json "$CHANGED_CORE_TEST_PATHS_JSON" --concurrency 2
-                pnpm tsgo:extensions:test
+                scripts/ci-run-scoped-build.sh env -u OPENCLAW_LOCAL_CHECK node scripts/run-tsgo-core-test-shards.mjs --changed-paths-json "$CHANGED_CORE_TEST_PATHS_JSON" --concurrency 1
+                scripts/ci-run-scoped-build.sh pnpm tsgo:extensions:test
               else
-                pnpm check:test-types
+                scripts/ci-run-scoped-build.sh pnpm check:test-types
                 if node -e '
                   const scripts = require("./package.json").scripts ?? {};
                   process.exit(/tsgo:test:root/.test(scripts["tsgo:test"] ?? "") ? 0 : 1);
@@ -3898,14 +3899,14 @@ jobs:
                 fi
               fi
               if has_package_script "tsgo:scripts"; then
-                pnpm tsgo:scripts
+                scripts/ci-run-scoped-build.sh pnpm tsgo:scripts
               elif [[ "$HISTORICAL_TARGET" != "true" ]]; then
                 echo "Current CI targets must provide the tsgo:scripts package script." >&2
                 exit 1
               fi
               if [ "$root_covered" != "true" ]; then
                 if has_package_script "tsgo:test:root"; then
-                  pnpm tsgo:test:root
+                  scripts/ci-run-scoped-build.sh pnpm tsgo:test:root
                 elif [[ "$HISTORICAL_TARGET" != "true" ]]; then
                   echo "Current CI targets must provide the tsgo:test:root package script." >&2
                   exit 1
@@ -4111,9 +4112,9 @@ jobs:
           set -euo pipefail
           source .ci-harness/scripts/ci-static-step.sh tsgo
           if [ -n "${CI_TYPE_GRAPHS_JSON:-}" ]; then
-            run_static_check node scripts/run-tsgo-core-test-shards.mjs --ci-graphs-json "$CI_TYPE_GRAPHS_JSON" --concurrency 2
+            run_static_check scripts/ci-run-scoped-build.sh node scripts/run-tsgo-core-test-shards.mjs --ci-graphs-json "$CI_TYPE_GRAPHS_JSON" --concurrency 1
             if [ -n "${ROOT_TYPE_STRIPE:-}" ]; then
-              run_static_check env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$ROOT_TYPE_STRIPE"
+              run_static_check scripts/ci-run-scoped-build.sh env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$ROOT_TYPE_STRIPE"
             fi
             finish_static_checks
           fi
@@ -4125,16 +4126,16 @@ jobs:
             first="$((2 * CORE_STRIPE - 1))"
             last="$((2 * CORE_STRIPE))"
             for stripe in "$first" "$last"; do
-              node scripts/run-tsgo-core-test-shards.mjs --stripe "$stripe/5" --concurrency 2
+              scripts/ci-run-scoped-build.sh node scripts/run-tsgo-core-test-shards.mjs --stripe "$stripe/5" --concurrency 1
             done
           else
             args=(--stripe "$CORE_STRIPE/5" --concurrency 2)
             if [ -n "${CHANGED_CORE_TEST_PATHS_JSON:-}" ]; then
               args+=(--changed-paths-json "$CHANGED_CORE_TEST_PATHS_JSON")
             fi
-            run_static_check node scripts/run-tsgo-core-test-shards.mjs "${args[@]}"
+            run_static_check scripts/ci-run-scoped-build.sh node scripts/run-tsgo-core-test-shards.mjs "${args[@]}"
             if [ "$CORE_STRIPE" -ge 2 ] && grep -q -- '--root-stripe' scripts/run-tsgo-core-test-shards.mts; then
-              run_static_check env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$((CORE_STRIPE - 1))/4"
+              run_static_check scripts/ci-run-scoped-build.sh env OPENCLAW_LOCAL_CHECK=0 node scripts/run-tsgo-core-test-shards.mjs --root-stripe "$((CORE_STRIPE - 1))/4"
             fi
             finish_static_checks
           fi
@@ -4154,7 +4155,7 @@ jobs:
     needs: [preflight]
     if: ${{ !cancelled() && always() && needs.preflight.outputs.run_check_additional == 'true' }}
     runs-on: ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && needs.preflight.outputs.hybrid_hosted_checks == 'true' && contains(fromJSON('["runtime-topology-architecture","dependencies"]'), matrix.group)) && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && (github.run_attempt > 1 || !contains(fromJSON('["extension-package-boundary","runtime-topology-architecture","plugin-sdk-api-diff","dependencies"]'), matrix.group))) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')))) || ((contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && github.run_attempt == 1 && needs.preflight.outputs.hybrid_hosted_checks == 'true' && contains(fromJSON('["runtime-topology-architecture","dependencies"]'), matrix.group)) && 'ubuntu-24.04' || (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) == 'github' && 'ubuntu-24.04' || (contains(fromJSON('["hybrid","runson"]'), (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND)) && (github.run_attempt > 1 || !contains(fromJSON('["extension-package-boundary","runtime-topology-architecture","plugin-sdk-api-diff","dependencies"]'), matrix.group))) && 'ubuntu-24.04' || ((github.event_name == 'workflow_dispatch' && ((needs.preflight.outputs.node_runner_backend != 'runson' && needs.preflight.outputs.ci_qualification != 'true') || github.run_attempt != 1)) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && github.run_attempt > 1)) && 'ubuntu-24.04' || (github.repository == 'openclaw/openclaw' && (matrix.runner || 'blacksmith-4vcpu-ubuntu-2404') || 'ubuntu-24.04')) }}
-    timeout-minutes: ${{ matrix.group == 'extension-package-boundary' && 30 || 20 }}
+    timeout-minutes: ${{ matrix.group == 'extension-package-boundary' && 40 || 20 }}
     env:
       CHECKOUT_BASE_SHA: ${{ matrix.group == 'guards' && (github.event_name == 'pull_request' || needs.preflight.outputs.node_runner_backend == 'runson' || needs.preflight.outputs.ci_qualification == 'true') && needs.preflight.outputs.diff_base_revision || '' }}
     strategy:
@@ -4376,7 +4377,8 @@ jobs:
       - name: Check docs
         env:
           OPENCLAW_DOCS_SYNC_CLAWHUB_REPO: ${{ github.workspace }}/clawhub-source
-        run: pnpm check:docs
+        # Keep the content checks serial; only their read-only formatter runs alongside.
+        run: pnpm run --workspace-concurrency=2 --no-bail '/^(format:docs:check|check:docs:content)$/'
 
   skills-python:
     permissions:
@@ -4599,7 +4601,7 @@ jobs:
       matrix:
         phase: ${{ fromJSON(github.event_name == 'workflow_dispatch' && needs.preflight.outputs.validation_tier != 'main' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && '["release","tests","packages"]' || '["tests","packages"]') }}
     runs-on: &hosted_xcode_runner ${{ (github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '') != '' && fromJSON(format('{{"group":{0},"labels":{1}}}', toJSON((github.event_name == 'workflow_dispatch' && startsWith(inputs.dispatch_id, 'full-release-validation-') && vars.OPENCLAW_RELEASE_RUNNER_GROUP || '')), toJSON('xcode-27'))) || ('xcode-27') }}
-    timeout-minutes: 30
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.validation_tier != 'main' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && needs.preflight.outputs.compatibility_target != 'true' && matrix.phase == 'tests' && 75 || 30 }}
     env:
       HISTORICAL_TARGET: *historical_target
       MACOS_PRIMARY_PHASE: ${{ github.event_name == 'workflow_dispatch' && needs.preflight.outputs.validation_tier != 'main' && !inputs.release_gate && needs.preflight.outputs.release_scope == 'full' && 'release' || 'tests' }}
@@ -5535,17 +5537,17 @@ jobs:
       - name: Setup Ruby
         uses: ruby/setup-ruby@14594264cd68ce8a2345dd349bc3d138a4ef85c8 # v1.327.0
         with:
-          ruby-version: "3.4.10"
-          bundler: "4.0.21"
+          ruby-version: "3.4.11"
+          bundler: "4.0.22"
           bundler-cache: false
           working-directory: apps/ios
 
       - name: Install locked Fastlane bundle
         working-directory: apps/ios
         run: |
-          bundle _4.0.21_ install --jobs 4 --retry 3
-          bundle _4.0.21_ check
-          bundle _4.0.21_ exec fastlane --version
+          bundle _4.0.22_ install --jobs 4 --retry 3
+          bundle _4.0.22_ check
+          bundle _4.0.22_ exec fastlane --version
 
       - *select_xcode_step
 
@@ -6205,15 +6207,6 @@ jobs:
           OPENCLAW_DOCKER_ALL_PARALLELISM: &docker_parallelism ${{ (needs.preflight.outputs.ci_qualification == 'true' && (github.run_attempt == 1 && needs.preflight.outputs.qualification_runner_backend || 'github') || vars.OPENCLAW_CI_RUNNER_BACKEND) != 'github' && github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.head.repo.full_name == github.repository && 3 || 1 }}
           OPENCLAW_DOCKER_ALL_TAIL_PARALLELISM: *docker_parallelism
         run: pnpm test:docker:all
-
-      - name: Upload Fleet Docker proof
-        if: always() && contains(format(' {0} ', needs.preflight.outputs.docker_seed_lanes), ' fleet-cache ')
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: fleet-cache-docker-proof
-          path: .artifacts/docker-tests/**/fleet-cache.log
-          include-hidden-files: true
-          if-no-files-found: warn
 
       - name: Upload sanitized upgrade survivor proof
         if: always() && contains(format(' {0} ', needs.preflight.outputs.docker_seed_lanes), ' published-upgrade-survivor ')

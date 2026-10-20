@@ -32,9 +32,9 @@ describe("trimMetadataToBudget — comment-first trim for over-cap cards", () =>
       attempts: [{ id: "a1", status: "failed" as const, startedAt: 1, endedAt: 2 }],
       diagnostics: [
         {
-          kind: "missing_proof" as const,
+          kind: "running_without_heartbeat" as const,
           severity: "warning" as const,
-          title: "d",
+          title: "stale",
           detail: "d",
           firstSeenAt: 1,
           lastSeenAt: 1,

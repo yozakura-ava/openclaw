@@ -7,15 +7,14 @@ import {
 } from "../agents/sandbox/registry.kernel.js";
 import { listRegistryWorktreesInDatabase } from "../agents/worktrees/registry-read.kernel.js";
 import { readWorktreeRunLeaseStateInDatabase } from "../agents/worktrees/run-lease-owner.js";
-import { getFleetCellInDatabase, listFleetCellsInDatabase } from "../fleet/registry.kernel.js";
 import { readPreparedPoolPresenceDemandInDatabase } from "../gateway/worker-environments/prepared-pool-presence-store.worker.js";
 import {
   readWorkerEnvironmentFacts,
   readWorkerEnvironmentPrunePage,
 } from "../gateway/worker-environments/store-row-codec.js";
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
-import { readAgentDeletionJournalAuthorityInDatabase } from "./agent-deletion-journal-authority.worker.js";
 import { readAgentDeletionJournalStatusInDatabase } from "./agent-deletion-journal.read.js";
+import { readRetainedAgentDeletionIds } from "./agent-deletion-journal.snapshot.worker.js";
 import type {
   OpenClawStateReadCommand,
   OpenClawStateReadResult,
@@ -31,10 +30,9 @@ export function readStateRegistryCommand(
         | "workerEnvironments.snapshot"
         | "workerEnvironments.pruneCandidates"
         | "agentDeletionJournal.status"
-        | "agentDeletionJournal.authority"
+        | "agentDeletionJournal.retainedIds"
         | "worktrees.cleanupState"
-        | "fleet.list"
-        | "fleet.get"
+        | "worktrees.list"
         | "sandboxRegistry.list"
         | "sandboxRegistry.get"
         | "sandboxRegistry.runtimeIds"
@@ -65,11 +63,8 @@ export function readStateRegistryCommand(
       status: readAgentDeletionJournalStatusInDatabase(db, command.agentId),
     };
   }
-  if (command.type === "agentDeletionJournal.authority") {
-    return {
-      type: command.type,
-      authority: readAgentDeletionJournalAuthorityInDatabase(db, command.agentId),
-    };
+  if (command.type === "agentDeletionJournal.retainedIds") {
+    return { type: command.type, agentIds: readRetainedAgentDeletionIds(db) };
   }
   if (command.type === "sandboxRegistry.list") {
     return { type: command.type, entries: readSandboxRegistryInDatabase(db) };
@@ -96,7 +91,5 @@ export function readStateRegistryCommand(
       leases: readWorktreeRunLeaseStateInDatabase(db),
     };
   }
-  return command.type === "fleet.list"
-    ? { type: command.type, cells: listFleetCellsInDatabase(db) }
-    : { type: command.type, cell: getFleetCellInDatabase(db, command.tenantId) };
+  return { type: command.type, records: listRegistryWorktreesInDatabase(db) };
 }

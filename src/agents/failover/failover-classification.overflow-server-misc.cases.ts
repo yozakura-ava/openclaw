@@ -14,6 +14,16 @@ import {
 export const overflowServerMiscCases = [
   // Transient transport and provider failures.
   {
+    id: "openai-sdk-malformed-sse",
+    source: "openai/core/streaming",
+    signal: {
+      provider: "openai",
+      message: "Error reading response: malformed server-sent event JSON.",
+    },
+    // This branch maps message-only server errors to the transient timeout lane.
+    expected: reason("timeout"),
+  },
+  {
     id: "bedrock-incomplete-terminal-stream",
     source: "extensions/amazon-bedrock/stream.runtime.ts",
     signal: { provider: "amazon-bedrock", message: "Bedrock stream ended before messageStop" },
@@ -33,6 +43,18 @@ export const overflowServerMiscCases = [
       message: "Google stream ended before a terminal finish reason",
     },
     expected: reason("timeout"),
+  },
+  {
+    id: "google-sse-eof-incomplete-frame",
+    source: "extensions/google/transport-stream.ts",
+    signal: { provider: "google", message: "Google SSE stream ended with an incomplete frame" },
+    expected: reason("timeout"),
+  },
+  {
+    id: "google-sse-malformed-json-frame",
+    source: "extensions/google/transport-stream.ts",
+    signal: { provider: "google", message: "Google SSE stream returned malformed JSON" },
+    expected: null,
   },
   {
     id: "mistral-incomplete-terminal-stream",
@@ -204,10 +226,7 @@ export const overflowServerMiscCases = [
       message:
         "OpenAI API error (500): 500 The server had an error while processing your request. Sorry about that!",
     },
-    // JUSTIFICATION: inferSignalStatus now falls back to extractProviderWrappedHttpStatus,
-    // so the provider-wrapped (500) is seen and an OpenAI 500 classifies as server_error
-    // (retry-worthy) instead of "not a failover signal" (null).
-    expected: reason("server_error"),
+    expected: null,
   },
   {
     id: "retry-azure-502",
@@ -216,9 +235,7 @@ export const overflowServerMiscCases = [
       provider: "azure-openai",
       message: "Azure OpenAI API error (502): Bad gateway from upstream",
     },
-    // JUSTIFICATION: the wrapped (502) now supplies the status, so 502 Bad Gateway reports
-    // server_error rather than matching the body-text timeout rule; retry semantics are unchanged.
-    expected: reason("server_error"),
+    expected: reason("timeout"),
   },
   {
     id: "retry-mistral-503",

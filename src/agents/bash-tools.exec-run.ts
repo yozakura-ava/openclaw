@@ -17,6 +17,7 @@ import {
   rejectUnsafeExecControlShellCommand,
   rejectUnsafeExecLiveStateSqliteShellCommand,
 } from "../infra/exec-control-command-guard.js";
+import { captureExecRequestOwners, readExecRequestOwners } from "../infra/exec-request-context.js";
 import { resolveExecSafeBinRuntimePolicy } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logInfo } from "../logger.js";
 import { parseAgentSessionKey, resolveAgentIdFromSessionKey } from "../routing/session-key.js";
@@ -29,6 +30,7 @@ import { markBackgrounded } from "./bash-process-registry.js";
 import { describeExecTool } from "./bash-tools.descriptions.js";
 import { processGatewayAllowlist } from "./bash-tools.exec-host-gateway.js";
 import { executeNodeHostCommand } from "./bash-tools.exec-host-node.js";
+import { ExecProcessPreflightError } from "./bash-tools.exec-launch.js";
 import { EXEC_MANUAL_COLLECTION_FOLLOW_UP } from "./bash-tools.exec-output.js";
 import {
   assertSupportedExecParams,
@@ -43,8 +45,6 @@ import {
   DEFAULT_MAX_OUTPUT,
   DEFAULT_PENDING_MAX_OUTPUT,
   type ExecProcessHandle,
-  ExecProcessPreflightError,
-  execSchema,
   normalizePathPrepend,
   resolveApprovalRunningNoticeMs,
   resolveExecTarget,
@@ -68,6 +68,7 @@ import type {
   ExecToolDetails,
 } from "./bash-tools.exec-types.js";
 import { formatUnavailableWorkdirFailure, resolveExecWorkdir } from "./bash-tools.exec-workdir.js";
+import { createExecSchema, execSchema } from "./bash-tools.schemas.js";
 import { clampWithDefault, readEnvInt, truncateMiddle } from "./bash-tools.shared.js";
 import {
   createExecToolExecutionTimeoutResolver,
@@ -89,6 +90,12 @@ export function createExecTool(
 ): AgentToolWithMeta<typeof execSchema, ExecToolDetails> {
   const secretEgressEnabled = isSecretEgressProxyActive();
   const cleanupMs = defaults?.cleanupMs;
+  const requestOwners =
+    (defaults && readExecRequestOwners(defaults)) ??
+    captureExecRequestOwners({
+      runId: defaults?.runId,
+      sessionId: defaults?.sessionId,
+    });
   const preparedRunEnvironment = resolveExecPreparedRunEnvironment(defaults);
   const subagentExecution =
     resolveStoredSubagentCapabilities(defaults?.runSessionKey ?? defaults?.sessionKey, {
@@ -196,7 +203,7 @@ export function createExecTool(
         autoReview: defaults?.mode === "auto",
       });
     },
-    parameters: execSchema,
+    parameters: createExecSchema(defaults),
     getExecutionTimeoutMs: createExecToolExecutionTimeoutResolver(defaults),
     prepareBeforeToolCallParams: requestPreparation.prepareBeforeToolCallParams,
     finalizeBeforeToolCallParams: requestPreparation.finalizeBeforeToolCallParams,
@@ -606,6 +613,7 @@ export function createExecTool(
           notifyOnExit,
           subagentSession,
           notifyOnExitEmptySuccess,
+          requestOwners: params.background === true ? undefined : requestOwners,
           scopeKey: defaults?.scopeKey,
           sessionKey: notifySessionKey,
           agentId,

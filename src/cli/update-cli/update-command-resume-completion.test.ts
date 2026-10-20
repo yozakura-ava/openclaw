@@ -4,10 +4,13 @@ import { readConfigFileSnapshot } from "../../config/config.js";
 import type { PluginInstallRecord } from "../../config/types.plugins.js";
 import {
   formatDeferredPluginMigration,
-  readDeferredPluginMigrationCompletions,
+  readDeferredPluginMigrationCompletionsAsync,
   readDeferredPluginMigrationsAsync,
   recordDeferredPluginMigrations,
 } from "../../infra/deferred-plugin-migrations.js";
+import { listUpdateRuns } from "../../infra/update-run-reader.js";
+import { renderUpdateRunReport } from "../../infra/update-run-report.js";
+import { updateRunWarningMessages } from "../../infra/update-run-step.js";
 import { loadNodeHostConfig } from "../../node-host/config.js";
 import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import {
@@ -44,16 +47,26 @@ describe("update completion ownership", () => {
         reason: "The installed plugin has not confirmed its saved data and settings.",
         command: "openclaw doctor --fix",
       };
-      const warning = formatDeferredPluginMigration(pending);
+      // Each Doctor phase formats with the env its updater gives it.
+      const swapWarning = formatDeferredPluginMigration(pending, {
+        OPENCLAW_UPDATE_IN_PROGRESS: "1",
+      });
+      const finalPassWarning = formatDeferredPluginMigration(pending, {
+        OPENCLAW_UPDATE_IN_PROGRESS: "1",
+        OPENCLAW_UPDATE_POST_CORE_CONVERGENCE: "1",
+      });
+      expect(swapWarning).toContain("Let the current update or repair finish.");
+      expect(finalPassWarning).not.toContain("Let the current update");
+      expect(finalPassWarning).toContain('Run "openclaw doctor --fix" to retry the upgrade.');
       await recordDeferredPluginMigrations({ pending: [pending] });
       await writeScenario("repair", {
-        doctorWarnings: [warning],
+        doctorWarningsByInvocation: [[swapWarning], [finalPassWarning]],
         completeDeferredPluginMigration: pending.pluginId,
       });
       mocks.plugins.mockImplementationOnce(async () => {
         // The child completed the migration before its buffered warning reached the parent.
         expect(await readDeferredPluginMigrationsAsync()).toEqual([]);
-        expect(readDeferredPluginMigrationCompletions()).toEqual([
+        expect(await readDeferredPluginMigrationCompletionsAsync()).toEqual([
           expect.objectContaining({ pluginId: pending.pluginId }),
         ]);
         if (pendingAgain) {
@@ -68,10 +81,21 @@ describe("update completion ownership", () => {
       expect(reportedResult("repair")).toMatchObject({
         status: pendingAgain ? "warning" : "ok",
       });
+      // The final Doctor pass supersedes the package-swap copy of a still-pending migration.
       expect(reportedResult("repair")).toHaveProperty(
         "postUpdate.doctor",
-        pendingAgain ? { status: "warning", warnings: [warning] } : { status: "ok" },
+        pendingAgain ? { status: "warning", warnings: [finalPassWarning] } : { status: "ok" },
       );
+      // The earlier warning steps were persisted as reported; the run history and
+      // its rendered report must match the ledger after the final pass.
+      const [run] = listUpdateRuns();
+      expect(run).toMatchObject({ status: "succeeded" });
+      const expectedWarnings = pendingAgain ? [finalPassWarning] : [];
+      expect(updateRunWarningMessages(run?.steps ?? [])).toEqual(expectedWarnings);
+      const reportWarnings = renderUpdateRunReport(run!).lines.filter((line) =>
+        line.startsWith("Warning: "),
+      );
+      expect(reportWarnings).toEqual(expectedWarnings.map((warning) => `Warning: ${warning}`));
     },
   );
 
@@ -144,7 +168,7 @@ describe("update completion ownership", () => {
       vi.mocked(defaultRuntime.error).mock.calls.flat().join("\n"),
     ).toHaveBeenCalledOnce();
     expect(await readDeferredPluginMigrationsAsync()).toEqual([]);
-    expect(readDeferredPluginMigrationCompletions()).toEqual([
+    expect(await readDeferredPluginMigrationCompletionsAsync()).toEqual([
       expect.objectContaining({ pluginId }),
     ]);
     expect(JSON.stringify(reportedResult("repair"))).not.toContain(

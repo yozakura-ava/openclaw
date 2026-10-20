@@ -5,7 +5,8 @@ import type { ChatAbortDiagnosticReason } from "./chat-abort-diagnostics.js";
 type ChatTerminalProducer = {
   sessionId: string;
   sessionKey: string;
-  handoff: (settle: (producerCompleted: Promise<void>) => Promise<void>) => boolean;
+  /** Resolves with the producer's error, if any, after its persistence has settled. */
+  handoff: (settle: (producerCompleted: Promise<unknown>) => Promise<void>) => boolean;
 };
 
 export type ChatAbortControllerEntry = {
@@ -63,11 +64,11 @@ export type ChatAbortControllerEntry = {
   };
   /** Bounded private timeout settlement while the aborted producer unwinds. */
   pendingTimeoutCompletion?: { expiresAtMs: number; settle: () => void };
-  /** False after the owning reply run commits a terminal outcome. */
-  terminalOutcomeObserved?: boolean;
   isAbortable?: (entry: ChatAbortControllerEntry) => boolean;
   /** Runs once when this registration is actually removed. */
   onRemoved?: () => void;
+  /** Definitive execution outcome or chat terminal, recorded before publication. */
+  terminalOutcomeObserved?: boolean;
   /**
    * Which RPC owns this registration. Absent (undefined) is treated as
    * `"chat-send"` so pre-existing callers that constructed entries without

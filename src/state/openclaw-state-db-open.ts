@@ -1,6 +1,10 @@
 import { statSync, type BigIntStats } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
 import { formatErrorMessage } from "../infra/errors.js";
+import {
+  StateDatabaseAdmissionPendingError,
+  StateDatabaseOfflineMaintenanceError,
+} from "../infra/gateway-state-owner-record.js";
 import { assertStateDatabaseAccessAllowed } from "../infra/gateway-state-owner.js";
 import { enableNodeSqliteKyselyStatementCache } from "../infra/kysely-sync.js";
 import {
@@ -42,7 +46,7 @@ import {
 import { ensureOpenClawStatePermissions } from "./openclaw-state-db-permissions.js";
 import {
   assertSupportedStateSchemaVersion,
-  readStateSchemaMigrationVersion,
+  readStateSchemaContentVersion,
 } from "./openclaw-state-db-schema-version.js";
 import { assertOpenClawStateWriteAllowed } from "./openclaw-state-ownership.js";
 
@@ -52,7 +56,7 @@ function assertStateDatabaseIntegrityBeforeMutation(
   database: DatabaseSync,
   pathname: string,
 ): void {
-  const contentVersion = readStateSchemaMigrationVersion(database);
+  const contentVersion = readStateSchemaContentVersion(database);
   const hasApplicationSchema = database // sqlite-allow-raw -- Cold-open schema presence probe before Kysely exposure.
     .prepare("SELECT 1 FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' LIMIT 1")
     .get();
@@ -190,7 +194,21 @@ function openNativeStateDatabase(
               checkpoint: walMaintenance?.health,
             }),
           runMaintenance: (operation) => {
-            assertStateDatabaseAccessAllowed(params.pathname);
+            try {
+              assertStateDatabaseAccessAllowed(params.pathname);
+            } catch (error) {
+              if (
+                !(error instanceof StateDatabaseAdmissionPendingError) &&
+                !(error instanceof StateDatabaseOfflineMaintenanceError)
+              ) {
+                throw error;
+              }
+              // Another process's offline maintenance refuses this pass; the next tick retries.
+              stateDbLog.debug("Shared-state WAL maintenance deferred during offline maintenance", {
+                path: params.pathname,
+              });
+              return false;
+            }
             return operation();
           },
           isScheduledMaintenanceSuspended: captureSqliteWorkerWalMaintenanceSuspension(),

@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { MAX_DATE_TIMESTAMP_MS } from "openclaw/plugin-sdk/number-runtime";
@@ -725,16 +726,12 @@ describe("WorkboardStore", () => {
         );
       }
 
-      // Index the freshly created cards instead of reaching into `cards` at
-      // fixed offsets: the loop above guarantees four entries, so a slice plus
-      // index parity keeps the cross-host split without possibly-undefined reads.
-      const claims = await Promise.allSettled(
-        cards
-          .slice(0, 4)
-          .map((card, index) =>
-            (index % 2 === 0 ? first : second).claim(card.id, { ownerId: "worker" }),
-          ),
-      );
+      const claims = await Promise.allSettled([
+        first.claim(expectDefined(cards[0], "first card").id, { ownerId: "worker" }),
+        second.claim(expectDefined(cards[1], "second card").id, { ownerId: "worker" }),
+        first.claim(expectDefined(cards[2], "third card").id, { ownerId: "worker" }),
+        second.claim(expectDefined(cards[3], "fourth card").id, { ownerId: "worker" }),
+      ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
       expect(claims.filter((claim) => claim.status === "rejected")).toHaveLength(1);

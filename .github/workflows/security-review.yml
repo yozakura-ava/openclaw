@@ -28,7 +28,8 @@ jobs:
     # PR prose is not an approval input. Keep base/permission changes and
     # unknown edit payloads, plus command edits/deletions that revoke approval.
     if: >-
-      ${{ (github.event_name != 'pull_request_target' || github.event.action != 'edited' ||
+      ${{ (github.event_name != 'schedule' || github.repository == 'openclaw/openclaw') &&
+      (github.event_name != 'pull_request_target' || github.event.action != 'edited' ||
       github.event.changes.base || github.event.changes.maintainer_can_modify ||
       (!github.event.changes.title && !github.event.changes.body)) &&
       (github.event_name != 'issue_comment' || (github.event.issue.pull_request &&

@@ -25,6 +25,7 @@ permissions:
 
 jobs:
   scope:
+    if: github.repository == 'openclaw/openclaw'
     name: Detect iOS scan scope
     runs-on: ubuntu-24.04
     outputs:

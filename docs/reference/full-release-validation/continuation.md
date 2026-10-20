@@ -47,23 +47,20 @@ a targeted retry never declares the parent recovered while blockers remain.
 
 `watch` resolves child runs from the parent's `Dispatched <workflow>: <url>
 (attempt N)` dispatch-job log lines and reports each attempt transition and
-failed job once, with runner labels. Transient GitHub failures retry on the next
-poll. A local state file under `$TMPDIR/openclaw-frv/` lets a restarted watch
-resume without repeating events.
+failed job once, with runner labels. Transient network failures retry on the next
+poll without repeating unchanged warnings. Rate-limited reads pause until GitHub's
+`Retry-After` or exhausted-primary reset boundary; headerless throttles wait at
+least one minute, with exponential backoff for repeated throttles. The watcher
+prints the next eligible check and resumes automatically. Permission-denied
+403 responses remain terminal. A local state file under `$TMPDIR/openclaw-frv/`
+retains the retry boundary and reported events across watcher restarts.
 
-`rerun --child` waits for one failed child, sends exactly one retry request,
-confirms the new attempt has no duplicate jobs, and
+`rerun --child` waits for one failed child, sends exactly one
+rerun-failed-jobs request, confirms the new attempt has no duplicate jobs, and
 records an audit line. It refuses children past `--max-attempts` (default 2,
 which allows one rerun). When a failed consumer is bound to a green producer's
 run attempt, it reruns that producer and its dependents instead. It returns
 after the new attempt starts; `continue --failed` still owns the final reseal.
-
-When every workload passed and only **Seal child receipt** failed, the preview
-reports `mode: receipt`. The same bounded `rerun --child` command selects that
-exact receipt job instead of rerunning the passing workloads. It carries forward
-their accepted attempts, seals the new receipt against the exact child attempt,
-and still requires `continue --failed` plus strict verification before reporting
-qualification accepted. A metadata retry starting is not qualification success.
 
 `continue --failed` reruns each failed child's jobs as soon as that child is
 terminal, while sibling children and the original parent may still run. It
@@ -105,6 +102,15 @@ Each child or parent rerun mutation is sent exactly once. If GitHub returns an
 ambiguous transient error, the controller performs read-only reconciliation
 until the newer attempt becomes visible or the bounded reconciliation deadline
 expires. It never repeats the mutation, and provenance drift fails closed.
+`frv status` leads with qualification, evidence acceptance, diagnostic drain,
+workload failures, and the next supported command. A passing GitHub badge or green
+child list is not an accepted seal: terminal successful parents are checked by the
+same strict verifier used by recovery. Missing or unreadable evidence stays
+explicitly unavailable. JSON preserves child facts and marks incomplete collection.
+The candidate's admitted context ref is read freshly to label a superseded tip;
+qualification of that frozen candidate never claims qualification of a newer tip.
+Retry suggestions are dry-run previews; mutations still perform fresh admission.
+
 After a timeout or an interrupted command, inspect `frv status` and the exact
 GitHub attempts before deciding on another retry; the local process cannot
 prove that an unobserved mutation was rejected.

@@ -144,10 +144,6 @@ describe("createOpenClawCodingTools availability guidance", () => {
     }
   });
 
-  // describeSessionsSendTool takes no options on this branch, so the former
-  // allowThreadTargets=false/true parametrization could not vary any input and
-  // failed type-check (TS2554: expected 0 arguments, got 1). The availability
-  // guidance under test is option-independent, so one case covers both.
   it("describes only executable conversation routes", () => {
     const [tool] = applyToolAvailabilityDescriptions([
       { name: "sessions_send", description: describeSessionsSendTool() },
@@ -245,25 +241,22 @@ describe("createOpenClawCodingTools availability guidance", () => {
   it("names exec for file listing only when exec survives tool filtering", () => {
     const nodes = createNodesTool();
     const [withoutExec] = applyToolAvailabilityDescriptions([nodes]);
-    const [, survivingExec] = applyToolAvailabilityDescriptions([
+    const [withExec] = applyToolAvailabilityDescriptions([
       nodes,
       { name: "exec", description: "exec base" } as AnyAgentTool,
     ]);
 
-    // 2026.10.3 line: upstream #172327 nodes-description enhancement absent here; asserts this line's actual guidance output.
-    expect(withoutExec?.description).toContain(
-      "Paired nodes: status/list with active-computer presence",
-    );
+    expect(withoutExec?.description).toContain("fs.listDir returns sub-directories only");
     expect(withoutExec?.description).not.toContain("use the exec tool with host=node");
-    // Exec naming rides the surviving exec entry itself: absent when filtered out, host/node guidance when it survives.
-    expect(survivingExec?.description).toContain(
-      "Omit host/node to use the session's configured host",
+    expect(withExec?.description).toContain(
+      "fs.listDir returns sub-directories only; use the exec tool with host=node to list files",
     );
     const invokeCommand = (
       expectDefined(withoutExec, "nodes tool").parameters as {
         properties?: Record<string, { description?: string }>;
       }
     ).properties?.invokeCommand;
-    expect(invokeCommand?.description ?? "").not.toContain("use the exec tool");
+    expect(invokeCommand?.description).toContain("fs.listDir returns sub-directories only");
+    expect(invokeCommand?.description).not.toContain("use the exec tool");
   });
 });

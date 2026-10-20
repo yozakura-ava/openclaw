@@ -243,6 +243,8 @@ export const WORKBOARD_CHANGED_EVENT = "plugin.workboard.changed";
 export type WorkboardChange = {
   epoch: string;
   revision: number;
+  cardsRevision?: number;
+  sessionsRevision?: number;
 };
 
 export type WorkboardWorkspace = {
@@ -397,6 +399,7 @@ export type {
   WorkboardSessionPlacement,
   WorkboardSessionsBoard,
   WorkboardSessionsBoardRead,
+  WorkboardSessionsBoardRevision,
   WorkboardSessionsBoardSpec,
   WorkboardSessionsBoardView,
   WorkboardSessionsColumn,

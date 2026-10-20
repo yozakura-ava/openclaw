@@ -3,7 +3,6 @@ import type { ModelCatalogResult } from "../api/types.ts";
 import type { ApplicationGateway } from "../app/context.ts";
 import { gatewayPresentationScope } from "../app/gateway-presentation-scope.ts";
 import {
-  isModelCatalogRetired,
   modelCatalogKey,
   modelCatalogParams,
   type ModelCatalogReadScope,
@@ -11,6 +10,7 @@ import {
 import {
   loadModelCatalog,
   peekModelCatalog,
+  readModelCatalog,
   subscribeModelCatalogCache,
   subscribeModelCatalogChanges,
   type ModelCatalogPresentation,
@@ -26,7 +26,6 @@ export class ModelCatalogReader {
   };
   private controller?: AbortController;
   private unsubscribe?: () => void;
-  pending = false;
   failed = false;
 
   constructor(
@@ -34,22 +33,17 @@ export class ModelCatalogReader {
     private readonly options: {
       timeoutMs?: GatewayProtocolRequestOptions["timeoutMs"];
       onResult?: (result: ModelCatalogResult) => void;
-      onError?: () => void;
+      onError?: (error: unknown) => void;
     } = {},
   ) {}
 
+  get pending(): boolean {
+    return this.controller !== undefined;
+  }
+
   get snapshot(): ModelCatalogPresentation {
     const binding = this.binding;
-    if (!binding || !this.owns(binding)) {
-      return { models: [], hasSnapshot: false, retired: false };
-    }
-    const result = peekModelCatalog(binding.client, binding.scope, { allowStale: true });
-    return {
-      ...result,
-      models: result?.models ?? [],
-      hasSnapshot: result !== undefined,
-      retired: isModelCatalogRetired(binding.client, binding.scope),
-    };
+    return readModelCatalog(binding && this.owns(binding) ? binding.client : null, binding?.scope);
   }
 
   bind(gateway: ApplicationGateway, scope: ModelCatalogReadScope): boolean {
@@ -86,7 +80,7 @@ export class ModelCatalogReader {
     });
     const unwatchEvents = subscribeModelCatalogChanges(
       gateway,
-      () => {
+      (error: unknown) => {
         if (this.owns(binding)) {
           void this.read();
         } else {
@@ -120,7 +114,6 @@ export class ModelCatalogReader {
     this.controller = undefined;
     const cached = peekModelCatalog(binding.client, binding.scope);
     if (cached) {
-      this.pending = false;
       this.failed = false;
       this.options.onResult?.(cached);
       this.notify();
@@ -128,7 +121,6 @@ export class ModelCatalogReader {
     }
     const controller = new AbortController();
     this.controller = controller;
-    this.pending = true;
     this.failed = false;
     this.notify();
     return loadModelCatalog(binding.client, {
@@ -141,19 +133,17 @@ export class ModelCatalogReader {
           return undefined;
         }
         this.controller = undefined;
-        this.pending = false;
         this.options.onResult?.(result);
         this.notify();
         return result;
       },
-      () => {
+      (error: unknown) => {
         if (!this.owns(binding) || this.controller !== controller) {
           return undefined;
         }
         this.controller = undefined;
-        this.pending = false;
         this.failed = true;
-        this.options.onError?.();
+        this.options.onError?.(error);
         this.notify();
         return undefined;
       },
@@ -166,7 +156,6 @@ export class ModelCatalogReader {
     this.controller = undefined;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
-    this.pending = false;
     this.failed = false;
   }
 }
