@@ -1086,13 +1086,13 @@ describe("renderWorkboard", () => {
     });
     state.cards = [createWorkboardCard({ title: "Keep visible" })];
     renderView();
-    expect(container.querySelectorAll(".workboard-column")).toHaveLength(9);
+    expect(container.querySelectorAll(".workboard-column")).toHaveLength(10);
     expect(container.querySelector(".workboard-column--collapsed")).toBeNull();
     buttonByLabel(container, "Collapse empty")?.click();
     renderView();
     expect(state.emptyColumnMode).toBe("collapse");
-    expect(container.querySelectorAll(".workboard-column")).toHaveLength(9);
-    expect(container.querySelectorAll(".workboard-column--collapsed")).toHaveLength(8);
+    expect(container.querySelectorAll(".workboard-column")).toHaveLength(10);
+    expect(container.querySelectorAll(".workboard-column--collapsed")).toHaveLength(9);
     expect(container.querySelector(".workboard-column--todo")?.classList).not.toContain(
       "workboard-column--collapsed",
     );
