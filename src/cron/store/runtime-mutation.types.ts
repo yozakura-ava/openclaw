@@ -97,7 +97,7 @@ export type CronRuntimeMutationContracts = {
     input: CronRuntimeMutationInputs["cron.maintainHistory"];
     facts: { jobIds: string[]; receipts: CronRunReceiptHandle[] };
     preparation: { nowMs: number; protectedJobIds: string[] };
-    outcome: { reconciled: number; pruned: number };
+    outcome: { reconciled: number; pruned: number; nextSweepAtMs: number | null };
   };
   "cron.activateRun": {
     input: CronRuntimeMutationInputs["cron.activateRun"];

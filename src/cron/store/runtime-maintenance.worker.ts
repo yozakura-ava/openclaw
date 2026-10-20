@@ -8,6 +8,7 @@ import {
   pruneCronRunHistoryInDatabase,
   readCronRunRecordsInDatabase,
   reconcileCronRunHistoryInDatabase,
+  resolveNextCronRunHistorySweepAtMs,
 } from "./run-history.kernel.js";
 import { readActiveCronRunReceiptsInDatabase } from "./run-receipt-read.js";
 import { listActiveCronRunReceiptJobIdsInDatabase } from "./run-receipt-store.js";
@@ -65,9 +66,15 @@ export function maintainCronRunHistoryInWorker(
         schema,
         records.filter((row) => !reconciled.has(row.id)),
       );
+      const nextSweepAtMs = resolveNextCronRunHistorySweepAtMs(
+        readCronRunRecordsInDatabase(db),
+        preparation.nowMs,
+        new Set(preparation.protectedJobIds),
+      );
       return retainCronRuntimeMutationOutcome("cron.maintainHistory", db, input.nonce, {
         reconciled: reconciled.size,
         pruned,
+        nextSweepAtMs,
       });
     },
     { database, path: database.path, env: getSqliteWorkerStateContext().environment },
