@@ -48,7 +48,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Build serial runtime stages under the qualification cap
-        run: scripts/ci-run-scoped-build.sh pnpm build:ci-artifacts
+        run: scripts/ci-run-staged-build.sh runtime
 
       - name: Verify runtime artifact contract
         run: |
