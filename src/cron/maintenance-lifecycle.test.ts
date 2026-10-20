@@ -3,6 +3,7 @@ import * as gatewayWork from "../process/gateway-work-admission.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import { withAgentDatabaseStartupAdmission } from "../state/agent-database-startup.js";
+import { AgentDatabaseRegistryChangedError } from "../state/openclaw-agent-db-registry-listing.js";
 import {
   createGatewaySchedulerClock,
   createTestGatewayScheduler,
@@ -11,9 +12,14 @@ import { startCronMaintenance, stopCronMaintenance } from "./maintenance.js";
 
 const mocks = vi.hoisted(() => ({
   history: vi.fn(async (): Promise<{ nextSweepAtMs: number | null }> => ({ nextSweepAtMs: null })),
-  registry: vi.fn(async (): Promise<{ nextSweepAtMs: number | null }> => ({
-    nextSweepAtMs: null,
-  })),
+  registry: vi.fn(
+    async (): Promise<{
+      nextSweepAtMs: number | null;
+      pruned?: number;
+      skippedStores?: number;
+      skippedReason?: string;
+    }> => ({ nextSweepAtMs: null, pruned: 0, skippedStores: 0 }),
+  ),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -39,7 +45,9 @@ let scheduler: ReturnType<typeof createTestGatewayScheduler>;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.history.mockReset().mockResolvedValue({ nextSweepAtMs: null });
-  mocks.registry.mockReset().mockResolvedValue({ nextSweepAtMs: null });
+  mocks.registry
+    .mockReset()
+    .mockResolvedValue({ nextSweepAtMs: null, pruned: 0, skippedStores: 0 });
   clock = createGatewaySchedulerClock();
   gatewayWork.resetGatewayWorkAdmission();
   scheduler = createTestGatewayScheduler(clock.clock);
@@ -78,7 +86,13 @@ it.each([false, true])("runs retention after startup preparation, pending=%s", a
       await clock.advanceBy(60_000);
       expect(mocks.history).toHaveBeenCalledOnce();
       expect(mocks.registry).toHaveBeenCalledOnce();
-      expect(mocks.info).toHaveBeenCalledTimes(pending ? 1 : 0);
+      expect(mocks.info).toHaveBeenCalledTimes(pending ? 2 : 1);
+      expect(mocks.info).toHaveBeenLastCalledWith("Session registry maintenance completed", {
+        lastSuccessAtMs: pending ? 65_000 : 5_000,
+        nextSweepAtMs: null,
+        pruned: 0,
+        skippedStores: 0,
+      });
     } finally {
       preparation.resolve();
     }
@@ -116,6 +130,38 @@ it("retains a session change received during an async registry read", async () =
   await sweep;
   await clock.advanceTo(65_000);
   expect(mocks.registry).toHaveBeenCalledTimes(2);
+});
+
+it("defers expected registry snapshot invalidation and retries with fresh facts", async () => {
+  mocks.registry.mockRejectedValueOnce(new AgentDatabaseRegistryChangedError());
+  startCronMaintenance(scheduler);
+  await clock.advanceBy(5_000);
+  expect(mocks.warn).toHaveBeenCalledExactlyOnceWith("Session registry maintenance deferred", {
+    reason: "agent-database-snapshot-changed",
+    retryAtMs: 65_000,
+    lastSuccessAtMs: null,
+  });
+  expect(scheduler.nextWakeAtMs).toBe(65_000);
+  await clock.advanceTo(65_000);
+  expect(mocks.registry).toHaveBeenCalledTimes(2);
+  expect(mocks.info).toHaveBeenCalledExactlyOnceWith("Session registry maintenance completed", {
+    lastSuccessAtMs: 65_000,
+    nextSweepAtMs: null,
+    pruned: 0,
+    skippedStores: 0,
+  });
+});
+
+it("does not mistake an unknown failure with snapshot text for expected deferral", async () => {
+  const failure = new Error("Agent database deletion snapshot changed during consumption.");
+  mocks.registry.mockRejectedValueOnce(failure);
+  startCronMaintenance(scheduler);
+  await clock.advanceBy(5_000);
+  expect(mocks.warn).toHaveBeenCalledExactlyOnceWith("Cron maintenance failed", {
+    error: failure,
+  });
+  expect(mocks.info).not.toHaveBeenCalled();
+  expect(scheduler.nextWakeAtMs).toBe(65_000);
 });
 
 it("cancels the startup wait when the Gateway stops", async () => {
