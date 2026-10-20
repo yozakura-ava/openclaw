@@ -74,6 +74,97 @@ const configSchema = {
   uiHints: {},
 };
 
+it("blocks repeat install when saved-state reads fail, then reconciles aliases and later removal", async () => {
+  let inventoryFails = true;
+  let present = true;
+  const otherInstall = deferred<never>();
+  const otherRequest: PluginInstallRequest = { source: "npm", spec: "another-plugin" };
+  const { client, request: gatewayRequest } = createClient(async (method, params) => {
+    if (method === "plugins.install") {
+      if (params === otherRequest) {
+        return otherInstall.promise;
+      }
+      throw new GatewayRequestError({
+        code: "UNAVAILABLE",
+        message: "Plugin startup failed",
+        details: {
+          persistence,
+          runtime: runtimeFailure,
+          installPolicyCode: "install_policy_warning_acknowledgement_required",
+          targetName: "community-calendar",
+          targetType: "plugin",
+          requestMode: "install",
+          reason: "Do not retry a saved installation",
+        },
+      });
+    }
+    if (method === "plugins.list") {
+      if (inventoryFails) {
+        throw new Error("Catalog refresh unavailable");
+      }
+      return createResult(present ? installed : available);
+    }
+    throw new Error(`Unexpected request: ${method}`);
+  });
+  const harness = createGateway(client);
+  const refreshConfig = vi.fn(async () => {
+    throw new Error("Config refresh unavailable");
+  });
+  const { page } = await mountPage(
+    createContext(harness.gateway, refreshConfig),
+    createPluginsRouteData(
+      harness.gateway,
+      createResult(available),
+      createPluginsRouteLocation("/settings/plugins"),
+    ),
+  );
+  const alias = "clawhub:community-calendar";
+  await page.consentController.install(installRequest, alias);
+  await page.updateComplete;
+  expect(page.messages[rowKey]?.text).toContain("Plugin startup failed");
+  expect(page.messages[rowKey]?.text).toContain("Config refresh unavailable");
+  expect(page.messages[alias]?.savedInstall).toBe(available.id);
+  expect(page.messages[alias]?.installPolicyWarning).toBeUndefined();
+  await page.consentController.install(installRequest, alias);
+  await page.consentController.install(installRequest, rowKey);
+  expect(gatewayRequest.mock.calls.filter(([method]) => method === "plugins.install")).toHaveLength(
+    1,
+  );
+  const otherIdentity = "npm:another-plugin";
+  const installingOther = page.consentController.install(otherRequest, otherIdentity);
+  await waitForFast(() => {
+    expect(page.consentController.installProgress.has(otherIdentity)).toBe(true);
+  });
+  expect(page.consentController.installProgress.get(alias)?.finishedAt).toBeTypeOf("number");
+  expect(page.consentController.installProgress.get(alias)?.canRetry).toBe(false);
+  inventoryFails = false;
+  await page.refreshCatalog();
+  expect(page.consentController.installProgress.has(alias)).toBe(false);
+  expect(page.consentController.installProgress.has(otherIdentity)).toBe(true);
+  expect(page.consentController.installProgress.get(otherIdentity)?.finishedAt).toBeUndefined();
+  expect(page.messages[alias]).toBeUndefined();
+  expect(page.messages[rowKey]?.text).toContain("Plugin startup failed");
+  present = false;
+  await page.refreshCatalog();
+  await page.updateComplete;
+  expect(page.messages[rowKey]).toBeUndefined();
+  await page.consentController.install(installRequest, alias);
+  expect(gatewayRequest.mock.calls.filter(([method]) => method === "plugins.install")).toHaveLength(
+    3,
+  );
+  otherInstall.reject(new Error("Another registry is unavailable"));
+  await installingOther;
+  expect(page.messages[otherIdentity]?.text).toContain("Another registry is unavailable");
+  expect(page.messages[otherIdentity]?.text).toContain("Reconnect and check installed plugins");
+  expect(page.consentController.installProgress.get(otherIdentity)?.failure?.title).toBe(
+    "Installation status unknown",
+  );
+  expect(page.consentController.installProgress.get(otherIdentity)?.canRetry).toBe(false);
+  expect(page.consentController.installProgress.get(otherIdentity)?.finishedAt).toBeTypeOf(
+    "number",
+  );
+});
+
 it("retires saved-install refreshes when their Gateway owner is replaced", async () => {
   const catalog = createDiscoveryDetail(available);
   catalog.plugin.id = "catalog-calendar-runtime";
@@ -113,13 +204,8 @@ it("retires saved-install refreshes when their Gateway owner is replaced", async
     if (method === "config.get") {
       return replacementConfig;
     }
-<<<<<<< HEAD
     if (method === "config.schema") {
       return configSchema;
-=======
-    if (method === "plugins.catalog.get") {
-      return replacementCatalog;
->>>>>>> 97b6e87616f
     }
     throw new Error(`Unexpected request: ${method}`);
   });

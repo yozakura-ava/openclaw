@@ -200,7 +200,6 @@ describe("cron trigger script evaluator", () => {
         evaluate({
           ...input,
           script:
-<<<<<<< HEAD
             'await exec({ command: "printf openclaw-canonical-ok", host: "gateway" }); return { fire: false };',
           state: null,
           toolsAllow: ["exec", "process"],

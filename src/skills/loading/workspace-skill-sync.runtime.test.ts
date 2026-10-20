@@ -20,7 +20,6 @@ import { buildSkillSnapshot } from "./workspace-skill-prompt.js";
 import { syncWorkspaceSkills } from "./workspace-skill-sync.runtime.js";
 
 const isolatedConfig = { plugins: { enabled: false } } satisfies OpenClawConfig;
-<<<<<<< HEAD
 
 const mockResolvePluginSkillRoots = vi.hoisted(() =>
   vi.fn(() => [] as Array<{ dir: string; rejectHardlinks: boolean }>),
@@ -282,11 +281,7 @@ describe("syncWorkspaceSkills", () => {
     expect(await git("diff", "--name-only")).toContain(generatedSkill);
 
     await writeSkill({ dir: sourceSkillDir, name: "alpha", description: "Refreshed skill" });
-<<<<<<< HEAD
     bumpSkillsSnapshotVersion({ workspaceDir: workspace });
-=======
-    await refreshSkillsDiscovery({ workspaceDir: workspace });
->>>>>>> 97b6e87616f
     await syncWorkspaceSkills(params);
     await expectProjectChanges();
     expect(await pathExists(cachedMarker)).toBe(false);

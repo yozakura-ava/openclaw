@@ -26,11 +26,7 @@ export function createContext(
     trackExecution: trackAsyncWork,
     dedupe: new Map(),
     getRuntimeConfig,
-<<<<<<< HEAD
     logGateway: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-=======
-    logGateway: { error: vi.fn(), warn: vi.fn() },
->>>>>>> 97b6e87616f
   } as unknown as GatewayRequestContext;
   if (methods.length) {
     const registry = createGatewayMethodRegistry(
