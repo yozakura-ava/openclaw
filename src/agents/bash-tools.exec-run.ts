@@ -68,7 +68,7 @@ import type {
   ExecToolDetails,
 } from "./bash-tools.exec-types.js";
 import { formatUnavailableWorkdirFailure, resolveExecWorkdir } from "./bash-tools.exec-workdir.js";
-import { execSchema } from "./bash-tools.schemas.js";
+import { createExecSchema, execSchema } from "./bash-tools.schemas.js";
 import { clampWithDefault, readEnvInt, truncateMiddle } from "./bash-tools.shared.js";
 import {
   createExecToolExecutionTimeoutResolver,
@@ -203,7 +203,7 @@ export function createExecTool(
         autoReview: defaults?.mode === "auto",
       });
     },
-    parameters: execSchema,
+    parameters: createExecSchema(defaults),
     getExecutionTimeoutMs: createExecToolExecutionTimeoutResolver(defaults),
     prepareBeforeToolCallParams: requestPreparation.prepareBeforeToolCallParams,
     finalizeBeforeToolCallParams: requestPreparation.finalizeBeforeToolCallParams,
