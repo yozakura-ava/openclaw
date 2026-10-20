@@ -62,16 +62,24 @@ jobs:
           test -f dist/control-ui/index.html
           test -d dist-runtime
 
+      - name: Pack runtime artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/.artifacts/staged-runtime.tar"
+          mkdir -p "$(dirname "$archive")"
+          mapfile -t package_dist_paths < <(find packages -mindepth 2 -maxdepth 2 -type d -name dist -print | sort)
+          test "${#package_dist_paths[@]}" -gt 0
+          tar -cf "$archive" dist dist-runtime "${package_dist_paths[@]}"
+          test -s "$archive"
+
       - name: Upload runtime artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: staged-runtime-${{ github.sha }}
           if-no-files-found: error
           retention-days: 7
-          path: |
-            dist/
-            dist-runtime/
-            packages/*/dist/
+          path: .artifacts/staged-runtime.tar
 
   package:
     name: Create deployment package
@@ -99,6 +107,17 @@ jobs:
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v5.0.0
         with:
           name: staged-runtime-${{ github.sha }}
+          path: .artifacts/staged-runtime
+
+      - name: Unpack runtime artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/.artifacts/staged-runtime/staged-runtime.tar"
+          test -s "$archive"
+          tar -xf "$archive"
+          test -f dist/index.js || test -f dist/index.mjs
+          test -d dist-runtime
 
       - name: Create package without rebuilding
         run: |
