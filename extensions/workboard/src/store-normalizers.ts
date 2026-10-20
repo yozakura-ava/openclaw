@@ -643,7 +643,7 @@ function normalizeWorkerLog(record: Record<string, unknown>): WorkboardWorkerLog
   return workerLogEntry(record, message, createdAt, id);
 }
 
-export function workerLogEntry(
+function workerLogEntry(
   record: WorkboardWorkerLogInput,
   message: string,
   createdAt: number,

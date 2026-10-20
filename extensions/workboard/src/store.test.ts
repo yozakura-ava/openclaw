@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { expectDefined } from "@openclaw/normalization-core";
 import type { WorkboardCard } from "@openclaw/workboard-contract";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import { MAX_DATE_TIMESTAMP_MS } from "openclaw/plugin-sdk/number-runtime";
@@ -726,10 +727,10 @@ describe("WorkboardStore", () => {
       }
 
       const claims = await Promise.allSettled([
-        first.claim(cards[0].id, { ownerId: "worker" }),
-        second.claim(cards[1].id, { ownerId: "worker" }),
-        first.claim(cards[2].id, { ownerId: "worker" }),
-        second.claim(cards[3].id, { ownerId: "worker" }),
+        first.claim(expectDefined(cards[0], "first card").id, { ownerId: "worker" }),
+        second.claim(expectDefined(cards[1], "second card").id, { ownerId: "worker" }),
+        first.claim(expectDefined(cards[2], "third card").id, { ownerId: "worker" }),
+        second.claim(expectDefined(cards[3], "fourth card").id, { ownerId: "worker" }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);

@@ -106,7 +106,7 @@ export function createExecSchema(
 }
 
 /** Exec parameters when no process-control continuation is authorized. */
-export const execCompletionSchema = Type.Omit(execSchema, ["yieldMs", "background"]);
+const execCompletionSchema = Type.Omit(execSchema, ["yieldMs", "background"]);
 
 /** Parameters exposed by node-only exec surfaces. */
 export const nodeExecSchema = Type.Object({
