@@ -51,7 +51,6 @@ exec systemd-run \
   --user \
   --scope \
   --collect \
-  --wait \
   --quiet \
   --property=CPUQuota=200% \
   --property=MemoryMax=6G \
