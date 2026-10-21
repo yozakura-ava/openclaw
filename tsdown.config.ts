@@ -729,7 +729,7 @@ function normalizeDeclarationEntrySource(source: string): string {
 
 function buildUnifiedDeclarationGroups(
   entries: Record<string, string>,
-): Array<{ name: string; sources: string[] }> {
+): Array<{ name: string; sources: string[]; sdkEntries?: Record<string, string> }> {
   const publicPluginSdkEntryNames = new Set(
     publicPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`),
   );
@@ -751,18 +751,44 @@ function buildUnifiedDeclarationGroups(
         : name === "index" || Object.hasOwn(pluginContracts, name),
     )
     .toSorted(([left], [right]) => left.localeCompare(right));
-  // These entrypoints share most of their compiler inputs. Partitioning them
-  // repeats whole-program checking and emission, even when bundles are small.
-  const groups = [
-    { name: TSDOWN_UNIFIED_DTS_CONFIG_GROUPS[0], entries: sortedEntries },
-    {
-      name: TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS[0],
-      entries: sortedEntries.filter(([name]) => name.startsWith("plugin-sdk/")),
-    },
-  ];
+  // Keep each declaration program small enough for the hosted 6-GiB runner.
+  // The unified graph is broad (public SDK roots plus bundled plugin contracts),
+  // so emit stable, balanced entry groups and merge them into one staged output
+  // before publication. The separate SDK writer still owns package-boundary
+  // declarations under its own group.
+  const unifiedGroups = TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.map((name, index) => {
+    const start = Math.floor(
+      (index * sortedEntries.length) / TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length,
+    );
+    const end = Math.floor(
+      ((index + 1) * sortedEntries.length) / TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length,
+    );
+    return { name, entries: sortedEntries.slice(start, end) };
+  });
+  const pluginSdkEntries = sortedEntries.filter(([name]) => name.startsWith("plugin-sdk/"));
+  const pluginSdkGroups = TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.map((name, index) => {
+    const start = Math.floor(
+      (index * pluginSdkEntries.length) / TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.length,
+    );
+    const end = Math.floor(
+      ((index + 1) * pluginSdkEntries.length) / TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.length,
+    );
+    return { name, entries: pluginSdkEntries.slice(start, end) };
+  });
+  const groups = [...unifiedGroups, ...pluginSdkGroups];
   return groups.map(({ name, entries: declarationEntries }) => {
     return {
       name,
+      ...(name.startsWith("openclaw-dts-plugin-sdk")
+        ? {
+            sdkEntries: Object.fromEntries(
+              declarationEntries.map(([entry, source]) => [
+                entry,
+                normalizeDeclarationEntrySource(source),
+              ]),
+            ),
+          }
+        : {}),
       // The compiler's TypeScript-only policy leaves JavaScript runtime assets
       // without declarations; they remain in the unified runtime entry graph.
       sources: declarationEntries
@@ -992,11 +1018,11 @@ const configs: UserConfig[] = [
   ),
   // The build wrapper must select exactly one of the full and SDK-only declaration groups.
   ...(TSDOWN_DECLARATIONS
-    ? buildUnifiedDeclarationGroups(unifiedDistEntries).map(({ name, sources }) =>
+    ? buildUnifiedDeclarationGroups(unifiedDistEntries).map(({ name, sources, sdkEntries }) =>
         nodeBuildConfig(
           {
             name,
-            entry: unifiedDistEntries,
+            entry: sdkEntries ?? unifiedDistEntries,
             deps: unifiedDeps,
             hooks: { "build:done": createDeclarationInputCapture(name) },
           },

@@ -40,6 +40,10 @@ const DEFAULT_SPLIT_CORE_SHARD_CONCURRENCY = 4;
 const FAST_LOCAL_CHECK_MIN_CPUS = 12;
 const FAST_LOCAL_CHECK_MIN_MEMORY_BYTES = 48 * 1024 ** 3;
 const EXTENSION_TS_CONFIG = "extensions/tsconfig.json";
+const GATEWAY_TS_CONFIG = "config/tsconfig/oxlint.gateway.json";
+const GATEWAY_CONFIG_DIR = ".artifacts/qualification/oxlint-tsconfigs";
+const GATEWAY_FILE_CHUNK_SIZE = 256;
+const AGENTS_FILE_CHUNK_SIZE = 64;
 const EXTENSIONS_DIR = "extensions";
 const OXLINT_SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;
 const PARENT_TERMINATION_SIGNALS = ["SIGINT", "SIGTERM"] satisfies NodeJS.Signals[];
@@ -227,20 +231,124 @@ function createCoreOxlintShards({
   cwd = process.cwd(),
   readDir = fs.readdirSync,
 }: DirectoryOptions = {}) {
-  const sourceShards = listSourceRootTargetGroups({ cwd, readDir }).map((targets) => ({
-    name: targets.length === 1 ? `core:${targets.join("").replaceAll("/", ":")}` : "core:src:root",
-    args: ["--tsconfig", CORE_TS_CONFIG, ...targets],
-  }));
+  const sourceShards = listSourceRootTargetGroups({ cwd, readDir }).flatMap((targets) => {
+    if (targets.length === 1 && targets[0] === "src/agents") {
+      const agentsShards = createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: "src/agents",
+        prefix: "agents",
+        chunkSize: AGENTS_FILE_CHUNK_SIZE,
+      });
+      if (agentsShards.length > 0) {
+        return agentsShards;
+      }
+    }
+    if (targets.length === 1 && targets[0] === "src/gateway") {
+      const gatewayShards = createGatewayOxlintShards({ cwd, readDir });
+      if (gatewayShards.length > 0) {
+        return gatewayShards;
+      }
+    }
+    return [
+      {
+        name:
+          targets.length === 1 ? `core:${targets.join("").replaceAll("/", ":")}` : "core:src:root",
+        args: ["--tsconfig", CORE_TS_CONFIG, ...targets],
+      },
+    ];
+  });
   const sourceEntries = sourceShards.length > 0 ? sourceShards : [createCoreShard("src")];
 
   return [...sourceEntries, ...CORE_SPLIT_TARGETS.map((target) => createCoreShard(target))];
 }
 
+export function createGatewayOxlintShards({
+  cwd = process.cwd(),
+  readDir = fs.readdirSync,
+}: DirectoryOptions = {}): OxlintShard[] {
+  return createCoreSourceFileShards({
+    cwd,
+    readDir,
+    root: "src/gateway",
+    prefix: "gateway",
+    chunkSize: GATEWAY_FILE_CHUNK_SIZE,
+  });
+}
+
+function createCoreSourceFileShards({
+  cwd,
+  readDir,
+  root,
+  prefix,
+  chunkSize,
+}: DirectoryLookup & { root: string; prefix: string; chunkSize: number }): OxlintShard[] {
+  const files: string[] = [];
+  const visit = (target: string) => {
+    for (const entry of readDirectoryEntries(readDir, path.join(cwd, target)).toSorted((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const child = `${target}/${entry.name}`;
+      if (entry.isDirectory()) {
+        visit(child);
+      } else if (
+        entry.isFile() &&
+        OXLINT_SOURCE_FILE_PATTERN.test(entry.name) &&
+        !/\.d\.[cm]?ts$/u.test(entry.name)
+      ) {
+        files.push(child);
+      }
+    }
+  };
+  visit(root);
+  files.sort((left, right) => left.localeCompare(right));
+  const shards: OxlintShard[] = [];
+  for (let start = 0; start < files.length; start += chunkSize) {
+    const index = shards.length + 1;
+    const config = `${GATEWAY_CONFIG_DIR}/${prefix}-${String(index).padStart(2, "0")}.json`;
+    shards.push({
+      name: `core:${prefix}:${String(index).padStart(2, "0")}`,
+      args: ["--tsconfig", config, ...files.slice(start, start + chunkSize)],
+    });
+  }
+  return shards;
+}
+
+export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: string) {
+  const sourceShards = shards.filter((shard) => /^core:(?:gateway|agents):\d+$/u.test(shard.name));
+  if (sourceShards.length === 0) {
+    return;
+  }
+  const outputDir = path.resolve(cwd, GATEWAY_CONFIG_DIR);
+  fs.mkdirSync(outputDir, { recursive: true });
+  for (const shard of sourceShards) {
+    const configPath = path.resolve(cwd, shard.args[1]!);
+    const include = shard.args.slice(2).map((file) => `../../../${file}`);
+    fs.writeFileSync(
+      configPath,
+      `${JSON.stringify(
+        {
+          extends: "../../../tsconfig.json",
+          include,
+          exclude: ["../../../node_modules", "../../../dist", "../../../dist-runtime"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
+}
+
 function createCoreShard(target: string) {
+  const tsconfig = coreConfigForTarget(target);
   return {
     name: `core:${target}`,
-    args: ["--tsconfig", CORE_TS_CONFIG, target],
+    args: ["--tsconfig", tsconfig, target],
   };
+}
+
+function coreConfigForTarget(target: string) {
+  return target === "src/gateway" ? GATEWAY_TS_CONFIG : CORE_TS_CONFIG;
 }
 
 /**
@@ -387,6 +495,7 @@ export async function main(
     : shardArgs.files
       ? createOxlintFileScope(shardArgs.files).selectShards(stripedShards)
       : stripedShards;
+  writeGatewayOxlintConfigs(shards, process.cwd());
 
   const needsArtifacts = shouldPrepareExtensionPackageBoundaryArtifactsForShards(
     selectedShards,
@@ -409,7 +518,7 @@ export async function main(
         shell: false,
         args: distArtifactEntryArgs(
           path.resolve("scripts/prepare-extension-package-boundary-artifacts.mts"),
-          ["--mode=package-boundary"],
+          ["--mode=all", ...(env.OPENCLAW_OXLINT_SKIP_PREPARE === "1" ? ["--validate-only"] : [])],
         ),
         env,
         requireProcessTreeExit: process.platform !== "win32",
@@ -620,8 +729,12 @@ export function selectCoreOxlintStripe(
   if (shards.length === 0 || shards.some((shard) => !shard.name.startsWith("core:"))) {
     throw new Error("--core-stripe requires a non-empty core-only shard selection");
   }
-  const targets = shards
-    .filter((_, index) => index % stripe.total === stripe.index - 1)
+  const selected = shards.filter((_, index) => index % stripe.total === stripe.index - 1);
+  const sourceFileShards = selected.filter((shard) =>
+    /^core:(?:gateway|agents):\d+$/u.test(shard.name),
+  );
+  const targets = selected
+    .filter((shard) => !sourceFileShards.includes(shard))
     .flatMap((shard) => shard.args.slice(2));
   // Published Git updaters call full lint under a fixed command deadline. Only
   // explicit CI stripes may add compiler startups; automatic full lint stays aggregated.
@@ -640,8 +753,9 @@ export function selectCoreOxlintStripe(
       : []),
     ...isolatedTargets.map((target) => ({
       name: `core:stripe:${stripe.index}:${target.replaceAll("/", ":")}`,
-      args: ["--tsconfig", CORE_TS_CONFIG, target],
+      args: ["--tsconfig", coreConfigForTarget(target), target],
     })),
+    ...sourceFileShards,
   ];
 }
 

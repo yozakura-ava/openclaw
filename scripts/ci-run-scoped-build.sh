@@ -11,8 +11,13 @@ if (( $# == 0 )); then
 fi
 
 export GOMAXPROCS=2
-export GOMEMLIMIT=3GiB
+export GOMEMLIMIT="${OPENCLAW_CI_GOMEMLIMIT:-3GiB}"
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--max-old-space-size=4096"
+oom_policy="${OPENCLAW_CI_OOM_POLICY:-kill}"
+if [[ "$oom_policy" != "kill" && "$oom_policy" != "continue" ]]; then
+  echo "[ci-scope] OPENCLAW_CI_OOM_POLICY must be kill or continue" >&2
+  exit 64
+fi
 
 if [[ "${RUNNER_OS:-Linux}" != "Linux" ]]; then
   exec "$@"
@@ -47,6 +52,9 @@ fi
 cpu_list="$first,$last_cpu"
 
 echo "[ci-scope] cpu=$cpu_list cpu_quota=200% memory_max=6G swap_max=0 command=$*"
+if [[ -n "${OPENCLAW_QUALIFICATION_SCOPE_FILE:-}" ]]; then
+  export OPENCLAW_QUALIFICATION_SCOPE_EXPECTED_CPUS="$cpu_list"
+fi
 exec systemd-run \
   --user \
   --scope \
@@ -55,5 +63,5 @@ exec systemd-run \
   --property=CPUQuota=200% \
   --property=MemoryMax=6G \
   --property=MemorySwapMax=0 \
-  --property=OOMPolicy=kill \
-  -- taskset --cpu-list "$cpu_list" "$@"
+  --property="OOMPolicy=$oom_policy" \
+  -- taskset --cpu-list "$cpu_list" scripts/ci-run-scoped-command.sh "$@"

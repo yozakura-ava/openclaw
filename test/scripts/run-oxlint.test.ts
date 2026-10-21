@@ -8,6 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createOxlintShards,
+  createGatewayOxlintShards,
+  writeGatewayOxlintConfigs,
   filterOxlintShards,
   parseShardRunnerArgs,
   createExtensionOxlintShards,
@@ -626,6 +628,83 @@ describe("run-oxlint", () => {
     ]);
   });
 
+  it("partitions Gateway source files into disjoint bounded type-aware projects", () => {
+    const files = Array.from({ length: 513 }, (_, index) => ({
+      name: `gateway-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const shards = createGatewayOxlintShards({
+      cwd: "/repo",
+      readDir: (target: string) => (target.endsWith("/src/gateway") ? (files as never) : []),
+    });
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([256, 256, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-03.json",
+    ]);
+
+    const cwd = createTempDir("openclaw-oxlint-gateway-config-");
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../tsconfig.json");
+    expect(config.include).toEqual(shards[0]!.args.slice(2).map((file) => `../../../${file}`));
+  });
+
+  it("partitions the large agents root into disjoint 64-file type-aware projects", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `agent-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const readDir = (target: string) =>
+      target === "/repo/src"
+        ? ([{ name: "agents", isDirectory: () => true, isFile: () => false }] as never)
+        : target.endsWith("/src/agents")
+          ? (files as never)
+          : ([] as never);
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir,
+    }).filter((shard) => shard.name.startsWith("core:agents:"));
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/agents-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/agents-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/agents-03.json",
+    ]);
+
+    const stripes = [1, 2, 3].map((index) =>
+      selectCoreOxlintStripe(
+        createOxlintShards({
+          cwd: "/repo",
+          splitCore: true,
+          readDir,
+        }).filter((shard) => shard.name.startsWith("core:")),
+        { index, total: 3 },
+        { isolateLargeTargets: true },
+      ),
+    );
+    expect(
+      stripes
+        .flat()
+        .filter((shard) => shard.name.startsWith("core:agents:"))
+        .flatMap((shard) => shard.args.slice(2))
+        .toSorted(),
+    ).toEqual(targets.toSorted());
+  });
+
   it.each([{ platform: "linux", env: { CI: "true" }, hostResources: CONSTRAINED_HOST }] as const)(
     "preserves the published updater's automatic full-lint plan on $platform with $env and $hostResources",
     ({ platform, env, hostResources }) => {
@@ -694,13 +773,15 @@ describe("run-oxlint", () => {
     const shards = createOxlintShards({
       cwd: "/repo",
       splitCore: true,
-      readDir: () =>
-        [
-          { name: "agents", isDirectory: () => true, isFile: () => false },
-          { name: "gateway", isDirectory: () => true, isFile: () => false },
-          { name: "infra", isDirectory: () => true, isFile: () => false },
-          { name: "misc", isDirectory: () => true, isFile: () => false },
-        ] as never,
+      readDir: (target: string) =>
+        target === "/repo/src"
+          ? ([
+              { name: "agents", isDirectory: () => true, isFile: () => false },
+              { name: "gateway", isDirectory: () => true, isFile: () => false },
+              { name: "infra", isDirectory: () => true, isFile: () => false },
+              { name: "misc", isDirectory: () => true, isFile: () => false },
+            ] as never)
+          : [],
     }).filter((shard) => shard.name.startsWith("core:"));
     const stripes = [1, 2, 3].map((index) =>
       selectCoreOxlintStripe(shards, { index, total: 3 }, { isolateLargeTargets: true }),
@@ -709,7 +790,13 @@ describe("run-oxlint", () => {
     const programs = stripes.flat();
     for (const target of ["src/agents", "src/gateway", "src/infra", "ui"]) {
       const program = programs.find((shard) => shard.args.slice(2).includes(target));
-      expect(program?.args).toEqual(["--tsconfig", "config/tsconfig/oxlint.core.json", target]);
+      expect(program?.args).toEqual([
+        "--tsconfig",
+        target === "src/gateway"
+          ? "config/tsconfig/oxlint.gateway.json"
+          : "config/tsconfig/oxlint.core.json",
+        target,
+      ]);
     }
     const stripeTargets = programs.flatMap((stripe) => stripe.args.slice(2));
     const sourceTargets = shards.flatMap((shard) => shard.args.slice(2));

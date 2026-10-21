@@ -1,0 +1,110 @@
+name: 2026.10.5 qualification gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Exact branch, tag, or commit to qualify
+        required: true
+        default: qualify/2026.10.5-ava
+        type: string
+      cache_mode:
+        description: Cold run saves the qualification cache; restored run consumes it
+        required: true
+        default: cold
+        type: choice
+        options:
+          - cold
+          - restored
+      cache_id:
+        description: Reuse the same unique ID for the cold and restored runs
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qualification-${{ github.repository }}-${{ inputs.cache_id }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_VERSION: "24.21.0"
+
+jobs:
+  qualification:
+    name: Complete build and type inventory (${{ inputs.cache_mode }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Record checked-out source SHA
+        id: source-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Validate paired-run cache identifier
+        env:
+          CACHE_ID: ${{ inputs.cache_id }}
+        run: '[[ "$CACHE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]'
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: ${{ inputs.cache_mode == 'restored' && 'restore' || 'off' }}
+          install-bun: "false"
+          semantic-checks: "true"
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore qualification compiler and declaration caches
+        if: inputs.cache_mode == 'restored'
+        id: qualification-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .artifacts/tsgo-cache
+            .artifacts/build-all-cache
+            .artifacts/extension-package-boundary
+            packages/plugin-sdk/dist
+          key: qualification-v1-${{ inputs.cache_id }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Require restored cache generation
+        if: inputs.cache_mode == 'restored'
+        env:
+          CACHE_HIT: ${{ steps.qualification-cache-restore.outputs.cache-hit }}
+        run: test "$CACHE_HIT" = true
+
+      - name: Run every qualified build and type leaf serially
+        env:
+          OPENCLAW_QUALIFICATION_MODE: ${{ inputs.cache_mode }}
+        run: node --import ./scripts/tsx.mjs scripts/run-qualification-gate.mts
+
+      - name: Validate exact receipt manifest
+        run: scripts/ci-run-scoped-build.sh node --import ./scripts/tsx.mjs scripts/aggregate-qualification-receipts.mts
+
+      - name: Save cold qualification cache
+        if: success() && inputs.cache_mode == 'cold'
+        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v6.1.0
+        with:
+          path: |
+            .artifacts/tsgo-cache
+            .artifacts/build-all-cache
+            .artifacts/extension-package-boundary
+            packages/plugin-sdk/dist
+          key: qualification-v1-${{ inputs.cache_id }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+      - name: Upload qualification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-${{ inputs.cache_mode }}-${{ steps.source-sha.outputs.sha }}
+          if-no-files-found: warn
+          retention-days: 30
+          path: .artifacts/qualification

@@ -30,7 +30,7 @@ import { resolvePathEnvKey } from "./windows-cmd-helpers.mjs";
 
 const PREPARE_EXTENSION_BOUNDARY_ARGS = distArtifactEntryArgs(
   path.resolve("scripts", "prepare-extension-package-boundary-artifacts.mts"),
-  ["--mode=package-boundary"],
+  ["--mode=all"],
 );
 const OXLINT_PREPARE_SKIP_FLAGS = new Set([
   "--help",
@@ -609,7 +609,10 @@ async function prepareExtensionPackageBoundaryArtifacts(env: NodeJS.ProcessEnv) 
   const status = await runManagedCommand({
     bin: process.execPath,
     shell: false,
-    args: PREPARE_EXTENSION_BOUNDARY_ARGS,
+    args: [
+      ...PREPARE_EXTENSION_BOUNDARY_ARGS,
+      ...(env.OPENCLAW_OXLINT_SKIP_PREPARE === "1" ? ["--validate-only"] : []),
+    ],
     env,
     requireProcessTreeExit: process.platform !== "win32",
   });
@@ -646,9 +649,7 @@ export async function runOxlint(
   const finalArgs = sparseTargets.args;
   const oxlintPath = resolveRepoToolBinPath("oxlint");
   const needsArtifactPreparation =
-    !focusedConfig &&
-    env.OPENCLAW_OXLINT_SKIP_PREPARE !== "1" &&
-    shouldPrepareExtensionPackageBoundaryArtifacts(finalArgs);
+    !focusedConfig && shouldPrepareExtensionPackageBoundaryArtifacts(finalArgs);
   if (sparseTargets.skippedTargets.length > 0) {
     delete env.OPENCLAW_CI_STATIC_EVIDENCE;
     console.error(

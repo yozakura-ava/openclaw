@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import path from "node:path";
 import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
@@ -22,6 +21,7 @@ import { findUninspectedPluginDiagnostic } from "./discovery-availability.js";
 import { discoverConfiguredPluginLoadPaths } from "./discovery.js";
 import { applyPluginDoctorCompatibilitySequence } from "./doctor-compatibility-migration.js";
 import { resolvePluginDoctorContractArtifact } from "./doctor-contract-artifact.js";
+import { isPluginDoctorMigrationDeferred } from "./doctor-contract-deferral.js";
 import { loadLegacyChannelStateMigrationDetector } from "./doctor-contract-legacy-setup.js";
 import {
   coercePluginDoctorContractModule,
@@ -45,22 +45,12 @@ import { withPluginSourceCaptureStorage } from "./plugin-source-capture-context.
 import { loadBundledPluginPublicArtifactModuleFromCandidatesSync } from "./public-surface-loader.js";
 
 export { collectRelevantDoctorPluginIds } from "./doctor-contract-relevance.js";
+export {
+  isPluginDoctorMigrationDeferred,
+  withDeferredPluginDoctorMigrations,
+} from "./doctor-contract-deferral.js";
 
 const log = createSubsystemLogger("plugins/doctor-contracts");
-
-const deferredPluginMigrations = new AsyncLocalStorage<ReadonlySet<string>>();
-
-/** Defer unavailable plugin repairs while retaining host-owned historical listener facts. */
-export function withDeferredPluginDoctorMigrations<T>(
-  pluginIds: readonly string[],
-  run: () => T,
-): T {
-  return deferredPluginMigrations.run(new Set(pluginIds), run);
-}
-
-export function isPluginDoctorMigrationDeferred(pluginId: string): boolean {
-  return deferredPluginMigrations.getStore()?.has(pluginId) === true;
-}
 
 type PluginDoctorContractSurface = keyof PluginManifestDoctorContract;
 
@@ -514,7 +504,7 @@ function filterPluginDoctorStateMigrationRecords(
   const records: PluginManifestRegistryRecord[] = [];
   const normalizedConfig = normalizePluginsConfig(config?.plugins);
   for (const record of candidates) {
-    if (deferredPluginMigrations.getStore()?.has(record.id)) {
+    if (isPluginDoctorMigrationDeferred(record.id)) {
       continue;
     }
     const channelOwner = record.channels.length > 0;

@@ -1120,7 +1120,7 @@ console.log("relocated Bash parser works without native grammar package");
     expect(packageConfigs.map((entry) => entry.dts)).toEqual(packageConfigs.map(() => true));
     expect(unifiedRuntimeConfig?.dts).toBe(false);
     expect(standaloneRuntimeConfig?.dts).toBe(false);
-    expect(unifiedDeclarationConfigs).toHaveLength(1);
+    expect(unifiedDeclarationConfigs).toHaveLength(TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length);
     expect(unifiedDeclarationConfigs.every(Boolean)).toBe(true);
     const runtimeEntries = configs
       .filter(
@@ -1141,6 +1141,26 @@ console.log("relocated Bash parser works without native grammar package");
     const standaloneEntries = Object.entries(standaloneRuntimeConfig?.entry ?? {});
     const standaloneNames = new Set(standaloneEntries.map(([name]) => name));
     const declarationInputs = Object.fromEntries([...declarationEntries, ...standaloneEntries]);
+    const groupedDeclarationSources = unifiedDeclarationConfigs.flatMap((declarationConfig) => {
+      const dts = declarationConfig?.dts;
+      return dts && typeof dts === "object" && Array.isArray(dts.entry) ? dts.entry : [];
+    });
+    expect(groupedDeclarationSources.toSorted()).toEqual(
+      expect.arrayContaining([
+        "src/index.ts",
+        ...publicPluginSdkEntrypoints.map((entry) => `src/plugin-sdk/${entry}.ts`),
+        "extensions/anthropic/api.ts",
+        "extensions/memory-core/api.ts",
+      ]),
+    );
+    expect(new Set(groupedDeclarationSources).size).toBe(groupedDeclarationSources.length);
+    expect(
+      Math.max(
+        ...unifiedDeclarationConfigs.map(
+          (config) => (config?.dts as { entry: string[] }).entry.length,
+        ),
+      ),
+    ).toBeLessThanOrEqual(13);
     for (const declarationConfig of unifiedDeclarationConfigs) {
       expect(declarationConfig?.dts).toMatchObject({ emitDtsOnly: true });
       // Runtime and inventory graphs retain every alias in the declaration input map.
@@ -1210,12 +1230,20 @@ console.log("relocated Bash parser works without native grammar package");
   });
 
   it("keeps public SDK types canonical without emitting private runtime declarations", () => {
-    const declarationSources = TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.flatMap((name) => {
-      const dts = configs.find((entry) => entry.name === name)?.dts;
+    const sdkConfigs = TSDOWN_PLUGIN_SDK_DTS_CONFIG_GROUPS.map((name) =>
+      configs.find((entry) => entry.name === name),
+    );
+    const declarationSources = sdkConfigs.flatMap((config) => {
+      const dts = config?.dts;
       return dts && typeof dts === "object" && Array.isArray(dts.entry) ? dts.entry : [];
     });
     const publicSources = publicPluginSdkEntrypoints.map((entry) => `src/plugin-sdk/${entry}.ts`);
     expect(declarationSources.toSorted()).toEqual(publicSources.toSorted());
+    expect(
+      sdkConfigs.flatMap((config) =>
+        config?.entry && typeof config.entry === "object" ? Object.keys(config.entry) : [],
+      ),
+    ).toEqual(publicPluginSdkEntrypoints.map((entry) => `plugin-sdk/${entry}`).toSorted());
     const runtime = configs.find((entry) => entry.name === TSDOWN_UNIFIED_CONFIG_GROUP);
     expect(runtime?.entry).toHaveProperty(
       "plugin-sdk/tts-runtime",
