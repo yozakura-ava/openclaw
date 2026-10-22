@@ -3802,28 +3802,26 @@ describe("WorkboardStore attachments", () => {
     });
     expect(budgetCard.metadata?.comments).toHaveLength(12);
     const deleteBlob = stores.attachments.delete.bind(stores.attachments);
-    let rejectedAttachmentId: string | undefined;
+    let deletedAttachmentId: string | undefined;
     using deletion = vi.spyOn(stores.attachments, "delete").mockImplementation(async (id) => {
-      if (rejectedAttachmentId) {
-        throw new Error("attachment was already deleted");
-      }
-      rejectedAttachmentId = id;
+      deletedAttachmentId = id;
       return deleteBlob(id);
     });
-    await expect(
-      store.addAttachment(budgetCard.id, {
-        fileName: "f".repeat(240),
-        note: "n".repeat(400),
-        mimeType: "m".repeat(160),
-        contentBase64: Buffer.from("proof").toString("base64"),
-      }),
-    ).rejects.toThrow("attachment metadata was trimmed before it could be indexed.");
-    expect(deletion).toHaveBeenCalledTimes(1);
-    expect(rejectedAttachmentId).toBeDefined();
-    expect(await store.getAttachment(rejectedAttachmentId!)).toBeUndefined();
-    await expect(store.get(budgetCard.id)).resolves.toMatchObject({
-      metadata: { comments: budgetCard.metadata?.comments },
+    const indexed = await store.addAttachment(budgetCard.id, {
+      fileName: "f".repeat(240),
+      note: "n".repeat(400),
+      mimeType: "m".repeat(160),
+      contentBase64: Buffer.from("proof").toString("base64"),
     });
+    expect(indexed.metadata?.attachments).toEqual(
+      expect.arrayContaining([expect.objectContaining({ fileName: "f".repeat(240) })]),
+    );
+    expect(indexed.metadata?.comments?.length).toBeLessThan(12);
+    expect(deletion).not.toHaveBeenCalled();
+    expect(deletedAttachmentId).toBeUndefined();
+    const indexedAttachment = indexed.metadata?.attachments?.at(-1);
+    expect(indexedAttachment).toBeDefined();
+    await expect(store.getAttachment(indexedAttachment!.id)).resolves.toBeDefined();
   });
 
   it("removes attachment blobs when the card attachment index prunes old entries", async () => {
