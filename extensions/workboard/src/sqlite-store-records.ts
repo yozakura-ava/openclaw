@@ -294,6 +294,8 @@ function readMetadata(
     body: requiredString(child, "body"),
     createdAt: requiredNumber(child, "created_at"),
     updatedAt: numberValue(child, "updated_at"),
+    actorId: stringValue(child, "actor_id"),
+    actorKind: stringValue(child, "actor_kind"),
   }));
   const links = readChildren("workboard_card_links", (child) => ({
     id: requiredString(child, "id"),
@@ -313,6 +315,8 @@ function readMetadata(
     command: stringValue(child, "command"),
     url: stringValue(child, "url"),
     note: stringValue(child, "note"),
+    actorId: stringValue(child, "actor_id"),
+    actorKind: stringValue(child, "actor_kind"),
   }));
   const artifacts = readChildren("workboard_card_artifacts", (child) => ({
     id: requiredString(child, "id"),
