@@ -14,8 +14,11 @@ const groupedLeaves = {
   ),
   "lint-core": QUALIFICATION_LEAVES.filter((leaf) => /^lint-core-\d+$/u.test(leaf.id)),
   "lint-extensions": QUALIFICATION_LEAVES.filter((leaf) => /^lint-extensions-\d+$/u.test(leaf.id)),
-  "lint-support": QUALIFICATION_LEAVES.filter((leaf) =>
-    ["lint-i18n", "lint-scripts", "lint-stylelint"].includes(leaf.id),
+  "lint-support": QUALIFICATION_LEAVES.filter(
+    (leaf) =>
+      leaf.id === "lint-i18n" ||
+      /^lint-scripts-\d+$/u.test(leaf.id) ||
+      leaf.id === "lint-stylelint",
   ),
   "types-core": typeCoreLeaves,
   "types-tests": typeTestLeaves,

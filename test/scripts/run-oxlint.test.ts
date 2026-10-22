@@ -792,6 +792,39 @@ describe("run-oxlint", () => {
     ).toEqual(targets.toSorted());
   });
 
+  it("uses bounded type-aware projects for scripts on constrained hosts", () => {
+    const cwd = createTempDir("openclaw-oxlint-scripts-");
+    const files = Array.from(
+      { length: 129 },
+      (_, index) => `scripts/task-${String(index).padStart(4, "0")}.mts`,
+    );
+    for (const file of files) {
+      mkdirSync(join(cwd, "scripts"), { recursive: true });
+      writeFileSync(join(cwd, file), "");
+    }
+
+    const shards = filterOxlintShards(
+      createOxlintShards({ cwd, env: { CI: "true" }, hostResources: CONSTRAINED_HOST }),
+      new Set(["scripts"]),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(targets.toSorted()).toEqual(files.toSorted());
+    expect(shards.map((shard) => shard.name)).toEqual(["scripts:01", "scripts:02", "scripts:03"]);
+
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../config/tsconfig/oxlint.scripts.json");
+    expect(config.include).toContain("../../../scripts/**/*.d.mts");
+    expect(config.include).toContain("../../../src/**/*.d.ts");
+    expect(config.include).toContain("../../../scripts/task-0000.mts");
+  });
+
   it.each([{ platform: "linux", env: { CI: "true" }, hostResources: CONSTRAINED_HOST }] as const)(
     "preserves the published updater's automatic full-lint plan on $platform with $env and $hostResources",
     ({ platform, env, hostResources }) => {
@@ -839,6 +872,7 @@ describe("run-oxlint", () => {
     const parsed = parseShardRunnerArgs([
       "--only=core",
       "--split-core",
+      "--split-scripts",
       "--core-stripe=2/3",
       "--max-warnings",
       "0",
@@ -848,6 +882,7 @@ describe("run-oxlint", () => {
     expect(parsed.coreStripe).toEqual({ index: 2, total: 3 });
     expect(parsed.extensionStripe).toBeUndefined();
     expect(parsed.splitCore).toBe(true);
+    expect(parsed.splitScripts).toBe(true);
     expect(parsed.oxlintArgs).toEqual(["--max-warnings", "0"]);
 
     const extension = parseShardRunnerArgs(["--only", "extensions", "--extension-stripe", "4/6"]);
@@ -1054,6 +1089,31 @@ describe("run-oxlint", () => {
       }),
     ).toThrow(
       "OPENCLAW_OXLINT_WINDOWS_EXTENSION_CHUNK_SIZE must be a positive integer; got: 8 chunks",
+    );
+  });
+
+  it("honors the generic extension chunk override on Linux qualification runs", () => {
+    const shards = filterOxlintShards(
+      createOxlintShards({
+        cwd: "/repo",
+        env: { OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1" },
+        platform: "linux",
+        splitExtensions: true,
+        readDir: (target: string) =>
+          target === "/repo/extensions"
+            ? (PLUGIN_FIXTURE_DIRECTORIES.map((name) => ({
+                name,
+                isDirectory: () => true,
+                isFile: () => false,
+              })) as never)
+            : [],
+      }),
+      new Set(["extensions"]),
+    );
+
+    expect(shards).toHaveLength(PLUGIN_FIXTURE_DIRECTORIES.length);
+    expect(shards.map((shard) => shard.args.slice(2))).toEqual(
+      PLUGIN_FIXTURE_DIRECTORIES.toSorted().map((name) => [`extensions/${name}`]),
     );
   });
 

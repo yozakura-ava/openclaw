@@ -4,6 +4,7 @@ const typeAwareEnv = {
   OPENCLAW_OXLINT_SKIP_PREPARE: "1",
   OPENCLAW_CI_GOMEMLIMIT: "2GiB",
   OPENCLAW_OXLINT_SHARD_TIMEOUT_MS: String(45 * 60 * 1000),
+  OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1",
 };
 const lintOutputs = [
   ".artifacts/extension-package-boundary",
@@ -23,7 +24,11 @@ const tsx = (script: string, ...args: string[]) => [
 // the default 6-GiB check path, whose 15-minute aggregate stripe timed out.
 const shards = createOxlintShards({
   cwd: process.cwd(),
-  env: { CI: "true", OPENCLAW_OXLINT_SHARDS_SERIAL: "1" },
+  env: {
+    CI: "true",
+    OPENCLAW_OXLINT_SHARDS_SERIAL: "1",
+    OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1",
+  },
   platform: "linux",
   hostResources: {
     logicalCpuCount: 2,
@@ -32,10 +37,11 @@ const shards = createOxlintShards({
   },
   splitCore: true,
   splitExtensions: true,
+  splitScripts: true,
 });
 const coreStripeCount = 10;
 const extensionStripeCount = shards.filter((shard) => shard.name.startsWith("extensions:")).length;
-if (extensionStripeCount < 1 || !shards.some((shard) => shard.name === "scripts")) {
+if (extensionStripeCount < 1 || !shards.some((shard) => shard.name.startsWith("scripts"))) {
   throw new Error("Qualification lint shard inventory is incomplete");
 }
 
@@ -74,12 +80,21 @@ export const qualificationLintLeaves = [
       env: typeAwareEnv,
     };
   }),
-  {
-    id: "lint-scripts",
-    command: tsx("scripts/run-oxlint-shards.mts", "--only=scripts", "--threads=1"),
-    outputs: lintOutputs,
-    env: typeAwareEnv,
-  },
+  ...shards
+    .filter((shard) => shard.name.startsWith("scripts:"))
+    .map((shard) => ({
+      id: `lint-${shard.name.replace(":", "-")}`,
+      command: tsx(
+        "scripts/run-oxlint-shards.mts",
+        "--only=scripts",
+        "--split-scripts",
+        "--files-json",
+        JSON.stringify(shard.args.slice(2)),
+        "--threads=1",
+      ),
+      outputs: lintOutputs,
+      env: typeAwareEnv,
+    })),
   {
     id: "lint-stylelint",
     command: tsx(
