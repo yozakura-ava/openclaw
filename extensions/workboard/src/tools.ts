@@ -200,6 +200,40 @@ export function createWorkboardTools(params: {
       },
     },
     {
+      name: "workboard_link_demote",
+      label: "Workboard Link Demote",
+      description:
+        "Demote (parent->relates_to) or unlink (remove) the dependency link pair between a child card and a still-open parent card, so an observation/duplicate child can close without closing its parent.",
+      parameters: strictObject({
+        childId: Type.String({ description: "Child card id holding the parent dependency link." }),
+        parentId: Type.String({ description: "Parent card id." }),
+        mode: Type.Optional(
+          Type.Union([Type.Literal("demote"), Type.Literal("unlink")], {
+            description: "demote = relates_to lineage kept; unlink = remove both links.",
+          }),
+        ),
+        token: Type.Optional(
+          Type.String({ description: "Claim token for claimed parent or child cards." }),
+        ),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = rawParams as Record<string, unknown>;
+        const childId = readStringParam(record, "childId", { required: true });
+        const parentId = readStringParam(record, "parentId", { required: true });
+        const mode = (record.mode as "demote" | "unlink" | undefined) ?? "demote";
+        const token = record.token as string | undefined;
+        const result = await store.demoteDependencyLink(childId, parentId, mode, {
+          ownerId,
+          token,
+        });
+        return jsonResult({
+          mode,
+          child: redactClaimToken(result.child),
+          parent: redactClaimToken(result.parent),
+        });
+      },
+    },
+    {
       name: "workboard_read",
       label: "Workboard Read",
       description:

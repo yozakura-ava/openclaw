@@ -938,6 +938,96 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     return await this.promoteDependencyReady(nextChild.id);
   }
 
+  /**
+   * Demote or remove the hard parent/child dependency pair between two cards.
+   *
+   * mode="demote": both sides become `relates_to` links (lineage preserved,
+   * dependency gate released). mode="unlink": both dependency links are removed.
+   */
+  async demoteDependencyLink(
+    childId: string,
+    parentId: string,
+    mode: "demote" | "unlink" = "demote",
+    scope?: WorkboardMutationScope,
+  ): Promise<{ child: WorkboardCard; parent: WorkboardCard }> {
+    if (childId.trim() === parentId.trim()) {
+      throw new Error("parent and child cards must differ.");
+    }
+    if (mode !== "demote" && mode !== "unlink") {
+      throw new Error(`unsupported link demote mode: ${mode}`);
+    }
+    return await this.enqueueMutation(
+      async () =>
+        await this.withCardCompensation(
+          async () => await this.demoteDependencyLinkDirect(childId, parentId, mode, { scope }),
+        ),
+    );
+  }
+
+  protected async demoteDependencyLinkDirect(
+    childId: string,
+    parentId: string,
+    mode: "demote" | "unlink",
+    options: { scope?: WorkboardMutationScope } = {},
+  ): Promise<{ child: WorkboardCard; parent: WorkboardCard }> {
+    const child = await this.get(childId);
+    const parent = await this.get(parentId);
+    if (!child) {
+      throw new Error(`card not found: ${childId}`);
+    }
+    if (!parent) {
+      throw new Error(`card not found: ${parentId}`);
+    }
+    assertCanMutateClaimedCard(parent, options.scope);
+    assertCanMutateClaimedCard(child, options.scope);
+    const childLinks = child.metadata?.links ?? [];
+    const parentLinks = parent.metadata?.links ?? [];
+    const childParentLinks = childLinks.filter(
+      (link) => link.type === "parent" && link.targetCardId === parent.id,
+    );
+    const parentChildLinks = parentLinks.filter(
+      (link) => link.type === "child" && link.targetCardId === child.id,
+    );
+    if (childParentLinks.length === 0 || parentChildLinks.length === 0) {
+      throw new Error(
+        `dependency link pair not found: child ${child.id} parent ${parent.id} (child-side ${childParentLinks.length}, parent-side ${parentChildLinks.length}).`,
+      );
+    }
+    const now = Date.now();
+    const retained = new Set([...childParentLinks, ...parentChildLinks].map((link) => link.id));
+    const mapDependencyLink = (link: WorkboardLink): WorkboardLink | null => {
+      if (!retained.has(link.id ?? "")) {
+        return link;
+      }
+      if (mode === "unlink") {
+        return null;
+      }
+      return {
+        ...link,
+        type: "relates_to",
+        title: link.title ?? (link.type === "parent" ? "demoted parent" : "demoted child"),
+      };
+    };
+    const nextChildLinks = childLinks
+      .map(mapDependencyLink)
+      .filter((link): link is WorkboardLink => link !== null);
+    const nextParentLinks = parentLinks
+      .map(mapDependencyLink)
+      .filter((link): link is WorkboardLink => link !== null);
+    const nextParent = await this.updateCard(
+      await this.requireCard(parent.id),
+      { metadata: { ...parent.metadata, links: nextParentLinks } },
+      { expectedUpdatedAt: parent.updatedAt },
+    );
+    const nextChild = await this.updateCard(
+      await this.requireCard(child.id),
+      { metadata: { ...child.metadata, links: nextChildLinks } },
+      { expectedUpdatedAt: child.updatedAt },
+    );
+    const promoted = await this.promoteDependencyReady(nextChild.id, now);
+    return { child: promoted, parent: nextParent };
+  }
+
   private async dependencyTargetStatus(card: WorkboardCard, now: number): Promise<WorkboardStatus> {
     const scheduledAt = card.metadata?.automation?.scheduledAt;
     const parents = cardParentIds(card);
