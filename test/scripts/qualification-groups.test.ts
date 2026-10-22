@@ -26,8 +26,18 @@ describe("qualification groups", () => {
 
   it("keeps high-cost categories in independent runner groups", () => {
     expect(selectQualificationGroup("lint-core").map((leaf) => leaf.id)).toHaveLength(10);
-    expect(selectQualificationGroup("lint-extensions").map((leaf) => leaf.id)).toHaveLength(22);
+    expect(selectQualificationGroup("lint-extensions").map((leaf) => leaf.id)).toHaveLength(202);
     expect(selectQualificationGroup("types-core")).toHaveLength(41);
+    expect(
+      selectQualificationGroup("types-tests")
+        .filter((leaf) => leaf.id.startsWith("types-core-test-gateway-server-"))
+        .map((leaf) => leaf.id),
+    ).toHaveLength(10);
+    expect(
+      selectQualificationGroup("types-other")
+        .filter((leaf) => leaf.id.startsWith("types-extensions-test-"))
+        .map((leaf) => leaf.id),
+    ).toHaveLength(14);
   });
 
   it("rejects a selector outside the manifest", () => {

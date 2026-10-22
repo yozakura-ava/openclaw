@@ -45,6 +45,7 @@ const GATEWAY_CONFIG_DIR = ".artifacts/qualification/oxlint-tsconfigs";
 const GATEWAY_FILE_CHUNK_SIZE = 256;
 const AGENTS_FILE_CHUNK_SIZE = 64;
 const SOURCE_FILE_CHUNK_SIZE = 64;
+const EXTENSION_FILE_CHUNK_SIZE = 64;
 const SCRIPTS_FILE_CHUNK_SIZE = 64;
 const EXTENSIONS_DIR = "extensions";
 const SCRIPTS_DIR = "scripts";
@@ -174,16 +175,20 @@ export function createOxlintExtensionRootScope(roots: readonly string[], cwd = p
         if (!shard.name.startsWith("extensions:")) {
           throw new Error("Oxlint extension roots require canonical extension-only chunks");
         }
-        const targets = shard.args.slice(2).filter((target) => selected.has(target));
-        return targets.length
-          ? [
-              {
+        const canonicalTargets = shard.canonicalTargets ?? shard.args.slice(2);
+        const targets = canonicalTargets.filter((target) => selected.has(target));
+        if (targets.length === 0) {
+          return [];
+        }
+        return [
+          shard.canonicalTargets
+            ? { ...shard, canonicalTargets: targets }
+            : {
                 ...shard,
                 args: [...shard.args.slice(0, 2), ...targets],
-                canonicalTargets: shard.canonicalTargets ?? shard.args.slice(2),
+                canonicalTargets: targets,
               },
-            ]
-          : [];
+        ];
       });
     },
   };
@@ -235,7 +240,14 @@ export function createOxlintShards({
       ? LARGE_CI_EXTENSION_CHUNK_SIZE
       : DEFAULT_EXTENSION_CHUNK_SIZE);
   const extensionShards = chunkExtensions
-    ? createExtensionOxlintShards({ cwd, env, platform, readDir, chunkSize: extensionChunkSize })
+    ? createExtensionOxlintShards({
+        cwd,
+        env,
+        platform,
+        readDir,
+        chunkSize: extensionChunkSize,
+        splitSourceFiles: splitExtensions,
+      })
     : [EXTENSIONS_SHARD];
   const scriptShards =
     splitScripts || constrainedSerial
@@ -369,7 +381,7 @@ function createTypeAwareFileShards({
 }: DirectoryLookup & {
   root: string;
   prefix: string;
-  namespace: "core" | "scripts";
+  namespace: "core" | "extensions" | "scripts";
   chunkSize: number;
 }): OxlintShard[] {
   const files: string[] = [];
@@ -397,8 +409,14 @@ function createTypeAwareFileShards({
     const config = `${GATEWAY_CONFIG_DIR}/${prefix}-${String(index).padStart(2, "0")}.json`;
     const suffix = String(index).padStart(2, "0");
     shards.push({
-      name: namespace === "scripts" ? `scripts:${suffix}` : `core:${prefix}:${suffix}`,
+      name:
+        namespace === "scripts"
+          ? `scripts:${suffix}`
+          : namespace === "extensions"
+            ? `${prefix.replace(/^extensions-/u, "extensions:")}:${suffix}`
+            : `core:${prefix}:${suffix}`,
       args: ["--tsconfig", config, ...files.slice(start, start + chunkSize)],
+      ...(namespace === "extensions" ? { canonicalTargets: [root] } : {}),
     });
   }
   return shards;
@@ -408,7 +426,8 @@ export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: s
   const sourceShards = shards.filter(
     (shard) =>
       /^core:(?:gateway|agents|source-[a-zA-Z0-9._-]+):\d+$/u.test(shard.name) ||
-      /^scripts:\d+$/u.test(shard.name),
+      /^scripts:\d+$/u.test(shard.name) ||
+      /^extensions:[^:]+:\d+$/u.test(shard.name),
   );
   if (sourceShards.length === 0) {
     return;
@@ -418,6 +437,7 @@ export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: s
   for (const shard of sourceShards) {
     const configPath = path.resolve(cwd, shard.args[1]!);
     const isScripts = shard.name.startsWith("scripts:");
+    const isExtensions = shard.name.startsWith("extensions:");
     const include = [
       ...(isScripts
         ? [
@@ -428,6 +448,22 @@ export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: s
             "../../../scripts/**/*.d.cts",
           ]
         : []),
+      ...(isExtensions
+        ? [
+            "../../../src/**/*.d.ts",
+            "../../../src/**/*.d.mts",
+            "../../../src/**/*.d.cts",
+            "../../../ui/**/*.d.ts",
+            "../../../ui/**/*.d.mts",
+            "../../../ui/**/*.d.cts",
+            "../../../packages/**/*.d.ts",
+            "../../../packages/**/*.d.mts",
+            "../../../packages/**/*.d.cts",
+            "../../../extensions/**/*.d.ts",
+            "../../../extensions/**/*.d.mts",
+            "../../../extensions/**/*.d.cts",
+          ]
+        : []),
       ...shard.args.slice(2).map((file) => `../../../${file}`),
     ];
     fs.writeFileSync(
@@ -436,7 +472,9 @@ export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: s
         {
           extends: isScripts
             ? "../../../config/tsconfig/oxlint.scripts.json"
-            : "../../../tsconfig.json",
+            : isExtensions
+              ? "../../../extensions/tsconfig.json"
+              : "../../../tsconfig.json",
           include,
           exclude: ["../../../node_modules", "../../../dist", "../../../dist-runtime"],
         },
@@ -468,7 +506,8 @@ export function createExtensionOxlintShards({
   platform = process.platform,
   readDir = fs.readdirSync,
   chunkSize: requestedChunkSize = DEFAULT_EXTENSION_CHUNK_SIZE,
-}: ShardOptions & PlatformOptions & { chunkSize?: number } = {}) {
+  splitSourceFiles = false,
+}: ShardOptions & PlatformOptions & { chunkSize?: number; splitSourceFiles?: boolean } = {}) {
   const entries = listOxlintRootEntries(EXTENSIONS_DIR, { cwd, readDir });
   if (entries.dirs.length === 0 && entries.rootFiles.length === 0) {
     return [EXTENSIONS_SHARD];
@@ -488,10 +527,30 @@ export function createExtensionOxlintShards({
   for (let index = 0; index < entries.dirs.length; index += chunkSize) {
     const chunk = entries.dirs.slice(index, index + chunkSize);
     const chunkNumber = String(index / chunkSize + 1).padStart(2, "0");
-    shards.push({
-      name: `extensions:${chunkNumber}`,
-      args: ["--tsconfig", EXTENSION_TS_CONFIG, ...chunk],
-    });
+    const packageTargets: string[] = [];
+    for (const target of chunk) {
+      const sourceShards = splitSourceFiles
+        ? createTypeAwareFileShards({
+            cwd,
+            readDir,
+            root: target,
+            prefix: `extensions-${path.posix.basename(target)}`,
+            namespace: "extensions",
+            chunkSize: EXTENSION_FILE_CHUNK_SIZE,
+          })
+        : [];
+      if (sourceShards.length > 1) {
+        shards.push(...sourceShards);
+      } else {
+        packageTargets.push(target);
+      }
+    }
+    if (packageTargets.length > 0) {
+      shards.push({
+        name: `extensions:${chunkNumber}`,
+        args: ["--tsconfig", EXTENSION_TS_CONFIG, ...packageTargets],
+      });
+    }
   }
   return shards;
 }
@@ -962,7 +1021,7 @@ async function runShards({
         (shard.name.startsWith("core:") &&
           (targets.length === 1 ||
             targets.every((target) => !ISOLATED_CORE_TARGETS.has(target)))) ||
-        (shard.name.startsWith("extensions:") && targets.length <= DEFAULT_EXTENSION_CHUNK_SIZE);
+        (shard.name.startsWith("extensions:") && targets.length <= EXTENSION_FILE_CHUNK_SIZE);
       const boundedArgs =
         boundedTargets &&
         extraArgs.every((arg) => /^--(?:threads=[12]|format=(?:json|stylish))$/u.test(arg));

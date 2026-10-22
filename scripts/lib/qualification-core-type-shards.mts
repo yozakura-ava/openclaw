@@ -32,7 +32,9 @@ function normalizeCoreTypeFile(file: string): string {
 
 function splitDirectoryGroups(files: string[], maxFilesPerShard: number): string[][] {
   const split = (items: string[], segmentIndex: number): string[][] => {
-    if (items.length <= maxFilesPerShard) return [items.toSorted()];
+    if (items.length <= maxFilesPerShard) {
+      return [items.toSorted()];
+    }
     const bySegment = new Map<string, string[]>();
     for (const file of items) {
       const segment = file.split("/")[segmentIndex];
@@ -123,7 +125,9 @@ export function partitionQualificationCoreTypeFiles(
     shards[shardIndex]!.files.push(...group);
     sizes[shardIndex]! += group.length;
   }
-  for (const shard of shards) shard.files.sort();
+  for (const shard of shards) {
+    shard.files.sort();
+  }
 
   const ownedFiles = shards.flatMap((shard) => shard.files).toSorted();
   if (

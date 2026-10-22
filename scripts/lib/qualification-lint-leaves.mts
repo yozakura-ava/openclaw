@@ -4,7 +4,7 @@ const typeAwareEnv = {
   OPENCLAW_OXLINT_SKIP_PREPARE: "1",
   OPENCLAW_CI_GOMEMLIMIT: "2GiB",
   OPENCLAW_OXLINT_SHARD_TIMEOUT_MS: String(45 * 60 * 1000),
-  OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1",
+  OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "4",
 };
 const lintOutputs = [
   ".artifacts/extension-package-boundary",
@@ -27,7 +27,7 @@ const shards = createOxlintShards({
   env: {
     CI: "true",
     OPENCLAW_OXLINT_SHARDS_SERIAL: "1",
-    OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1",
+    OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "4",
   },
   platform: "linux",
   hostResources: {

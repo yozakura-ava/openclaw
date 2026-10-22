@@ -71,9 +71,12 @@ export const qualificationTypeLeaves = [
       graph.name !== "core" &&
       graph.name !== "test-root" &&
       graph.name !== "extensions" &&
-      graph.name !== "core-test-gateway-root",
+      graph.name !== "core-test-gateway-root" &&
+      graph.name !== "core-test-gateway-server" &&
+      graph.name !== "extensions-test",
   ).map((graph) => typeLeaf(graph.name, graph.config)),
   ...configTypeShard("extensions", "tsconfig.extensions.json", 20, 300),
+  ...configTypeShard("extensions-test", "test/tsconfig/tsconfig.extensions.test.json", 14, 300),
   ...configTypeShard(
     "gateway-root",
     "test/tsconfig/tsconfig.core.test.gateway-root.json",
@@ -81,16 +84,25 @@ export const qualificationTypeLeaves = [
     120,
     "types-core-test-gateway-root",
   ),
+  ...configTypeShard(
+    "gateway-server",
+    "test/tsconfig/tsconfig.core.test.gateway-server.json",
+    10,
+    60,
+    "types-core-test-gateway-server",
+  ),
   ...TSGO_ROOT_TEST_SHARDS.map((graph) => typeLeaf(graph.name, graph.config)),
 ];
 
 const expectedTypeLeafCount =
   QUALIFICATION_CORE_TYPE_SHARD_COUNT +
   TSGO_CI_GRAPHS.length -
-  4 +
+  6 +
   20 +
+  14 +
   TSGO_ROOT_TEST_SHARDS.length +
-  6;
+  6 +
+  10;
 if (qualificationTypeLeaves.length !== expectedTypeLeafCount) {
   throw new Error(
     `Expected ${expectedTypeLeafCount} compiler type leaves, found ${qualificationTypeLeaves.length}`,

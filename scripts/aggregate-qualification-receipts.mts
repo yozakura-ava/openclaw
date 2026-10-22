@@ -41,7 +41,7 @@ const receipts = QUALIFICATION_LEAVES.map((leaf) => {
     ? fs.readFileSync(digestSnapshot, "utf8").trim()
     : null;
   const completedAt =
-    typeof receipt.completedAt === "string" ? Date.parse(receipt.completedAt) : NaN;
+    typeof receipt.completedAt === "string" ? Date.parse(receipt.completedAt) : Number.NaN;
   if (toolchain.nodeVersion === null) {
     toolchain.nodeVersion = receipt.nodeVersion;
     toolchain.pnpmVersion = receipt.pnpmVersion;

@@ -39,7 +39,12 @@ const resolved = JSON.parse(showConfig.stdout) as { files?: unknown };
 if (!Array.isArray(resolved.files) || resolved.files.some((file) => typeof file !== "string")) {
   throw new Error(`tsgo --showConfig returned an invalid root inventory for ${config}`);
 }
-const files = (resolved.files as string[]).map((file) => path.resolve(root, file)).toSorted();
+const configDirectory = path.dirname(path.resolve(root, config));
+const files = (resolved.files as string[])
+  .map((file) =>
+    path.isAbsolute(file) ? path.normalize(file) : path.resolve(configDirectory, file),
+  )
+  .toSorted();
 if (files.length === 0 || new Set(files).size !== files.length) {
   throw new Error(`Type roots for ${config} must be nonempty and unique`);
 }

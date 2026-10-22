@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createOxlintShards,
   createGatewayOxlintShards,
+  createOxlintExtensionRootScope,
   writeGatewayOxlintConfigs,
   filterOxlintShards,
   parseShardRunnerArgs,
@@ -824,6 +825,53 @@ describe("run-oxlint", () => {
     expect(config.include).toContain("../../../scripts/**/*.d.mts");
     expect(config.include).toContain("../../../src/**/*.d.ts");
     expect(config.include).toContain("../../../scripts/task-0000.mts");
+  });
+
+  it("uses bounded type-aware projects for large extension packages on constrained hosts", () => {
+    const cwd = createTempDir("openclaw-oxlint-extensions-");
+    const files = Array.from(
+      { length: 65 },
+      (_, index) => `extensions/browser/task-${String(index).padStart(3, "0")}.ts`,
+    );
+    for (const file of files) {
+      mkdirSync(join(cwd, "extensions", "browser"), { recursive: true });
+      writeFileSync(join(cwd, file), "");
+    }
+
+    const shards = filterOxlintShards(
+      createOxlintShards({
+        cwd,
+        env: { CI: "true", OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1" },
+        hostResources: CONSTRAINED_HOST,
+        splitExtensions: true,
+      }),
+      new Set(["extensions"]),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(targets.toSorted()).toEqual(files.toSorted());
+    expect(shards.map((shard) => shard.name)).toEqual([
+      "extensions:browser:01",
+      "extensions:browser:02",
+    ]);
+    expect(
+      createOxlintExtensionRootScope(["extensions/browser"], cwd)
+        .selectShards(shards)
+        .map((shard) => shard.name),
+    ).toEqual(shards.map((shard) => shard.name));
+
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../extensions/tsconfig.json");
+    expect(config.include).toContain("../../../extensions/**/*.d.ts");
+    expect(config.include).toContain("../../../extensions/**/*.d.mts");
+    expect(config.include).toContain("../../../extensions/browser/task-000.ts");
+    expect(config.include).not.toContain("../../../extensions/browser/task-064.ts");
   });
 
   it.each([{ platform: "linux", env: { CI: "true" }, hostResources: CONSTRAINED_HOST }] as const)(
