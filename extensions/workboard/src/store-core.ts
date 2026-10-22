@@ -10,6 +10,7 @@ import type {
 import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { definedFields } from "../record-fields.js";
+import { normalizeActor } from "./actor-attribution.js";
 import type { PersistedWorkboardCard } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import { WorkboardBoardStore } from "./store-boards.js";
@@ -686,7 +687,8 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     if (!body) {
       throw new Error("comment body is required.");
     }
-    const comment = { id: randomUUID(), body, createdAt: now };
+    const actor = normalizeActor(input);
+    const comment = { id: randomUUID(), body, createdAt: now, ...actor };
     return await this.updateMetadata(id, (existing) => {
       assertCanMutateClaimedCard(existing, scope);
       return {

@@ -130,11 +130,13 @@ export function appendComment(
   comments: WorkboardMetadata["comments"],
   body: string | undefined,
   now?: number,
+  actor?: { actorId: string; actorKind: "agent" | "system" },
 ): WorkboardMetadata["comments"] {
   return body
-    ? [...(comments ?? []), { id: randomUUID(), body, createdAt: now ?? Date.now() }].slice(
-        -MAX_CARD_COMMENTS,
-      )
+    ? [
+        ...(comments ?? []),
+        { id: randomUUID(), body, createdAt: now ?? Date.now(), ...actor },
+      ].slice(-MAX_CARD_COMMENTS)
     : comments;
 }
 

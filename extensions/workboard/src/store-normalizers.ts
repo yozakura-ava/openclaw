@@ -48,6 +48,7 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import { definedFields } from "../record-fields.js";
+import { normalizeActor } from "./actor-attribution.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -448,6 +449,7 @@ function normalizeComment(record: Record<string, unknown>): WorkboardComment | n
     body,
     createdAt,
     updatedAt: normalizeTimestamp(record.updatedAt, 0) || undefined,
+    ...normalizeActor({ actorId: record.actorId, actorKind: record.actorKind }),
   });
 }
 
@@ -741,6 +743,7 @@ export function normalizeProofInput(
     command,
     url,
     note,
+    ...normalizeActor(input),
   });
 }
 

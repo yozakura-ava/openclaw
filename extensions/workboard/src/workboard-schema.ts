@@ -116,6 +116,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       card_id TEXT NOT NULL REFERENCES workboard_cards(id) ON DELETE CASCADE,
       ordinal INTEGER NOT NULL,
       body TEXT NOT NULL,
+      actor_id TEXT,
+      actor_kind TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER
     ) STRICT;
@@ -144,6 +146,8 @@ export const WORKBOARD_SCHEMA_SQL = `
       command TEXT,
       url TEXT,
       note TEXT,
+      actor_id TEXT,
+      actor_kind TEXT,
       created_at INTEGER NOT NULL
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_proof_card_idx
