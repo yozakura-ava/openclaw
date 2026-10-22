@@ -1,10 +1,5 @@
 import type { ResolvedCliBackend } from "../cli-backends.js";
-<<<<<<< HEAD
 import { resolveConversationCapabilityProfile } from "../conversation-capability-profile.js";
-=======
-import { prepareConversationCapabilityProfile } from "../conversation-capability-profile.js";
->>>>>>> 97b6e87616f
-import { applyEmbeddedAttemptToolsAllow } from "../embedded-agent-runner/run/attempt-tool-construction-plan.js";
 import { resolveExecConfigState } from "../exec-defaults.js";
 import { resolveEffectiveToolFsWorkspaceOnly } from "../tool-fs-policy.js";
 import { expandToolGroups, normalizeToolPolicyName } from "../tool-policy.js";
@@ -26,11 +21,6 @@ export async function resolveCliRuntimeToolPolicy(input: {
   bundleMcp: boolean;
   canEnforceExactToolAvailability: boolean;
   projectNativeToolAuthority?: ResolvedCliBackend["projectNativeToolAuthority"];
-  resolveManagedNativeTools?: ResolvedCliBackend["resolveManagedNativeTools"];
-<<<<<<< HEAD
-=======
-  sideQuestionToolMode?: ResolvedCliBackend["sideQuestionToolMode"];
->>>>>>> 97b6e87616f
   isSideQuestion: boolean;
   sideQuestionToolMode?: "disabled" | "native";
   skipsTurnPreparation: boolean;
@@ -112,10 +102,6 @@ export async function resolveCliRuntimeToolPolicy(input: {
           })
         ).policy;
   const senderRestricted = requesterPolicy?.inheritedToolPolicySource === "sender";
-<<<<<<< HEAD
-=======
-  const delegatedExecution = Boolean(requesterPolicy?.delegatedToolPolicy);
->>>>>>> 97b6e87616f
   // Internal controls and backend-enforced tool-free questions have no file authority.
   const workspaceOnly =
     params.controlOperation === undefined &&
@@ -139,10 +125,6 @@ export async function resolveCliRuntimeToolPolicy(input: {
   if (
     (params.trustedInternalHandoff ||
       senderRestricted ||
-<<<<<<< HEAD
-=======
-      delegatedExecution ||
->>>>>>> 97b6e87616f
       workspaceOnly ||
       ordinaryClaudeMediation) &&
     params.disableTools !== true
@@ -158,44 +140,13 @@ export async function resolveCliRuntimeToolPolicy(input: {
         `CLI backend ${input.backendId} cannot enforce ${senderRestricted ? "conversation" : delegatedExecution ? "delegated execution" : params.trustedInternalHandoff ? "completion" : "workspace-only"} tool policy`,
       );
     }
-    // Only uncapped ordinary and verified completion turns reach this list, so both kinds
-<<<<<<< HEAD
-    // launch the same native surface. Restricted and workspace-only runs keep none.
-    managedNativeTools =
-      params.cliToolAvailability === undefined && !senderRestricted && !workspaceOnly
-=======
-    // launch the same native surface. Restricted, delegated, and workspace-only runs keep none.
-    managedNativeTools =
-      params.cliToolAvailability === undefined &&
-      !senderRestricted &&
-      !delegatedExecution &&
-      !workspaceOnly
->>>>>>> 97b6e87616f
-        ? [
-            ...(input.resolveManagedNativeTools?.({
-              config: params.config,
-              agentId: input.policyAgentId,
-            }) ?? []),
-          ]
-        : [];
     const exactWorkspaceTools =
-<<<<<<< HEAD
-      !params.trustedInternalHandoff &&
-      workspaceOnly &&
-      params.cliToolAvailability &&
-      runtimeToolsAllowPolicy === undefined
-=======
       workspaceOnly && params.cliToolAvailability && runtimeToolsAllowPolicy === undefined
->>>>>>> 97b6e87616f
         ? [
             ...params.cliToolAvailability.openClaw,
             ...(input.projectNativeToolAuthority?.(params.cliToolAvailability.native) ?? []),
           ]
         : undefined;
-<<<<<<< HEAD
-=======
-    // Exact selections must bypass policy expansion (for example, write -> apply_patch).
->>>>>>> 97b6e87616f
     if (exactWorkspaceTools === undefined) {
       runtimeToolsAllowPolicy ??= senderRestricted
         ? (params.cliToolAvailability?.openClaw ?? ["*"])
@@ -204,7 +155,7 @@ export async function resolveCliRuntimeToolPolicy(input: {
     params = {
       ...params,
       toolsAllow: undefined,
-      cliToolAvailability: { native: managedNativeTools, openClaw: exactWorkspaceTools ?? [] },
+      cliToolAvailability: { native: [], openClaw: exactWorkspaceTools ?? [] },
     };
   }
   return { params, runtimeToolsAllowPolicy, managedNativeTools };

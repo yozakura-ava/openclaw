@@ -329,11 +329,6 @@ async function prepareCliRunContextWithinReadFence(
     bundleMcp: backendResolved.bundleMcp,
     canEnforceExactToolAvailability,
     projectNativeToolAuthority: backendResolved.projectNativeToolAuthority,
-    resolveManagedNativeTools: backendResolved.resolveManagedNativeTools,
-<<<<<<< HEAD
-=======
-    sideQuestionToolMode: backendResolved.sideQuestionToolMode,
->>>>>>> 97b6e87616f
     isSideQuestion,
     sideQuestionToolMode: backendResolved.sideQuestionToolMode,
     skipsTurnPreparation,
@@ -724,11 +719,7 @@ async function prepareCliRunContextWithinReadFence(
           workspaceDir,
           agentId: sessionAgentId,
           agentDir,
-<<<<<<< HEAD
           resolveCapabilityProfile: async () =>
-=======
-          resolveCapabilityProfile: () =>
->>>>>>> 97b6e87616f
             mcp.resolveCliNativeMcpPolicy(params, {
               config: runConfig,
               policySessionKey,
@@ -1083,12 +1074,6 @@ async function prepareCliRunContextWithinReadFence(
             await cleanupConfiguredMcp?.();
           }
         : undefined;
-=======
-        : undefined,
-      loopbackBundleMcp?.takeCleanup(),
-    );
-    cleanupPreparedResources = cleanupMcpClientGrant;
->>>>>>> 97b6e87616f
     const rawLoopbackServerConfig = mcpLoopbackRuntime
       ? createMcpLoopbackServerConfig(mcpLoopbackRuntime.port)
       : undefined;

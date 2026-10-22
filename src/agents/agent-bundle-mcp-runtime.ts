@@ -13,10 +13,6 @@ import {
   projectBundleMcpCatalogTools,
 } from "./agent-bundle-mcp-catalog-projection.js";
 import {
-  getCatalogListTimeoutMs,
-  setBundleMcpCatalogListTimeoutMsForTest,
-} from "./agent-bundle-mcp-catalog-timeout.js";
-import {
   createCombinedSessionMcpRuntime,
   mergeMcpToolCatalogs,
 } from "./agent-bundle-mcp-combined.js";

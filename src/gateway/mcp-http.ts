@@ -2,13 +2,8 @@ import crypto from "node:crypto";
 import { createServer as createHttpServer, type ServerResponse } from "node:http";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveBundleMcpServerInstructions } from "../agents/agent-bundle-mcp-instructions.js";
-<<<<<<< HEAD
 import { runWithSessionMcpToolCallAuthority } from "../agents/agent-bundle-mcp-request-context.js";
-=======
->>>>>>> 97b6e87616f
 import { withAgentQuestionAnswerAuthority } from "../agents/harness/host-private-capabilities.js";
-import { acknowledgeInternalToolResult } from "../agents/runtime/internal-hooks.js";
-import { withPreparedSessionCapabilityRead } from "../agents/subagents/spawn/subagent-session-store.js";
 import { resolveToolLoopDetectionConfig } from "../agents/tool-loop-detection-config.js";
 import { isAutomationsToolName } from "../agents/tools/automations-tool-name.js";
 import {
@@ -251,7 +246,6 @@ async function startMcpLoopbackServer(
         }
         const cfg = getRuntimeConfig();
         const requestContext = resolveMcpRequestContext(req, cfg, auth);
-<<<<<<< HEAD
         const lineage = createCompletionGrantLineageAdmission({ cfg, context: requestContext });
         const isGrantAndLineageCurrent = () =>
           (boundClientGrant?.isCurrent() ?? true) && lineage.isCurrent();
@@ -268,28 +262,6 @@ async function startMcpLoopbackServer(
         async function handlePreparedRequest() {
           const harnessEntry = isAgentHarnessSessionKey(requestContext.sessionKey)
             ? resolveSessionEntryAccessTarget({ cfg, sessionKey: requestContext.sessionKey }).entry
-=======
-        await withPreparedSessionCapabilityRead(
-          () => {
-            assertCompletionGrantLineage({ cfg, context: requestContext });
-            return handlePreparedRequest();
-          },
-          { retain: true },
-        );
-        async function handlePreparedRequest() {
-          // A completion grant is current only while its requester lineage verifies. The
-          // child entry can go away while preparation, hooks or approvals await, so the
-          // dispatch authorization and the tools' source-effect guard both re-check it.
-          const lineage = createCompletionGrantLineageAdmission({ cfg, context: requestContext });
-          const isGrantAndLineageCurrent = () =>
-            (boundClientGrant?.isCurrent() ?? true) && lineage.isCurrent();
-          const authorizeToolCall = () =>
-            !work.isClosing &&
-            getActiveMcpLoopbackRuntime()?.ownerToken === ownerToken &&
-            isGrantAndLineageCurrent();
-          const harnessEntry = isAgentHarnessSessionKey(requestContext.sessionKey)
-            ? await readResolvedSessionEntryInWorker({ cfg, sessionKey: requestContext.sessionKey })
->>>>>>> 97b6e87616f
             : undefined;
           if (
             isAgentHarnessSessionKey(requestContext.sessionKey) &&
@@ -410,7 +382,6 @@ async function startMcpLoopbackServer(
             let response: object | null;
             try {
               const handleRequest = async (signal: AbortSignal) =>
-<<<<<<< HEAD
                 await runWithSessionMcpToolCallAuthority(assertRequestCurrent, () =>
                   handleMcpJsonRpc({
                     message,
@@ -457,50 +428,6 @@ async function startMcpLoopbackServer(
                       : undefined,
                   }),
                 );
-=======
-                await handleMcpJsonRpc({
-                  message,
-                  tools: scopedTools.tools,
-                  toolSchema: scopedTools.toolSchema,
-                  ...(serverInstructions ? { serverInstructions } : {}),
-                  hookContext: {
-                    agentId: scopedTools.agentId,
-                    config: cfg,
-                    ...(scopedTools.workspaceDir ? { workspaceDir: scopedTools.workspaceDir } : {}),
-                    sessionKey: requestContext.sessionKey,
-                    sessionId: requestContext.sessionId,
-                    runId: requestContext.runId,
-                    approvalReviewerDeviceId: requestContext.approvalReviewerDeviceId,
-                    channelId: requestContext.currentChannelId,
-                    turnSourceChannel: requestContext.messageProvider,
-                    turnSourceTo: requestContext.currentChannelId,
-                    turnSourceAccountId: requestContext.accountId,
-                    turnSourceThreadId: requestContext.currentThreadTs,
-                    loopDetection: resolveToolLoopDetectionConfig({
-                      cfg,
-                      agentId: scopedTools.agentId,
-                    }),
-                  },
-                  signal,
-                  authorizeToolCall,
-                  onToolCallPrepared: cliCaptureHandle
-                    ? ({ toolName: preparedToolName, args }) => {
-                        updateMcpLoopbackToolCallCapture(cliCaptureHandle, {
-                          toolName: preparedToolName,
-                          args,
-                        });
-                      }
-                    : undefined,
-                  onToolCallResult: cliCaptureHandle
-                    ? (result) => {
-                        recordMcpLoopbackToolCallResult({
-                          captureHandle: cliCaptureHandle,
-                          ...result,
-                        });
-                      }
-                    : undefined,
-                });
->>>>>>> 97b6e87616f
               const callerIdentity = boundClientGrant
                 ? createAdmittedGatewayToolCallerIdentity({
                     admittedRunContext: boundClientGrant.admittedRunContext,
@@ -557,20 +484,10 @@ async function startMcpLoopbackServer(
             res.end();
             return;
           }
-<<<<<<< HEAD
-=======
-
->>>>>>> 97b6e87616f
           const payload = JSON.stringify(Array.isArray(parsed) ? responses : responses[0]);
-          if (!res.headersSent) {
-            res.writeHead(200, { "Content-Type": "application/json" });
-          }
-          res.end(payload, () => {
-            // Ending queues bytes; only a completed write owns result delivery.
-            if (res.writableFinished) {
-              responses.forEach(acknowledgeInternalToolResult);
-            }
-          });
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(payload);
+          return;
         }
       } catch (error) {
         const message = isRequestBodyLimitError(error)
