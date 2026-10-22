@@ -16,9 +16,6 @@ import type { PersonalCatalogSelection } from "../state/user-model-accounts.js";
 import { captureUserProfileModelAccountLinksAuthority } from "../state/user-profile-events.js";
 <<<<<<< HEAD
 import { isDefaultAgentRuntimeId } from "./agent-runtime-id.js";
-=======
-import type { PreparedAgentCredentialModes } from "./agent-auth-credential-modes.js";
->>>>>>> 97b6e87616f
 import {
   resolveAgentDir,
   resolveAgentWorkspaceDir,
@@ -55,9 +52,6 @@ import {
 import { loadManifestModelCatalog } from "./model-catalog.js";
 <<<<<<< HEAD
 import type { ModelCatalogEntry } from "./model-catalog.types.js";
-=======
-import type { ModelCatalogEntry, ModelCatalogSnapshot } from "./model-catalog.types.js";
->>>>>>> 97b6e87616f
 import { splitTrailingAuthProfile } from "./model-ref-profile.js";
 import { resolveDefaultModelForAgent } from "./model-selection-config.js";
 import { dedupeModelCatalogEntries } from "./model-selection-shared.js";
@@ -165,7 +159,6 @@ export function createModelCatalogDecisions(params: ModelCatalogDecisionParams) 
   // through the whole projection so per-model normalization cannot rediscover it.
   const metadataSnapshot = params.metadataSnapshot;
   const workspaceDir = params.workspaceDir ?? resolveAgentWorkspaceDir(params.cfg, params.agentId);
-<<<<<<< HEAD
   const configuredProfileId = splitTrailingAuthProfile(
     resolveNativeModelPrimary(params.cfg, params.agentId) ?? "",
   ).profile;
@@ -174,20 +167,12 @@ export function createModelCatalogDecisions(params: ModelCatalogDecisionParams) 
     agentId: params.agentId,
     manifestPlugins: metadataSnapshot,
   });
-=======
-  // Execution inherits a configured account only for the effective primary.
-  const configuredProfileId = splitTrailingAuthProfile(
-    resolveNativeModelPrimary(params.cfg, params.agentId) ?? "",
-  ).profile;
-  const primary = resolveDefaultModelForAgent({ ...params, manifestPlugins: metadataSnapshot });
->>>>>>> 97b6e87616f
-  const primaryEntry = { provider: primary.provider, id: primary.model };
-  // This decision view owns one plugin metadata generation. Resolve each provider's
-  // identity policy once for that view instead of reloading it for every catalog row.
-  const modelKeyOf = createModelCatalogIdentityKeyResolver();
-  const primaryKey = modelKeyOf(primaryEntry);
+  const primaryKey = resolveModelCatalogIdentityKey({
+    provider: primary.provider,
+    id: primary.model,
+  });
   const configuredPinForEntry = (entry: Pick<ModelCatalogEntry, "provider" | "id">) =>
-    modelKeyOf(entry) === primaryKey ? configuredProfileId : undefined;
+    resolveModelCatalogIdentityKey(entry) === primaryKey ? configuredProfileId : undefined;
   // Runtime choices are read after preparation; CLI backends belong to the owner's registry.
   const cliRuntimeBindings = params.pluginRegistry
     ? withPluginRuntimeRegistryScope(params.pluginRegistry, () =>
@@ -407,9 +392,6 @@ export function createModelCatalogDecisions(params: ModelCatalogDecisionParams) 
       (sameProvider ? pinnedProfileIdForCatalog : undefined) ??
       defaultProfileId ??
       configuredPinForEntry(entry);
-=======
-    const pinnedProfileId = pinnedProfileForEntry(entry);
->>>>>>> 97b6e87616f
     const requestedRuntimeId =
       runtimeId ?? (sameProvider && profileProvider ? runtimeOverride : undefined);
     const resolved = {
