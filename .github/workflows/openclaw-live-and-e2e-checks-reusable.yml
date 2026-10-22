@@ -655,7 +655,7 @@ jobs:
           esac
 
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -740,7 +740,7 @@ jobs:
       - name: Upload Bun test runtime
         id: test_bun_artifact
         if: inputs.test_runtime == 'bun' && !inputs.prepare_only
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: test-bun-${{ github.run_id }}-${{ github.run_attempt }}-${{ job.check_run_id }}
           path: ${{ runner.temp }}/test-bun.tar.gz
@@ -1192,7 +1192,7 @@ jobs:
           printf 'fs_safe_native_contract=%s\n' "$(jq -r '[.evaluations[].contracts[] | select(.consumer == "fs-safe-native") | .mode][0] // "required"' "$RUNNER_TEMP/frozen-admission.json")" >> "$GITHUB_OUTPUT"
 
       - name: Upload frozen admission diagnostic
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: frozen-source-admission-reusable-${{ inputs.shared_image_artifact_namespace }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/frozen-admission.json
@@ -1666,7 +1666,7 @@ jobs:
           always() && inputs.include_repo_e2e &&
           (inputs.live_suite_filter == '' || inputs.live_suite_filter == matrix.suite_id) &&
           matrix.suite_id == 'openshell-e2e'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: openshell-gateway-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/openshell-e2e-${{ github.run_id }}-${{ github.run_attempt }}.log
@@ -2027,7 +2027,7 @@ jobs:
 
       - name: Upload Docker E2E chunk artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-e2e-${{ matrix.shard_id || matrix.chunk_id }}
           path: .artifacts/docker-tests/
@@ -2050,7 +2050,7 @@ jobs:
           fetch-depth: 1
 
       - name: Set up baseline probe Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -2077,7 +2077,7 @@ jobs:
 
       - name: Upload published baseline evidence
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.groups.outputs.artifact_name }}
           path: .artifacts/upgrade-baseline-checks/
@@ -2376,7 +2376,7 @@ jobs:
 
       - name: Upload targeted Docker E2E artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-e2e-${{ steps.plan.outputs.artifact_suffix }}
           path: .artifacts/docker-tests/
@@ -2523,7 +2523,7 @@ jobs:
 
       - name: Upload Open WebUI Docker E2E artifacts
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-e2e-openwebui
           path: .artifacts/docker-tests/
@@ -2681,7 +2681,7 @@ jobs:
           echo "required=$source_package_required" >> "$GITHUB_OUTPUT"
 
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -3057,7 +3057,7 @@ jobs:
       - name: Upload OpenClaw Docker E2E package
         id: upload_package
         if: steps.plan.outputs.needs_package == '1' && needs.validate_selected_ref.outputs.package_artifact_present != 'true'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-e2e-package-${{ github.run_id }}-${{ github.run_attempt }}
           path: .artifacts/docker-e2e-package/openclaw-current.tgz
@@ -3142,7 +3142,7 @@ jobs:
       - name: Upload prerelease plugin registry artifact
         id: upload_prepublish_plugin_registry
         if: steps.create_prepublish_plugin_registry.outputs.manifest_sha256 != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: docker-e2e-prepublish-plugin-registry-${{ github.run_id }}-${{ github.run_attempt }}
           path: .artifacts/prepublish-plugin-registry/
@@ -3330,7 +3330,7 @@ jobs:
       - name: Upload Docker E2E image artifact
         id: upload_image_artifact
         if: inputs.shared_image_policy == 'no-push-artifact' && steps.plan.outputs.needs_e2e_image == '1' && inputs.shared_image_artifact_id == ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.image_artifact.outputs.artifact_name }}
           path: ${{ steps.image_artifact.outputs.artifact_path }}
@@ -3412,7 +3412,7 @@ jobs:
       candidate_evidence_json: ${{ steps.candidate_binding.outputs.json }}
     steps:
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -3760,7 +3760,7 @@ jobs:
 
       - name: Upload full release candidate evidence
         id: upload_candidate_evidence
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: full-release-candidate-v2-${{ needs.prepare_docker_e2e_image.outputs.candidate_request_sha256 }}
           path: ${{ runner.temp }}/full-release-candidate/full-release-candidate.json
@@ -3933,7 +3933,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -3964,7 +3964,7 @@ jobs:
       - name: Upload live-test image artifact
         id: upload_image_artifact
         if: inputs.shared_image_policy == 'no-push-artifact'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: ${{ steps.image_artifact.outputs.artifact_name }}
           path: ${{ steps.image_artifact.outputs.artifact_path }}
@@ -4071,7 +4071,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -4231,7 +4231,7 @@ jobs:
         with: *live_test_image_download_with
 
       - name: Setup supported Node runtime
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false
@@ -4813,7 +4813,7 @@ jobs:
 
       - name: Setup supported Node runtime
         if: contains(matrix.profiles, inputs.release_test_profile) && (inputs.live_suite_filter == '' || inputs.live_suite_filter == matrix.suite_id || inputs.live_suite_filter == matrix.suite_group)
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           package-manager-cache: false

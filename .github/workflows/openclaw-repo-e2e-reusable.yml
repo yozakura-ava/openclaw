@@ -115,7 +115,7 @@ jobs:
         run: node .release-harness/scripts/repo-e2e-artifacts.mts pack "$RUNNER_TEMP/repo-e2e-build" "$BUILD_PROFILE"
       - name: Upload repo E2E build
         id: upload
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: repo-e2e-${{ inputs.build_profile }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/repo-e2e-build/
@@ -200,7 +200,7 @@ jobs:
       # This fixture uses synthetic documents and a mocked Gateway; exclude other UI artifacts.
       - name: Upload synthetic widget prompt failure evidence
         if: failure() && hashFiles('.artifacts/control-ui-e2e/control-ui-authenticated-widget-sandbox-*/widget-prompt-failure.json') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: widget-sandbox-repo-e2e-${{ strategy.job-index }}-${{ github.run_attempt }}
           path: |
