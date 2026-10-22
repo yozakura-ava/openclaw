@@ -111,6 +111,7 @@ import type {
   SessionRowFactsWorkerResult,
   SessionRowPresenceWorkerInput,
 } from "./session-row-facts.types.js";
+import type * as SessionRunOutcomes from "./session-run-outcomes.types.js";
 import type {
   SessionMembersWorkerInput,
   SessionMembershipFactsWorkerInput,
@@ -352,6 +353,7 @@ export type SessionHistoryWorkerInput =
   | SessionTranscriptHistoryWorkerInput
   | SessionPreviewWorkerInput
   | SessionTitleFieldsWorkerInput
+  | SessionRunOutcomes.SessionRunOutcomesWorkerInput
   | SessionTranscriptWatermarkWorkerInput
   | SessionTranscriptMessagePresenceWorkerInput
   | SessionTranscriptDeltaWorkerInput

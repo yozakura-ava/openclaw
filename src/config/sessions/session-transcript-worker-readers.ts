@@ -259,6 +259,11 @@ export function createSessionHistoryWorkerReaders(
       ),
     readPreview: reader("session-preview", "a preview", (value) => value.items),
     readTitleFields: reader("session-title-fields", "title fields", (value) => value.fields),
+    readRunOutcomeSessionKeys: reader(
+      "session-run-outcomes",
+      "session run outcome keys",
+      (value) => value.sessionKeys,
+    ),
     readWatermark: reader(
       "transcript-watermark",
       "a transcript watermark",

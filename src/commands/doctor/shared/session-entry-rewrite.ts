@@ -19,18 +19,17 @@ import {
   splitSessionEntrySnapshots,
   writeSessionEntrySnapshots,
 } from "../../../config/sessions/session-entry-snapshots.js";
-import { LEGACY_SESSION_ENTRY_STATE_FIELDS } from "../../../config/sessions/session-entry-state-format.js";
+import { withSessionHistoryWorkerDatabase } from "../../../config/sessions/session-transcript-worker-runtime.js";
 import { stripRuntimeOnlySessionSkillsFields } from "../../../config/sessions/store-entry-shape.js";
 import { assertSupportedSessionStoreEntry } from "../../../config/sessions/supported-session-store.js";
 import type { SessionEntry } from "../../../config/sessions/types.js";
-import { executeSqliteQuerySync, iterateSqliteQuerySync } from "../../../infra/kysely-sync.js";
+import { executeSqliteQuerySync } from "../../../infra/kysely-sync.js";
 import {
   assertExistingDatabaseIdentity,
   readDatabasePathIdentitySync,
   type DatabaseFileIdentity,
 } from "../../../infra/sqlite-worker-identity.js";
 import { assertOpenClawAgentDatabaseIdentity } from "../../../state/openclaw-agent-db-identity.js";
-import { withOpenClawAgentDatabaseReadOnly } from "../../../state/openclaw-agent-db-readonly.js";
 import {
   runOpenClawAgentWriteTransaction,
   withOpenClawAgentDatabaseAsync,
@@ -42,47 +41,12 @@ import {
 } from "../../../utils/delivery-context.read.js";
 import { migrateLegacySessionRunOutcome } from "./session-entry-shape.js";
 
+export { scanDoctorSessionEntryRecords } from "./session-entry-scan.js";
+
 const DOCTOR_SESSION_REWRITE_BATCH_SIZE = 64;
 
 export function iterateDoctorSessionKeyBatches(sessionKeys: readonly string[]): string[][] {
   return chunkItems(uniqueStrings(sessionKeys).toSorted(), DOCTOR_SESSION_REWRITE_BATCH_SIZE);
-}
-
-/** Select legacy state before loading raw rows into canonical validation or runtime projection. */
-export function scanDoctorSessionEntryRecords(
-  scope: DoctorSessionScanScope,
-  visit: (record: { sessionKey: string; entry: Record<string, unknown> }) => void,
-  expectedIdentity: DatabaseFileIdentity,
-): void {
-  const resolved = resolveSqliteScope({ ...scope, sessionKey: "" });
-  const result = withOpenClawAgentDatabaseReadOnly((database) => {
-    assertOpenClawAgentDatabaseIdentity(database, expectedIdentity);
-    for (const row of iterateSqliteQuerySync(
-      database.db,
-      getSessionKysely(database.db)
-        .selectFrom("session_nodes")
-        .select(["session_key", "entry_json"])
-        .where(
-          /* kysely-allow-raw: coarse key filtering bounds parsing; JSON.parse owns duplicate-key precedence. */
-          sql<boolean>`CASE WHEN json_valid(entry_json) THEN EXISTS (
-            SELECT 1 FROM json_each(entry_json)
-            WHERE key IN (${sql.join(LEGACY_SESSION_ENTRY_STATE_FIELDS)})
-              OR key IN ('provider', 'lastProvider', 'room')
-              OR (key = 'pendingFinalDelivery' AND type IN ('true', 'false'))
-              OR (key = 'status' AND value IN ('running', 'queued'))
-          ) ELSE 1 END`,
-        ),
-    )) {
-      const entry = safeParseJsonRecord(row.entry_json);
-      if (entry) {
-        assertSupportedSessionStoreEntry(entry);
-        visit({ sessionKey: row.session_key, entry });
-      }
-    }
-  }, toDatabaseOptions(resolved));
-  if (!result.found) {
-    throw new Error(`Session database unavailable during raw state inspection: ${result.reason}`);
-  }
 }
 
 /** Startup normalizes legacy outcomes before canonical reads; clean stores stay read-only. */
@@ -92,15 +56,9 @@ export async function repairLegacySessionRunOutcomes(
 ): Promise<number> {
   assertCurrent();
   const expectedIdentity = readDatabasePathIdentitySync(scope.storePath);
-  const sessionKeys: string[] = [];
-  scanDoctorSessionEntryRecords(
-    scope,
-    ({ entry, sessionKey }) => {
-      if (entry.status === "running" || entry.status === "queued") {
-        sessionKeys.push(sessionKey);
-      }
-    },
-    expectedIdentity,
+  const sessionKeys = await withSessionHistoryWorkerDatabase(
+    { agentId: scope.agentId, path: scope.storePath, env: scope.env },
+    (reader) => reader.readRunOutcomeSessionKeys({ scope, expectedIdentity }),
   );
   assertCurrent();
   return sessionKeys.length === 0
