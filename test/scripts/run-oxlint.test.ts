@@ -705,6 +705,50 @@ describe("run-oxlint", () => {
     ).toEqual(targets.toSorted());
   });
 
+  it("partitions UI source files into disjoint bounded type-aware projects", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `view-${String(index).padStart(4, "0")}.tsx`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir: (target: string) => (target === "/repo/ui" ? (files as never) : []),
+    }).filter((shard) => shard.name.startsWith("core:source-ui:"));
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-03.json",
+    ]);
+
+    const cwd = createTempDir("openclaw-oxlint-ui-config-");
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../tsconfig.json");
+    expect(config.include).toEqual(shards[0]!.args.slice(2).map((file) => `../../../${file}`));
+
+    const coreShards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir: (target: string) => (target === "/repo/ui" ? (files as never) : []),
+    }).filter((shard) => shard.name.startsWith("core:"));
+    const stripedTargets = [1, 2, 3]
+      .flatMap((index) =>
+        selectCoreOxlintStripe(coreShards, { index, total: 3 }, { isolateLargeTargets: true }),
+      )
+      .filter((shard) => shard.name.startsWith("core:source-ui:"))
+      .flatMap((shard) => shard.args.slice(2));
+    expect(stripedTargets.toSorted()).toEqual(targets.toSorted());
+  });
+
   it("uses bounded type-aware projects for ordinary source roots in split-core mode", () => {
     const files = Array.from({ length: 129 }, (_, index) => ({
       name: `module-${String(index).padStart(4, "0")}.ts`,
@@ -831,7 +875,7 @@ describe("run-oxlint", () => {
     );
 
     const programs = stripes.flat();
-    for (const target of ["src/agents", "src/gateway", "src/infra", "ui"]) {
+    for (const target of ["src/agents", "src/gateway", "src/infra"]) {
       const program = programs.find((shard) => shard.args.slice(2).includes(target));
       expect(program?.args).toEqual([
         "--tsconfig",
@@ -841,6 +885,8 @@ describe("run-oxlint", () => {
         target,
       ]);
     }
+    const uiShards = programs.filter((shard) => shard.name.startsWith("core:source-ui:"));
+    expect(uiShards).toHaveLength(0);
     const stripeTargets = programs.flatMap((stripe) => stripe.args.slice(2));
     const sourceTargets = shards.flatMap((shard) => shard.args.slice(2));
     expect(stripeTargets.toSorted()).toEqual(sourceTargets.toSorted());

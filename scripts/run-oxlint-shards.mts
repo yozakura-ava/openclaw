@@ -91,7 +91,7 @@ const CORE_SHARD = {
   args: ["--tsconfig", "config/tsconfig/oxlint.core.json", "src", "ui", "packages"],
 };
 const CORE_TS_CONFIG = "config/tsconfig/oxlint.core.json";
-const CORE_SPLIT_TARGETS = ["ui", "packages"];
+const CORE_SPLIT_TARGETS = ["packages"];
 // Combining these targets with neighbors exceeds hosted RAM despite Go's soft heap limit.
 const ISOLATED_CORE_TARGETS = new Set(["src/agents", "src/gateway", "src/infra", "ui"]);
 const EXTENSIONS_SHARD = {
@@ -283,7 +283,21 @@ function createCoreOxlintShards({
   });
   const sourceEntries = sourceShards.length > 0 ? sourceShards : [createCoreShard("src")];
 
-  return [...sourceEntries, ...CORE_SPLIT_TARGETS.map((target) => createCoreShard(target))];
+  const uiShards = splitSourceRoots
+    ? createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: "ui",
+        prefix: "source-ui",
+        chunkSize: SOURCE_FILE_CHUNK_SIZE,
+      })
+    : [];
+  const uiEntries = splitSourceRoots && uiShards.length > 0 ? uiShards : [createCoreShard("ui")];
+  return [
+    ...sourceEntries,
+    ...uiEntries,
+    ...CORE_SPLIT_TARGETS.map((target) => createCoreShard(target)),
+  ];
 }
 
 export function createGatewayOxlintShards({
