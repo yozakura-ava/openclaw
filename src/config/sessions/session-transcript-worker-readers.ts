@@ -182,6 +182,7 @@ export function createSessionHistoryWorkerReaders(
           return { input: await readIndexStatus(signal), timeoutMs: 60_000 };
         },
       ),
+    readRunOutcomeSessionKeys: reader("session-run-outcomes", (value) => value.sessionKeys),
     readPreview: reader("session-preview", (value) => value.items),
     readTitleFields: reader("session-title-fields", (value) => value.fields),
     readWatermark: reader("transcript-watermark", (value) => value.watermark),

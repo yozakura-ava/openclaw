@@ -15,6 +15,10 @@ import type {
   SessionTranscriptReadSnapshot,
 } from "./session-history-read.types.js";
 import type { SessionTranscriptAnchorEntry } from "./session-transcript-anchor-read.types.js";
+import type {
+  SessionRunOutcomesWorkerInput,
+  SessionRunOutcomesWorkerValues,
+} from "./session-run-outcomes.types.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 
 export type { PreparedSessionTranscriptHydration } from "./session-history-read.types.js";
@@ -128,9 +132,12 @@ export type SessionTranscriptHydrationWorkerValues = {
     kind: "latest-active-message";
     message: SessionTranscriptMessageEvent | undefined;
   };
-};
+} & SessionRunOutcomesWorkerValues;
 
 export type SessionTranscriptHydrationReaders = {
+  readRunOutcomeSessionKeys: (
+    input: Omit<SessionRunOutcomesWorkerInput, "kind" | "database">,
+  ) => Promise<string[]>;
   readTranscript: (
     input: Omit<SessionTranscriptHydrationWorkerInput, "kind" | "database">,
     signal?: AbortSignal,
