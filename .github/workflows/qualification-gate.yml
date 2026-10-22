@@ -35,10 +35,11 @@ concurrency:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   NODE_VERSION: "24.21.0"
+  QUALIFICATION_MODE: ${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }}
 
 jobs:
-  qualification:
-    name: Complete build, lint, and type inventory (${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }})
+  build:
+    name: Build and package qualification leaves (${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }})
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
@@ -49,26 +50,24 @@ jobs:
           fetch-depth: 1
           persist-credentials: false
           submodules: false
-
       - name: Record checked-out source SHA
         id: source-sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
+      - name: Derive shared qualification receipt identity
+        run: printf 'OPENCLAW_QUALIFICATION_RUN_ID=00000000-0000-4000-8000-%012d\n' "$GITHUB_RUN_ID" >> "$GITHUB_ENV"
       - name: Validate paired-run cache identifier
         env:
           CACHE_ID: ${{ inputs.cache_id || github.event.pull_request.head.sha || github.sha }}
         run: '[[ "$CACHE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]'
-
       - name: Setup Node environment
         uses: ./.github/actions/setup-node-env
         with:
-          cache-mode: ${{ ((github.event_name == 'pull_request' && github.run_attempt > 1) || inputs.cache_mode == 'restored') && 'restore' || 'off' }}
+          cache-mode: ${{ env.QUALIFICATION_MODE == 'restored' && 'restore' || 'off' }}
           install-bun: "false"
           semantic-checks: "true"
           node-version: ${{ env.NODE_VERSION }}
-
       - name: Restore qualification compiler and declaration caches
-        if: (github.event_name == 'pull_request' && github.run_attempt > 1) || inputs.cache_mode == 'restored'
+        if: env.QUALIFICATION_MODE == 'restored'
         id: qualification-cache-restore
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -78,23 +77,227 @@ jobs:
             .artifacts/extension-package-boundary
             packages/plugin-sdk/dist
           key: qualification-v1-${{ inputs.cache_id || steps.source-sha.outputs.sha }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
-
       - name: Require restored cache generation
-        if: (github.event_name == 'pull_request' && github.run_attempt > 1) || inputs.cache_mode == 'restored'
+        if: env.QUALIFICATION_MODE == 'restored'
         env:
           CACHE_HIT: ${{ steps.qualification-cache-restore.outputs.cache-hit }}
         run: test "$CACHE_HIT" = true
+      - name: Run build and package leaves
+        run: node --import ./scripts/tsx.mjs scripts/run-qualification-gate.mts --group=build
+      - name: Upload build and package receipts
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-evidence-build-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+          path: .artifacts/qualification
+      - name: Archive build outputs for isolated check runners
+        run: |
+          mkdir -p .artifacts/build-all-cache
+          tar -cf .artifacts/qualification-build-outputs.tar \
+            dist dist-runtime packages .artifacts/build-all-cache .artifacts/extension-package-boundary
+      - name: Upload build outputs
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-build-outputs-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          if-no-files-found: error
+          include-hidden-files: true
+          retention-days: 2
+          path: .artifacts/qualification-build-outputs.tar
 
-      - name: Run every qualified build and type leaf serially
+  lint:
+    name: ${{ matrix.group }} qualification leaves (${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [lint-core, lint-extensions, lint-support]
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Record checked-out source SHA
+        id: source-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Derive shared qualification receipt identity
+        run: printf 'OPENCLAW_QUALIFICATION_RUN_ID=00000000-0000-4000-8000-%012d\n' "$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+      - name: Validate paired-run cache identifier
         env:
-          OPENCLAW_QUALIFICATION_MODE: ${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }}
-        run: node --import ./scripts/tsx.mjs scripts/run-qualification-gate.mts
+          CACHE_ID: ${{ inputs.cache_id || github.event.pull_request.head.sha || github.sha }}
+        run: '[[ "$CACHE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]'
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: ${{ env.QUALIFICATION_MODE == 'restored' && 'restore' || 'off' }}
+          install-bun: "false"
+          semantic-checks: "true"
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Restore qualification compiler and declaration caches
+        if: env.QUALIFICATION_MODE == 'restored'
+        id: qualification-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .artifacts/tsgo-cache
+            .artifacts/build-all-cache
+            .artifacts/extension-package-boundary
+            packages/plugin-sdk/dist
+          key: qualification-v1-${{ inputs.cache_id || steps.source-sha.outputs.sha }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Require restored cache generation
+        if: env.QUALIFICATION_MODE == 'restored'
+        env:
+          CACHE_HIT: ${{ steps.qualification-cache-restore.outputs.cache-hit }}
+        run: test "$CACHE_HIT" = true
+      - name: Download build outputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: qualification-build-outputs-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          path: .artifacts
+      - name: Restore build outputs
+        run: tar -xf .artifacts/qualification-build-outputs.tar -C .
+      - name: Run lint leaves
+        run: node --import ./scripts/tsx.mjs scripts/run-qualification-gate.mts --group=${{ matrix.group }}
+      - name: Upload lint receipts and evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-evidence-${{ matrix.group }}-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+          path: .artifacts/qualification
 
+  types:
+    name: ${{ matrix.group }} qualification leaves (${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [types-core, types-tests, types-other]
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Record checked-out source SHA
+        id: source-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Derive shared qualification receipt identity
+        run: printf 'OPENCLAW_QUALIFICATION_RUN_ID=00000000-0000-4000-8000-%012d\n' "$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+      - name: Validate paired-run cache identifier
+        env:
+          CACHE_ID: ${{ inputs.cache_id || github.event.pull_request.head.sha || github.sha }}
+        run: '[[ "$CACHE_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$ ]]'
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: ${{ env.QUALIFICATION_MODE == 'restored' && 'restore' || 'off' }}
+          install-bun: "false"
+          semantic-checks: "true"
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Restore qualification compiler and declaration caches
+        if: env.QUALIFICATION_MODE == 'restored'
+        id: qualification-cache-restore
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .artifacts/tsgo-cache
+            .artifacts/build-all-cache
+            .artifacts/extension-package-boundary
+            packages/plugin-sdk/dist
+          key: qualification-v1-${{ inputs.cache_id || steps.source-sha.outputs.sha }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Require restored cache generation
+        if: env.QUALIFICATION_MODE == 'restored'
+        env:
+          CACHE_HIT: ${{ steps.qualification-cache-restore.outputs.cache-hit }}
+        run: test "$CACHE_HIT" = true
+      - name: Download build outputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: qualification-build-outputs-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          path: .artifacts
+      - name: Restore build outputs
+        run: tar -xf .artifacts/qualification-build-outputs.tar -C .
+      - name: Run type leaves
+        run: node --import ./scripts/tsx.mjs scripts/run-qualification-gate.mts --group=${{ matrix.group }}
+      - name: Upload type receipts and evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-evidence-${{ matrix.group }}-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 30
+          path: .artifacts/qualification
+      - name: Upload type compiler caches
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: qualification-type-cache-${{ matrix.group }}-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          if-no-files-found: warn
+          include-hidden-files: true
+          retention-days: 2
+          path: .artifacts/tsgo-cache
+
+  aggregate:
+    name: Aggregate and verify exact qualification inventory (${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }})
+    needs: [build, lint, types]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+      - name: Record checked-out source SHA
+        id: source-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: off
+          install-bun: "false"
+          semantic-checks: "true"
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Download build outputs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: qualification-build-outputs-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          path: .artifacts
+      - name: Restore build outputs
+        run: tar -xf .artifacts/qualification-build-outputs.tar -C .
+      - name: Download all leaf receipts and evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: qualification-evidence-*-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          path: .artifacts/qualification
+          merge-multiple: true
+      - name: Download type compiler caches
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: qualification-type-cache-*-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
+          path: .artifacts/tsgo-cache
+          merge-multiple: true
       - name: Validate exact receipt manifest
         run: scripts/ci-run-scoped-build.sh node --import ./scripts/tsx.mjs scripts/aggregate-qualification-receipts.mts
-
       - name: Save cold qualification cache
-        if: success() && ((github.event_name == 'pull_request' && github.run_attempt == 1) || inputs.cache_mode == 'cold')
+        if: env.QUALIFICATION_MODE == 'cold'
         uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v6.1.0
         with:
           path: |
@@ -103,12 +306,12 @@ jobs:
             .artifacts/extension-package-boundary
             packages/plugin-sdk/dist
           key: qualification-v1-${{ inputs.cache_id || steps.source-sha.outputs.sha }}-${{ steps.source-sha.outputs.sha }}-${{ hashFiles('pnpm-lock.yaml') }}
-
-      - name: Upload qualification evidence
+      - name: Upload aggregate qualification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: qualification-${{ github.event_name == 'pull_request' && (github.run_attempt > 1 && 'restored' || 'cold') || inputs.cache_mode }}-${{ steps.source-sha.outputs.sha }}
+          name: qualification-${{ env.QUALIFICATION_MODE }}-${{ steps.source-sha.outputs.sha }}-a${{ github.run_attempt }}
           if-no-files-found: warn
+          include-hidden-files: true
           retention-days: 30
           path: .artifacts/qualification
