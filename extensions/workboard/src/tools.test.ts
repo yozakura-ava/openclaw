@@ -76,6 +76,30 @@ describe("workboard tools", () => {
     });
   });
 
+  it("preserves authorship across safely split oversized comments", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Chunked comment" });
+    const comment = expectDefined(
+      createWorkboardTools({ store, context: { agentId: "writer-8" } }).find(
+        (tool) => tool.name === "workboard_comment",
+      ),
+      "comment",
+    );
+    const body = "word ".repeat(1_000);
+
+    await comment.execute("comment", { id: card.id, body });
+
+    const updated = await store.get(card.id);
+    expect(updated?.metadata?.comments).toHaveLength(2);
+    expect(updated?.metadata?.comments?.every((entry) => entry.body.length <= 4096)).toBe(true);
+    expect(updated?.metadata?.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actorId: "writer-8", actorKind: "agent" }),
+        expect.objectContaining({ body: expect.stringMatching(/\(2\/2\)$/), actorId: "writer-8" }),
+      ]),
+    );
+  });
+
   it("passes live invocation authority through the default-on Sessions board factory", async () => {
     const store = createWorkboardSqliteTestStore();
     await startEmptySessionsBoardService(store);
