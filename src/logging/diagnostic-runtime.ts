@@ -2,11 +2,7 @@ import {
   areDiagnosticsEnabledForProcess,
   emitInternalDiagnosticEvent as emitDiagnosticEvent,
 } from "../infra/diagnostic-events.js";
-import {
-  getDiagnosticSessionState,
-  touchDiagnosticSessionState,
-  type SessionRef,
-} from "./diagnostic-session-state.js";
+import { getDiagnosticSessionState, type SessionRef } from "./diagnostic-session-state.js";
 import { createSubsystemLogger } from "./subsystem.js";
 
 export const diagnosticLogger = createSubsystemLogger("diagnostic");

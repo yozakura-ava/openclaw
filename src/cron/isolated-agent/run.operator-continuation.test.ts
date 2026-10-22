@@ -48,10 +48,6 @@ import {
   SESSION_ID,
   stateDir,
 } from "../../gateway/server-methods/requester-cron-authority.test-support.js";
-<<<<<<< HEAD
-=======
-import { createWorkerSessionPlacementStore } from "../../gateway/worker-environments/placement-store.js";
->>>>>>> 97b6e87616f
 import {
   bindGatewayContextResolver,
   clearGatewayContextResolver,
@@ -92,28 +88,6 @@ const session = await vi.importActual<typeof import("./session.js")>("./session.
 const accessor = await vi.importActual<
   typeof import("../../config/sessions/session-accessor.sqlite-entry.js")
 >("../../config/sessions/session-accessor.sqlite-entry.js");
-=======
-const sessionRunner = vi.hoisted(() => ({
-  runEmbedded: vi.fn<typeof import("../../agents/embedded-agent-runner/run.js").runEmbeddedAgent>(),
-}));
-// mock-isolation: Only model execution is synthetic; scheduled admission and publication stay real.
-vi.mock("../../agents/embedded-agent-runner/run.js", () => ({
-  runEmbeddedAgent: sessionRunner.runEmbedded,
-}));
-
-const runCronIsolatedAgentTurn = await loadRunCronIsolatedAgentTurn();
-const { resolveAgentDir } = await import("./run.runtime.js");
-await Promise.all([
-  import("../../auto-reply/dispatch.js"),
-  import("../../auto-reply/reply/get-reply-from-config.runtime.js").then((runtime) =>
-    runtime.prewarmConfigDrivenReplyRuntime(),
-  ),
-]);
-const session = await vi.importActual<typeof import("./session.js")>("./session.js");
-const accessor = await vi.importActual<typeof import("../../config/sessions/session-accessor.js")>(
-  "../../config/sessions/session-accessor.js",
-);
->>>>>>> 97b6e87616f
 installRequesterCronAuthorityTestHooks();
 
 beforeEach(() => {
@@ -391,85 +365,6 @@ describe("same-conversation scheduled operator continuation", () => {
       );
     }
 
-<<<<<<< HEAD
-    let entered = 0;
-    let offered: unknown;
-    let restored: { profileId: string; scopes: readonly string[] } | undefined;
-    let revokedDuringRun: string | undefined;
-=======
-    // A prior publication receipt is a fixed input to the action owner. Publication
-    // creation/storage and actual GitHub credentials are outside this regression.
-    const publication: SessionGitHubPublicationPublished = {
-      status: "published",
-      requestId: "27878d29-9f2e-462d-a68a-4e9b4ba27685",
-      repository: "fixture/repository",
-      branch: "reviewed-change",
-      headCommit: "a".repeat(40),
-      url: "https://github.com/fixture/repository/pull/7",
-      publisher: {
-        source: "agent-override",
-        accountId: 42,
-        login: "roboclaw-bot",
-      },
-    };
-    const coordinator = createGitHubPublicationCoordinator({
-      placements: createWorkerSessionPlacementStore(),
-      getCommittedRuntimeConfig: () => config,
-    });
-    context.githubPublicationService = coordinator;
-    const receipt = vi
-      .spyOn(coordinator, "latestShared")
-      .mockResolvedValue({ result: publication, confirmation: null });
-    vi.spyOn(publicationIdentity, "prepareCurrentGitHubPublicationIdentity").mockResolvedValue({
-      source: "agent-override",
-      account: { accountId: 42, login: "roboclaw-bot", avatarUrl: null },
-      env: {},
-    });
-    vi.spyOn(publicationIdentity, "matchesCurrentGitHubPublicationIdentity").mockReturnValue(true);
-    let merged = false;
-    let reads = 0;
-    const writes: unknown[] = [];
-    const github = vi
-      .spyOn(publicationTransport, "runPublicationCommand")
-      .mockImplementation(async (argv, options) => {
-        options?.beforeRun?.();
-        if (argv.includes("PUT") && argv.includes("repos/fixture/repository/pulls/7/merge")) {
-          writes.push(JSON.parse(String(options?.input)));
-          merged = true;
-        } else {
-          expect(argv).toContain("GET");
-          expect(argv).toContain("repos/fixture/repository/pulls/7");
-          reads++;
-          if (scenario === "role revoked during merge" && reads === 2) {
-            // Inspect already succeeded. Revoke while merge's preflight read is
-            // awaited, before the action owner can perform its final write.
-            await setCanonicalUserProfileRole(profile.id, "blocked");
-          }
-        }
-        return {
-          code: 0,
-          termination: "exit" as const,
-          signal: null,
-          killed: false,
-          stderr: Buffer.alloc(0),
-          stdout: Buffer.from(
-            JSON.stringify({
-              node_id: "fixture-pr",
-              html_url: publication.url,
-              title: "Reviewed change",
-              body: "Reviewed",
-              state: merged ? "closed" : "open",
-              draft: false,
-              merged,
-              head: { ref: publication.branch, sha: publication.headCommit },
-              base: { repo: { full_name: publication.repository } },
-              mergeable: true,
-              mergeable_state: "clean",
-              merge_commit_sha: merged ? "b".repeat(40) : null,
-            }),
-          ),
-        };
-      });
     let entered = 0;
     let offered: unknown;
     const results: unknown[] = [];
@@ -481,13 +376,6 @@ describe("same-conversation scheduled operator continuation", () => {
         params.preparedRunAdmission,
         "scheduled admission",
       ).admit("gateway", params.runId);
-<<<<<<< HEAD
-=======
-      // Session admission settles only after the runner reports execution start.
-      params.onExecutionPhase?.({ phase: "model_call_started" });
-      await params.onExecutionStarted?.();
-      await params.onAgentEvent?.({ stream: "lifecycle", data: { phase: "start" } });
->>>>>>> 97b6e87616f
       return withPreparedEmbeddedGatewayTools(
         {
           admittedRunContext: admitted,
@@ -590,19 +478,6 @@ describe("same-conversation scheduled operator continuation", () => {
       enqueueSystemEvent: vi.fn(),
       requestHeartbeat: vi.fn(),
       runSchedulerOwned: createScheduledGatewayRunner(() => context),
-<<<<<<< HEAD
-=======
-      runSessionEvent: (request) =>
-        runCronSessionTurn({
-          ...request,
-          cfg: config,
-          agentId: "main",
-          sessionKey: expectDefined(
-            resolveCronSessionTargetSessionKey(request.job.sessionTarget),
-            "explicit continuation session target",
-          ),
-        }),
->>>>>>> 97b6e87616f
       runIsolatedAgentJob: (request) =>
         runCronIsolatedAgentTurn({
           ...request,

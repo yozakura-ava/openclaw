@@ -43,25 +43,11 @@ import {
   reconcileInvalidHarnessCompletion,
 } from "./main-session-restart-recovery-checkpoint.js";
 import {
-  hasRestartRecoveryMessageActionAuthority,
-  requiresRestartRecoveryMessageActionAuthority,
-} from "./main-session-restart-recovery-delivery.js";
-import {
   skippedMainSessionRecoveryDecision,
   type MainSessionRecoveryDecision,
   type MainSessionRecoverySkipReason,
 } from "./main-session-restart-recovery-diagnostics.js";
-<<<<<<< HEAD
-import {
-  finishDelegatedRestartRecovery,
-=======
-import { loadExpectedRestartRecoveryTarget } from "./main-session-restart-recovery-exact-target.js";
-import {
-  finishDelegatedRestartRecovery,
-  requiresDelegatedRecoverySource,
->>>>>>> 97b6e87616f
-  tombstoneMainRestartRecoveryWithNotice,
-} from "./main-session-restart-recovery-failure.js";
+import { tombstoneMainRestartRecoveryWithNotice } from "./main-session-restart-recovery-failure.js";
 import {
   hasReplaySafeCodeModeCheckpointInCurrentTurn,
   resolveMainSessionResumePolicy,
@@ -163,6 +149,29 @@ async function completePendingFinalRecoveryWithNotice(
     { skipMaintenance: true, takeCacheOwnership: true },
   );
   return completed;
+}
+
+export function loadExpectedRestartRecoveryTarget(params: {
+  expected: ExpectedRestartRecoveryTarget;
+  storePath: string;
+}): SessionEntry | undefined {
+  const exact = loadExactSessionEntry({
+    ...params.expected,
+    storePath: params.storePath,
+    readConsistency: "latest",
+  });
+  const entry = exact?.sessionKey === params.expected.sessionKey ? exact.entry : undefined;
+  return entry?.sessionId === params.expected.sessionId &&
+    hasMainSessionRecoveryClaim(entry) &&
+    entry.abortedLastRun === true &&
+    (params.expected.claim
+      ? normalizeOptionalString(entry.restartRecoveryDeliveryRunId) ===
+          params.expected.claim.runId &&
+        normalizeOptionalString(entry.restartRecoveryDeliverySourceRunId) ===
+          params.expected.claim.sourceRunId
+      : isMainRestartRecoveryCandidate(entry, params.expected.sessionKey))
+    ? entry
+    : undefined;
 }
 
 export async function recoverStore(params: {
@@ -539,44 +548,7 @@ export async function recoverStore(params: {
             source === "harness_completion") &&
             entry.restartRecoverySourceIngress === "internal"))
       ) {
-=======
-        !harnessCompletion &&
-        entry.restartRecoverySourceIngress === "internal" &&
-        expectedRecoverySourceRunId?.startsWith("announce:requester-settle:")
-      ) {
-        try {
-          const { prepareRequesterSettleWakeRecoverySource } =
-            await import("../subagents/registry/subagent-registry.js");
-          completionSource = await prepareRequesterSettleWakeRecoverySource({
-            runId: expectedRecoverySourceRunId,
-            requesterSessionKey: dispatchSessionKey,
-            requesterAgentId: agentId,
-            sessionId: entry.sessionId,
-            lifecycleRevision: entry.lifecycleRevision,
-            storePath: params.storePath,
-            gatewayRuntime: params.gatewayRuntime,
-          });
-          if (!completionSource || !entry.restartRecoveryOperatorSource) {
-            throw new Error(
-              "Requester settle recovery lacks its original cohort or operator authority",
-            );
-          }
-          completionSource();
-        } catch (error) {
-          mainSessionRecoveryLog.warn(
-            `requester settle recovery source unavailable for ${sessionKey}: ${String(error)}`,
-          );
-          result.failed++;
-          continue;
-        }
-      }
-      if (
-        !recoverableHarnessCompletion &&
-        !completionSource &&
-        requiresDelegatedRecoverySource(entry, source)
-      ) {
->>>>>>> 97b6e87616f
-        const outcome = await finishDelegatedRestartRecovery({
+        const tombstone = await tombstoneMainRestartRecoveryWithNotice({
           ...target,
           cfg: params.cfg,
           entry,
@@ -584,7 +556,7 @@ export async function recoverStore(params: {
           observation: recoveryView.observation,
           reason: "delegated recovery sender authority is unavailable",
         });
-        if (outcome === "notice_failed") {
+        if (tombstone === "notice_failed") {
           result.failed++;
         } else {
           skip("delegated_authority_unavailable");

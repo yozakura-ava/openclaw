@@ -9,7 +9,6 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { isTrustedMessageActionTurnIngress } from "../../gateway/message-action-turn-capability.js";
 import type { GatewayRecoveryRuntime } from "../../gateway/server-instance-runtime.types.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
-import { assertExistingDatabaseIdentity } from "../../infra/sqlite-worker-identity.js";
 import { resolveSendPolicy } from "../../sessions/send-policy.js";
 import { registerOpenClawAgentDatabaseAsyncResource } from "../../state/openclaw-agent-db-resources.js";
 import { deliveryContextFromSession } from "../../utils/delivery-context.read.js";
@@ -21,22 +20,6 @@ import {
 import { isDeliverableMessageChannel } from "../../utils/message-channel.js";
 import type { MainSessionRecoveryStoreTarget } from "./main-session-recovery-store.js";
 import { mainSessionRecoveryLog } from "./main-session-restart-recovery-shared.js";
-
-export function hasRestartRecoveryMessageActionAuthority(entry: SessionEntry): boolean {
-  const authority = resolveRestartRecoveryChannelAuthority(entry);
-  // Keep the pre-dispatch gate identical to recovered capability minting.
-  return (
-    authority !== undefined && isTrustedMessageActionTurnIngress(authority.deliveryContext.channel)
-  );
-}
-
-/** Internal continuations never inherit channel authority; every other message-tool recovery must. */
-export function requiresRestartRecoveryMessageActionAuthority(entry: SessionEntry): boolean {
-  return (
-    entry.restartRecoverySourceReplyDeliveryMode === "message_tool_only" &&
-    entry.restartRecoverySourceIngress !== "internal"
-  );
-}
 
 export function resolveRestartRecoveryDeliveryContext(params: {
   cfg?: OpenClawConfig;

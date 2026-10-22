@@ -86,131 +86,6 @@ afterAll(async () => {
   await state?.cleanup();
 });
 
-<<<<<<< HEAD
-=======
-it.each([
-  "before planning",
-  "before commit",
-  "user abort",
-  "replacement",
-  "newer run",
-  "reset",
-  "non-main",
-  "completed",
-] as const)("revalidates collected shutdown recovery custody after %s", async (releaseAt) => {
-  const sessionKey = `agent:main:dashboard:released-${releaseAt}`;
-  const sessionId = `released-${releaseAt}`;
-  const runId = `${sessionId}-run`;
-  const target = { storePath, sessionKey };
-  await replaceSessionEntry(target, { sessionId, updatedAt: 1, lifecycleRunId: runId });
-  const resolveGatewayContext = () => undefined;
-  const admission = await beginSessionWorkAdmission({
-    scope: storePath,
-    identities: [sessionKey, sessionId],
-    resolveGatewayContext,
-    assertAllowed: () => {},
-  });
-  const chatAbortControllers = new Map<string, ChatAbortControllerEntry>();
-  const registration = registerChatAbortController({
-    chatAbortControllers,
-    runId,
-    sessionKey,
-    sessionId,
-    timeoutMs: 60_000,
-  });
-  const shouldMark = releaseAt === "before planning" || releaseAt === "before commit";
-  if (releaseAt !== "user abort") {
-    registration.controller.abort(createAgentRunRestartAbortError());
-  }
-  const release = () => {
-    registration.cleanup();
-    admission.release();
-    expect(chatAbortControllers.has(runId)).toBe(false);
-    expect(admission.isActive()).toBe(false);
-  };
-  const apply = sessionAccessor.applySessionEntryReplacements;
-  const replacementSpy = vi.spyOn(sessionAccessor, "applySessionEntryReplacements");
-  if (releaseAt === "before commit") {
-    replacementSpy.mockImplementationOnce((params) =>
-      apply({
-        ...params,
-        update: async (entries) => {
-          const prepared = await params.update(entries);
-          release();
-          return prepared;
-        },
-      }),
-    );
-  }
-  const harness = createAgentEventTestHarness();
-  let replacement: ReturnType<typeof registerChatAbortController> | undefined;
-  try {
-    await prepareGatewayRunShutdown({
-      resolveGatewayContext,
-      restart: true,
-      timeoutMs: 0,
-      warnings: [],
-      getPendingReplyCount: () => 0,
-      chatAbortControllers,
-      chatQueuedTurns: new Map(),
-      chatRunState: harness.chatRunState,
-      agentRunSeq: harness.agentRunSeq,
-      removeChatRun: () => undefined,
-      broadcast: harness.broadcast,
-      nodeSendToSession: harness.nodeSendToSession,
-      markMainSessionsAbortedForRestart: async (params) => {
-        if (releaseAt === "user abort") {
-          registration.controller.abort(createAgentRunDirectAbortError());
-        }
-        if (releaseAt === "completed" && registration.registered) {
-          registration.entry.projectSessionTerminalPersisted = true;
-        }
-        if (releaseAt !== "before commit") {
-          release();
-        }
-        if (releaseAt === "replacement" || releaseAt === "newer run") {
-          replacement = registerChatAbortController({
-            chatAbortControllers,
-            runId: releaseAt === "newer run" ? "newer-run" : runId,
-            sessionKey,
-            sessionId,
-            timeoutMs: 60_000,
-          });
-        }
-        if (releaseAt === "newer run" || releaseAt === "reset" || releaseAt === "non-main") {
-          await replaceSessionEntry(target, {
-            sessionId: releaseAt === "reset" ? "reset-session" : sessionId,
-            lifecycleRunId: releaseAt === "newer run" ? "newer-run" : runId,
-            restartRecoveryDeliveryRunId: runId,
-            updatedAt: Date.now(),
-            ...(releaseAt === "non-main" ? { spawnDepth: 1 } : {}),
-          });
-        }
-        await markRestartAbortedMainSessions({ ...params, cfg, stateDir: state.stateDir });
-      },
-    });
-    const saved = loadSessionEntry(target);
-    if (shouldMark) {
-      expect(saved).toMatchObject({
-        status: "interrupted",
-        abortedLastRun: true,
-        mainRestartRecovery: { cycleId: expect.any(String) },
-        restartRecoveryRuns: [{ runId, lifecycleGeneration: getAgentEventLifecycleGeneration() }],
-      });
-    } else {
-      expect(saved?.mainRestartRecovery).toBeUndefined();
-      expect(saved?.abortedLastRun).not.toBe(true);
-    }
-  } finally {
-    replacementSpy.mockRestore();
-    registration.cleanup();
-    replacement?.cleanup();
-    admission.release();
-    await harness.handler.dispose();
-  }
-});
-
->>>>>>> 97b6e87616f
 it.each(["admission", "queue", "delegated"] as const)(
   "retains %s work through shutdown and gives it one explicit recovery outcome",
   async (kind) => {
@@ -320,15 +195,16 @@ it.each(["admission", "queue", "delegated"] as const)(
       await recover();
       if (kind === "delegated") {
         expect(gatewayRuntime.dispatchAgent).not.toHaveBeenCalled();
-        const settled = loadSessionEntry(target);
-        expect(settled).toMatchObject({
-          status: "interrupted",
+        expect(loadSessionEntry(target)).toMatchObject({
+          status: "failed",
           abortedLastRun: false,
+          mainRestartRecovery: {
+            tombstone: { reason: "delegated recovery sender authority is unavailable" },
+          },
         });
-        expect(settled?.mainRestartRecovery).toBeUndefined();
         const transcript = JSON.stringify(await loadTranscriptEvents({ ...target, sessionId }));
         expect(transcript).toContain("delegated recovery sender authority is unavailable");
-        expect(transcript.match(/Send a new authenticated message to continue/g)).toHaveLength(1);
+        expect(transcript.match(/Resume in new session/g)).toHaveLength(1);
         expect(recoveryLog).toHaveBeenCalledWith(
           expect.stringContaining('"reason":"delegated_authority_unavailable"'),
         );
