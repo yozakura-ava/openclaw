@@ -17,6 +17,7 @@ type DurableHistoryReadOperationRequest = Extract<
       | "transcript-match"
       | "branch-summaries"
       | "session-title-fields"
+      | "session-run-outcomes"
       | "session-preview"
       | "model-context"
       | "context-messages"
@@ -54,6 +55,7 @@ export function isSessionHistoryReadOperation(
     case "transcript-match":
     case "branch-summaries":
     case "session-title-fields":
+    case "session-run-outcomes":
     case "session-preview":
     case "model-context":
     case "context-messages":
@@ -370,6 +372,23 @@ async function prepareHistoryRead(
             readOnly: true,
           }),
         }));
+    }
+    case "session-run-outcomes": {
+      const { scanDoctorSessionEntryRecords } =
+        await import("../../commands/doctor/shared/session-entry-scan.js");
+      return () => {
+        const sessionKeys: string[] = [];
+        scanDoctorSessionEntryRecords(
+          request.scope,
+          ({ entry, sessionKey }) => {
+            if (entry.status === "running" || entry.status === "queued") {
+              sessionKeys.push(sessionKey);
+            }
+          },
+          request.expectedIdentity,
+        );
+        return { kind: request.kind, sessionKeys };
+      };
     }
     case "session-preview": {
       const { readSessionPreviewItemsReadOnly } =
