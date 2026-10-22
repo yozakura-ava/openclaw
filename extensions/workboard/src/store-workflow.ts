@@ -13,6 +13,7 @@ import {
 } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import { normalizeActor } from "./actor-attribution.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -247,12 +248,13 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       }
     }
     const summary = normalizeBoundedString(input.summary, undefined, 2000, "summary");
+    const actor = normalizeActor(input);
     const proofInput = isRecord(input.proof) ? input.proof : undefined;
     const proofId = normalizeBoundedString(input.proofId, undefined, 120, "proof id");
     if (input.proofId !== undefined && !proofId) {
       throw new Error("proofId must be a non-empty string.");
     }
-    const proof = proofInput ? normalizeProofInput(proofInput, now) : undefined;
+    const proof = proofInput ? normalizeProofInput({ ...proofInput, ...actor }, now) : undefined;
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
           .map((artifact) => normalizeArtifact({ ...artifact, createdAt: now }))
@@ -281,7 +283,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
             },
             metadata.automation,
           ),
-          comments: appendComment(metadata.comments, summary, now),
+          comments: appendComment(metadata.comments, summary, now, actor),
           proof: appendCompletionProof(metadata.proof, proof, proofId),
           artifacts: artifacts.length
             ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)

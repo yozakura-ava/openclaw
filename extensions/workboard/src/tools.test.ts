@@ -22,6 +22,60 @@ function readPayload(result: unknown): Record<string, unknown> {
 }
 
 describe("workboard tools", () => {
+  it("persists comment and proof authorship through normalized child rows", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Authored evidence" });
+    const tools = new Map(
+      createWorkboardTools({ store, context: { agentId: "writer-7" } }).map((tool) => [
+        tool.name,
+        tool,
+      ]),
+    );
+
+    await expectDefined(tools.get("workboard_comment"), "comment").execute("comment", {
+      id: card.id,
+      body: "Authored comment",
+    });
+    await expectDefined(tools.get("workboard_proof"), "proof").execute("proof", {
+      id: card.id,
+      status: "passed",
+      note: "Authored proof",
+    });
+
+    await store.update(card.id, { notes: "Unrelated update" });
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      metadata: {
+        comments: [
+          expect.objectContaining({
+            body: "Authored comment",
+            actorId: "writer-7",
+            actorKind: "agent",
+          }),
+        ],
+        proof: [
+          expect.objectContaining({
+            note: "Authored proof",
+            actorId: "writer-7",
+            actorKind: "agent",
+          }),
+        ],
+      },
+    });
+  });
+
+  it("leaves direct writes unattributed when author identity is unknown", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Unattributed evidence" });
+    await store.addComment(card.id, { body: "No caller context" });
+    await store.addProof(card.id, { status: "unknown", note: "No caller context" });
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      metadata: {
+        comments: [expect.not.objectContaining({ actorId: expect.anything() })],
+        proof: [expect.not.objectContaining({ actorId: expect.anything() })],
+      },
+    });
+  });
+
   it("passes live invocation authority through the default-on Sessions board factory", async () => {
     const store = createWorkboardSqliteTestStore();
     await startEmptySessionsBoardService(store);

@@ -143,6 +143,8 @@ const WORKBOARD_SCHEMA_SQL = `
       card_id TEXT NOT NULL REFERENCES workboard_cards(id) ON DELETE CASCADE,
       ordinal INTEGER NOT NULL,
       body TEXT NOT NULL,
+      actor_id TEXT,
+      actor_kind TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER
     ) STRICT;
@@ -171,6 +173,8 @@ const WORKBOARD_SCHEMA_SQL = `
       command TEXT,
       url TEXT,
       note TEXT,
+      actor_id TEXT,
+      actor_kind TEXT,
       created_at INTEGER NOT NULL
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_proof_card_idx
@@ -277,6 +281,10 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
   ensureColumn(db, "workboard_boards", "automation_job_id", "automation_job_id TEXT");
   ensureColumn(db, "workboard_boards", "kind", "kind TEXT");
   ensureColumn(db, "workboard_boards", "sessions_spec", "sessions_spec TEXT");
+  ensureColumn(db, "workboard_card_comments", "actor_id", "actor_id TEXT");
+  ensureColumn(db, "workboard_card_comments", "actor_kind", "actor_kind TEXT");
+  ensureColumn(db, "workboard_card_proof", "actor_id", "actor_id TEXT");
+  ensureColumn(db, "workboard_card_proof", "actor_kind", "actor_kind TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")

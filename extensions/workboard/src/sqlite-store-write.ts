@@ -172,6 +172,8 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     id: (entry) => entry.id,
     card_id: () => card.id,
     body: (entry) => entry.body,
+    actor_id: (entry) => bindNull((entry as typeof entry & { actorId?: string }).actorId),
+    actor_kind: (entry) => bindNull((entry as typeof entry & { actorKind?: string }).actorKind),
     created_at: (entry) => entry.createdAt,
     updated_at: (entry) => bindNull(entry.updatedAt),
   });
@@ -192,6 +194,8 @@ export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
     command: (entry) => bindNull(entry.command),
     url: (entry) => bindNull(entry.url),
     note: (entry) => bindNull(entry.note),
+    actor_id: (entry) => bindNull((entry as typeof entry & { actorId?: string }).actorId),
+    actor_kind: (entry) => bindNull((entry as typeof entry & { actorKind?: string }).actorKind),
     created_at: (entry) => entry.createdAt,
   });
   insertChildren(db, "workboard_card_artifacts", card.id, metadata?.artifacts, {

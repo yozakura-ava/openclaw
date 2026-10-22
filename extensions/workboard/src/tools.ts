@@ -3,6 +3,7 @@ import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { resolveIntegerOption } from "openclaw/plugin-sdk/number-runtime";
 import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sdk/plugin-entry";
 import { Type } from "typebox";
+import type { WorkboardActor } from "./actor-attribution.js";
 import { redactClaimToken } from "./card-redaction.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
 import type { WorkboardStore } from "./store.js";
@@ -17,6 +18,11 @@ import { createWorkboardOrchestrationTools } from "./tools-orchestration.js";
 
 function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
+}
+
+function contextActor(ctx: OpenClawPluginToolContext | undefined): WorkboardActor | undefined {
+  const actorId = ctx?.agentId || ctx?.sessionKey || ctx?.sessionId;
+  return actorId ? { actorId, actorKind: "agent" } : undefined;
 }
 
 function summarizeCard(card: WorkboardCard) {
@@ -72,6 +78,7 @@ export function createWorkboardTools(params: {
 }): AnyAgentTool[] {
   const { store } = params;
   const ownerId = contextOwner(params.context);
+  const actor = contextActor(params.context);
   const { readScopedCardToolParams, scopedCardMutation, claimedCardMutation } =
     createWorkboardCardMutations(store, ownerId);
   const tools: AnyAgentTool[] = [
@@ -249,7 +256,7 @@ export function createWorkboardTools(params: {
         token: ScopedClaimTokenField,
       }),
       execute: scopedCardMutation((id, record, scope) =>
-        store.addComment(id, { body: record.body }, scope),
+        store.addComment(id, { body: record.body, ...actor }, scope),
       ),
     },
     {
@@ -275,7 +282,7 @@ export function createWorkboardTools(params: {
         const card = hasArtifact
           ? await store.addProofWithArtifact(
               id,
-              record,
+              { ...record, ...actor },
               {
                 label: record.label,
                 path: record.artifactPath,
@@ -283,7 +290,7 @@ export function createWorkboardTools(params: {
               },
               scope,
             )
-          : await store.addProof(id, record, scope);
+          : await store.addProof(id, { ...record, ...actor }, scope);
         return redactedProofResult(card);
       },
     },
@@ -326,7 +333,9 @@ export function createWorkboardTools(params: {
           Type.Array(Type.String(), { description: "Cards created during this run." }),
         ),
       }),
-      execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
+      execute: claimedCardMutation((id, record, scope) =>
+        store.complete(id, { ...record, ...actor }, scope),
+      ),
     },
     {
       name: "workboard_attachment_add",
