@@ -11,7 +11,7 @@
  * deadlock the serial queue.
  */
 import { randomUUID } from "node:crypto";
-import type { WorkboardCard } from "@openclaw/workboard-contract";
+import type { WorkboardCard, WorkboardMetadata } from "@openclaw/workboard-contract";
 import type { WorkboardActor } from "./actor-attribution.js";
 import { assertCanMutateClaimedCard, splitCommentBody } from "./store-card-helpers.js";
 import {
@@ -32,7 +32,7 @@ interface OversizedCommentHost {
 interface AddCommentHost extends OversizedCommentHost {
   updateMetadata(
     id: string,
-    updater: (existing: WorkboardCard) => WorkboardCard,
+    updater: (existing: WorkboardCard) => WorkboardMetadata,
   ): Promise<WorkboardCard>;
 }
 
