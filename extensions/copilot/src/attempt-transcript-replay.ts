@@ -7,6 +7,7 @@ export type AttemptTranscriptMessage =
   | Extract<AgentMessage, { role: "assistant" | "toolResult" }>;
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 export function readIdempotencyKey(message: object): string | undefined {
   const key = "idempotencyKey" in message ? message.idempotencyKey : undefined;
 =======
@@ -17,6 +18,8 @@ export function readIdempotencyKey(message: AgentMessage): string | undefined {
   return typeof key === "string" && key ? key : undefined;
 }
 
+=======
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
 export function userText(content: unknown): string {
   if (typeof content === "string") {
     return content;

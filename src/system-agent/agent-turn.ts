@@ -23,7 +23,6 @@ import {
   systemAgentTerminalFailureGuidance,
 } from "./inference-run-errors.js";
 import type { SystemAgentProposalRef } from "./operator-approval.js";
-import { createSystemAgentUserTurnRecorder } from "./user-turn-transcript.js";
 import {
   resolveSystemAgentExpectedAgentHarnessRuntimeArtifact,
   resolveSystemAgentVerifiedInferenceRoute,
@@ -303,7 +302,6 @@ async function runSystemAgentTurnWithDeps(
     extraSystemPrompt: systemPrompt,
     ...(plan.authProfileId ? { authProfileId: plan.authProfileId } : {}),
     prompt: params.input,
-    userTurnTranscriptRecorder: createSystemAgentUserTurnRecorder(params.input),
     timeoutMs: resolveAgentTimeoutMs({ cfg: plan.runConfig }),
     thinkLevel: "off" as const,
     runId,

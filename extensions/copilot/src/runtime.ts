@@ -85,11 +85,57 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     return entry.stopping;
   };
 
+<<<<<<< HEAD
+=======
+  const stopEntry = async (entry: PoolEntry): Promise<Error[]> => {
+    switch (entry.state.kind) {
+      case "creating": {
+        try {
+          await entry.state.promise;
+        } catch (error: unknown) {
+          maybeDeleteEntry(entry);
+          return [toCopilotRuntimeError(error)];
+        }
+        return stopEntry(entry);
+      }
+      case "ready":
+        return stopReadyOrIdleEntry(entry, entry.state.client);
+      case "idle":
+        return stopReadyOrIdleEntry(entry, entry.state.client, entry.state.idleTimer);
+      case "stopping":
+        return entry.state.promise;
+      case "stopped":
+        return [];
+      default: {
+        const exhaustive: never = entry.state;
+        return exhaustive;
+      }
+    }
+  };
+
+  const scheduleIdleStop = (entry: PoolEntry, client: CopilotClient) => {
+    const idleTimer = setTimeout(() => {
+      void stopEntry(entry);
+    }, idleTtlMs);
+    entry.state = {
+      kind: "idle",
+      client,
+      idleTimer,
+    };
+  };
+
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
   const createEntry = (key: PoolKey, cacheKey: string, clientOptions: CopilotClientOptions) => {
     // Register the entry before invoking a factory that may throw synchronously.
     const createPromise = Promise.resolve().then(async () => {
       try {
+<<<<<<< HEAD
         return await sdkFactory(clientOptions);
+=======
+        const client = await sdkFactory(clientOptions);
+        entry.state = { kind: "ready", client };
+        return client;
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
       } catch (error: unknown) {
         maybeDeleteEntry(entry);
         throw toCopilotRuntimeError(error);
@@ -118,10 +164,22 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
         throw createDisposedError();
       }
 
+<<<<<<< HEAD
       const entry = entries.get(cacheKey) ?? createEntry(key, cacheKey, clientOptions);
       if (entry.stopping) {
         await entry.stopping;
         continue;
+=======
+      const existing = entries.get(cacheKey);
+      if (!existing) {
+        const created = createEntry(key, cacheKey, clientOptions);
+        const client = await created.createPromise;
+        if (disposed) {
+          await stopEntry(created.entry);
+          throw createDisposedError();
+        }
+        return { key: created.entry.key, client };
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
       }
       clearTimeout(entry.idleTimer);
       entry.refCount += 1;
@@ -130,7 +188,10 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
         await stopEntry(entry);
         throw createDisposedError();
       }
+<<<<<<< HEAD
       return { key: entry.key, client };
+=======
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
     }
   };
 
