@@ -11,7 +11,6 @@ import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runt
 <<<<<<< HEAD
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeActor } from "./actor-attribution.js";
-import { assertObservationAnchor } from "./observation-anchor.js";
 import type { PersistedWorkboardCard } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import { WorkboardBoardStore } from "./store-boards.js";
@@ -718,12 +717,15 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
     if (!body) {
       throw new Error("comment body is required.");
     }
-    // Card 88d5c5b5: single choke-point check, BEFORE chunking — a split
-    // could otherwise carry the handoff tag and the unanchored assertion into
-    // different rows.
-    assertObservationAnchor(body);
     const actor = normalizeActor(input);
-    return await addCommentWithChunking(this as never, id, body, scope, actor);
+    const comment = { id: randomUUID(), body, createdAt: now, ...actor };
+    return await this.updateMetadata(id, (existing) => {
+      assertCanMutateClaimedCard(existing, scope);
+      return {
+        ...existing.metadata,
+        comments: [...(existing.metadata?.comments ?? []), comment].slice(-MAX_CARD_COMMENTS),
+      };
+    });
   }
 
   async addLink(id: string, input: WorkboardLinkInput): Promise<WorkboardCard> {

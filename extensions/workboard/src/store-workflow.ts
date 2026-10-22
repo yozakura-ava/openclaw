@@ -16,7 +16,6 @@ import {
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeActor } from "./actor-attribution.js";
-import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -511,18 +510,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     if (input.proofId !== undefined && !proofId) {
       throw new Error("proofId must be a non-empty string.");
     }
-<<<<<<< HEAD
     const proof = proofInput ? normalizeProofInput({ ...proofInput, ...actor }, now) : undefined;
-=======
-    const proof = proofInput ? normalizeProofInput(proofInput, now) : undefined;
->>>>>>> 97b6e87616f
-    const buildCardRequiresEvidence = (existing.labels ?? []).some((label) =>
-      CONSUMER_SURFACE_EVIDENCE_LABELS.has(label),
-    );
-    let evidenceArtifact: WorkboardArtifact | undefined;
-    if (buildCardRequiresEvidence) {
-      evidenceArtifact = await verifyConsumerSurfaceEvidence(input.consumer_surface_evidence, now);
-    }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
           .map((artifact) => normalizeArtifact({ ...artifact, createdAt: now }))

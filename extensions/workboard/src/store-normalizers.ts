@@ -47,11 +47,7 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
-<<<<<<< HEAD
 import { normalizeActor } from "./actor-attribution.js";
-=======
-import { definedFields } from "../record-fields.js";
->>>>>>> 97b6e87616f
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -567,14 +563,6 @@ function normalizeComment(record: Record<string, unknown>): WorkboardComment | n
     ...(updatedAt ? { updatedAt } : {}),
     ...normalizeActor({ actorId: record.actorId, actorKind: record.actorKind }),
   };
-=======
-  return definedFields({
-    id,
-    body,
-    createdAt,
-    updatedAt: normalizeTimestamp(record.updatedAt, 0) || undefined,
-  });
->>>>>>> 97b6e87616f
 }
 
 function normalizeLink(record: unknown): WorkboardLink | null {
