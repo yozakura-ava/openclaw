@@ -80,7 +80,7 @@ export class ModelCatalogReader {
     });
     const unwatchEvents = subscribeModelCatalogChanges(
       gateway,
-      (error: unknown) => {
+      (_error: unknown) => {
         if (this.owns(binding)) {
           void this.read();
         } else {
