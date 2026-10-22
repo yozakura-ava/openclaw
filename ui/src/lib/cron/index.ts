@@ -28,6 +28,7 @@ import {
   buildCronSchedule,
 } from "./form-schedule.ts";
 import { loadCronJobsPage } from "./jobs.ts";
+import { getCronJobPayload } from "./payload.ts";
 import { cronRunNotStartedMessage } from "./run-feedback.ts";
 import { clearCronRunsPage, loadCronRuns, retireCronRunsRequest } from "./runs.ts";
 import type { CronFieldErrors, CronFormState, CronState } from "./types.ts";
@@ -35,6 +36,7 @@ import { resolveCronWebhookDeliveryError } from "./webhook-url.ts";
 
 export { loadCronScopeStats } from "./scope.ts";
 export { loadCronJobsPage } from "./jobs.ts";
+export { getCronJobPayload } from "./payload.ts";
 export { resolveConfiguredCronModelSuggestions } from "./model-suggestions.ts";
 
 const CRON_CHANNEL_LAST = "last";
@@ -472,8 +474,8 @@ function isReadOnlyCronPayload(payload: CronPayload | null, declarationKey?: str
 
 function jobToForm(job: CronJob, prev: CronFormState): CronFormState {
   const failureAlert = typeof job.failureAlert === "object" ? job.failureAlert : undefined;
-  const payload = job.payload;
-  const agentTurn = payload.kind === "agentTurn" ? payload : undefined;
+  const payload = getCronJobPayload(job);
+  const agentTurn = payload?.kind === "agentTurn" ? payload : undefined;
   const payloadLocked = isReadOnlyCronPayload(payload, job.declarationKey);
   if (!isCronFormSessionTarget(job.sessionTarget)) {
     throw new TypeError(`Invalid cron session target: ${job.sessionTarget}`);
@@ -498,16 +500,16 @@ function jobToForm(job: CronJob, prev: CronFormState): CronFormState {
     triggerOnce: job.trigger?.once === true,
     sessionTarget: job.sessionTarget,
     wakeMode: job.wakeMode,
-    payloadKind: payload.kind,
+    payloadKind: payload?.kind ?? DEFAULT_CRON_FORM.payloadKind,
     payloadLocked,
     payloadText:
-      payload.kind === "systemEvent"
+      payload?.kind === "systemEvent"
         ? payload.text
-        : payload.kind === "agentTurn"
+        : payload?.kind === "agentTurn"
           ? payload.message
-          : payload.kind === "command"
+          : payload?.kind === "command"
             ? payload.argv.join(" ")
-            : payload.kind === "script"
+            : payload?.kind === "script"
               ? payload.script
               : "",
     payloadModel: agentTurn?.model ?? "",
@@ -689,7 +691,7 @@ export async function addCronJob(state: CronState): Promise<CronSaveResult> {
       ? requireCronConfigRevision(editingJob.configRevision)
       : undefined;
     const sourceJob = editingJob ?? state.cronCloningJob;
-    const sourcePayload = sourceJob?.payload ?? null;
+    const sourcePayload = sourceJob ? getCronJobPayload(sourceJob) : null;
     // Form fields cannot represent process commands, anchors, or full timestamp precision.
     const schedule =
       sourceJob && hasUnchangedCronSchedule(form, sourceJob)
