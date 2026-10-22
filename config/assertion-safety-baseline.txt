@@ -977,7 +977,6 @@ extensions/workboard/browser/pages/workboard/view-card-modal.ts	1
 extensions/workboard/src/cli.ts	1
 extensions/workboard/src/command.ts	1
 extensions/workboard/src/store-automation.ts	1
-extensions/workboard/src/store-core.ts	1
 extensions/workboard/src/store-normalizers.ts	4
 extensions/workboard/src/tools.ts	8
 extensions/xai/code-execution.ts	2
@@ -1858,7 +1857,6 @@ src/config/sessions/session-accessor.sqlite-message-cut.ts	1
 src/config/sessions/session-accessor.sqlite-read.ts	2
 src/config/sessions/session-accessor.sqlite-reset-window.ts	2
 src/config/sessions/session-accessor.sqlite-transcript-message-append.ts	1
-src/config/sessions/session-accessor.sqlite-transcript-metadata-read.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-mirror.ts	1
 src/config/sessions/session-accessor.sqlite-transcript-store.ts	2
 src/config/sessions/session-accessor.sqlite-transcript-write.ts	2

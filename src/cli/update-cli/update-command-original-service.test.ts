@@ -32,6 +32,7 @@ import { createUpdateCommandExecutionGuards } from "./update-command-execution-g
 import { executeMutableUpdate } from "./update-command-execution.js";
 import { withUpdateCommandExecutor } from "./update-command-executor.js";
 import { registerCurrentF3Controls } from "./update-command-original-service-current.test-support.js";
+import { registerCurrentF3WindowsControl } from "./update-command-original-service-windows.test-support.js";
 import { observeOriginalManagedServiceRuntime } from "./update-command-original-service.js";
 import { finishUpdate } from "./update-command-post-update.js";
 import { rollbackFailedUpdate } from "./update-command-rollback.js";
@@ -819,7 +820,7 @@ it.each([
   expect(await fs.readFile(state.env.OPENCLAW_CONFIG_PATH!)).toEqual(configBefore);
 });
 
-registerCurrentF3Controls(() => ({
+const currentF3Fixture = () => ({
   state,
   rootA,
   rootB,
@@ -827,7 +828,9 @@ registerCurrentF3Controls(() => ({
   before,
   serviceState,
   mocks,
-}));
+});
+registerCurrentF3Controls(currentF3Fixture);
+registerCurrentF3WindowsControl(currentF3Fixture);
 
 it.each([false, true])(
   "handles restored receipt fingerprints with actual mutation=%s",

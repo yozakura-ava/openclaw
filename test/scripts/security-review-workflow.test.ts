@@ -429,7 +429,8 @@ describe("security review workflow trust boundaries", () => {
         allowed: true,
       },
       { eventName: "pull_request_target", action: "edited", changes: {}, allowed: true },
-      { eventName: "schedule", allowed: true },
+      { eventName: "schedule", repository: "openclaw/openclaw", allowed: true },
+      { eventName: "schedule", repository: "yozakura-ava/openclaw", allowed: false },
       { eventName: "workflow_run", sourceEvent: "pull_request", allowed: true },
       { eventName: "workflow_run", sourceEvent: "push", allowed: false },
       { eventName: "workflow_run", sourceEvent: "workflow_dispatch", allowed: true },
@@ -456,6 +457,7 @@ describe("security review workflow trust boundaries", () => {
     ]) {
       const result = runInNewContext(condition, {
         github: {
+          repository: event.repository ?? "openclaw/openclaw",
           event_name: event.eventName ?? "issue_comment",
           event: {
             action: event.action,

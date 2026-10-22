@@ -13,6 +13,7 @@ import { formatDurationCompact } from "../../../infra/format-time/format-duratio
 import { isContractToolCallBlock } from "../../../shared/tool-block-contract.js";
 import { sleep } from "../../../utils/sleep.js";
 import { extractStoredAssistantText } from "../../tools/chat-history-text.js";
+import { resolveSubagentChildAgentId } from "../registry/subagent-child-owner-match.js";
 import { subagentRuns } from "../registry/subagent-registry-memory.js";
 import type { SubagentRunReadRecord } from "../registry/subagent-registry-read.types.js";
 import { prepareSubagentRunsSnapshotForRunIds } from "../registry/subagent-registry-state.js";
@@ -299,11 +300,12 @@ export async function readChildCompletionFindings(
 export function dedupeLatestChildCompletionRows<
   T extends ChildCompletionRow & { runId: string; generation?: number },
 >(children: T[]): T[] {
-  const latestByChildSessionKey = new Map<string, (typeof children)[number]>();
+  const latestByChildOwner = new Map<string, (typeof children)[number]>();
   for (const child of children) {
-    recordLatestSubagentRun(latestByChildSessionKey, child.childSessionKey, child);
+    const key = JSON.stringify([resolveSubagentChildAgentId(child), child.childSessionKey]);
+    recordLatestSubagentRun(latestByChildOwner, key, child);
   }
-  return [...latestByChildSessionKey.values()];
+  return [...latestByChildOwner.values()];
 }
 
 export function filterCurrentDirectChildCompletionRows<

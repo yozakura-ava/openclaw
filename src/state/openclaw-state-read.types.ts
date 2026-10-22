@@ -228,6 +228,7 @@ export type OpenClawStateReadCommand =
   | { type: "agentDatabaseRegistry.read" }
   | { type: "agentDatabaseDeletion.snapshot"; purpose: AgentDeletionJournalPurpose }
   | { type: "agentDeletionJournal.status"; agentId: string }
+  | { type: "agentDeletionJournal.retainedIds" }
   | { type: "workerEnvironments.snapshot"; ids?: readonly string[] }
   | { type: "workerEnvironments.pruneCandidates"; input: WorkerEnvironmentPruneReadInput }
   | { type: "sessionGroups.snapshot" }
@@ -341,6 +342,10 @@ export type OpenClawStateReadResult =
   | {
       type: "agentDeletionJournal.status";
       status: AgentDeletionJournalStatus;
+    }
+  | {
+      type: "agentDeletionJournal.retainedIds";
+      agentIds: string[];
     }
   | {
       type: "deliveryQueue.outbound";

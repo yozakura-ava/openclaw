@@ -11,6 +11,7 @@ import {
   parseCronRunDetailJson,
   resolveCronRunRecordTimestamp,
 } from "../run-history-detail.js";
+import { publishCronRunHistoryChange } from "./run-history-changes.js";
 import type { CronRunHistoryWrite, CronRunRecord } from "./run-history.types.js";
 import type { CronRunReceiptWriteSchema } from "./run-receipt-write-admission.js";
 
@@ -201,6 +202,7 @@ export function recordCronRunInDatabase(db: DatabaseSync, input: CronRunHistoryW
         }),
     );
   }
+  publishCronRunHistoryChange(db);
 }
 
 /** Same seven-day/lost-day and separate history/quiet-count bounds as released cron rows. */
@@ -242,6 +244,35 @@ function collectExpiredCronRunIds(records: readonly CronRunRecord[], now: number
     }
   }
   return expired;
+}
+
+function cronRunHistoryExpiry(row: CronRunRecord): number {
+  const defaultExpiry =
+    resolveCronRunRecordTimestamp(row) + (row.status === "lost" ? LOST_RETENTION_MS : RETENTION_MS);
+  return row.cleanupAfter === undefined
+    ? defaultExpiry
+    : row.status === "lost"
+      ? Math.min(row.cleanupAfter, defaultExpiry)
+      : row.cleanupAfter;
+}
+
+/** Returns the next durable deadline without inventing a wake for an empty history. */
+export function resolveNextCronRunHistorySweepAtMs(
+  records: readonly CronRunRecord[],
+  now: number,
+  protectedJobIds: ReadonlySet<string>,
+): number | null {
+  let next = Infinity;
+  for (const row of records) {
+    const active = row.status === "queued" || row.status === "running";
+    const deadline = active
+      ? protectedJobIds.has(row.jobId?.trim() ?? "")
+        ? now + 60_000
+        : (row.lastEventAt ?? row.startedAt ?? row.createdAt) + 5 * 60_000
+      : cronRunHistoryExpiry(row);
+    next = Math.min(next, deadline);
+  }
+  return Number.isFinite(next) ? next : null;
 }
 
 export function pruneCronRunHistoryInDatabase(

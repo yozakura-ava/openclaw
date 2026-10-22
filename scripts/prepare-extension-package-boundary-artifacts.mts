@@ -28,13 +28,10 @@ import type { resolveExtensionBoundaryPreparation } from "./lib/extension-bounda
 import {
   applyLocalTsgoPolicy,
   ensureRepoNodeModulesLink,
-  isConstrainedCiCheckHost,
-  isLocalCheckEnabled,
   resolveLocalCheckEnv,
 } from "./lib/local-check-runtime.mts";
 import { runManagedCommand, signalExitCode } from "./lib/managed-child-process.mts";
 import { parsePositiveInt } from "./lib/numeric-options.mjs";
-import { readProcessMemoryCapacity } from "./lib/process-memory.mts";
 import { resolveRepoRoot } from "./lib/repo-root.mjs";
 import { resolveTsgoTimeoutMs } from "./run-tsgo.mts";
 const repoRoot = resolveRepoRoot(import.meta.url);
@@ -61,6 +58,21 @@ export function parseMode(argv: string[] = process.argv.slice(2)) {
     throw new Error(`Unknown mode: ${mode}`);
   }
   return mode;
+}
+export function parseBoundarySelection(argv: string[] = process.argv.slice(2)) {
+  const units = argv.filter((arg) => arg.startsWith("--unit="));
+  const unit = units[0]?.slice("--unit=".length);
+  if (
+    units.length > 1 ||
+    (unit !== undefined &&
+      unit !== "plugin-sdk" &&
+      !BOUNDARY_PLUGIN_UNITS.some(([id]) => id === unit)) ||
+    (unit !== undefined && argv.some((arg) => arg.startsWith("--extensions="))) ||
+    (unit !== undefined && argv.some((arg) => arg.startsWith("--mode=")))
+  ) {
+    throw new Error("Select one known boundary --unit without --mode or --extensions");
+  }
+  return { unit, validateOnly: argv.includes("--validate-only") };
 }
 export function resolveBoundaryRootShimsTimeoutMs(env: NodeJS.ProcessEnv = process.env) {
   const raw = env.OPENCLAW_PLUGIN_SDK_BOUNDARY_ROOT_SHIMS_TIMEOUT_MS?.trim();
@@ -212,39 +224,24 @@ export async function runNodeStepsInParallel(steps: NodeStep[]) {
   }
 }
 
-function canPairCiDeclarations(env: NodeJS.ProcessEnv) {
-  return (
-    process.platform === "linux" &&
-    (env.CI === "true" || env.GITHUB_ACTIONS === "true") &&
-    !env.OPENCLAW_LOCAL_CHECK?.trim() &&
-    !env.OPENCLAW_LOCAL_CHECK_MODE?.trim() &&
-    !isConstrainedCiCheckHost({
-      logicalCpuCount: os.availableParallelism(),
-      totalMemoryBytes: os.totalmem(),
-      memoryCapacityBytes: readProcessMemoryCapacity({}).capacityBytes,
-    })
-  );
-}
-
 /**
- * Keeps local checks serial and admits bounded declaration pairs on roomy Linux CI.
+ * Each native compiler owns its full graph; only isolated runners may overlap graphs.
  */
 export async function runNodeSteps(steps: NodeStep[], env: NodeJS.ProcessEnv = process.env) {
-  if (!isLocalCheckEnabled(env)) {
-    await runNodeStepsInParallel(steps);
-    return;
-  }
-
-  const concurrency = canPairCiDeclarations(env) ? 2 : 1;
-  for (let offset = 0; offset < steps.length; offset += concurrency) {
-    await runNodeStepsInParallel(steps.slice(offset, offset + concurrency));
+  // Retain the caller interface; resource policy belongs to each step's environment.
+  void env;
+  for (const step of steps) {
+    await runNodeStep(step.label, step.args, step.timeoutMs, step);
   }
 }
 
 async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process.argv.slice(2)) {
   const mode = parseMode(argv);
-  await ensureKyselyTypes(repoRoot);
+  const selection = parseBoundarySelection(argv);
   const selectedArgument = argv.find((arg) => arg.startsWith("--extensions="));
+  if (selection.validateOnly && selectedArgument) {
+    throw new Error("Validation requires a full inventory, not selected extension roots");
+  }
   let selected: string[] | undefined;
   let discoverPreparation: typeof resolveExtensionBoundaryPreparation | undefined;
   let preparation: Awaited<ReturnType<typeof resolveExtensionBoundaryPreparation>> | undefined;
@@ -267,22 +264,10 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     );
   }
   const env = resolveLocalCheckEnv(process.env);
-  const paired = canPairCiDeclarations(env);
-  const { env: compilerEnv } = applyLocalTsgoPolicy(
-    [],
-    paired ? { ...env, OPENCLAW_LOCAL_CHECK: "0" } : env,
-    {
-      logicalCpuCount: os.availableParallelism(),
-      totalMemoryBytes: os.totalmem(),
-    },
-  );
-  if (paired) {
-    // Two children share at least eight CPUs and 24 GiB; avoid laptop GC limits.
-    compilerEnv.GOMAXPROCS = String(
-      Math.min(4, parsePositiveInt(env.GOMAXPROCS?.trim() || "4", "GOMAXPROCS")),
-    );
-    compilerEnv.GOMEMLIMIT ||= "8GiB";
-  }
+  const { env: compilerEnv } = applyLocalTsgoPolicy([], env, {
+    logicalCpuCount: os.availableParallelism(),
+    totalMemoryBytes: os.totalmem(),
+  });
   const compilerTimeoutMs = resolveTsgoTimeoutMs(compilerEnv);
   const sharedSdk = process.env.OPENCLAW_CI_SHARED_SDK === "1";
   const sdk = sdkBoundaryUnit(sharedSdk ? undefined : preparation?.sdkRoots);
@@ -294,7 +279,40 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     roots: undefined,
     required: [`${LOCAL_PLUGIN_ROOT}/${id}/${entry}.d.ts`],
   }));
-  const batches = [[sdk], mode === "all" ? plugins : []].map((batch) =>
+  const assertCurrent = (units: (typeof sdk)[]) => {
+    const snapshot = new BoundaryInputSnapshot(repoRoot);
+    for (const unit of units) {
+      const inputReceipt = `${unit.outDir}/.inputs.json`;
+      if (
+        !snapshot.matchesReceipt(
+          readArtifactRecord(resolve(repoRoot, BOUNDARY_CACHE_ROOT, `${unit.id}.json`)),
+          unit.config,
+          boundaryPreparationArgs(repoRoot, unit),
+          [...unit.required, inputReceipt],
+          inputReceipt,
+          resolve(repoRoot, unit.outDir),
+        )
+      ) {
+        throw new Error(`Missing, incomplete, or stale ${unit.id} declaration inventory`);
+      }
+      process.stdout.write(`[${unit.id} boundary dts] complete inventory validated\n`);
+    }
+  };
+  const selectedPlugins = selection.unit
+    ? plugins.filter((unit) => unit.id === selection.unit)
+    : mode === "all"
+      ? plugins
+      : [];
+  if (selection.validateOnly) {
+    assertCurrent([sdk, ...selectedPlugins]);
+    return;
+  }
+  await ensureKyselyTypes(repoRoot);
+  if (selection.unit && selection.unit !== "plugin-sdk") {
+    // A leaf must never silently rebuild another leaf or consume partial SDK bytes.
+    assertCurrent([sdk]);
+  }
+  const batches = [[sdk], selectedPlugins].map((batch) =>
     batch.map((unit) => {
       fs.mkdirSync(resolve(repoRoot, unit.outDir), { recursive: true });
       if (unit.id !== "plugin-sdk") {
@@ -411,9 +429,11 @@ async function prepareExtensionPackageBoundaryArtifacts(argv: string[] = process
     }
   };
   if (!preparation) {
-    for (const batch of batches) {
-      await prepareBatch(batch);
+    if (!selection.unit || selection.unit === "plugin-sdk") {
+      await prepareBatch(batches[0]!);
     }
+    await prepareBatch(batches[1]!);
+    assertCurrent([sdk, ...selectedPlugins]);
     return;
   }
   const sdkUnit = batches[0]![0]!;

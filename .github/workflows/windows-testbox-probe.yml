@@ -86,6 +86,7 @@ env:
 
 jobs:
   probe:
+    if: github.repository == 'openclaw/openclaw'
     name: Windows probe
     outputs:
       native_package_id: ${{ steps.native_package_upload.outputs.artifact-id }}
@@ -937,7 +938,7 @@ jobs:
   # Native session qualification must not depend on headless CI or WSL results.
   native-schtasks:
     name: Native Scheduled Task proof
-    if: ${{ inputs.run_windows_ci && inputs.installed_startup_package == '' && !inputs.run_private_node_provisioning && !inputs.installed_repair_worker && inputs.windows_ci_replay == '' }}
+    if: ${{ github.repository == 'openclaw/openclaw' && inputs.run_windows_ci && inputs.installed_startup_package == '' && !inputs.run_private_node_provisioning && !inputs.installed_repair_worker && inputs.windows_ci_replay == '' }}
     runs-on: windows-2025
     timeout-minutes: 75
     env:
@@ -1564,7 +1565,7 @@ jobs:
   # independent while package mode explicitly waits for its current-run producer.
   native-schtasks-package:
     name: Native Scheduled Task installed proof
-    if: ${{ inputs.run_windows_ci && inputs.installed_startup_package != '' && !inputs.run_private_node_provisioning && !inputs.installed_repair_worker && !inputs.installed_startup_cpu_diagnostic && inputs.windows_ci_replay == '' }}
+    if: ${{ github.repository == 'openclaw/openclaw' && inputs.run_windows_ci && inputs.installed_startup_package != '' && !inputs.run_private_node_provisioning && !inputs.installed_repair_worker && !inputs.installed_startup_cpu_diagnostic && inputs.windows_ci_replay == '' }}
     needs: probe
     permissions:
       contents: read

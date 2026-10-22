@@ -39,12 +39,39 @@ export function readSessionGroupCatalogEntry(db: DatabaseSync, name: string) {
 }
 
 export function readSessionGroupCatalogSnapshot(db: DatabaseSync): SessionGroupCatalogSnapshot {
-  const query = kyselyFor(db).selectFrom("session_groups").orderBy("position").orderBy("name");
+  const kysely = kyselyFor(db);
   const defaultsSchema = hasDefaults(db);
-  const groups = executeSqliteQuerySync(db, query.select(["name", "position"])).rows;
+  const records = executeSqliteQuerySync(
+    db,
+    kysely
+      .selectFrom("session_groups")
+      .select((eb) => [
+        eb.val("group").as("kind"),
+        "name as value",
+        "position",
+        (defaultsSchema ? eb.ref("cwd") : eb.val<string | null>(null)).as("cwd"),
+        (defaultsSchema ? eb.ref("worktree") : eb.val<number | null>(null)).as("worktree"),
+      ])
+      .unionAll(
+        kysely
+          .selectFrom("config_machine_state")
+          .select((eb) => [
+            eb.val("order").as("kind"),
+            "value_json as value",
+            eb.val(0).as("position"),
+            eb.val<string | null>(null).as("cwd"),
+            eb.val<number | null>(null).as("worktree"),
+          ])
+          .where("state_key", "=", SIDEBAR_ORDER),
+      )
+      .orderBy("position")
+      .orderBy("value"),
+  ).rows;
+  const rows = records.filter((row) => row.kind === "group");
+  const groups = rows.map(({ value: name, position }) => ({ name, position }));
   const defaults = defaultsSchema
-    ? executeSqliteQuerySync(db, query.select(["name", "cwd", "worktree"])).rows.map((row) => {
-        const record: SessionGroupDefaultsRecord = { name: row.name };
+    ? rows.map((row) => {
+        const record: SessionGroupDefaultsRecord = { name: row.value };
         if (row.cwd) {
           record.cwd = row.cwd;
         }
@@ -54,9 +81,9 @@ export function readSessionGroupCatalogSnapshot(db: DatabaseSync): SessionGroupC
         return record;
       })
     : groups.map(({ name }) => ({ name }));
-  const order = readConfigMachineStateRowInDatabase(db, SIDEBAR_ORDER);
+  const order = records.find((row) => row.kind === "order");
   // SAFETY: The sidebar owner and v12 migration store this key only as a string array.
-  const sectionOrder = order ? (JSON.parse(order.value_json) as string[]) : [];
+  const sectionOrder = order ? (JSON.parse(order.value) as string[]) : [];
   return { groups, defaults, sectionOrder };
 }
 

@@ -2363,30 +2363,41 @@ export function inventory(root = defaultRoot, ref = "", staged = false) {
   const roots = ["src", "extensions", "packages", "scripts"];
   const pattern = [...primitives.keys()].join("|");
   const snapshot = ref !== "" || staged;
-  const result = spawnSync(
-    snapshot ? "git" : "rg",
-    snapshot
-      ? [
-          "grep",
-          "-l",
-          "-z",
-          "-E",
-          ...(ref ? [] : ["--cached"]),
-          pattern,
-          ...(ref ? [ref] : []),
-          "--",
-          ...roots,
-        ]
-      : [
-          "-l",
-          "--null",
-          "-g",
-          "*.{ts,tsx,js,mjs,mts,cts,cjs}",
-          pattern,
-          ...roots.filter((dir) => fs.existsSync(path.join(root, dir))),
-        ],
-    { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
-  );
+  const scanArgs = snapshot
+    ? [
+        "grep",
+        "-l",
+        "-z",
+        "-E",
+        ...(ref ? [] : ["--cached"]),
+        pattern,
+        ...(ref ? [ref] : []),
+        "--",
+        ...roots,
+      ]
+    : [
+        "-l",
+        "--null",
+        "-g",
+        "*.{ts,tsx,js,mjs,mts,cts,cjs}",
+        pattern,
+        ...roots.filter((dir) => fs.existsSync(path.join(root, dir))),
+      ];
+  let result = spawnSync(snapshot ? "git" : "rg", scanArgs, {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  if (!snapshot && result.error?.code === "ENOENT") {
+    // Security runners do not necessarily provision ripgrep. Git's tracked-file
+    // scan preserves the ratchet's source scope there without weakening failure
+    // handling or changing the normal fast path.
+    result = spawnSync("git", ["grep", "-l", "-z", "-E", pattern, "--", ...roots], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  }
   if (result.error || (result.status !== 0 && result.status !== 1)) {
     throw result.error ?? new Error(result.stderr || "SQLite inventory source scan failed");
   }

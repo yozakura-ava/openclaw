@@ -409,6 +409,10 @@ export class AgentDatabaseRegistryPendingError extends AgentDatabaseRegistryChan
   }
 }
 
+export function isAgentDatabaseRegistryChangedError(error: unknown): boolean {
+  return error instanceof AgentDatabaseRegistryChangedError;
+}
+
 export function readRegisteredAgentDatabases(
   options: AgentDatabaseRegistryListOptions,
   artifactPreserving: false,

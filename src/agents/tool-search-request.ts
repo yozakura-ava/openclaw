@@ -13,6 +13,96 @@ import { asToolParamsRecord, ToolInputError } from "./tools/common.js";
 
 const TOOL_SEARCH_SELECTOR_KEYS = ["id", "toolId", "name"] as const;
 
+/** Wrapper keys an agent may nest real tool arguments under. */
+const TOOL_SEARCH_WRAPPER_KEYS = ["args", "input"] as const;
+
+/**
+ * Maximum envelope levels unwrapped before refusing to guess. Each level is one
+ * `args`/`input` wrapper, so `{id, args:{args:{payload}}}` (the form live models
+ * actually emit) is exactly at the cap and three or more levels is a malformed
+ * call that fails loudly instead of silently reaching the target tool with the
+ * payload still buried. See data/build-checklists/79306758-f47d-4308-bcb2-7de7c1eaa4c1.json.
+ */
+const MAX_TOOL_SEARCH_ENVELOPE_DEPTH = 2;
+
+type EnvelopeLevel = { key: string; record: Record<string, unknown> };
+
+/**
+ * A wrapper only counts as an envelope when it is a non-empty record. The
+ * empty-wrapper special case is deliberate: some local models emit an empty
+ * `args`/`input` while flattening the real arguments to the top level, so an
+ * empty wrapper means "absent", never "unwrap me".
+ */
+function readEnvelopeLevel(value: Record<string, unknown>): EnvelopeLevel | undefined {
+  for (const key of TOOL_SEARCH_WRAPPER_KEYS) {
+    const nested = value[key];
+    if (isRecord(nested) && Object.keys(nested).length > 0) {
+      return { key, record: nested };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * A level past the first only counts as an envelope when it is PURE: every one of
+ * its keys is a wrapper key or a dotted `args.*` key. The loop can only see a key
+ * name and a record value, so without this check a legitimate payload field named
+ * `args`/`input` is indistinguishable from an envelope — descending would silently
+ * delete that field, and nothing downstream would catch it: input validation is
+ * skipped for every non-`openclaw` catalog source (see `tool-search-runtime.ts`,
+ * `validateInput && entry.source === "openclaw"`), so MCP and client tools with a
+ * record-valued `input` property would receive a mis-shaped payload unchecked.
+ *
+ * A mixed level (an envelope plus a foreign key) is payload, not an envelope, so
+ * unwrapping stops and the target tool reports the missing property. Refusing
+ * loudly beats guessing — that confusion is what this card exists to eliminate.
+ */
+function isPureEnvelopeLevel(record: Record<string, unknown>): boolean {
+  return Object.keys(record).every(
+    (key) =>
+      // SAFETY: key is always a string from Object.keys; the cast only narrows it to the wrapper-key union for includes().
+      TOOL_SEARCH_WRAPPER_KEYS.includes(key as (typeof TOOL_SEARCH_WRAPPER_KEYS)[number]) ||
+      (key.startsWith("args.") && key.length > 5),
+  );
+}
+
+/**
+ * Unwrap repeated `args`/`input` envelopes, tracking the dotted path of each
+ * level so a too-deep call is reported honestly. The error names the depth and
+ * where the next wrapper was found, because "missing property" errors about a
+ * payload the caller did send are what drive retry storms against the same shape.
+ *
+ * Known limitation: dotted flattening is applied to the OUTERMOST params only
+ * (see `dottedInput` in `readToolSearchCallArgs`). Dotted keys appearing inside a
+ * nested envelope — `{id:'t', args:{'args.message':'hi'}}` — are passed through
+ * unflattened, so the target reports a missing `message`. That fails loudly rather
+ * than silently; flattening the unwrapped level too is tracked as follow-up debt.
+ */
+function unwrapToolSearchEnvelope(value: Record<string, unknown>): Record<string, unknown> {
+  let input = value;
+  const path: string[] = [];
+  for (;;) {
+    // Past the first level, only a PURE wrapper level may be descended through: if
+    // this level carries any non-wrapper key it is the payload (F1), and descending
+    // would delete that key. Checked on the CURRENT level, so a genuinely
+    // over-deep pure chain still reaches the cap check below and is refused.
+    if (path.length > 0 && !isPureEnvelopeLevel(input)) {
+      return input;
+    }
+    const next = readEnvelopeLevel(input);
+    if (!next) {
+      return input;
+    }
+    if (path.length >= MAX_TOOL_SEARCH_ENVELOPE_DEPTH) {
+      throw new ToolInputError(
+        `Envelope nests deeper than the supported maximum of ${MAX_TOOL_SEARCH_ENVELOPE_DEPTH} levels: the next wrapper is found at ${[...path, next.key].join(".")} (depth ${path.length + 1}). Send the tool arguments once, directly under args.`,
+      );
+    }
+    path.push(next.key);
+    input = next.record;
+  }
+}
+
 function readToolSearchSelector(params: Record<string, unknown>): string | undefined {
   const value = params.id ?? params.toolId ?? params.name;
   return typeof value === "string" && value.trim() ? value : undefined;
@@ -41,11 +131,20 @@ export function readToolSearchCallArgs(
   // Some local models emit an empty args/input wrapper while flattening the real
   // arguments to the top level. Treat an empty wrapper as absent so the fallback
   // below preserves those parameters instead of returning {}.
+  // Ordering nuance (status quo, deliberately unchanged): this selection is
+  // null-coalescing — the first key wins even when empty — while the unwrap loop
+  // scans `args` then `input` per level. So `{id:'t', args:{}, input:{a:1}}` takes
+  // the fallback branch and never enters the loop. Do not "fix" this without a
+  // routing decision; it would change flat-call routing.
   const nestedInputIsEmpty = isRecord(nestedInput) && Object.keys(nestedInput).length === 0;
   if (nestedInput != null && !nestedInputIsEmpty) {
+    // Depth-aware: a doubly (or triply) wrapped call must land the real payload at
+    // the top level, otherwise the target tool reports a missing property the caller
+    // did send and the caller retries the same shape forever.
+    const merged = { ...dottedInput, ...unwrapToolSearchEnvelope(params) };
     return {
       id: readToolSearchId(params),
-      input: isRecord(nestedInput) ? { ...dottedInput, ...nestedInput } : nestedInput,
+      input: isRecord(nestedInput) ? merged : nestedInput,
     };
   }
 
@@ -75,11 +174,13 @@ export function readToolSearchCallArgs(
 
   // Remove every alias that actually identifies the selected catalog tool;
   // unmatched id/name fields can still be required arguments of that tool.
+  // A selector is only routing metadata once a catalog match confirmed it —
+  // stripping an unmatched key would silently delete a payload `id` (a card
+  // UUID, for example) and leave the target tool missing its required property.
   const wrapperKeys = new Set<string>([
     "args",
     "input",
     ...matchingSelectors.map(({ key }) => key),
-    ...(matchingSelector ? [] : [selector ?? "id"]),
   ]);
   const targetInputEntries = Object.entries(params).filter(([key]) => !wrapperKeys.has(key));
   const flattenedInput = Object.fromEntries(

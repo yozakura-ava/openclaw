@@ -156,7 +156,8 @@ export function maintainSessionTranscriptIndexStatus(db: DatabaseSync): {
     db,
     temporary.selectFrom("openclaw_transcript_index_status").selectAll().where("id", "=", 1),
   )!;
-  if (state.data_version === -1 || state.schema_version !== schema.schemaVersion) {
+  const resetPending = state.schema_version !== schema.schemaVersion;
+  if (state.data_version === -1 || resetPending) {
     executeSqliteQuerySync(db, temporary.deleteFrom("openclaw_transcript_index_pending"));
     state.complete = 0;
     state.after_session = null;
@@ -167,15 +168,17 @@ export function maintainSessionTranscriptIndexStatus(db: DatabaseSync): {
     state.data_version = dataVersion;
   }
   const candidates = new Set(
-    executeSqliteQuerySync(
-      db,
-      temporary
-        .selectFrom("openclaw_transcript_index_pending")
-        .select("session_id")
-        .where("state", "=", 0)
-        .orderBy("session_id")
-        .limit(state.complete ? MAX_SESSIONS : MAX_SESSIONS / 2),
-    ).rows.map((row) => row.session_id),
+    resetPending
+      ? []
+      : executeSqliteQuerySync(
+          db,
+          temporary
+            .selectFrom("openclaw_transcript_index_pending")
+            .select("session_id")
+            .where("state", "=", 0)
+            .orderBy("session_id")
+            .limit(state.complete ? MAX_SESSIONS : MAX_SESSIONS / 2),
+        ).rows.map((row) => row.session_id),
   );
   // Reserve traversal work despite local churn; TEMP candidates retain foreign-deleted sessions.
   const seek = admissionSeeks(db);
@@ -192,6 +195,7 @@ export function maintainSessionTranscriptIndexStatus(db: DatabaseSync): {
       candidates.add(next.session_id);
     }
   }
+  const pendingRows: { session_id: string; state: number }[] = [];
   const remainingRows = projectionTables.map(() => MAX_ORPHAN_ROWS);
   for (const sessionId of candidates) {
     const hasTranscript =
@@ -242,24 +246,38 @@ export function maintainSessionTranscriptIndexStatus(db: DatabaseSync): {
       temporary.deleteFrom("openclaw_transcript_index_pending").where("session_id", "=", sessionId),
     );
     if (pending || unfinished) {
+      const nextState = unfinished ? 0 : 1;
+      pendingRows.push({ session_id: sessionId, state: nextState });
+      if (resetPending) {
+        continue;
+      }
       executeSqliteQuerySync(
         db,
         temporary
           .insertInto("openclaw_transcript_index_pending")
-          .values({ session_id: sessionId, state: unfinished ? 0 : 1 }),
+          .values({ session_id: sessionId, state: nextState }),
       );
     }
   }
+  if (resetPending && pendingRows.length > 0) {
+    executeSqliteQuerySync(
+      db,
+      temporary.insertInto("openclaw_transcript_index_pending").values(pendingRows),
+    );
+  }
+  // After a reset, this transaction rebuilt the entire queue from these candidates.
   const hasUnknown =
     state.complete !== 0 &&
-    executeSqliteQueryTakeFirstSync(
-      db,
-      temporary
-        .selectFrom("openclaw_transcript_index_pending")
-        .select("session_id")
-        .where("state", "=", 0)
-        .limit(1),
-    ) !== undefined;
+    (resetPending
+      ? pendingRows.some((row) => row.state === 0)
+      : executeSqliteQueryTakeFirstSync(
+          db,
+          temporary
+            .selectFrom("openclaw_transcript_index_pending")
+            .select("session_id")
+            .where("state", "=", 0)
+            .limit(1),
+        ) !== undefined);
   // Rebuild known work after enumeration without waiting for foreign writers to become quiet.
   const traversalComplete = reachedTraversalEnd || (state.complete !== 0 && !hasUnknown);
   // Resume fair traversal when local churn outgrows queue classification; foreign commits
@@ -286,14 +304,16 @@ export function maintainSessionTranscriptIndexStatus(db: DatabaseSync): {
       })
       .where("id", "=", 1),
   );
-  const sessionIds = executeSqliteQuerySync(
-    db,
-    temporary
-      .selectFrom("openclaw_transcript_index_pending")
-      .select("session_id")
-      .where("state", "=", 1)
-      .orderBy("session_id"),
-  ).rows.map((row) => row.session_id);
+  const sessionIds = resetPending
+    ? pendingRows.filter((row) => row.state === 1).map((row) => row.session_id)
+    : executeSqliteQuerySync(
+        db,
+        temporary
+          .selectFrom("openclaw_transcript_index_pending")
+          .select("session_id")
+          .where("state", "=", 1)
+          .orderBy("session_id"),
+      ).rows.map((row) => row.session_id);
   return {
     sessionIds,
     hasMore: !state.complete || hasUnknown,

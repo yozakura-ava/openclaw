@@ -64,12 +64,11 @@ export type ChatAbortControllerEntry = {
   };
   /** Bounded private timeout settlement while the aborted producer unwinds. */
   pendingTimeoutCompletion?: { expiresAtMs: number; settle: () => void };
-  /** False after the owning reply run commits a terminal outcome. */
   isAbortable?: (entry: ChatAbortControllerEntry) => boolean;
   /** Runs once when this registration is actually removed. */
   onRemoved?: () => void;
   /** Definitive execution outcome or chat terminal, recorded before publication. */
-  terminalOutcomeObserved?: true;
+  terminalOutcomeObserved?: boolean;
   /**
    * Which RPC owns this registration. Absent (undefined) is treated as
    * `"chat-send"` so pre-existing callers that constructed entries without

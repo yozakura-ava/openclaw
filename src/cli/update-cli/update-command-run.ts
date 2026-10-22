@@ -18,7 +18,6 @@ import {
   isGatewayExternallySupervised,
 } from "../../infra/gateway-supervision.js";
 import { resolveOpenClawPackageRootSync } from "../../infra/openclaw-root.js";
-import { settlePendingPackageActivation } from "../../infra/package-update-activation.js";
 import { normalizeUpdateChannel } from "../../infra/update-channels.js";
 import { resolveUpdateInstallKind } from "../../infra/update-check.js";
 import {
@@ -28,8 +27,6 @@ import {
 import { readDevUpdateTarget } from "../../infra/update-dev-target.js";
 import { createUpdatePreflightDiagnostics } from "../../infra/update-failure-facts.js";
 import { normalizeUpdateFailureResult } from "../../infra/update-failure-result.js";
-import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
-import { cleanupStaleManagedServiceUpdateHandoffs } from "../../infra/update-managed-service-handoff-cleanup.js";
 import {
   POST_CORE_UPDATE_CHANNEL_ENV,
   POST_CORE_UPDATE_ENV,
@@ -55,11 +52,7 @@ import {
 import type { UpdateRunRecord, UpdateRunStep } from "../../infra/update-run-record.js";
 import { assertUpdateRecoveryAdmission } from "../../infra/update-run-recovery-admission.js";
 import { isUpdateRecoveryPending } from "../../infra/update-run-recovery-schema.js";
-import {
-  inspectUpdateRecoveries,
-  loadUpdateRecovery,
-  type UpdateRecoveryFence,
-} from "../../infra/update-run-recovery.js";
+import { inspectUpdateRecoveries, loadUpdateRecovery } from "../../infra/update-run-recovery.js";
 import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
 import {
   AUTO_UPDATE_STEP_TIMEOUT_MS,
@@ -71,7 +64,6 @@ import {
   createSystemPackageOwnershipInspection,
   type SystemPackageOwnershipInspection,
 } from "../../infra/update-system-package-ownership.js";
-import { loadInstalledPluginIndexInstallRecords } from "../../plugins/installed-plugin-index-records.js";
 import { defaultRuntime } from "../../runtime.js";
 import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.paths.js";
 import { assertOpenClawStateWriteAllowedAtPath } from "../../state/openclaw-state-ownership.js";
@@ -96,10 +88,9 @@ import {
   withMutableUpdateSignals,
 } from "./update-command-mutable-signals.js";
 import { assertUpdatePackageActivationAdmission } from "./update-command-package-activation.js";
-import { UpdateCommandPendingRecoveryFailure } from "./update-command-result.js";
+import { admitUpdateCommandPackageActivation } from "./update-command-package-admission.js";
 import {
   resolveOwnedManagedUpdateEnv,
-  withOwnedManagedUpdateEnv,
   resolveServiceRefreshEnv,
 } from "./update-command-service-env.js";
 import {
@@ -661,34 +652,13 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   // A post-core marker cannot bypass pending recovery without the live original
   // owner. Check both roots before config/autostart preparation or history.
   const packageActivationNotes: string[] = [];
-  const admitPackageActivation = async (root: string) => {
-    if (!postCoreUpdateResume) {
-      const settled = await settlePendingPackageActivation(
-        resolveUpdateInstallRoot(root),
-        undefined,
-        undefined,
-        { onlyStaleLease: true, dryRun: opts.dryRun },
-      ).catch((cause: unknown) => {
-        throw new UpdateCommandPendingRecoveryFailure(
-          { status: "error", mode: "unknown", root, steps: [], durationMs: 0 },
-          formatErrorMessage(cause),
-          { cause },
-        );
-      });
-      if (settled) {
-        const note = `${opts.dryRun ? "Would settle" : "Settled"} previous package update ${settled.operationId} (${settled.reason}); update can proceed past package recovery admission. Evidence ${opts.dryRun ? "would be retained" : "retained"} at ${settled.retained}.${settled.warning ? ` ${settled.warning}` : ""}`;
-        if (opts.dryRun) {
-          packageActivationNotes.push(note);
-        } else {
-          defaultRuntime.error(note);
-        }
-      }
-    }
-    assertUpdatePackageActivationAdmission(root, {
-      continuation: postCoreUpdateResume ? opts.run?.executorFence : undefined,
-      dryRun: !postCoreUpdateResume && opts.dryRun,
+  const admitPackageActivation = (root: string) =>
+    admitUpdateCommandPackageActivation({
+      root,
+      opts,
+      postCoreUpdateResume,
+      packageActivationNotes,
     });
-  };
   await admitPackageActivation(discoveredRoot);
   const servicePlan =
     installKind === "package" && !postCoreUpdateResume && !foreground
@@ -752,23 +722,4 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   };
 }
 
-/** Prepare mutable runtime state only under the admitted installation owner. */
-export async function prepareMutableUpdateRuntime(
-  env: NodeJS.ProcessEnv | undefined,
-  fence: UpdateRecoveryFence,
-) {
-  return await withOwnedManagedUpdateEnv(env, async () => {
-    fence.assertCurrent();
-    await cleanupStaleManagedServiceUpdateHandoffs().catch(() => undefined);
-    fence.assertCurrent();
-    await assertOpenClawStateWriteAllowedAtPath({
-      databasePath: resolveOpenClawStateSqlitePath(process.env),
-    });
-    fence.assertCurrent();
-    await disableCurrentOpenClawUpdateLaunchdJob().catch(() => undefined);
-    fence.assertCurrent();
-    const records = await loadInstalledPluginIndexInstallRecords();
-    fence.assertCurrent();
-    return records;
-  });
-}
+export { prepareMutableUpdateRuntime } from "./update-command-runtime-preparation.js";

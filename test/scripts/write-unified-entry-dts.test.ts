@@ -132,7 +132,7 @@ describe("write-unified-entry-dts", () => {
     }
   });
 
-  it("compiles declarations once and restores them while rebuilding runtime after input edits", ({
+  it("publishes bounded declaration groups and restores them while rebuilding runtime after input edits", ({
     command,
     onTestFailed,
   }) =>
@@ -237,9 +237,13 @@ describe("write-unified-entry-dts", () => {
         (result) => result.status,
       );
       expect(initial.status, initial.stdout + initial.stderr).toBe(0);
-      expect(
-        (initial.stdout + initial.stderr).match(/\[tsdown-build\] invocation \d\/\d finished/gu),
-      ).toHaveLength(2);
+      const initialBuildInvocations = (initial.stdout + initial.stderr).match(
+        /\[tsdown-build\] invocation \d+\/\d+ finished/gu,
+      );
+      expect(initialBuildInvocations?.length).toBeGreaterThan(0);
+      expect(initialBuildInvocations?.length).toBeLessThanOrEqual(
+        TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length + 1,
+      );
       for (const entry of production) {
         expect(fs.statSync(path.join(root, `dist/${entry}.d.ts`)).size, entry).toBeGreaterThan(0);
       }
@@ -335,7 +339,7 @@ describe("write-unified-entry-dts", () => {
       expect(isolatedEdit.status, isolatedEdit.stdout + isolatedEdit.stderr).toBe(0);
       expect(
         (isolatedEdit.stdout + isolatedEdit.stderr).match(
-          /\[tsdown-build\] invocation \d\/\d finished/gu,
+          /\[tsdown-build\] invocation \d+\/\d+ finished/gu,
         ),
       ).toHaveLength(2);
       expect(records).toHaveLength(TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length);
@@ -364,8 +368,13 @@ describe("write-unified-entry-dts", () => {
       );
       expect(cold.status, cold.stdout + cold.stderr).toBe(0);
       expect(
-        (cold.stdout + cold.stderr).match(/\[tsdown-build\] invocation \d\/1 finished/gu),
-      ).toHaveLength(1);
+        (cold.stdout + cold.stderr).match(
+          new RegExp(
+            `\\[tsdown-build\\] invocation \\d+\\/${TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length} finished`,
+            "gu",
+          ),
+        ),
+      ).toHaveLength(TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length);
       expect(
         await measurePhase("cold-dist-hash", () => treeHashes(path.join(root, "dist"))),
       ).toEqual(mixedGeneration);
@@ -385,9 +394,6 @@ describe("write-unified-entry-dts", () => {
           `[tsdown-unified] ${group}: cache miss (record-unavailable)`,
         );
       }
-      expect(
-        (initial.stdout + initial.stderr).match(/\[tsdown-build\] invocation \d\/1 finished/gu),
-      ).toHaveLength(1);
       expect(fs.existsSync(path.join(root, "dist/extensions/fixture-a/index.d.ts"))).toBe(true);
       expect(fs.existsSync(path.join(root, "dist/extensions/fixture-b/index.d.ts"))).toBe(false);
       const before = treeHashes(path.join(root, "dist"));
@@ -449,7 +455,9 @@ ${
       }
       const failed = await runUnifiedWriter(command, root);
       expect(failed.status, failed.stdout + failed.stderr).toBeGreaterThan(0);
-      expect(failed.stdout + failed.stderr).toContain("invocation 1/1 finished");
+      expect(failed.stdout + failed.stderr).toContain(
+        `invocation ${TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length}/${TSDOWN_UNIFIED_DTS_CONFIG_GROUPS.length} finished`,
+      );
       expect(failed.stdout + failed.stderr).toContain(
         failure === "compiler failure"
           ? "TS2305"

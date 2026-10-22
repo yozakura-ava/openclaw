@@ -38,7 +38,7 @@ import {
   compensateOriginalManagedService,
 } from "./update-command-service-recovery.js";
 
-type Fixture = {
+export type Fixture = {
   state: OpenClawTestState;
   rootA: string;
   rootB: string;
@@ -55,23 +55,29 @@ type Fixture = {
   };
 };
 
+export async function withCurrentF3Admitted(
+  fixture: () => Fixture,
+  operation: (run: NonNullable<UpdateCommandOptions["run"]>) => Promise<void>,
+  retained = true,
+) {
+  const { state, rootA, rootB } = fixture();
+  const run: NonNullable<UpdateCommandOptions["run"]> = {
+    runId: createUpdateRun({ trigger: "cli" }, { env: state.env }).runId,
+    env: state.env,
+  };
+  await withUpdateCommandExecutor(run.runId, async (executor) => {
+    run.executorFence = await executor.enter(rootB, retained ? { serviceRoot: rootA } : {});
+    await operation(run);
+  });
+}
+
 // Current composition only: real observations, admission and candidate-native helper;
 // receiver probe, native service and HTTP leaves are inert. No native command executes.
 export function registerCurrentF3Controls(fixture: () => Fixture) {
-  const admitted = async (
+  const admitted = (
     operation: (run: NonNullable<UpdateCommandOptions["run"]>) => Promise<void>,
     retained = true,
-  ) => {
-    const { state, rootA, rootB } = fixture();
-    const run: NonNullable<UpdateCommandOptions["run"]> = {
-      runId: createUpdateRun({ trigger: "cli" }, { env: state.env }).runId,
-      env: state.env,
-    };
-    await withUpdateCommandExecutor(run.runId, async (executor) => {
-      run.executorFence = await executor.enter(rootB, retained ? { serviceRoot: rootA } : {});
-      await operation(run);
-    });
-  };
+  ) => withCurrentF3Admitted(fixture, operation, retained);
 
   it.each(["unchanged", "replaced"] as const)(
     "capable original recovery binds definition after native lock: %s",
@@ -436,24 +442,6 @@ export function registerCurrentF3Controls(fixture: () => Fixture) {
       });
     },
   );
-
-  it("refuses Windows split-root compensation before stopping the original", async () => {
-    const { rootB, before, mocks } = fixture();
-    await admitted(async (run) => {
-      const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
-      try {
-        await expect(
-          observeOriginalManagedServiceRuntime({ root: rootB, opts: { run } }, before),
-        ).rejects.toMatchObject({ reason: "original-service-unverified" });
-        expect(before.stopped).toBe(false);
-        expect(mocks.nativeRestart).not.toHaveBeenCalled();
-        expect(mocks.nativeInstall).not.toHaveBeenCalled();
-        expect(mocks.restart).not.toHaveBeenCalled();
-      } finally {
-        platform.mockRestore();
-      }
-    });
-  });
 
   it("waits for HTTP readiness after restoring the retained service", async () => {
     const { rootB, before, mocks } = fixture();

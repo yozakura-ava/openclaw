@@ -17,7 +17,6 @@ import {
   type WorkboardAttachment,
   type WorkboardAutomation,
   type WorkboardClaim,
-  type WorkboardComment,
   type WorkboardDiagnostic,
   type WorkboardDiagnosticAction,
   type WorkboardDiagnosticKind,
@@ -50,6 +49,12 @@ import {
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
 import {
+  actorFields,
+  normalizeActor,
+  type AttributedWorkboardComment,
+  type AttributedWorkboardProof,
+} from "./actor-attribution.js";
+import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
   MAX_CARD_ATTACHMENTS,
@@ -62,6 +67,8 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
+  MAX_RUN_ID_LENGTH,
+  MAX_COMMENT_BODY_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -115,7 +122,7 @@ export function normalizeNotificationSubscription(
   const boardId = normalizeBoardId(input.boardId) ?? "default";
   const cardId = normalizeBoundedString(input.cardId, undefined, 120, "card id");
   const sessionKey = normalizeBoundedString(input.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(input.runId, undefined, 160, "run id");
+  const runId = normalizeRunId(input.runId);
   const target = normalizeBoundedString(input.target, undefined, 240, "notification target");
   if (!cardId && !sessionKey && !runId && !target) {
     throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
@@ -174,6 +181,11 @@ export function normalizeBoundedString(
   return normalized;
 }
 
+/** Run identities may be longer than ordinary user-facing identifiers. */
+export function normalizeRunId(value: unknown): string | undefined {
+  return normalizeBoundedString(value, undefined, MAX_RUN_ID_LENGTH, "run id");
+}
+
 export function capText(value: string | undefined, max: number): string | undefined {
   if (!value) {
     return undefined;
@@ -187,6 +199,32 @@ export function normalizeStatus(value: unknown, fallback: WorkboardStatus): Work
 
 export function normalizePriority(value: unknown, fallback: WorkboardPriority): WorkboardPriority {
   return normalizeEnumValue(value, WORKBOARD_PRIORITIES, fallback, "priority");
+}
+
+export function normalizeLabels(value: unknown, fallback: string[] = []): string[] {
+  if (value == null) {
+    return fallback;
+  }
+  const entries =
+    typeof value === "string" ? value.split(",") : Array.isArray(value) ? value : undefined;
+  if (!entries) {
+    throw new Error("labels must be an array or comma-separated string.");
+  }
+  const labels: string[] = [];
+  for (const entry of entries) {
+    const label = normalizeOptionalString(entry);
+    if (!label || labels.includes(label)) {
+      continue;
+    }
+    if (label.length > 40) {
+      throw new Error("labels must be 40 characters or fewer.");
+    }
+    labels.push(label);
+    if (labels.length >= 12) {
+      break;
+    }
+  }
+  return labels;
 }
 
 export function normalizeStringList(value: unknown, fieldName: string, maxLength = 80): string[] {
@@ -362,7 +400,7 @@ function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined 
     return undefined;
   }
   const requestedSessionKey = normalizeBoundedOptionalString(value.requestedSessionKey, 240);
-  const provisionalRunId = normalizeBoundedOptionalString(value.provisionalRunId, 160);
+  const provisionalRunId = normalizeRunId(value.provisionalRunId);
   const preparedAt = normalizeLaunchTimestamp(value.preparedAt);
   if (!requestedSessionKey || !provisionalRunId || preparedAt === undefined) {
     return undefined;
@@ -374,7 +412,7 @@ function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined 
   if (value.phase === "accepted") {
     const acceptedAt = normalizeLaunchTimestamp(value.acceptedAt);
     const acceptedSessionKey = normalizeBoundedOptionalString(value.acceptedSessionKey, 240);
-    const acceptedRunId = normalizeBoundedOptionalString(value.acceptedRunId, 160);
+    const acceptedRunId = normalizeRunId(value.acceptedRunId);
     return acceptedAt === undefined || !acceptedSessionKey
       ? undefined
       : {
@@ -443,7 +481,7 @@ function normalizeEvent(record: Record<string, unknown>): WorkboardEvent | null 
   const fromStatus = normalizeEnumValue(record.fromStatus, WORKBOARD_STATUSES, undefined);
   const toStatus = normalizeEnumValue(record.toStatus, WORKBOARD_STATUSES, undefined);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   return {
     id,
     kind,
@@ -467,7 +505,7 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
   }
   const endedAt = normalizeTimestamp(record.endedAt, 0);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   const error = normalizeBoundedString(record.error, undefined, 800, "attempt error");
   const engine = normalizeBoundedString(record.engine, undefined, 160, "attempt engine");
   const model = normalizeBoundedString(record.model, undefined, 160, "attempt model");
@@ -486,15 +524,30 @@ function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt 
   };
 }
 
-function normalizeComment(record: Record<string, unknown>): WorkboardComment | null {
+function normalizeComment(record: Record<string, unknown>): AttributedWorkboardComment | null {
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(
+    record.body,
+    undefined,
+    MAX_COMMENT_BODY_LENGTH,
+    "comment body",
+  );
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
   }
   const updatedAt = normalizeTimestamp(record.updatedAt, 0);
-  return { id, body, createdAt, ...(updatedAt ? { updatedAt } : {}) };
+  // Attribution must survive the metadata read normalizer, which whitelists
+  // every other field; dropping it here is what silently erased authorship on
+  // the next unrelated card write.
+  const actor = normalizeActor(record);
+  return {
+    id,
+    body,
+    createdAt,
+    ...(updatedAt ? { updatedAt } : {}),
+    ...actorFields(actor),
+  };
 }
 
 function normalizeLink(record: unknown): WorkboardLink | null {
@@ -590,7 +643,7 @@ function normalizeWorkerLog(record: Record<string, unknown>): WorkboardWorkerLog
   return workerLogEntry(record, message, createdAt, id);
 }
 
-export function workerLogEntry(
+function workerLogEntry(
   record: WorkboardWorkerLogInput,
   message: string,
   createdAt: number,
@@ -601,7 +654,7 @@ export function workerLogEntry(
       ? record.level
       : "info";
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(record.runId, undefined, 160, "run id");
+  const runId = normalizeRunId(record.runId);
   return {
     id: id ?? randomUUID(),
     level,
@@ -758,7 +811,7 @@ function normalizeNotification(record: Record<string, unknown>): WorkboardNotifi
     return null;
   }
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
-  const runId = normalizeBoundedString(record.runId, undefined, 120, "run id");
+  const runId = normalizeRunId(record.runId);
   return {
     id,
     kind,
@@ -774,11 +827,18 @@ export function normalizeProofInput(
   input: WorkboardProofInput,
   now: number,
   id?: string,
-): WorkboardProof {
+): AttributedWorkboardProof {
   const label = normalizeBoundedString(input.label, undefined, 160, "proof label");
   const command = normalizeBoundedString(input.command, undefined, 1000, "proof command");
   const url = normalizeBoundedString(input.url, undefined, 2000, "proof URL");
   const note = normalizeBoundedString(input.note, undefined, 2000, "proof note");
+  // Proof records are persisted in the workboard_card_proof child table
+  // (readMetadata rebuilds metadata.proof from it) and rewritten on every card
+  // write, so attribution only round-trips because the actor columns were
+  // added to that table. Normalized fail-closed: an
+  // unresolved actor contributes no fields at all. normalizeProof() routes
+  // through here on the read path, which is what preserves proof authorship.
+  const actor = normalizeActor(input);
   return {
     id: id ?? randomUUID(),
     status: normalizeEnumValue(input.status, WORKBOARD_PROOF_STATUSES, "unknown"),
@@ -787,6 +847,7 @@ export function normalizeProofInput(
     ...(command ? { command } : {}),
     ...(url ? { url } : {}),
     ...(note ? { note } : {}),
+    ...actorFields(actor),
   };
 }
 
@@ -853,6 +914,7 @@ export function normalizeMetadata(
     allowArchivedAt?: boolean;
     allowAutomationLaunch?: boolean;
     preserveProofId?: string;
+    preserveNotificationId?: string;
   } = {},
 ): WorkboardMetadata {
   if (!isRecord(value)) {
@@ -977,7 +1039,7 @@ export function normalizeExecution(record: unknown): WorkboardExecution | undefi
   const model = normalizeBoundedString(record.model, undefined, 160, "execution model");
   const normalizedId = normalizeOptionalString(record.id);
   const sessionKey = normalizeOptionalString(record.sessionKey);
-  const runId = normalizeOptionalString(record.runId);
+  const runId = normalizeRunId(record.runId);
   if (!normalizedId && !engine && !model && !sessionKey && !runId) {
     return undefined;
   }
@@ -1089,12 +1151,13 @@ export function appendLinkPreservingDependencies(
 
 export function trimMetadataToBudget(
   metadata: WorkboardMetadata,
-  options: { preserveProofId?: string } = {},
+  options: { preserveProofId?: string; preserveNotificationId?: string } = {},
 ): WorkboardMetadata {
   let next = removeUndefinedMetadataFields(metadata);
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
     const currentSize = metadataByteSize(next);
     for (const key of [
+      "comments",
       "attempts",
       "diagnostics",
       "notifications",
@@ -1103,7 +1166,6 @@ export function trimMetadataToBudget(
       "attachments",
       "workerLogs",
       "links",
-      "comments",
     ] as const) {
       const entries = next[key];
       if (!entries?.length) {
@@ -1114,9 +1176,15 @@ export function trimMetadataToBudget(
           ? (next.proof?.findIndex(
               (proof) => !options.preserveProofId || proof.id !== options.preserveProofId,
             ) ?? -1)
-          : key === "links"
-            ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
-            : 0;
+          : key === "notifications"
+            ? (next.notifications?.findIndex(
+                (notification) =>
+                  !options.preserveNotificationId ||
+                  notification.id !== options.preserveNotificationId,
+              ) ?? -1)
+            : key === "links"
+              ? (next.links?.findIndex((link) => !isDependencyLink(link)) ?? -1)
+              : 0;
       if (index < 0) {
         continue;
       }
@@ -1132,6 +1200,11 @@ export function trimMetadataToBudget(
     if (metadataByteSize(next) >= currentSize) {
       if (options.preserveProofId) {
         throw new Error(`card metadata cannot retain proof: ${options.preserveProofId}`);
+      }
+      if (options.preserveNotificationId) {
+        throw new Error(
+          `card metadata cannot retain notification: ${options.preserveNotificationId}`,
+        );
       }
       break;
     }

@@ -14,6 +14,7 @@ import * as processMemory from "../../scripts/lib/process-memory.mts";
 import { createVitestResourceOwner } from "../../scripts/lib/vitest-resource-ownership.mts";
 import {
   createPrefixedOutputWriter,
+  parseBoundarySelection,
   parseMode,
   resolveBoundaryRootShimsTimeoutMs,
   runNodeStep as runNodeStepImpl,
@@ -649,7 +650,7 @@ child.once("message", () => process.exit(${exitCode}));
     }));
 
   it.each([
-    { cpus: 8, memoryGiB: 24, local: undefined, expected: 2 },
+    { cpus: 8, memoryGiB: 24, local: undefined, expected: 1 },
     { cpus: 8, memoryGiB: null, local: undefined, expected: 1 },
     { cpus: 8, memoryGiB: 24, local: "1", expected: 1 },
   ])(
@@ -721,6 +722,25 @@ child.once("message", () => process.exit(${exitCode}));
     expect(parseMode([])).toBe("all");
     expect(parseMode(["--mode=package-boundary"])).toBe("package-boundary");
     expect(() => parseMode(["--mode=nope"])).toThrow("Unknown mode: nope");
+  });
+
+  it("selects one declaration leaf and validates without permitting ambiguous scopes", () => {
+    expect(parseBoundarySelection(["--unit=plugin-sdk"])).toEqual({
+      unit: "plugin-sdk",
+      validateOnly: false,
+    });
+    expect(parseBoundarySelection(["--unit=telegram", "--validate-only"])).toEqual({
+      unit: "telegram",
+      validateOnly: true,
+    });
+    for (const args of [
+      ["--unit=unknown"],
+      ["--unit=plugin-sdk", "--unit=telegram"],
+      ["--unit=telegram", "--mode=all"],
+      ["--unit=telegram", '--extensions=["telegram"]'],
+    ]) {
+      expect(() => parseBoundarySelection(args)).toThrow("Select one known boundary --unit");
+    }
   });
 
   it("gives cold root shim generation macOS runner headroom", () => {

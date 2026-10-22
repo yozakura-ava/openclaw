@@ -40,7 +40,15 @@ const DEFAULT_SPLIT_CORE_SHARD_CONCURRENCY = 4;
 const FAST_LOCAL_CHECK_MIN_CPUS = 12;
 const FAST_LOCAL_CHECK_MIN_MEMORY_BYTES = 48 * 1024 ** 3;
 const EXTENSION_TS_CONFIG = "extensions/tsconfig.json";
+const GATEWAY_TS_CONFIG = "config/tsconfig/oxlint.gateway.json";
+const GATEWAY_CONFIG_DIR = ".artifacts/qualification/oxlint-tsconfigs";
+const GATEWAY_FILE_CHUNK_SIZE = 256;
+const AGENTS_FILE_CHUNK_SIZE = 64;
+const SOURCE_FILE_CHUNK_SIZE = 64;
+const EXTENSION_FILE_CHUNK_SIZE = 64;
+const SCRIPTS_FILE_CHUNK_SIZE = 64;
 const EXTENSIONS_DIR = "extensions";
+const SCRIPTS_DIR = "scripts";
 const OXLINT_SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;
 const PARENT_TERMINATION_SIGNALS = ["SIGINT", "SIGTERM"] satisfies NodeJS.Signals[];
 
@@ -57,7 +65,12 @@ type DirectoryLookup = Required<DirectoryOptions>;
 type ShardOptions = DirectoryOptions & { env?: NodeJS.ProcessEnv };
 type PlatformOptions = { env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform };
 type PlatformShardOptions = ShardOptions &
-  ResourceOptions & { splitCore?: boolean; splitExtensions?: boolean };
+  ResourceOptions & {
+    splitCore?: boolean;
+    splitExtensions?: boolean;
+    splitScripts?: boolean;
+    extensionChunkSize?: number;
+  };
 type ResourceOptions = PlatformOptions & { hostResources?: HostResources };
 type RunnerOptions = {
   env: NodeJS.ProcessEnv;
@@ -86,7 +99,7 @@ const CORE_SHARD = {
   args: ["--tsconfig", "config/tsconfig/oxlint.core.json", "src", "ui", "packages"],
 };
 const CORE_TS_CONFIG = "config/tsconfig/oxlint.core.json";
-const CORE_SPLIT_TARGETS = ["ui", "packages"];
+const CORE_SPLIT_TARGETS = ["packages"];
 // Combining these targets with neighbors exceeds hosted RAM despite Go's soft heap limit.
 const ISOLATED_CORE_TARGETS = new Set(["src/agents", "src/gateway", "src/infra", "ui"]);
 const EXTENSIONS_SHARD = {
@@ -162,16 +175,20 @@ export function createOxlintExtensionRootScope(roots: readonly string[], cwd = p
         if (!shard.name.startsWith("extensions:")) {
           throw new Error("Oxlint extension roots require canonical extension-only chunks");
         }
-        const targets = shard.args.slice(2).filter((target) => selected.has(target));
-        return targets.length
-          ? [
-              {
+        const canonicalTargets = shard.canonicalTargets ?? shard.args.slice(2);
+        const targets = canonicalTargets.filter((target) => selected.has(target));
+        if (targets.length === 0) {
+          return [];
+        }
+        return [
+          shard.canonicalTargets
+            ? { ...shard, canonicalTargets: targets }
+            : {
                 ...shard,
                 args: [...shard.args.slice(0, 2), ...targets],
-                canonicalTargets: shard.canonicalTargets ?? shard.args.slice(2),
+                canonicalTargets: targets,
               },
-            ]
-          : [];
+        ];
       });
     },
   };
@@ -185,12 +202,16 @@ export function createOxlintShards({
   readDir = fs.readdirSync,
   splitCore = false,
   splitExtensions = false,
+  splitScripts = false,
+  extensionChunkSize: requestedExtensionChunkSize,
 }: PlatformShardOptions = {}) {
   const constrainedSerial =
     resolveCheckMemoryCapacityBytes(hostResources) < CI_PARALLEL_MIN_MEMORY_BYTES &&
     shouldRunOxlintShardsSerial({ env, platform, hostResources });
   const coreGroups =
-    splitCore || constrainedSerial ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
+    splitCore || constrainedSerial
+      ? createCoreOxlintShards({ cwd, readDir, splitSourceRoots: splitCore })
+      : [CORE_SHARD];
   // Bound semantic checker caches without rebuilding the full type graph for every directory.
   const coreShards =
     constrainedSerial && !splitCore
@@ -207,7 +228,9 @@ export function createOxlintShards({
   // Larger serial Programs amortize type-graph startup on the measured Linux CI
   // class. Unknown/ancestor-constrained memory and explicit stripes retain eight.
   const extensionChunkSize =
-    platform === "linux" &&
+    requestedExtensionChunkSize ??
+    resolvePositiveEnvInt(env, "OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE") ??
+    (platform === "linux" &&
     (env.CI === "true" || env.GITHUB_ACTIONS === "true") &&
     constrainedSerial &&
     !splitExtensions &&
@@ -215,32 +238,263 @@ export function createOxlintShards({
     hostResources.logicalCpuCount >= 4 &&
     (hostResources.memoryCapacityBytes ?? 0) >= LARGE_CI_EXTENSION_MIN_MEMORY_BYTES
       ? LARGE_CI_EXTENSION_CHUNK_SIZE
-      : DEFAULT_EXTENSION_CHUNK_SIZE;
+      : DEFAULT_EXTENSION_CHUNK_SIZE);
   const extensionShards = chunkExtensions
-    ? createExtensionOxlintShards({ cwd, env, platform, readDir, chunkSize: extensionChunkSize })
+    ? createExtensionOxlintShards({
+        cwd,
+        env,
+        platform,
+        readDir,
+        chunkSize: extensionChunkSize,
+        splitSourceFiles: splitExtensions,
+      })
     : [EXTENSIONS_SHARD];
+  const scriptShards =
+    splitScripts || constrainedSerial
+      ? createScriptOxlintShards({ cwd, readDir })
+      : [SCRIPTS_SHARD];
 
-  return [...coreShards, ...extensionShards, SCRIPTS_SHARD];
+  return [...coreShards, ...extensionShards, ...scriptShards];
+}
+
+function createScriptOxlintShards({
+  cwd = process.cwd(),
+  readDir = fs.readdirSync,
+}: DirectoryOptions = {}): OxlintShard[] {
+  return createTypeAwareFileShards({
+    cwd,
+    readDir,
+    root: SCRIPTS_DIR,
+    prefix: "scripts",
+    namespace: "scripts",
+    chunkSize: SCRIPTS_FILE_CHUNK_SIZE,
+  });
 }
 
 function createCoreOxlintShards({
   cwd = process.cwd(),
   readDir = fs.readdirSync,
-}: DirectoryOptions = {}) {
-  const sourceShards = listSourceRootTargetGroups({ cwd, readDir }).map((targets) => ({
-    name: targets.length === 1 ? `core:${targets.join("").replaceAll("/", ":")}` : "core:src:root",
-    args: ["--tsconfig", CORE_TS_CONFIG, ...targets],
-  }));
+  splitSourceRoots = false,
+}: DirectoryOptions & { splitSourceRoots?: boolean } = {}) {
+  const sourceShards = listSourceRootTargetGroups({ cwd, readDir }).flatMap((targets) => {
+    if (targets.length === 1 && targets[0] === "src/agents") {
+      const agentsShards = createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: "src/agents",
+        prefix: "agents",
+        chunkSize: AGENTS_FILE_CHUNK_SIZE,
+      });
+      if (agentsShards.length > 0) {
+        return agentsShards;
+      }
+    }
+    if (targets.length === 1 && targets[0] === "src/gateway") {
+      const gatewayShards = createGatewayOxlintShards({ cwd, readDir });
+      if (gatewayShards.length > 0) {
+        return gatewayShards;
+      }
+    }
+    if (
+      splitSourceRoots &&
+      targets.length === 1 &&
+      targets[0]!.startsWith("src/") &&
+      !ISOLATED_CORE_TARGETS.has(targets[0]!)
+    ) {
+      const target = targets[0]!;
+      const prefix = `source-${target.slice("src/".length).replaceAll("/", "-")}`;
+      const sourceShards = createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: target,
+        prefix,
+        chunkSize: SOURCE_FILE_CHUNK_SIZE,
+      });
+      if (sourceShards.length > 0) {
+        return sourceShards;
+      }
+    }
+    return [
+      {
+        name:
+          targets.length === 1 ? `core:${targets.join("").replaceAll("/", ":")}` : "core:src:root",
+        args: ["--tsconfig", CORE_TS_CONFIG, ...targets],
+      },
+    ];
+  });
   const sourceEntries = sourceShards.length > 0 ? sourceShards : [createCoreShard("src")];
 
-  return [...sourceEntries, ...CORE_SPLIT_TARGETS.map((target) => createCoreShard(target))];
+  const uiShards = splitSourceRoots
+    ? createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: "ui",
+        prefix: "source-ui",
+        chunkSize: SOURCE_FILE_CHUNK_SIZE,
+      })
+    : [];
+  const uiEntries = splitSourceRoots && uiShards.length > 0 ? uiShards : [createCoreShard("ui")];
+  return [
+    ...sourceEntries,
+    ...uiEntries,
+    ...CORE_SPLIT_TARGETS.map((target) => createCoreShard(target)),
+  ];
+}
+
+export function createGatewayOxlintShards({
+  cwd = process.cwd(),
+  readDir = fs.readdirSync,
+}: DirectoryOptions = {}): OxlintShard[] {
+  return createCoreSourceFileShards({
+    cwd,
+    readDir,
+    root: "src/gateway",
+    prefix: "gateway",
+    chunkSize: GATEWAY_FILE_CHUNK_SIZE,
+  });
+}
+
+function createCoreSourceFileShards({
+  cwd,
+  readDir,
+  root,
+  prefix,
+  chunkSize,
+}: DirectoryLookup & { root: string; prefix: string; chunkSize: number }): OxlintShard[] {
+  return createTypeAwareFileShards({
+    cwd,
+    readDir,
+    root,
+    prefix,
+    namespace: "core",
+    chunkSize,
+  });
+}
+
+function createTypeAwareFileShards({
+  cwd,
+  readDir,
+  root,
+  prefix,
+  namespace,
+  chunkSize,
+}: DirectoryLookup & {
+  root: string;
+  prefix: string;
+  namespace: "core" | "extensions" | "scripts";
+  chunkSize: number;
+}): OxlintShard[] {
+  const files: string[] = [];
+  const visit = (target: string) => {
+    for (const entry of readDirectoryEntries(readDir, path.join(cwd, target)).toSorted((a, b) =>
+      a.name.localeCompare(b.name),
+    )) {
+      const child = `${target}/${entry.name}`;
+      if (entry.isDirectory()) {
+        visit(child);
+      } else if (
+        entry.isFile() &&
+        OXLINT_SOURCE_FILE_PATTERN.test(entry.name) &&
+        !/\.d\.[cm]?ts$/u.test(entry.name)
+      ) {
+        files.push(child);
+      }
+    }
+  };
+  visit(root);
+  files.sort((left, right) => left.localeCompare(right));
+  const shards: OxlintShard[] = [];
+  for (let start = 0; start < files.length; start += chunkSize) {
+    const index = shards.length + 1;
+    const config = `${GATEWAY_CONFIG_DIR}/${prefix}-${String(index).padStart(2, "0")}.json`;
+    const suffix = String(index).padStart(2, "0");
+    shards.push({
+      name:
+        namespace === "scripts"
+          ? `scripts:${suffix}`
+          : namespace === "extensions"
+            ? `${prefix.replace(/^extensions-/u, "extensions:")}:${suffix}`
+            : `core:${prefix}:${suffix}`,
+      args: ["--tsconfig", config, ...files.slice(start, start + chunkSize)],
+      ...(namespace === "extensions" ? { canonicalTargets: [root] } : {}),
+    });
+  }
+  return shards;
+}
+
+export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: string) {
+  const sourceShards = shards.filter(
+    (shard) =>
+      /^core:(?:gateway|agents|source-[a-zA-Z0-9._-]+):\d+$/u.test(shard.name) ||
+      /^scripts:\d+$/u.test(shard.name) ||
+      /^extensions:[^:]+:\d+$/u.test(shard.name),
+  );
+  if (sourceShards.length === 0) {
+    return;
+  }
+  const outputDir = path.resolve(cwd, GATEWAY_CONFIG_DIR);
+  fs.mkdirSync(outputDir, { recursive: true });
+  for (const shard of sourceShards) {
+    const configPath = path.resolve(cwd, shard.args[1]!);
+    const isScripts = shard.name.startsWith("scripts:");
+    const isExtensions = shard.name.startsWith("extensions:");
+    const include = [
+      ...(isScripts
+        ? [
+            "../../../src/**/*.d.ts",
+            "../../../packages/**/*.d.ts",
+            "../../../scripts/**/*.d.ts",
+            "../../../scripts/**/*.d.mts",
+            "../../../scripts/**/*.d.cts",
+          ]
+        : []),
+      ...(isExtensions
+        ? [
+            "../../../src/**/*.d.ts",
+            "../../../src/**/*.d.mts",
+            "../../../src/**/*.d.cts",
+            "../../../ui/**/*.d.ts",
+            "../../../ui/**/*.d.mts",
+            "../../../ui/**/*.d.cts",
+            "../../../packages/**/*.d.ts",
+            "../../../packages/**/*.d.mts",
+            "../../../packages/**/*.d.cts",
+            "../../../extensions/**/*.d.ts",
+            "../../../extensions/**/*.d.mts",
+            "../../../extensions/**/*.d.cts",
+          ]
+        : []),
+      ...shard.args.slice(2).map((file) => `../../../${file}`),
+    ];
+    fs.writeFileSync(
+      configPath,
+      `${JSON.stringify(
+        {
+          extends: isScripts
+            ? "../../../config/tsconfig/oxlint.scripts.json"
+            : isExtensions
+              ? "../../../extensions/tsconfig.json"
+              : "../../../tsconfig.json",
+          include,
+          exclude: ["../../../node_modules", "../../../dist", "../../../dist-runtime"],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
 }
 
 function createCoreShard(target: string) {
+  const tsconfig = coreConfigForTarget(target);
   return {
     name: `core:${target}`,
-    args: ["--tsconfig", CORE_TS_CONFIG, target],
+    args: ["--tsconfig", tsconfig, target],
   };
+}
+
+function coreConfigForTarget(target: string) {
+  return target === "src/gateway" ? GATEWAY_TS_CONFIG : CORE_TS_CONFIG;
 }
 
 /**
@@ -252,7 +506,8 @@ export function createExtensionOxlintShards({
   platform = process.platform,
   readDir = fs.readdirSync,
   chunkSize: requestedChunkSize = DEFAULT_EXTENSION_CHUNK_SIZE,
-}: ShardOptions & PlatformOptions & { chunkSize?: number } = {}) {
+  splitSourceFiles = false,
+}: ShardOptions & PlatformOptions & { chunkSize?: number; splitSourceFiles?: boolean } = {}) {
   const entries = listOxlintRootEntries(EXTENSIONS_DIR, { cwd, readDir });
   if (entries.dirs.length === 0 && entries.rootFiles.length === 0) {
     return [EXTENSIONS_SHARD];
@@ -272,10 +527,30 @@ export function createExtensionOxlintShards({
   for (let index = 0; index < entries.dirs.length; index += chunkSize) {
     const chunk = entries.dirs.slice(index, index + chunkSize);
     const chunkNumber = String(index / chunkSize + 1).padStart(2, "0");
-    shards.push({
-      name: `extensions:${chunkNumber}`,
-      args: ["--tsconfig", EXTENSION_TS_CONFIG, ...chunk],
-    });
+    const packageTargets: string[] = [];
+    for (const target of chunk) {
+      const sourceShards = splitSourceFiles
+        ? createTypeAwareFileShards({
+            cwd,
+            readDir,
+            root: target,
+            prefix: `extensions-${path.posix.basename(target)}`,
+            namespace: "extensions",
+            chunkSize: EXTENSION_FILE_CHUNK_SIZE,
+          })
+        : [];
+      if (sourceShards.length > 1) {
+        shards.push(...sourceShards);
+      } else {
+        packageTargets.push(target);
+      }
+    }
+    if (packageTargets.length > 0) {
+      shards.push({
+        name: `extensions:${chunkNumber}`,
+        args: ["--tsconfig", EXTENSION_TS_CONFIG, ...packageTargets],
+      });
+    }
   }
   return shards;
 }
@@ -375,6 +650,7 @@ export async function main(
     hostResources,
     splitCore: shardArgs.splitCore,
     splitExtensions,
+    splitScripts: shardArgs.splitScripts,
   });
   const stripedShards = selectExtensionOxlintStripe(
     selectCoreOxlintStripe(filterOxlintShards(shards, shardArgs.only), shardArgs.coreStripe, {
@@ -387,6 +663,7 @@ export async function main(
     : shardArgs.files
       ? createOxlintFileScope(shardArgs.files).selectShards(stripedShards)
       : stripedShards;
+  writeGatewayOxlintConfigs(shards, process.cwd());
 
   const needsArtifacts = shouldPrepareExtensionPackageBoundaryArtifactsForShards(
     selectedShards,
@@ -409,7 +686,7 @@ export async function main(
         shell: false,
         args: distArtifactEntryArgs(
           path.resolve("scripts/prepare-extension-package-boundary-artifacts.mts"),
-          ["--mode=package-boundary"],
+          ["--mode=all", ...(env.OPENCLAW_OXLINT_SKIP_PREPARE === "1" ? ["--validate-only"] : [])],
         ),
         env,
         requireProcessTreeExit: process.platform !== "win32",
@@ -484,6 +761,7 @@ export function parseShardRunnerArgs(args: string[]) {
   let coreStripe: ShardStripe | undefined;
   let extensionStripe: ShardStripe | undefined;
   let splitCore = false;
+  let splitScripts = false;
   let files: string[] | undefined;
   let extensionRoots: string[] | undefined;
 
@@ -520,6 +798,10 @@ export function parseShardRunnerArgs(args: string[]) {
     }
     if (arg === "--split-core") {
       splitCore = true;
+      continue;
+    }
+    if (arg === "--split-scripts") {
+      splitScripts = true;
       continue;
     }
     if (arg === "--core-stripe") {
@@ -567,6 +849,7 @@ export function parseShardRunnerArgs(args: string[]) {
     only,
     oxlintArgs,
     splitCore,
+    splitScripts,
     ...(files ? { files } : {}),
     ...(extensionRoots ? { extensionRoots } : {}),
   };
@@ -620,8 +903,12 @@ export function selectCoreOxlintStripe(
   if (shards.length === 0 || shards.some((shard) => !shard.name.startsWith("core:"))) {
     throw new Error("--core-stripe requires a non-empty core-only shard selection");
   }
-  const targets = shards
-    .filter((_, index) => index % stripe.total === stripe.index - 1)
+  const selected = shards.filter((_, index) => index % stripe.total === stripe.index - 1);
+  const sourceFileShards = selected.filter((shard) =>
+    /^core:(?:gateway|agents|source-[a-zA-Z0-9._-]+):\d+$/u.test(shard.name),
+  );
+  const targets = selected
+    .filter((shard) => !sourceFileShards.includes(shard))
     .flatMap((shard) => shard.args.slice(2));
   // Published Git updaters call full lint under a fixed command deadline. Only
   // explicit CI stripes may add compiler startups; automatic full lint stays aggregated.
@@ -640,8 +927,9 @@ export function selectCoreOxlintStripe(
       : []),
     ...isolatedTargets.map((target) => ({
       name: `core:stripe:${stripe.index}:${target.replaceAll("/", ":")}`,
-      args: ["--tsconfig", CORE_TS_CONFIG, target],
+      args: ["--tsconfig", coreConfigForTarget(target), target],
     })),
+    ...sourceFileShards,
   ];
 }
 
@@ -733,7 +1021,7 @@ async function runShards({
         (shard.name.startsWith("core:") &&
           (targets.length === 1 ||
             targets.every((target) => !ISOLATED_CORE_TARGETS.has(target)))) ||
-        (shard.name.startsWith("extensions:") && targets.length <= DEFAULT_EXTENSION_CHUNK_SIZE);
+        (shard.name.startsWith("extensions:") && targets.length <= EXTENSION_FILE_CHUNK_SIZE);
       const boundedArgs =
         boundedTargets &&
         extraArgs.every((arg) => /^--(?:threads=[12]|format=(?:json|stylish))$/u.test(arg));

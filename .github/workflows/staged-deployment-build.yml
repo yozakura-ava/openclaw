@@ -1,0 +1,159 @@
+name: Staged deployment build
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_ref:
+        description: Exact branch, tag, or commit to build
+        required: true
+        default: main
+        type: string
+      stage:
+        description: Stop after runtime artifacts, package creation, or install smoke
+        required: true
+        default: install-smoke
+        type: choice
+        options:
+          - runtime
+          - package
+          - install-smoke
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staged-deployment-${{ github.repository }}-${{ inputs.target_ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  NODE_VERSION: "24.21.0"
+
+jobs:
+  runtime:
+    name: Build runtime artifacts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: restore
+          install-bun: "false"
+          semantic-checks: "true"
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Build serial runtime stages under the qualification cap
+        run: scripts/ci-run-staged-build.sh runtime
+
+      - name: Verify runtime artifact contract
+        run: |
+          set -euo pipefail
+          test -f dist/index.js || test -f dist/index.mjs
+          test -f dist/build-info.json
+          test -f dist/control-ui/index.html
+          test -d dist-runtime
+
+      - name: Pack runtime artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/.artifacts/staged-runtime.tar"
+          mkdir -p "$(dirname "$archive")"
+          mapfile -t package_dist_paths < <(find packages -mindepth 2 -maxdepth 2 -type d -name dist -print | sort)
+          test "${#package_dist_paths[@]}" -gt 0
+          tar -cf "$archive" dist dist-runtime "${package_dist_paths[@]}"
+          test -s "$archive"
+
+      - name: Upload runtime artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: staged-runtime-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: .artifacts/staged-runtime.tar
+
+  package:
+    name: Create deployment package
+    needs: runtime
+    if: inputs.stage == 'package' || inputs.stage == 'install-smoke'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact target
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.target_ref }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Setup Node environment
+        uses: ./.github/actions/setup-node-env
+        with:
+          cache-mode: off
+          install-bun: "false"
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Restore runtime artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v5.0.0
+        with:
+          name: staged-runtime-${{ github.sha }}
+          path: .artifacts/staged-runtime
+
+      - name: Unpack runtime artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$GITHUB_WORKSPACE/.artifacts/staged-runtime/staged-runtime.tar"
+          test -s "$archive"
+          tar -xf "$archive"
+          test -f dist/index.js || test -f dist/index.mjs
+          test -d dist-runtime
+
+      - name: Create package without rebuilding
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/staged-package
+          pnpm pack --ignore-scripts --pack-destination .artifacts/staged-package
+          test "$(find .artifacts/staged-package -maxdepth 1 -name '*.tgz' -type f | wc -l)" -eq 1
+
+      - name: Upload deployment package
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: staged-package-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 7
+          path: .artifacts/staged-package/*.tgz
+
+  install-smoke:
+    name: Install staged package smoke
+    needs: package
+    if: inputs.stage == 'install-smoke'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Download deployment package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v5.0.0
+        with:
+          name: staged-package-${{ github.sha }}
+          path: .artifacts/staged-package
+
+      - name: Install staged package in an isolated prefix
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_path="$(find .artifacts/staged-package -maxdepth 1 -name '*.tgz' -type f -print -quit)"
+          test -n "$package_path"
+          prefix="$RUNNER_TEMP/openclaw-staged-install"
+          mkdir -p "$prefix"
+          npm install --ignore-scripts --no-audit --no-fund --prefix "$prefix" "$GITHUB_WORKSPACE/$package_path"
+          node -e "const p=require('$prefix/node_modules/openclaw/package.json'); if (!p.name || !p.version) process.exit(1); console.log(JSON.stringify({name:p.name,version:p.version},null,2))"

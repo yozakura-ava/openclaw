@@ -8,6 +8,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   createOxlintShards,
+  createGatewayOxlintShards,
+  createOxlintExtensionRootScope,
+  writeGatewayOxlintConfigs,
   filterOxlintShards,
   parseShardRunnerArgs,
   createExtensionOxlintShards,
@@ -626,6 +629,251 @@ describe("run-oxlint", () => {
     ]);
   });
 
+  it("partitions Gateway source files into disjoint bounded type-aware projects", () => {
+    const files = Array.from({ length: 513 }, (_, index) => ({
+      name: `gateway-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const shards = createGatewayOxlintShards({
+      cwd: "/repo",
+      readDir: (target: string) => (target.endsWith("/src/gateway") ? (files as never) : []),
+    });
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([256, 256, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/gateway-03.json",
+    ]);
+
+    const cwd = createTempDir("openclaw-oxlint-gateway-config-");
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../tsconfig.json");
+    expect(config.include).toEqual(shards[0]!.args.slice(2).map((file) => `../../../${file}`));
+  });
+
+  it("partitions the large agents root into disjoint 64-file type-aware projects", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `agent-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const readDir = (target: string) =>
+      target === "/repo/src"
+        ? ([{ name: "agents", isDirectory: () => true, isFile: () => false }] as never)
+        : target.endsWith("/src/agents")
+          ? (files as never)
+          : ([] as never);
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir,
+    }).filter((shard) => shard.name.startsWith("core:agents:"));
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/agents-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/agents-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/agents-03.json",
+    ]);
+
+    const stripes = [1, 2, 3].map((index) =>
+      selectCoreOxlintStripe(
+        createOxlintShards({
+          cwd: "/repo",
+          splitCore: true,
+          readDir,
+        }).filter((shard) => shard.name.startsWith("core:")),
+        { index, total: 3 },
+        { isolateLargeTargets: true },
+      ),
+    );
+    expect(
+      stripes
+        .flat()
+        .filter((shard) => shard.name.startsWith("core:agents:"))
+        .flatMap((shard) => shard.args.slice(2))
+        .toSorted(),
+    ).toEqual(targets.toSorted());
+  });
+
+  it("partitions UI source files into disjoint bounded type-aware projects", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `view-${String(index).padStart(4, "0")}.tsx`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const shards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir: (target: string) => (target === "/repo/ui" ? (files as never) : []),
+    }).filter((shard) => shard.name.startsWith("core:source-ui:"));
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-ui-03.json",
+    ]);
+
+    const cwd = createTempDir("openclaw-oxlint-ui-config-");
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../tsconfig.json");
+    expect(config.include).toEqual(shards[0]!.args.slice(2).map((file) => `../../../${file}`));
+
+    const coreShards = createOxlintShards({
+      cwd: "/repo",
+      splitCore: true,
+      readDir: (target: string) => (target === "/repo/ui" ? (files as never) : []),
+    }).filter((shard) => shard.name.startsWith("core:"));
+    const stripedTargets = [1, 2, 3]
+      .flatMap((index) =>
+        selectCoreOxlintStripe(coreShards, { index, total: 3 }, { isolateLargeTargets: true }),
+      )
+      .filter((shard) => shard.name.startsWith("core:source-ui:"))
+      .flatMap((shard) => shard.args.slice(2));
+    expect(stripedTargets.toSorted()).toEqual(targets.toSorted());
+  });
+
+  it("uses bounded type-aware projects for ordinary source roots in split-core mode", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `module-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const readDir = (target: string) =>
+      target === "/repo/src"
+        ? ([{ name: "catalog", isDirectory: () => true, isFile: () => false }] as never)
+        : target.endsWith("/src/catalog")
+          ? (files as never)
+          : ([] as never);
+    const shards = createOxlintShards({ cwd: "/repo", splitCore: true, readDir }).filter((shard) =>
+      shard.name.startsWith("core:source-catalog:"),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-03.json",
+    ]);
+
+    const stripes = [1, 2, 3].map((index) =>
+      selectCoreOxlintStripe(
+        createOxlintShards({ cwd: "/repo", splitCore: true, readDir }).filter((shard) =>
+          shard.name.startsWith("core:"),
+        ),
+        { index, total: 3 },
+        { isolateLargeTargets: true },
+      ),
+    );
+    expect(
+      stripes
+        .flat()
+        .filter((shard) => shard.name.startsWith("core:source-catalog:"))
+        .flatMap((shard) => shard.args.slice(2))
+        .toSorted(),
+    ).toEqual(targets.toSorted());
+  });
+
+  it("uses bounded type-aware projects for scripts on constrained hosts", () => {
+    const cwd = createTempDir("openclaw-oxlint-scripts-");
+    const files = Array.from(
+      { length: 129 },
+      (_, index) => `scripts/task-${String(index).padStart(4, "0")}.mts`,
+    );
+    for (const file of files) {
+      mkdirSync(join(cwd, "scripts"), { recursive: true });
+      writeFileSync(join(cwd, file), "");
+    }
+
+    const shards = filterOxlintShards(
+      createOxlintShards({ cwd, env: { CI: "true" }, hostResources: CONSTRAINED_HOST }),
+      new Set(["scripts"]),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(targets.toSorted()).toEqual(files.toSorted());
+    expect(shards.map((shard) => shard.name)).toEqual(["scripts:01", "scripts:02", "scripts:03"]);
+    expect(filterOxlintShards(shards, new Set(["scripts:02"]))).toEqual([shards[1]]);
+
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../config/tsconfig/oxlint.scripts.json");
+    expect(config.include).toContain("../../../scripts/**/*.d.mts");
+    expect(config.include).toContain("../../../src/**/*.d.ts");
+    expect(config.include).toContain("../../../scripts/task-0000.mts");
+  });
+
+  it("uses bounded type-aware projects for large extension packages on constrained hosts", () => {
+    const cwd = createTempDir("openclaw-oxlint-extensions-");
+    const files = Array.from(
+      { length: 65 },
+      (_, index) => `extensions/browser/task-${String(index).padStart(3, "0")}.ts`,
+    );
+    for (const file of files) {
+      mkdirSync(join(cwd, "extensions", "browser"), { recursive: true });
+      writeFileSync(join(cwd, file), "");
+    }
+
+    const shards = filterOxlintShards(
+      createOxlintShards({
+        cwd,
+        env: { CI: "true", OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1" },
+        hostResources: CONSTRAINED_HOST,
+        splitExtensions: true,
+      }),
+      new Set(["extensions"]),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(targets.toSorted()).toEqual(files.toSorted());
+    expect(shards.map((shard) => shard.name)).toEqual([
+      "extensions:browser:01",
+      "extensions:browser:02",
+    ]);
+    expect(
+      createOxlintExtensionRootScope(["extensions/browser"], cwd)
+        .selectShards(shards)
+        .map((shard) => shard.name),
+    ).toEqual(shards.map((shard) => shard.name));
+
+    writeGatewayOxlintConfigs(shards, cwd);
+    const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {
+      extends: string;
+      include: string[];
+    };
+    expect(config.extends).toBe("../../../extensions/tsconfig.json");
+    expect(config.include).toContain("../../../extensions/**/*.d.ts");
+    expect(config.include).toContain("../../../extensions/**/*.d.mts");
+    expect(config.include).toContain("../../../extensions/browser/task-000.ts");
+    expect(config.include).not.toContain("../../../extensions/browser/task-064.ts");
+  });
+
   it.each([{ platform: "linux", env: { CI: "true" }, hostResources: CONSTRAINED_HOST }] as const)(
     "preserves the published updater's automatic full-lint plan on $platform with $env and $hostResources",
     ({ platform, env, hostResources }) => {
@@ -673,6 +921,7 @@ describe("run-oxlint", () => {
     const parsed = parseShardRunnerArgs([
       "--only=core",
       "--split-core",
+      "--split-scripts",
       "--core-stripe=2/3",
       "--max-warnings",
       "0",
@@ -682,6 +931,7 @@ describe("run-oxlint", () => {
     expect(parsed.coreStripe).toEqual({ index: 2, total: 3 });
     expect(parsed.extensionStripe).toBeUndefined();
     expect(parsed.splitCore).toBe(true);
+    expect(parsed.splitScripts).toBe(true);
     expect(parsed.oxlintArgs).toEqual(["--max-warnings", "0"]);
 
     const extension = parseShardRunnerArgs(["--only", "extensions", "--extension-stripe", "4/6"]);
@@ -694,23 +944,33 @@ describe("run-oxlint", () => {
     const shards = createOxlintShards({
       cwd: "/repo",
       splitCore: true,
-      readDir: () =>
-        [
-          { name: "agents", isDirectory: () => true, isFile: () => false },
-          { name: "gateway", isDirectory: () => true, isFile: () => false },
-          { name: "infra", isDirectory: () => true, isFile: () => false },
-          { name: "misc", isDirectory: () => true, isFile: () => false },
-        ] as never,
+      readDir: (target: string) =>
+        target === "/repo/src"
+          ? ([
+              { name: "agents", isDirectory: () => true, isFile: () => false },
+              { name: "gateway", isDirectory: () => true, isFile: () => false },
+              { name: "infra", isDirectory: () => true, isFile: () => false },
+              { name: "misc", isDirectory: () => true, isFile: () => false },
+            ] as never)
+          : [],
     }).filter((shard) => shard.name.startsWith("core:"));
     const stripes = [1, 2, 3].map((index) =>
       selectCoreOxlintStripe(shards, { index, total: 3 }, { isolateLargeTargets: true }),
     );
 
     const programs = stripes.flat();
-    for (const target of ["src/agents", "src/gateway", "src/infra", "ui"]) {
+    for (const target of ["src/agents", "src/gateway", "src/infra"]) {
       const program = programs.find((shard) => shard.args.slice(2).includes(target));
-      expect(program?.args).toEqual(["--tsconfig", "config/tsconfig/oxlint.core.json", target]);
+      expect(program?.args).toEqual([
+        "--tsconfig",
+        target === "src/gateway"
+          ? "config/tsconfig/oxlint.gateway.json"
+          : "config/tsconfig/oxlint.core.json",
+        target,
+      ]);
     }
+    const uiShards = programs.filter((shard) => shard.name.startsWith("core:source-ui:"));
+    expect(uiShards).toHaveLength(0);
     const stripeTargets = programs.flatMap((stripe) => stripe.args.slice(2));
     const sourceTargets = shards.flatMap((shard) => shard.args.slice(2));
     expect(stripeTargets.toSorted()).toEqual(sourceTargets.toSorted());
@@ -878,6 +1138,31 @@ describe("run-oxlint", () => {
       }),
     ).toThrow(
       "OPENCLAW_OXLINT_WINDOWS_EXTENSION_CHUNK_SIZE must be a positive integer; got: 8 chunks",
+    );
+  });
+
+  it("honors the generic extension chunk override on Linux qualification runs", () => {
+    const shards = filterOxlintShards(
+      createOxlintShards({
+        cwd: "/repo",
+        env: { OPENCLAW_OXLINT_EXTENSION_CHUNK_SIZE: "1" },
+        platform: "linux",
+        splitExtensions: true,
+        readDir: (target: string) =>
+          target === "/repo/extensions"
+            ? (PLUGIN_FIXTURE_DIRECTORIES.map((name) => ({
+                name,
+                isDirectory: () => true,
+                isFile: () => false,
+              })) as never)
+            : [],
+      }),
+      new Set(["extensions"]),
+    );
+
+    expect(shards).toHaveLength(PLUGIN_FIXTURE_DIRECTORIES.length);
+    expect(shards.map((shard) => shard.args.slice(2))).toEqual(
+      PLUGIN_FIXTURE_DIRECTORIES.toSorted().map((name) => [`extensions/${name}`]),
     );
   });
 

@@ -198,6 +198,36 @@ function writeSelectedConsumer(f: ReturnType<typeof createPreparationFixture>) {
 }
 
 describe("native declaration preparation", () => {
+  it("requires complete current inventories across isolated declaration leaves", ({ signal }) =>
+    fixture.run(async () => {
+      const f = createPreparationFixture("all", signal);
+      const leaf = (...args: string[]) =>
+        f.step("native-leaf", [
+          path.join(f.root, "scripts/prepare-extension-package-boundary-artifacts.mts"),
+          ...args,
+        ]);
+      await expect(leaf("--unit=qa-channel")).rejects.toThrow("failed with exit code 1");
+      await leaf("--unit=plugin-sdk");
+      await leaf("--unit=plugin-sdk", "--validate-only");
+      await leaf("--unit=qa-channel");
+      await leaf("--unit=qa-channel", "--validate-only");
+      // One published producer cannot satisfy the complete lint inventory.
+      await expect(leaf("--mode=all", "--validate-only")).rejects.toThrow(
+        "failed with exit code 1",
+      );
+      const producerRecord = path.join(
+        f.root,
+        ".artifacts/extension-package-boundary/qa-channel.json",
+      );
+      const record = fs.readFileSync(producerRecord, "utf8");
+      f.write("src/nested.ts", "export const value = 2;");
+      await expect(leaf("--unit=qa-channel", "--validate-only")).rejects.toThrow(
+        "failed with exit code 1",
+      );
+      // Validation never repairs, replaces, or publishes a failed generation.
+      expect(fs.readFileSync(producerRecord, "utf8")).toBe(record);
+    }));
+
   it(
     "narrows SDK roots without weakening imports, ambient types, or full receipts",
     { timeout: 30_000 },

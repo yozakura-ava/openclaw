@@ -23,6 +23,7 @@ permissions:
 
 jobs:
   qualify:
+    if: github.repository == 'openclaw/openclaw'
     runs-on: xcode-27-xlarge
     timeout-minutes: 240
     env:
