@@ -1,5 +1,5 @@
 import type { WorkboardCard } from "@openclaw/workboard-contract";
-import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
+import { jsonResult } from "openclaw/plugin-sdk/core";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type, type TProperties } from "typebox";
