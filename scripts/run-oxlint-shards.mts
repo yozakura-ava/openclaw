@@ -44,6 +44,7 @@ const GATEWAY_TS_CONFIG = "config/tsconfig/oxlint.gateway.json";
 const GATEWAY_CONFIG_DIR = ".artifacts/qualification/oxlint-tsconfigs";
 const GATEWAY_FILE_CHUNK_SIZE = 256;
 const AGENTS_FILE_CHUNK_SIZE = 64;
+const SOURCE_FILE_CHUNK_SIZE = 64;
 const EXTENSIONS_DIR = "extensions";
 const OXLINT_SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;
 const PARENT_TERMINATION_SIGNALS = ["SIGINT", "SIGTERM"] satisfies NodeJS.Signals[];
@@ -194,7 +195,9 @@ export function createOxlintShards({
     resolveCheckMemoryCapacityBytes(hostResources) < CI_PARALLEL_MIN_MEMORY_BYTES &&
     shouldRunOxlintShardsSerial({ env, platform, hostResources });
   const coreGroups =
-    splitCore || constrainedSerial ? createCoreOxlintShards({ cwd, readDir }) : [CORE_SHARD];
+    splitCore || constrainedSerial
+      ? createCoreOxlintShards({ cwd, readDir, splitSourceRoots: splitCore })
+      : [CORE_SHARD];
   // Bound semantic checker caches without rebuilding the full type graph for every directory.
   const coreShards =
     constrainedSerial && !splitCore
@@ -230,7 +233,8 @@ export function createOxlintShards({
 function createCoreOxlintShards({
   cwd = process.cwd(),
   readDir = fs.readdirSync,
-}: DirectoryOptions = {}) {
+  splitSourceRoots = false,
+}: DirectoryOptions & { splitSourceRoots?: boolean } = {}) {
   const sourceShards = listSourceRootTargetGroups({ cwd, readDir }).flatMap((targets) => {
     if (targets.length === 1 && targets[0] === "src/agents") {
       const agentsShards = createCoreSourceFileShards({
@@ -248,6 +252,25 @@ function createCoreOxlintShards({
       const gatewayShards = createGatewayOxlintShards({ cwd, readDir });
       if (gatewayShards.length > 0) {
         return gatewayShards;
+      }
+    }
+    if (
+      splitSourceRoots &&
+      targets.length === 1 &&
+      targets[0]!.startsWith("src/") &&
+      !ISOLATED_CORE_TARGETS.has(targets[0]!)
+    ) {
+      const target = targets[0]!;
+      const prefix = `source-${target.slice("src/".length).replaceAll("/", "-")}`;
+      const sourceShards = createCoreSourceFileShards({
+        cwd,
+        readDir,
+        root: target,
+        prefix,
+        chunkSize: SOURCE_FILE_CHUNK_SIZE,
+      });
+      if (sourceShards.length > 0) {
+        return sourceShards;
       }
     }
     return [
@@ -315,7 +338,9 @@ function createCoreSourceFileShards({
 }
 
 export function writeGatewayOxlintConfigs(shards: readonly OxlintShard[], cwd: string) {
-  const sourceShards = shards.filter((shard) => /^core:(?:gateway|agents):\d+$/u.test(shard.name));
+  const sourceShards = shards.filter((shard) =>
+    /^core:(?:gateway|agents|source-[a-zA-Z0-9._-]+):\d+$/u.test(shard.name),
+  );
   if (sourceShards.length === 0) {
     return;
   }
@@ -731,7 +756,7 @@ export function selectCoreOxlintStripe(
   }
   const selected = shards.filter((_, index) => index % stripe.total === stripe.index - 1);
   const sourceFileShards = selected.filter((shard) =>
-    /^core:(?:gateway|agents):\d+$/u.test(shard.name),
+    /^core:(?:gateway|agents|source-[a-zA-Z0-9._-]+):\d+$/u.test(shard.name),
   );
   const targets = selected
     .filter((shard) => !sourceFileShards.includes(shard))

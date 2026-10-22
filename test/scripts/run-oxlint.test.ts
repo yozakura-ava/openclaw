@@ -705,6 +705,49 @@ describe("run-oxlint", () => {
     ).toEqual(targets.toSorted());
   });
 
+  it("uses bounded type-aware projects for ordinary source roots in split-core mode", () => {
+    const files = Array.from({ length: 129 }, (_, index) => ({
+      name: `module-${String(index).padStart(4, "0")}.ts`,
+      isDirectory: () => false,
+      isFile: () => true,
+    }));
+    const readDir = (target: string) =>
+      target === "/repo/src"
+        ? ([{ name: "catalog", isDirectory: () => true, isFile: () => false }] as never)
+        : target.endsWith("/src/catalog")
+          ? (files as never)
+          : ([] as never);
+    const shards = createOxlintShards({ cwd: "/repo", splitCore: true, readDir }).filter((shard) =>
+      shard.name.startsWith("core:source-catalog:"),
+    );
+    const targets = shards.flatMap((shard) => shard.args.slice(2));
+
+    expect(shards.map((shard) => shard.args.slice(2).length)).toEqual([64, 64, 1]);
+    expect(new Set(targets).size).toBe(files.length);
+    expect(shards.map((shard) => shard.args[1])).toEqual([
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-01.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-02.json",
+      ".artifacts/qualification/oxlint-tsconfigs/source-catalog-03.json",
+    ]);
+
+    const stripes = [1, 2, 3].map((index) =>
+      selectCoreOxlintStripe(
+        createOxlintShards({ cwd: "/repo", splitCore: true, readDir }).filter((shard) =>
+          shard.name.startsWith("core:"),
+        ),
+        { index, total: 3 },
+        { isolateLargeTargets: true },
+      ),
+    );
+    expect(
+      stripes
+        .flat()
+        .filter((shard) => shard.name.startsWith("core:source-catalog:"))
+        .flatMap((shard) => shard.args.slice(2))
+        .toSorted(),
+    ).toEqual(targets.toSorted());
+  });
+
   it.each([{ platform: "linux", env: { CI: "true" }, hostResources: CONSTRAINED_HOST }] as const)(
     "preserves the published updater's automatic full-lint plan on $platform with $env and $hostResources",
     ({ platform, env, hostResources }) => {
