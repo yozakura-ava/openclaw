@@ -813,6 +813,7 @@ describe("run-oxlint", () => {
     expect(new Set(targets).size).toBe(files.length);
     expect(targets.toSorted()).toEqual(files.toSorted());
     expect(shards.map((shard) => shard.name)).toEqual(["scripts:01", "scripts:02", "scripts:03"]);
+    expect(filterOxlintShards(shards, new Set(["scripts:02"]))).toEqual([shards[1]]);
 
     writeGatewayOxlintConfigs(shards, cwd);
     const config = JSON.parse(readFileSync(join(cwd, shards[0]!.args[1]!), "utf8")) as {

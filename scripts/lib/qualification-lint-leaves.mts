@@ -86,10 +86,8 @@ export const qualificationLintLeaves = [
       id: `lint-${shard.name.replace(":", "-")}`,
       command: tsx(
         "scripts/run-oxlint-shards.mts",
-        "--only=scripts",
+        `--only=${shard.name}`,
         "--split-scripts",
-        "--files-json",
-        JSON.stringify(shard.args.slice(2)),
         "--threads=1",
       ),
       outputs: lintOutputs,
