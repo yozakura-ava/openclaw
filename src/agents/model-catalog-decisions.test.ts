@@ -129,7 +129,6 @@ describe("captured model decisions", () => {
   });
   afterEach(() => vi.unstubAllEnvs());
 
-<<<<<<< HEAD
   it("prepares only the selected account through the existing catalog hook", async () => {
     const pluginRegistry = harnessRegistry("codex");
     const catalog = vi.fn(
@@ -200,55 +199,55 @@ describe("captured model decisions", () => {
               primary: `openai/${entry.id}@openai:${selection === "session" ? "shared" : "selected"}`,
 >>>>>>> 97b6e87616f
             },
+          ],
+        };
+      },
+    );
+    pluginRegistry.providers.push({
+      pluginId: "openai",
+      source: "fixture",
+      provider: { id: "openai", label: "OpenAI", auth: [], catalog: { run: catalog } },
+    });
+    const sharedSnapshot = { entries: [entry], routeVariants: [entry] };
+    const prepared = createModelCatalogDecisions({
+      cfg: config,
+      agentId: "main",
+      agentDir: "/tmp/selected-tier-agent",
+      workspaceDir: "/tmp/selected-tier-workspace",
+      snapshot: sharedSnapshot,
+      accountCatalog: createPreparedAccountCatalogAccess(() => true),
+      metadataSnapshot: metadata,
+      pluginRegistry,
+      preparedAuthStore: {
+        version: 1,
+        profiles: {
+          "openai:shared": { provider: "openai", type: "token", token: "synthetic-shared-token" },
+          "openai:selected": {
+            provider: "openai",
+            type: "token",
+            token: "synthetic-selected-token",
           },
         },
-      };
-      const prepared = createModelCatalogDecisions({
-        cfg,
-        agentId: "main",
-        agentDir: "/tmp/selected-tier-agent",
-        workspaceDir: "/tmp/selected-tier-workspace",
-        snapshot: sharedSnapshot,
-        accountCatalog: createPreparedAccountCatalogAccess(() => true),
-        metadataSnapshot: metadata,
-        pluginRegistry,
-        preparedAuthStore: {
-          version: 1,
-          profiles: {
-            "openai:shared": { provider: "openai", type: "token", token: "synthetic-shared-token" },
-            "openai:auto": { provider: "openai", type: "token", token: "synthetic-auto-token" },
-            "openai:selected": {
-              provider: "openai",
-              type: "token",
-              token: "synthetic-selected-token",
-            },
-          },
-        },
-        preferredProfileId:
-          selection === "automatic"
-            ? "openai:auto"
-            : selection === "session"
-              ? "openai:selected"
-              : undefined,
-        pinnedProfileId: selection === "session" ? "openai:selected" : undefined,
-        routeResolverFactory: routeResolverFactory(dualRoutes),
-        isCurrent: () => true,
-      });
-      const assertCurrent = vi.fn();
-      await prepared.prepareSelectedAccountCatalog(assertCurrent, { refresh: true });
-      await prepared.prepareSelectedAccountCatalog(assertCurrent, {});
-      expect(catalog).toHaveBeenCalledTimes(selection === "automatic" ? 2 : 1);
-      expect(assertCurrent).toHaveBeenCalled();
-      expect(sharedSnapshot).not.toHaveProperty("providerOutcomes");
-      expect(prepared.snapshot.providerOutcomes?.[0]?.modelServiceTiers?.[0]?.serviceTiers).toEqual(
-        ["ultrafast"],
-      );
-      expect(prepared.evaluateEntry(entry, undefined, "codex")).toMatchObject({
-        selectedProfileId: "openai:selected",
-        availability: true,
-      });
-    },
-  );
+      },
+      preferredProfileId: "openai:selected",
+      pinnedProfileId: "openai:selected",
+      routeResolverFactory: routeResolverFactory(dualRoutes),
+      isCurrent: () => true,
+    });
+    const assertCurrent = vi.fn();
+    await prepared.prepareSelectedAccountCatalog(assertCurrent, { refresh: true });
+    await prepared.prepareSelectedAccountCatalog(assertCurrent, {});
+    expect(catalog).toHaveBeenCalledOnce();
+    expect(assertCurrent).toHaveBeenCalled();
+    expect(sharedSnapshot).not.toHaveProperty("providerOutcomes");
+    expect(prepared.snapshot.providerOutcomes?.[0]?.modelServiceTiers?.[0]?.serviceTiers).toEqual([
+      "ultrafast",
+    ]);
+    expect(prepared.evaluateEntry(entry, undefined, "codex")).toMatchObject({
+      selectedProfileId: "openai:selected",
+      availability: true,
+    });
+  });
 
   it("does not publish a selected-account result after its generation expires", async () => {
     let current = true;
