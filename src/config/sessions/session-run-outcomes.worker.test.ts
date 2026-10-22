@@ -4,14 +4,10 @@ const { scanDoctorSessionEntryRecords, assertExistingDatabaseIdentity } = vi.hoi
   scanDoctorSessionEntryRecords: vi.fn(),
   assertExistingDatabaseIdentity: vi.fn(),
 }));
-vi.mock("../../commands/doctor/shared/session-entry-scan.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../commands/doctor/shared/session-entry-scan.js")>()),
+vi.mock("../../commands/doctor/shared/session-entry-scan.js", () => ({
   scanDoctorSessionEntryRecords,
 }));
-vi.mock("../../infra/sqlite-worker-identity.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../infra/sqlite-worker-identity.js")>()),
-  assertExistingDatabaseIdentity,
-}));
+vi.mock("../../infra/sqlite-worker-identity.js", () => ({ assertExistingDatabaseIdentity }));
 
 import {
   isSessionHistoryReadOperation,
@@ -23,7 +19,7 @@ it("scans legacy run outcomes through a durable history read operation", async (
     kind: "session-run-outcomes" as const,
     database: { agentId: "main", path: "/synthetic/agent.sqlite" },
     scope: { agentId: "main", storePath: "/synthetic/agent.sqlite" },
-    expectedIdentity: { key: "synthetic-identity", birthtime: "1" },
+    expectedIdentity: { key: "synthetic-identity", birthtime: 1 },
   };
   scanDoctorSessionEntryRecords.mockImplementation((scope, visit) => {
     visit({ sessionKey: "legacy-running", entry: { status: "running" } });

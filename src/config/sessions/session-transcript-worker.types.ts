@@ -104,10 +104,7 @@ import type {
   SessionRowFactsWorkerResult,
   SessionRowPresenceWorkerInput,
 } from "./session-row-facts.types.js";
-<<<<<<< HEAD
 import type * as SessionRunOutcomes from "./session-run-outcomes.types.js";
-=======
->>>>>>> 97b6e87616f
 import type {
   SessionMembersWorkerInput,
   SessionMembershipFactsWorkerInput,

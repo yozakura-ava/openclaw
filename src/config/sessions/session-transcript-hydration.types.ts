@@ -14,14 +14,10 @@ import type {
   PreparedSessionTranscriptHydration,
   SessionTranscriptReadSnapshot,
 } from "./session-history-read.types.js";
-<<<<<<< HEAD
 import type {
   SessionRunOutcomesWorkerInput,
   SessionRunOutcomesWorkerValues,
 } from "./session-run-outcomes.types.js";
-=======
-import type { SessionTranscriptAnchorEntry } from "./session-transcript-anchor-read.types.js";
->>>>>>> 97b6e87616f
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 
 export type { PreparedSessionTranscriptHydration } from "./session-history-read.types.js";

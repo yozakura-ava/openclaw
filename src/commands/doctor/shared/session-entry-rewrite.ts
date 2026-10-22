@@ -19,12 +19,7 @@ import {
   splitSessionEntrySnapshots,
   writeSessionEntrySnapshots,
 } from "../../../config/sessions/session-entry-snapshots.js";
-<<<<<<< HEAD
 import { withSessionHistoryWorkerDatabase } from "../../../config/sessions/session-transcript-worker-runtime.js";
-=======
-import { LEGACY_SESSION_ENTRY_STATE_FIELDS } from "../../../config/sessions/session-entry-state-format.js";
-import { deriveSessionPredicateColumns } from "../../../config/sessions/session-predicate-columns.js";
->>>>>>> 97b6e87616f
 import { stripRuntimeOnlySessionSkillsFields } from "../../../config/sessions/store-entry-shape.js";
 import { assertSupportedSessionStoreEntry } from "../../../config/sessions/supported-session-store.js";
 import type { SessionEntry } from "../../../config/sessions/types.js";
