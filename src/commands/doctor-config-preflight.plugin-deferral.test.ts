@@ -551,6 +551,34 @@ describe("configured plugin migration deferral", () => {
     });
   });
 
+  it("settles a retained stateless plugin while legacy heartbeat config is invalid", async () => {
+    await withDoctorConfigPreflightHome(async (home) => {
+      const pluginRoot = path.join(home, "heartbeat-stateless-plugin");
+      const pluginId = "heartbeat-stateless-fixture";
+      await installStatelessFixture(pluginRoot, pluginId);
+      await writeOpenClawConfig(home, {
+        ...createPluginConfig(pluginId, { region: "us-en" }, [pluginRoot]),
+        agents: {
+          defaults: {
+            heartbeat: { agentId: "main", every: "30m", legacyRepairKey: true },
+          },
+          entries: { main: { workspace: path.join(home, "workspace") } },
+        },
+      });
+      await withEnvAsync({ OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" }, async () => {
+        await recordDeferredPluginMigrations({
+          pending: [{ pluginId, reason: "Retained input", command: "openclaw doctor --fix" }],
+        });
+        const result = await runDoctorConfigPreflight({
+          ...doctorOptions,
+          preparePluginMetadataSnapshot: true,
+        });
+        expect(result.snapshot.valid).toBe(false);
+        expect(readDeferredPluginMigrations()).toEqual([]);
+      });
+    });
+  });
+
   it("retires same-Doctor deferral inputs with prepared metadata", async () => {
     await withDoctorConfigPreflightHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");

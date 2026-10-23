@@ -191,7 +191,7 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     expect(result.changes).toHaveLength(1);
     expect(result.changes[0]).toContain("another heartbeat owner's scratch was left unchanged");
     expect(result.changes[0]).not.toContain("disabled");
-    expect(result.warnings.join("\n")).toContain("already has different cron scratch");
+    expect(result.notices?.join("\n")).toContain("already has different cron scratch");
     await expect(fs.readFile(fixture.heartbeatPath, "utf8")).resolves.toBe("updated checklist\n");
     const storePath = resolveCronJobsStorePath();
     const store = await loadCronJobsStore(storePath);
@@ -254,7 +254,7 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     });
 
     expect(result.changes).toEqual([]);
-    expect(result.warnings.join("\n")).toContain("scratch was explicitly unset");
+    expect(result.notices?.join("\n")).toContain("scratch was explicitly unset");
     await expect(fs.readFile(fixture.heartbeatPath, "utf8")).resolves.toBe("recreated\n");
     expect(readCronJobScratchState(storePath, monitor.id).scratch).toBeUndefined();
   });
