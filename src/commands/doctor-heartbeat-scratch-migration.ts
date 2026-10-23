@@ -32,6 +32,7 @@ const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 
 type HeartbeatScratchMigrationResult = {
   changes: string[];
+  notices?: string[];
   warnings: string[];
 };
 
@@ -417,6 +418,7 @@ export async function maybeMigrateHeartbeatFilesToScratch(params: {
   const env = params.env ?? process.env;
   const storePath = resolveCronJobsStorePathFromConfig(params.cfg, env);
   const changes: string[] = [];
+  const notices: string[] = [];
   const warnings: string[] = [];
   const { migrationAgents, disabledEntryKeys } = await resolveHeartbeatScratchMigrationOwners(
     params.cfg,
@@ -503,14 +505,16 @@ export async function maybeMigrateHeartbeatFilesToScratch(params: {
       const current = state.scratch;
       plannedRevisionByJobId.set(monitor.id, state.currentRevision);
       if (state.currentRevision > 0 && !current) {
-        warnings.push(`Agent "${agentId}" scratch was explicitly unset; it was left unchanged.`);
+        notices.push(
+          `Agent "${agentId}" scratch was explicitly unset; it was left unchanged and HEARTBEAT.md was retained for review.`,
+        );
       } else if (
         current &&
         current.content !== source.content &&
         current.sourceSha256 !== source.sha256
       ) {
-        warnings.push(
-          `Agent "${agentId}" already has different cron scratch; it was left unchanged.`,
+        notices.push(
+          `Agent "${agentId}" already has different cron scratch; the automation keeps it and HEARTBEAT.md was retained for review.`,
         );
       } else {
         importAgents.push([agentId, monitor]);
@@ -657,6 +661,6 @@ export async function maybeMigrateHeartbeatFilesToScratch(params: {
     }
   }
 
-  noteDoctorMigrationResult({ changes, warnings });
-  return { changes, warnings };
+  noteDoctorMigrationResult({ changes, notices, warnings });
+  return { changes, warnings, ...(notices.length ? { notices } : {}) };
 }
