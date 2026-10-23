@@ -5,7 +5,10 @@ import { afterAll, beforeAll, describe, expect, it, onTestFinished, vi } from "v
 import * as terminalNote from "../../packages/terminal-core/src/note.js";
 import { readConfigFileSnapshot } from "../config/io.js";
 import { writeOpenClawConfig } from "../config/test-helpers.js";
-import { readDeferredPluginMigrations } from "../infra/deferred-plugin-migrations.js";
+import {
+  readDeferredPluginMigrations,
+  recordDeferredPluginMigrations,
+} from "../infra/deferred-plugin-migrations.js";
 import { requireNodeSqlite } from "../infra/node-sqlite.js";
 import { buildUpdateRehearsalPathEnv } from "../infra/update-rehearsal-paths.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "../state/openclaw-state-db-contract.js";
@@ -437,6 +440,34 @@ describe("configured plugin migration deferral", () => {
         expect(readDeferredPluginMigrations()).toEqual([]);
         expect(await fs.readFile(configPath, "utf8")).toBe(original);
         expect((await readConfigFileSnapshot()).warnings).toEqual([]);
+      });
+    });
+  });
+
+  it("settles a retained stateless plugin while legacy heartbeat config is invalid", async () => {
+    await withDoctorConfigPreflightHome(async (home) => {
+      const pluginRoot = path.join(home, "heartbeat-stateless-plugin");
+      const pluginId = "heartbeat-stateless-fixture";
+      await installStatelessFixture(pluginRoot, pluginId);
+      await writeOpenClawConfig(home, {
+        ...createPluginConfig(pluginId, { region: "us-en" }, [pluginRoot]),
+        agents: {
+          defaults: {
+            heartbeat: { agentId: "main", every: "30m", legacyRepairKey: true },
+          },
+          entries: { main: { workspace: path.join(home, "workspace") } },
+        },
+      });
+      await withEnvAsync({ OPENCLAW_DISABLE_BUNDLED_PLUGINS: "1" }, async () => {
+        await recordDeferredPluginMigrations({
+          pending: [{ pluginId, reason: "Retained input", command: "openclaw doctor --fix" }],
+        });
+        const result = await runDoctorConfigPreflight({
+          ...doctorOptions,
+          preparePluginMetadataSnapshot: true,
+        });
+        expect(result.snapshot.valid).toBe(false);
+        expect(readDeferredPluginMigrations()).toEqual([]);
       });
     });
   });
