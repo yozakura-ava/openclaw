@@ -10,9 +10,13 @@ import {
   type WorkboardSqliteResult,
 } from "./sqlite-store-errors.js";
 
-const { openSqliteWorkerStore } = vi.hoisted(() => ({ openSqliteWorkerStore: vi.fn() }));
+const { isSqliteWorkerStoreAvailable, openSqliteWorkerStore } = vi.hoisted(() => ({
+  isSqliteWorkerStoreAvailable: vi.fn(() => false),
+  openSqliteWorkerStore: vi.fn(),
+}));
 vi.mock(import("openclaw/plugin-sdk/sqlite-runtime"), async (importOriginal) => ({
   ...(await importOriginal()),
+  isSqliteWorkerStoreAvailable,
   openSqliteWorkerStore,
 }));
 
@@ -35,10 +39,15 @@ function workerFixture() {
   return { execute, release, stores };
 }
 
-beforeEach(() => openSqliteWorkerStore.mockReset());
+beforeEach(() => {
+  isSqliteWorkerStoreAvailable.mockReset().mockReturnValue(false);
+  openSqliteWorkerStore.mockReset();
+});
 
 describe("Workboard SQLite facade cleanup", () => {
   it("retains its broker reference until the same connection closes successfully", async () => {
+    // Model the successfully registered worker returned by workerFixture.
+    isSqliteWorkerStoreAvailable.mockReturnValue(true);
     const lookupResult = createDeferred<WorkboardSqliteResult<unknown>>();
     const firstClose = createDeferred<WorkboardSqliteResult<unknown>>();
     const failure = new SqliteWorkerError("connection cleanup failed", "unavailable");
