@@ -12,6 +12,30 @@ import type {
  * Guard the first accepted write (including CAS retries), then allow its settlement.
  * Independently authorized effects need separate scopes; settled scopes cannot be reused.
  */
+/**
+ * Independently verifiable evidence that a completed build produced a real
+ * consumer surface (code, skill, or research artifact). The validator checks
+ * these claims against the world (git object store, filesystem) and never
+ * trusts caller-supplied proof text.
+ */
+export type ConsumerSurfaceEvidenceKind = "code" | "skill" | "research";
+
+export type ConsumerSurfaceEvidence = {
+  kind: ConsumerSurfaceEvidenceKind;
+  /** kind=code: repository containing the verified commit. */
+  repoPath?: string;
+  /** kind=code: commit SHA that must resolve in repoPath's object store. */
+  commitSha?: string;
+  /** kind=code: optional file that must exist on disk; kind=skill: SKILL.md path; kind=research: non-empty artifact path. */
+  filePath?: string;
+  /** Optional stable consumer identifier (plugin id, skill name, report id). */
+  consumerId?: string;
+};
+
+export type WorkboardCompleteInputWithEvidence = {
+  consumer_surface_evidence?: unknown;
+};
+
 export type WorkboardWriteAuthority = <T>(
   assertCurrent: () => void,
   run: () => Promise<T>,
