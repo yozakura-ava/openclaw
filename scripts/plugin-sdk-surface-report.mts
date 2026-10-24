@@ -216,6 +216,9 @@ export function readPluginSdkSurfaceBudgets(env: NodeJS.ProcessEnv = process.env
       // -8: retired Skill Workshop proposal hook types.
       // +3: approved async session entry reads and typed incognito refusal on the existing subpath.
       // +1: deprecated createSessionHeaderLink retained from shipped 2026.10.1.
+      // -1: upstream-only isHostNoticePayload A2A host-notice classifier (2026.10.3 pin
+      //     carried it via #172064) is intentionally not ported to this line; divergence
+      //     accepted, card a2681a8d-449c-4e04-ab31-3007774b23f0.
       3645,
       env,
     ),
