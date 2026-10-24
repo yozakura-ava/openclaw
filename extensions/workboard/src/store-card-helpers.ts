@@ -22,6 +22,7 @@ import {
   MAX_WORKER_CONTEXT_RECENT_CARDS,
   READY_STRANDED_MS,
   RUNNING_HEARTBEAT_STALE_MS,
+  isWorkboardClaimReclaimable,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import {
@@ -360,7 +361,13 @@ export function assertCanMutateClaimedCard(
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
   if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
-    throw new Error(`card is claimed by ${claim.ownerId}.`);
+    // Expired-claim recovery: a claim past its reclaim grace no longer fences
+    // mutations. Otherwise the operator reclaim/release paths are unreachable
+    // (card ba1c45e3): the claim fence exists to protect a LIVE worker's
+    // token, not to entomb a card whose worker already died.
+    if (!isWorkboardClaimReclaimable(claim, Date.now())) {
+      throw new Error(`card is claimed by ${claim.ownerId}.`);
+    }
   }
 }
 
