@@ -52,6 +52,38 @@ export function createWorkboardCardMutations(store: WorkboardStore, ownerId: str
   };
 }
 
+export function consumerSurfaceEvidenceField() {
+  return Type.Optional(
+    Type.Object(
+      {
+        kind: Type.String({
+          description: 'Evidence class: "code", "skill", or "research".',
+        }),
+        repoPath: Type.Optional(
+          Type.String({ description: "kind=code: repository containing commitSha." }),
+        ),
+        commitSha: Type.Optional(
+          Type.String({ description: "kind=code: commit SHA verified via git." }),
+        ),
+        filePath: Type.Optional(
+          Type.String({
+            description:
+              "Verified file: optional for code, SKILL.md for skill, non-empty artifact for research.",
+          }),
+        ),
+        consumerId: Type.Optional(
+          Type.String({ description: "Optional stable consumer identifier." }),
+        ),
+      },
+      {
+        additionalProperties: false,
+        description:
+          "Required for [BUILD]/[INFRA] cards. Verified independently by the store; caller proof text is never trusted.",
+      },
+    ),
+  );
+}
+
 export function cardIdField() {
   return Type.String({ description: "Workboard card id." });
 }
