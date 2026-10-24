@@ -4,6 +4,7 @@ import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type, type TProperties } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
+import { isWorkboardClaimReclaimable } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 
@@ -30,7 +31,16 @@ export function createWorkboardCardMutations(store: WorkboardStore, ownerId: str
       throw new Error(`card not found: ${id}`);
     }
     const claim = card.metadata?.claim;
-    if (claim && claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
+    if (
+      claim &&
+      claim.ownerId !== ownerId &&
+      !safeEqualSecret(token, claim.token) &&
+      // Expired-claim recovery: past the reclaim grace a stale claim no
+      // longer fences tool access — otherwise workboard_reclaim / reassign /
+      // move are unreachable for a card whose worker died (card ba1c45e3).
+      // The store layer (assertCanMutateClaimedCard) applies the same rule.
+      !isWorkboardClaimReclaimable(claim, Date.now())
+    ) {
       throw new Error(`card is claimed by ${claim.ownerId ?? "another agent"}.`);
     }
     if (requireClaim && !claim) {
