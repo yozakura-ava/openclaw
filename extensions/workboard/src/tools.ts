@@ -10,6 +10,7 @@ import type { WorkboardStore } from "./store.js";
 import {
   cardIdField,
   claimTokenField,
+  consumerSurfaceEvidenceField,
   createWorkboardCardMutations,
   strictObject,
   workspaceField,
@@ -298,7 +299,7 @@ export function createWorkboardTools(params: {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
+        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. [BUILD]/[INFRA] cards also require independently verifiable consumer_surface_evidence.",
       parameters: strictObject({
         id: cardIdField(),
         token: claimTokenField(),
@@ -332,6 +333,7 @@ export function createWorkboardTools(params: {
         createdCardIds: Type.Optional(
           Type.Array(Type.String(), { description: "Cards created during this run." }),
         ),
+        consumer_surface_evidence: consumerSurfaceEvidenceField(),
       }),
       execute: claimedCardMutation((id, record, scope) =>
         store.complete(id, { ...record, ...actor }, scope),
