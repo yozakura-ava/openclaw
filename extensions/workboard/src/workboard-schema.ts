@@ -89,7 +89,9 @@ export const WORKBOARD_SCHEMA_SQL = `
       from_status TEXT,
       to_status TEXT,
       session_key TEXT,
-      run_id TEXT
+      run_id TEXT,
+      actor_id TEXT,
+      actor_kind TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_events_card_idx
       ON workboard_card_events(card_id, ordinal);

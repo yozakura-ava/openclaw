@@ -61,6 +61,14 @@ export function prepareWorkboardUpsert(
   };
 }
 
+const DEFAULT_EVENT_ACTOR_ID = "system";
+const DEFAULT_EVENT_ACTOR_KIND = "system";
+
+function bindEventActor(entry: unknown, key: "actorId" | "actorKind"): SQLInputValue {
+  const value = (entry as typeof entry & Record<string, string | undefined>)[key];
+  return bindNull(value) ?? (key === "actorId" ? DEFAULT_EVENT_ACTOR_ID : DEFAULT_EVENT_ACTOR_KIND);
+}
+
 function insertChildren<T>(
   db: WorkboardSqlConnection,
   table: (typeof CARD_CHILD_TABLES)[number],
@@ -156,6 +164,8 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     to_status: (event) => bindNull(event.toStatus),
     session_key: (event) => bindNull(event.sessionKey),
     run_id: (event) => bindNull(event.runId),
+    actor_id: (event) => bindEventActor(event, "actorId"),
+    actor_kind: (event) => bindEventActor(event, "actorKind"),
   });
   insertChildren(db, "workboard_card_attempts", card.id, metadata?.attempts, {
     id: (entry) => entry.id,

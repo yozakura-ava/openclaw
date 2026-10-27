@@ -60,6 +60,8 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
   ensureColumn(db, "workboard_card_comments", "actor_kind", "actor_kind TEXT");
   ensureColumn(db, "workboard_card_proof", "actor_id", "actor_id TEXT");
   ensureColumn(db, "workboard_card_proof", "actor_kind", "actor_kind TEXT");
+  ensureColumn(db, "workboard_card_events", "actor_id", "actor_id TEXT");
+  ensureColumn(db, "workboard_card_events", "actor_kind", "actor_kind TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
