@@ -28,6 +28,23 @@ export const MAX_CARD_NOTIFICATIONS = 20;
 export const MAX_RUN_ID_LENGTH = 512;
 export const MAX_CARD_METADATA_BYTES = 24 * 1024;
 export const MAX_COMMENT_BODY_LENGTH = 4096;
+/**
+ * Card-notes budget. Raised from the implicit 4000 (card b21ff3c9): the s4
+ * manifest-repair footer (8d9c4b48 pattern) did not fit in 4000 chars, so the
+ * audit split between notes and comments and notes-only gates lost context.
+ * 12000 keeps a full repair section + standard notes inside one notes field
+ * while staying well under the 24 KiB card-metadata budget.
+ */
+export const MAX_NOTES_LENGTH = 12_000;
+/**
+ * Attribution used when a comment/proof write carries no actor (card
+ * 9dd79ad6): the write still happened, via the workboard system itself, so it
+ * is attributed to the system writer instead of landing anonymous. Historical
+ * NULL rows are tolerated (never backfilled — they predate attribution and
+ * cannot be truthfully attributed).
+ */
+export const WORKBOARD_SYSTEM_ACTOR_ID = "workboard-system";
+export const WORKBOARD_SYSTEM_ACTOR_KIND = "system";
 export const DEFAULT_CLAIM_TTL_MS = 30 * 60 * 1000;
 export const DEFAULT_WORKBOARD_DISPATCH_OWNER = "workboard-dispatcher";
 // Maximum concurrent Workboard claims a single owner may hold. Reclaimable
