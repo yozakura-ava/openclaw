@@ -21,7 +21,6 @@ tool policy and workspace permissions.
 Workboard tracks work on one Gateway. See the [Workboard guide](https://docs.openclaw.ai/plugins/workboard)
 for card workflows, worker dispatch, and sharing boundaries.
 
-<<<<<<< HEAD
 ## Observation-anchor rule (comments)
 
 Adopted by Craig 2026-10-15 (decision card `64feb4bd`), enforced at the
@@ -41,21 +40,3 @@ exactly one of:
 Non-compliant comments are rejected at `addComment` with an error naming
 this rule. Plain (untagged) comments are unaffected; storage schema is
 unchanged.
-=======
-## Browser development
-
-The browser UI uses Solid 2 and bundles its own renderer through the plugin
-builder. Shared pickers, dialogs, and dashboards use the documented Control UI
-SDK mounts; browser code does not import host UI internals. Rebuild assets after
-browser changes:
-
-```bash
-node --import ./scripts/tsx.mjs scripts/build-plugin-control-ui.mts extensions/workboard
-```
-
-The browser has a dedicated typecheck configuration:
-
-```bash
-node scripts/run-tsgo.mjs -p extensions/workboard/browser/tsconfig.json
-```
->>>>>>> 97b6e87616f

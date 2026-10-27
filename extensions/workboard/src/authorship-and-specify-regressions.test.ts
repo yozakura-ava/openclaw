@@ -23,7 +23,8 @@ describe("card 9dd79ad6 — system-actor default on unattributed writes", () => 
     await store.addComment(card.id, { body: "anonymous by the old path" });
     const after = await store.get(card.id);
     const last = after?.metadata?.comments?.at(-1);
-    expect(last).toMatchObject({ actorId: "workboard-system", actorKind: "system" });
+    expect(last?.actorId).toBe("workboard-system");
+    expect(last?.actorKind).toBe("system");
   });
 
   it("keeps an explicit actor untouched", async () => {
@@ -38,7 +39,8 @@ describe("card 9dd79ad6 — system-actor default on unattributed writes", () => 
     });
     const after = await store.get(card.id);
     const last = after?.metadata?.comments?.at(-1);
-    expect(last).toMatchObject({ actorId: "tsubaki", actorKind: "agent" });
+    expect(last?.actorId).toBe("tsubaki");
+    expect(last?.actorKind).toBe("agent");
   });
 
   it("stamps workboard-system on a proof written with no actor", async () => {
@@ -49,7 +51,8 @@ describe("card 9dd79ad6 — system-actor default on unattributed writes", () => 
     await store.addProof(card.id, { status: "passed", note: "green" });
     const after = await store.get(card.id);
     const last = after?.metadata?.proof?.at(-1);
-    expect(last).toMatchObject({ actorId: "workboard-system", actorKind: "system" });
+    expect(last?.actorId).toBe("workboard-system");
+    expect(last?.actorKind).toBe("system");
   });
 });
 

@@ -12,10 +12,6 @@ import { resolveNonNegativeIntegerOption } from "openclaw/plugin-sdk/number-runt
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeActor } from "./actor-attribution.js";
 import { assertObservationAnchor } from "./observation-anchor.js";
-=======
-import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
-import { definedFields } from "../record-fields.js";
->>>>>>> 97b6e87616f
 import type { PersistedWorkboardCard } from "./persistence-types.js";
 import { normalizeAutomationPatch, normalizeCardAutomation } from "./store-automation.js";
 import { WorkboardBoardStore } from "./store-boards.js";
