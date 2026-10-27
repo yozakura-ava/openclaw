@@ -65,19 +65,8 @@ const DEFAULT_EVENT_ACTOR_ID = "system";
 const DEFAULT_EVENT_ACTOR_KIND = "system";
 
 function bindEventActor(entry: unknown, key: "actorId" | "actorKind"): SQLInputValue {
-  const value = entry !== null && typeof entry === "object" ? Reflect.get(entry, key) : undefined;
+  const value = (entry as typeof entry & Record<string, string | undefined>)[key];
   return bindNull(value) ?? (key === "actorId" ? DEFAULT_EVENT_ACTOR_ID : DEFAULT_EVENT_ACTOR_KIND);
-}
-
-function bindStoredActor(entry: unknown, key: "actorId" | "actorKind"): SQLInputValue {
-  const actorId =
-    entry !== null && typeof entry === "object" ? Reflect.get(entry, "actorId") : undefined;
-  const actorKind =
-    entry !== null && typeof entry === "object" ? Reflect.get(entry, "actorKind") : undefined;
-  if (key === "actorId") {
-    return bindNull(actorId) ?? SYSTEM_FALLBACK_ACTOR.actorId;
-  }
-  return bindNull(actorKind ?? (actorId ? undefined : SYSTEM_FALLBACK_ACTOR.actorKind));
 }
 
 function insertChildren<T>(
