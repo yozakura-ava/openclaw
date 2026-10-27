@@ -63,6 +63,7 @@ import {
   MAX_CARD_WORKER_LOGS,
   MAX_RUN_ID_LENGTH,
   MAX_COMMENT_BODY_LENGTH,
+  MAX_NOTES_LENGTH,
 } from "./store-constants.js";
 import type {
   WorkboardAttachmentInput,
@@ -151,8 +152,8 @@ export function normalizeNotes(value: unknown): string | undefined {
   if (!notes) {
     return undefined;
   }
-  if (notes.length > 4000) {
-    throw new Error("notes must be 4000 characters or fewer.");
+  if (notes.length > MAX_NOTES_LENGTH) {
+    throw new Error(`notes must be ${MAX_NOTES_LENGTH} characters or fewer.`);
   }
   return notes;
 }
@@ -322,6 +323,8 @@ export function normalizeAutomation(
     createdCardIds: strings("createdCardIds", "created card ids", 120),
     dispatchCount: timestamp("dispatchCount") || undefined,
     lastDispatchAt: timestamp("lastDispatchAt") || undefined,
+    branch: normalizeOptionalString(record.branch) ?? fallback.branch,
+    headSha: normalizeOptionalString(record.headSha) ?? fallback.headSha,
     launch: options.launch ? normalizeLaunchState(options.launch) : fallback.launch,
   };
   // Legacy imports can retain empty workspace or authority objects.

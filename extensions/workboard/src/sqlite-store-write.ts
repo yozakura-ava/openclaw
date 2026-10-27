@@ -5,6 +5,7 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import { SYSTEM_FALLBACK_ACTOR } from "./actor-attribution.js";
 import {
   jsonValue,
   type CARD_CHILD_TABLES,
@@ -173,8 +174,21 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     id: (entry) => entry.id,
     card_id: () => card.id,
     body: (entry) => entry.body,
-    actor_id: (entry) => bindNull((entry as typeof entry & { actorId?: string }).actorId),
-    actor_kind: (entry) => bindNull((entry as typeof entry & { actorKind?: string }).actorKind),
+    // Card 9dd79ad6: an unattributed write still happened via the workboard
+    // system, so it is attributed to WORKBOARD_SYSTEM_ACTOR_ID instead of
+    // landing anonymous. Historical NULL rows are read back as-is (tolerance;
+    // no backfill — they cannot be truthfully attributed).
+    actor_id: (entry) =>
+      bindNull(
+        (entry as typeof entry & { actorId?: string }).actorId ?? SYSTEM_FALLBACK_ACTOR.actorId,
+      ),
+    actor_kind: (entry) =>
+      bindNull(
+        (entry as typeof entry & { actorKind?: string }).actorKind ??
+          ((entry as typeof entry & { actorId?: string }).actorId
+            ? undefined
+            : SYSTEM_FALLBACK_ACTOR.actorKind),
+      ),
     created_at: (entry) => entry.createdAt,
     updated_at: (entry) => bindNull(entry.updatedAt),
   });
@@ -195,8 +209,18 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     command: (entry) => bindNull(entry.command),
     url: (entry) => bindNull(entry.url),
     note: (entry) => bindNull(entry.note),
-    actor_id: (entry) => bindNull((entry as typeof entry & { actorId?: string }).actorId),
-    actor_kind: (entry) => bindNull((entry as typeof entry & { actorKind?: string }).actorKind),
+    // Card 9dd79ad6: same system-attribution default as comments above.
+    actor_id: (entry) =>
+      bindNull(
+        (entry as typeof entry & { actorId?: string }).actorId ?? SYSTEM_FALLBACK_ACTOR.actorId,
+      ),
+    actor_kind: (entry) =>
+      bindNull(
+        (entry as typeof entry & { actorKind?: string }).actorKind ??
+          ((entry as typeof entry & { actorId?: string }).actorId
+            ? undefined
+            : SYSTEM_FALLBACK_ACTOR.actorKind),
+      ),
     created_at: (entry) => entry.createdAt,
   });
   insertChildren(db, "workboard_card_artifacts", card.id, metadata?.artifacts, {
