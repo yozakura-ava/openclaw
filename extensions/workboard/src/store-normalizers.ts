@@ -64,6 +64,7 @@ import {
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
   MAX_COMMENT_BODY_LENGTH,
+  MAX_NOTES_LENGTH,
   MAX_RUN_ID_LENGTH,
 } from "./store-constants.js";
 import type {
@@ -153,8 +154,8 @@ export function normalizeNotes(value: unknown): string | undefined {
   if (!notes) {
     return undefined;
   }
-  if (notes.length > 4000) {
-    throw new Error("notes must be 4000 characters or fewer.");
+  if (notes.length > MAX_NOTES_LENGTH) {
+    throw new Error(`notes must be ${MAX_NOTES_LENGTH} characters or fewer.`);
   }
   return notes;
 }
@@ -324,6 +325,12 @@ export function normalizeAutomation(
   const lastDispatchAt = Object.hasOwn(record, "lastDispatchAt")
     ? normalizeTimestamp(record.lastDispatchAt, 0) || undefined
     : fallback.lastDispatchAt;
+  // Merge-lane provenance (card b21ff3c9): branch/headSha are written by the
+  // merge queue after a build lands and must survive a specify re-stamp —
+  // consumers (merge_queue.py --release, sweeps) read automation.headSha and
+  // went stale when the fixed key list below dropped them.
+  const branch = normalizeBoundedString(record.branch, fallback.branch, 200, "branch");
+  const headSha = normalizeBoundedString(record.headSha, fallback.headSha, 80, "head SHA");
   const workspace = Object.hasOwn(record, "workspace")
     ? normalizeWorkspace(record.workspace, fallback.workspace)
     : fallback.workspace;
@@ -347,6 +354,8 @@ export function normalizeAutomation(
     ...(createdCardIds?.length ? { createdCardIds } : {}),
     ...(dispatchCount ? { dispatchCount } : {}),
     ...(lastDispatchAt ? { lastDispatchAt } : {}),
+    ...(branch ? { branch } : {}),
+    ...(headSha ? { headSha } : {}),
     ...(launch ? { launch } : {}),
   };
   // Legacy imports can retain empty workspace or authority objects.

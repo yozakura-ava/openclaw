@@ -295,6 +295,10 @@ export type WorkboardAutomation = {
   dispatchCount?: number;
   lastDispatchAt?: number;
   launch?: WorkboardLaunchState;
+  /** Build branch recorded by the merge lane; must survive specify re-stamps. */
+  branch?: string;
+  /** Build commit SHA recorded by the merge lane; must survive specify re-stamps. */
+  headSha?: string;
 };
 
 export type WorkboardBoardMetadata = {
