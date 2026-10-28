@@ -12,7 +12,6 @@ import {
   createToolSearchCatalogRef,
   createToolSearchTools,
   registerHeadlessToolSearchCatalog,
-  resolveToolSearchConfig,
   TOOL_CALL_RAW_TOOL_NAME,
 } from "./tool-search.js";
 import { jsonResult, type AnyAgentTool } from "./tools/common.js";
@@ -30,12 +29,11 @@ function fakeTool(name: string, parameters = Type.Object({})): AnyAgentTool {
 function createHarness(tools: AnyAgentTool[]) {
   const catalogRef = createToolSearchCatalogRef();
   registerHeadlessToolSearchCatalog({ catalogRef, tools });
-  const config = { tools: { toolSearch: { enabled: true, mode: "tools" } } } as never;
   return {
     catalog: catalogRef.current,
     callTool: createToolSearchTools({
       catalogRef,
-      config: resolveToolSearchConfig(config),
+      config: { tools: { toolSearch: { enabled: true, mode: "tools" } } },
     }).find((tool) => tool.name === TOOL_CALL_RAW_TOOL_NAME),
   };
 }
