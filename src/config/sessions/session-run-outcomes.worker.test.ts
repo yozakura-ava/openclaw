@@ -23,7 +23,7 @@ it("scans legacy run outcomes through a durable history read operation", async (
     kind: "session-run-outcomes" as const,
     database: { agentId: "main", path: "/synthetic/agent.sqlite" },
     scope: { agentId: "main", storePath: "/synthetic/agent.sqlite" },
-    expectedIdentity: { key: "synthetic-identity", birthtime: 1 },
+    expectedIdentity: { key: "synthetic-identity", birthtime: "1" },
   };
   scanDoctorSessionEntryRecords.mockImplementation((scope, visit) => {
     visit({ sessionKey: "legacy-running", entry: { status: "running" } });
