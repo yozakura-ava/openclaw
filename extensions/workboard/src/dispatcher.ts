@@ -21,8 +21,11 @@ import {
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
 import { cardBoardId } from "./store-card-helpers.js";
-import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
-import { MAX_OWNER_CLAIMS } from "./store-constants.js";
+import {
+  MAX_OWNER_CLAIMS,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
+} from "./store-constants.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,

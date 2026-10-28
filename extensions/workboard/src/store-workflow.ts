@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { promisify } from "node:util";
-import { isDeepStrictEqual } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import type {
   WorkboardArtifact,
   WorkboardCard,
@@ -158,6 +157,7 @@ async function verifyConsumerSurfaceEvidence(
     } catch (error) {
       throw new Error(
         `consumer_surface_evidence rejected: filePath ${evidence.filePath} failed verification (${error instanceof Error ? error.message : String(error)}).`,
+        { cause: error },
       );
     }
   } else if (evidence.kind === "skill" || evidence.kind === "research") {
