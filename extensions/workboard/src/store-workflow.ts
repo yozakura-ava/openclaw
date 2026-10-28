@@ -378,8 +378,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     );
     let evidenceArtifact: WorkboardArtifact | undefined;
     if (buildCardRequiresEvidence) {
-      const completionEvidence = isRecord(input) ? input.consumer_surface_evidence : undefined;
-      evidenceArtifact = await verifyConsumerSurfaceEvidence(completionEvidence, now);
+      evidenceArtifact = await verifyConsumerSurfaceEvidence(input.consumer_surface_evidence, now);
     }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
