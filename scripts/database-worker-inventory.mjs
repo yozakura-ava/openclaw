@@ -2409,6 +2409,34 @@ export function inventory(root = defaultRoot, ref = "", staged = false) {
         ],
     { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
   );
+  if (result.error?.code === "ENOENT" && !snapshot) {
+    // GitHub's hosted Ubuntu image does not guarantee ripgrep. Keep the
+    // working-tree scan usable there by searching tracked files with Git and
+    // adding matching untracked source files from the current worktree.
+    const tracked = spawnSync("git", ["grep", "-l", "-z", "-E", pattern, "--", ...roots], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+    if (tracked.error || (tracked.status !== 0 && tracked.status !== 1)) {
+      throw tracked.error ?? new Error(tracked.stderr || "SQLite inventory source scan failed");
+    }
+    const untracked = spawnSync(
+      "git",
+      ["ls-files", "--others", "--exclude-standard", "-z", "--", ...roots],
+      { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    );
+    if (untracked.error || untracked.status !== 0) {
+      throw untracked.error ?? new Error(untracked.stderr || "SQLite inventory source scan failed");
+    }
+    const untrackedMatches = untracked.stdout
+      .split("\0")
+      .filter((file) => file && /\.(?:ts|tsx|js|mjs|mts|cts|cjs)$/u.test(file))
+      .filter((file) => pattern.test(fs.readFileSync(path.join(root, file), "utf8")));
+    result.stdout = [...tracked.stdout.split("\0").filter(Boolean), ...untrackedMatches].join("\0");
+    result.status = result.stdout ? 0 : 1;
+    result.error = undefined;
+  }
   if (result.error || (result.status !== 0 && result.status !== 1)) {
     throw result.error ?? new Error(result.stderr || "SQLite inventory source scan failed");
   }

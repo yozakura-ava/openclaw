@@ -487,7 +487,7 @@ jobs:
           # SDK comparisons render exact trees; predecessor ancestry is unused.
           mapfile -t sdk_base_refs < <(jq -r '.[] | "+refs/tags/\(.):refs/tags/\(.)"' <<< "$bases_json" | sort -u)
           timeout --signal=TERM --kill-after=10s 120s git -C "$tooling_dir" fetch \
-            --no-tags --filter=blob:none --depth=1 origin "${sdk_base_refs[@]}"
+            --no-tags --filter=blob:none --depth=1 https://github.com/openclaw/openclaw.git "${sdk_base_refs[@]}"
           while IFS= read -r previous_tag; do
             git -C "$tooling_dir" rev-parse --verify "${previous_tag}^{commit}" >/dev/null
           done < <(jq -r '.[]' <<< "$bases_json")
