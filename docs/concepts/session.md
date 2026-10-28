@@ -250,6 +250,11 @@ the original caller lacked, and revocation still stops the recovered run.
 Older interrupted turns without a recorded authorization source remain restricted;
 send a fresh authenticated message to continue privileged work. Session ownership
 or a saved display name never grants recovery permissions.
+If the recorded source no longer matches the session or interrupted input,
+recovery retires that stale input with one local interruption notice. The
+incoming message can then continue normally without resetting the session.
+Pending replies, harness completions, and independent runs retain their existing
+recovery protection.
 
 This also covers parent turns started by subagent completion or pause notices.
 An interrupted parent continues independently of later child completions, and a
@@ -277,6 +282,11 @@ If automatic recovery is exhausted, the transcript remains available. Use
 **Resume in new session** in WebChat, or `/new` or `/reset` in other channels,
 to start a replacement session.
 
+A canonical Main session archived specifically by restart recovery can also be
+reset. Reset retains its physical session identity and transcript while starting a
+fresh model context; it does not replay the interrupted task. Other archived
+sessions must be restored before reset.
+
 ## Where state lives
 
 - **Runtime session rows and transcripts:** `~/.openclaw/agents/<agentId>/agent/openclaw-agent.sqlite` by default
@@ -286,6 +296,9 @@ to start a replacement session.
 Archive discovery uses the selected store, recorded transcript paths, and agent
 directories. The pre-agent `~/.openclaw/sessions/` directory is no longer an
 implicit fallback; explicitly configured paths still work.
+
+State directories reached through symlinks are supported on SQLite and PostgreSQL,
+including session deletion, transcript archiving, and retained cron history reads.
 
 The session rows in the per-agent SQLite database keep separate lifecycle
 timestamps:

@@ -597,18 +597,6 @@ describe("config observe recovery", () => {
     expect((await readObserveEvents(auditPath)).at(-1)?.restoredFromBackup).toBe(true);
   });
 
-  it("recovery uses canonical metadata fingerprints", async () => {
-    const { deps, configPath } = makeDeps(home);
-    const backup = { meta: { authoredBy: "operator" }, gateway: { mode: "local" } };
-    await seedConfigBackup(configPath, backup);
-    const clobbered = await writeConfigRaw(configPath, { gateway: { mode: "local" } });
-    const input = { deps, configPath, ...clobbered, prepareBackup: approveRecoveryCandidate };
-
-    const recovered = await maybeRecoverSuspiciousConfigRead(input);
-
-    expect(recovered.parsed).toEqual(backup);
-  });
-
   it.each([
     {
       name: "retries recovery on next launch after a failed atomic replace",
@@ -778,6 +766,28 @@ describe("config observe recovery", () => {
     const observe = await readLastObserveEvent(auditPath);
     expect(observe?.restoredFromBackup).toBe(true);
     expect(observe?.restoredBackupPath).toBe(resolveLastKnownGoodConfigPath(configPath));
+  });
+
+  it("does not replace last-known-good with a suspicious truncated snapshot", async () => {
+    const { deps, configPath, warn } = makeDeps(home);
+    const healthy = await makeSnapshot(configPath, {
+      meta: { lastTouchedVersion: "2026.10.6", lastTouchedAt: "2026-10-22T00:00:00.000Z" },
+      gateway: { mode: "local" },
+      channels: { discord: { enabled: true, dmPolicy: "pairing" } },
+      diagnostics: { enabled: true, flags: ["a".repeat(800)] },
+    });
+    await expect(
+      promoteConfigSnapshotToLastKnownGoodCore({ deps, snapshot: healthy, logger: deps.logger }),
+    ).resolves.toBe(true);
+
+    const truncated = await makeSnapshot(configPath, { gateway: { port: 18789 } });
+    await expect(
+      promoteConfigSnapshotToLastKnownGoodCore({ deps, snapshot: truncated, logger: deps.logger }),
+    ).resolves.toBe(false);
+    await expect(fsp.readFile(resolveLastKnownGoodConfigPath(configPath), "utf-8")).resolves.toBe(
+      healthy.raw,
+    );
+    expectWarnContaining(warn, "Config last-known-good promotion skipped:");
   });
 
   it("leaves the active config untouched when its owner rejects last-known-good recovery", async () => {

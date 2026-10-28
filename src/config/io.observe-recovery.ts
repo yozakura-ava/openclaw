@@ -1,7 +1,6 @@
 import type fs from "node:fs";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { replaceFileAtomic, replaceFileAtomicSync } from "@openclaw/fs-safe/atomic";
 import { root } from "../infra/fs-safe.js";
 import {
   appendConfigAuditRecordSync,
@@ -19,6 +18,7 @@ import {
   patchConfigHealthEntryToStore,
 } from "./io.health-state.js";
 import type { ConfigHealthSnapshot } from "./io.health-state.types.js";
+import { createRecoveryCommitEffect } from "./io.observe-recovery-commit.js";
 import {
   createConfigRecoveryStatEffect,
   createConfigBackupMissingEffect,
@@ -69,48 +69,6 @@ type ConfigReadRecoveryParams = {
 };
 
 type ConfigReadRecoveryResult = Pick<ConfigRecoveryCandidate, "raw" | "parsed">;
-
-function createRecoveryCommitEffect(params: {
-  deps: ObserveRecoveryDeps;
-  configPath: string;
-  raw: string;
-  beforeCommit?: () => void;
-}): ConfigRecoveryEffect<boolean> {
-  const options = {
-    filePath: params.configPath,
-    content: params.raw,
-    dirMode: 0o700,
-    mode: 0o600,
-    tempPrefix: path.basename(params.configPath),
-    fileSystem: params.deps.fs,
-  };
-  return {
-    sync: () => {
-      replaceFileAtomicSync(options);
-      return true;
-    },
-    async: (health) =>
-      commitRecoveryFileIfCurrent({
-        health,
-        beforeCommit: params.beforeCommit,
-        write: (assertCurrent) =>
-          replaceFileAtomic({
-            ...options,
-            // Every rename attempt must revalidate; copy fallback has no final guard.
-            copyFallbackOnPermissionError: false,
-            fileSystem: {
-              promises: {
-                ...params.deps.fs.promises,
-                rename: (source: fs.PathLike, destination: fs.PathLike) => {
-                  assertCurrent();
-                  return params.deps.fs.promises.rename(source, destination);
-                },
-              },
-            },
-          }),
-      }),
-  };
-}
 
 function parseBackupConfigRaw(
   deps: ObserveRecoveryDeps,
@@ -466,7 +424,9 @@ function* planSuspiciousConfigRead(
         !restoredFromBackup && restoreErrorDetails.message
           ? `; ${restoreErrorDetails.message}`
           : "";
-      deps.logger.warn(`Config ${result}: ${configPath} (${suspicious.join(", ")}${detail})`);
+      deps.logger.warn(
+        `Config ${result}: ${configPath} (${suspicious.join(", ")}${detail}). Original config kept at ${clobberedPath}; to undo, stop the Gateway and copy it back to ${configPath} after correcting the reported problem.`,
+      );
       const audit = {
         env: deps.env,
         homedir: deps.homedir,
@@ -542,6 +502,19 @@ export async function promoteConfigSnapshotToLastKnownGoodCore(params: {
     stat,
     observedAt: now,
   });
+  const entry = readConfigHealthEntry(healthSnapshot.state, snapshot.path);
+  const suspiciousReasons = resolveConfigObserveSuspiciousReasons({
+    bytes: current.bytes,
+    gatewayMode: current.gatewayMode,
+    parsed: snapshot.parsed,
+    lastKnownGood: entry.lastKnownGood,
+  });
+  if (suspiciousReasons.length > 0) {
+    params.logger?.warn(
+      `Config last-known-good promotion skipped: ${snapshot.path} (${suspiciousReasons.join(", ")})`,
+    );
+    return false;
+  }
   const lastGoodPath = `${snapshot.path}.last-good`;
   if (!health.isCurrent()) {
     return false;
@@ -691,7 +664,7 @@ export async function recoverConfigFromLastKnownGoodCore(params: {
   });
   const issueSummary = formatConfigIssueSummary([...snapshot.issues, ...snapshot.legacyIssues]);
   deps.logger.warn(
-    `Config auto-restored from last-known-good: ${snapshot.path} (${params.reason})${issueSummary ? `; Rejected validation details: ${issueSummary}.` : ""}`,
+    `Config auto-restored from last-known-good: ${snapshot.path} (${params.reason})${issueSummary ? `; Rejected validation details: ${issueSummary}.` : ""} Original config kept at ${clobberedPath}; to undo, stop the Gateway and copy it back to ${snapshot.path} after correcting the reported problem.`,
   );
   await appendAudit(
     createConfigObserveAuditRecord({
