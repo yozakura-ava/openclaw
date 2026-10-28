@@ -2384,6 +2384,7 @@ export function inventory(root = defaultRoot, ref = "", staged = false) {
   using parser = createNativeTypeScriptParser({ cwd: root });
   const roots = ["src", "extensions", "packages", "scripts"];
   const pattern = [...primitives.keys()].join("|");
+  const patternRegExp = new RegExp(pattern);
   const snapshot = ref !== "" || staged;
   const result = spawnSync(
     snapshot ? "git" : "rg",
@@ -2432,7 +2433,7 @@ export function inventory(root = defaultRoot, ref = "", staged = false) {
     const untrackedMatches = untracked.stdout
       .split("\0")
       .filter((file) => file && /\.(?:ts|tsx|js|mjs|mts|cts|cjs)$/u.test(file))
-      .filter((file) => pattern.test(fs.readFileSync(path.join(root, file), "utf8")));
+      .filter((file) => patternRegExp.test(fs.readFileSync(path.join(root, file), "utf8")));
     result.stdout = [...tracked.stdout.split("\0").filter(Boolean), ...untrackedMatches].join("\0");
     result.status = result.stdout ? 0 : 1;
     result.error = undefined;
