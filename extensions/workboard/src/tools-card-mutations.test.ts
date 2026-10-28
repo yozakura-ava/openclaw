@@ -23,10 +23,11 @@ describe("consumerSurfaceEvidenceField schema", () => {
 describe("workboard_complete pass-through", () => {
   it("forwards consumer_surface_evidence from tool params to store.complete", async () => {
     const evidence = { kind: "code", repoPath: "/repo", commitSha: "abc123" };
-    const complete = vi.fn(async () => ({
+    const complete = vi.fn<WorkboardStore["complete"]>(async () => ({
       id: "card-1",
       title: "t",
       status: "done" as const,
+      priority: "normal" as const,
       labels: ["[BUILD]"],
       position: 1,
       createdAt: 1,
@@ -47,11 +48,11 @@ describe("workboard_complete pass-through", () => {
     } as unknown as WorkboardStore;
     const { claimedCardMutation } = createWorkboardCardMutations(fakeStore, "tester");
     const execute = claimedCardMutation((id, record, scope) =>
-      (
-        fakeStore as unknown as {
-          complete: (id: string, record: unknown, scope: unknown) => Promise<unknown>;
-        }
-      ).complete(id, record, scope),
+      fakeStore.complete(
+        id,
+        record as Parameters<WorkboardStore["complete"]>[1],
+        scope as Parameters<WorkboardStore["complete"]>[2],
+      ),
     );
     await execute("call-1", {
       id: "card-1",
