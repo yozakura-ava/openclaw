@@ -3509,7 +3509,7 @@ export function inventory(root = defaultRoot, ref = "", staged = false) {
     // GitHub's hosted Ubuntu image does not guarantee ripgrep. Keep the
     // working-tree scan usable there by searching tracked files with Git and
     // adding matching untracked source files from the current worktree.
-    const tracked = spawnSync("git", ["grep", "-l", "-z", "-E", pattern, "--", ...roots], {
+    const tracked = spawnSync("git", ["grep", "-l", "-z", "-E", pattern.source, "--", ...roots], {
       cwd: root,
       encoding: "utf8",
       maxBuffer: 16 * 1024 * 1024,
