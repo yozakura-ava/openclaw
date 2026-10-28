@@ -17,10 +17,7 @@ import {
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeActor } from "./actor-attribution.js";
-import type {
-  ConsumerSurfaceEvidence,
-  WorkboardCompleteInputWithEvidence,
-} from "./persistence-types.js";
+import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -381,10 +378,8 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     );
     let evidenceArtifact: WorkboardArtifact | undefined;
     if (buildCardRequiresEvidence) {
-      evidenceArtifact = await verifyConsumerSurfaceEvidence(
-        (input as WorkboardCompleteInputWithEvidence).consumer_surface_evidence,
-        now,
-      );
+      const completionEvidence = isRecord(input) ? input.consumer_surface_evidence : undefined;
+      evidenceArtifact = await verifyConsumerSurfaceEvidence(completionEvidence, now);
     }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
