@@ -32,10 +32,6 @@ export type ConsumerSurfaceEvidence = {
   consumerId?: string;
 };
 
-export type WorkboardCompleteInputWithEvidence = {
-  consumer_surface_evidence?: unknown;
-};
-
 export type WorkboardWriteAuthority = <T>(
   assertCurrent: () => void,
   run: () => Promise<T>,
