@@ -621,10 +621,10 @@ describe("WorkboardStore", () => {
       }
 
       const claims = await Promise.allSettled([
-        first.claim(cards[0].id, { ownerId: "worker" }),
-        second.claim(cards[1].id, { ownerId: "worker" }),
-        first.claim(cards[2].id, { ownerId: "worker" }),
-        second.claim(cards[3].id, { ownerId: "worker" }),
+        first.claim(cards[0]!.id, { ownerId: "worker" }),
+        second.claim(cards[1]!.id, { ownerId: "worker" }),
+        first.claim(cards[2]!.id, { ownerId: "worker" }),
+        second.claim(cards[3]!.id, { ownerId: "worker" }),
       ]);
 
       expect(claims.filter((claim) => claim.status === "fulfilled")).toHaveLength(3);
