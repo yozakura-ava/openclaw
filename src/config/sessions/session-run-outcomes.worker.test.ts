@@ -4,10 +4,14 @@ const { scanDoctorSessionEntryRecords, assertExistingDatabaseIdentity } = vi.hoi
   scanDoctorSessionEntryRecords: vi.fn(),
   assertExistingDatabaseIdentity: vi.fn(),
 }));
-vi.mock("../../commands/doctor/shared/session-entry-scan.js", () => ({
+vi.mock("../../commands/doctor/shared/session-entry-scan.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../commands/doctor/shared/session-entry-scan.js")>()),
   scanDoctorSessionEntryRecords,
 }));
-vi.mock("../../infra/sqlite-worker-identity.js", () => ({ assertExistingDatabaseIdentity }));
+vi.mock("../../infra/sqlite-worker-identity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../infra/sqlite-worker-identity.js")>()),
+  assertExistingDatabaseIdentity,
+}));
 
 import {
   isSessionHistoryReadOperation,
