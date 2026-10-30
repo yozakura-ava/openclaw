@@ -1,0 +1,112 @@
+name: Deploy Bundle
+
+# Fresh minimal rewrite (2026-10-30, issue #300 phase 2b): the 2026-09-29-era
+# deploy-bundle.yml depended on scripts/ci/prepare-deploy-dependencies.mts and
+# scripts/ci/import-closure-gate.mts, which no longer exist on this fork's main
+# (lost across base promotions). This rebuilds the documented sequence —
+# install → build → pack → checksums → artifact — without the stale gates.
+# The canonical-deploy-tarball skill locates runs by the exact name
+# "Deploy Bundle"; keep this `name:` and the filename stable.
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "Source branch / SHA to build. Defaults to workflow ref."
+        required: false
+        type: string
+        default: ""
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-bundle-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build_deploy_bundle:
+    name: Build deploy bundle (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.22.1
+
+      - name: Enable corepack (pinned pnpm)
+        run: corepack enable
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-deploy-bundle-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-deploy-bundle-${{ runner.os }}-
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build mermaid renderer deps first
+        run: pnpm --filter '@openclaw/mermaid-renderer...' build
+
+      - name: Build workspace
+        run: pnpm -r --filter '!@openclaw/mermaid-renderer' --include-workspace-root build
+
+      - name: Record source manifest hashes
+        run: |
+          mkdir -p provenance
+          MANIFEST_SHA="$(sha256sum package.json | awk '{print $1}')"
+          LOCKFILE_SHA="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
+          {
+            echo "{"
+            echo "  \"source_ref\": \"${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}\","
+            echo "  \"run_id\": \"${{ github.run_id }}\","
+            echo "  \"built_at_utc\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+            echo "  \"manifest_sha256\": \"${MANIFEST_SHA}\","
+            echo "  \"lockfile_sha256\": \"${LOCKFILE_SHA}\""
+            echo "}"
+          } > provenance/provenance.json
+          cat provenance/provenance.json
+
+      - name: Pack deploy bundle tarball
+        run: |
+          tar -czf deploy-bundle.tar.gz \
+            --exclude=./node_modules/.cache \
+            --exclude=.git \
+            .
+
+      - name: Checksums (tarball + provenance)
+        run: |
+          TARBALL_SHA256="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
+          PROVENANCE_SHA256="$(sha256sum provenance/provenance.json | awk '{print $1}')"
+          sha256sum deploy-bundle.tar.gz provenance/provenance.json > deploy-bundle-checksums.txt
+          {
+            echo "tarball_sha256=${TARBALL_SHA256}"
+            echo "provenance_sha256=${PROVENANCE_SHA256}"
+          } >> "$GITHUB_OUTPUT"
+          cat deploy-bundle-checksums.txt
+
+      - name: Verify tarball integrity
+        run: |
+          test -s deploy-bundle.tar.gz
+          tar -tzf deploy-bundle.tar.gz > /dev/null
+          grep -F "$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')  deploy-bundle.tar.gz" deploy-bundle-checksums.txt
+
+      - name: Upload deploy bundle artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: deploy-bundle-${{ github.sha }}
+          path: |
+            deploy-bundle.tar.gz
+            provenance/provenance.json
+            deploy-bundle-checksums.txt
+          if-no-files-found: error
