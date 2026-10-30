@@ -117,6 +117,8 @@ None of these were deleted. `heads/archive/workboard-reclaim-carveout-plus-store
 
 PRs closed with reason: #297, #298, #299 (dependabot ecosystems removed via #301); dependabot branches deleted.
 
+Workflow trim (PR #307): 114 → 8 workflow files — `ci.yml` (hourly cron removed), `security-review.yml`, `workflow-sanity.yml`, 3 ci.yml-referenced reusables (`ios-release-e2e.yml`, `ci-published-driver-update.yml`, `full-release-child-evidence.yml`), and **`codeql.yml` = KEEP by explicit owner decision (2026-10-30 12:12 EDT)**, including its own `schedule` trigger. `deploy-bundle.yml` rewritten fresh (name preserved for canonical-deploy-tarball skill) — the 2026-09-29-era version invoked two `scripts/ci/*` gates that no longer exist on main.
+
 ## Tier 3 disposition — 2026-10-30 (owner directive 11:11 EDT, 72h tip-age rule)
 
 Owner approved removal of all 55 Tier 3 branches with a 72-hour timing rule: tips older than 2026-10-27 11:11 EDT pruned immediately; newer tips scheduled for prune 2026-11-02 ~11:30 EDT unless used before then.
@@ -208,3 +210,22 @@ Origin tips that diverged **with uncovered content were KEPT** (owner follow-up)
 | `openclaw-2026.10.6-session-startup-worker-20261022` | `812be2c87a` | 2026-10-28T05:12:56+00:00 |
 
 PR #283 (`qualify/2026.10.5-ava`) was already closed; disposition comment posted. Final state: worktrees 31 → 3 (primary on `main` @ `f052acc0519`, detached workshop-consumer, `openclaw-2026.10.6-source` on the scheduled branch); local branches 18 (main + archives/backups + scheduled branch).
+
+## Sprint close — 2026-10-30
+
+All cleanup PRs merged (merge commits, no squash, no direct main pushes):
+
+| PR   | content                                                     | merge SHA     |
+| ---- | ----------------------------------------------------------- | ------------- |
+| #301 | dependabot → github-actions only (weekly, limit 3)          | `f78e28de4b5` |
+| #302 | fork-aware security-review rollout fallback (resolves #277) | `b398441f008` |
+| #303 | Tier 3 disposition receipt                                  | `f052acc0519` |
+| #304 | Tier 3 kept-list correction (F1/F2 rework)                  | `9f810f2b4c3` |
+| #306 | fork-sync script + runbook (review fixes incl.)             | `4c7213ff6c7` |
+| #307 | CI trim 114 → 8 + Deploy Bundle rewrite                     | `77c0da37bf6` |
+
+`codeql.yml` = **KEEP by explicit owner decision (2026-10-30 12:12 EDT)**, schedule trigger included.
+
+Closing state: `fork/carried` @ `02f2c70b8144` carries the full series (38-commit baseline + trim, fork-sync tooling, receipt + disposition updates); parity vs `main` = this sprint-close section + the runbook sync line pending PR #309 — measured 22 insertions / 2,787 added bytes (4,842 raw diff) — returning to 0 bytes at merge. Worktrees: 4 (primary on main, detached workshop-consumer, `openclaw-2026.10.6-source` on the scheduled branch, `fork-carried-build` on fork/carried). Local branches: 21; origin heads: 59.
+
+Owner follow-ups: (1) disposition of the 11 kept diverged origin tips (10 Tier 3 + `upstream-hb-gate` — the heavyweight at 4148 unique / 4121 uncovered); (2) org-level `NPM_NPMJS_TOKEN` check (repo/environment scope verified empty); (3) scheduled prune of `openclaw-2026.10.6-session-startup-worker-20261022` on 2026-11-02 ~11:30 EDT unless used; (4) merge of PR #309 (this content — supersedes the closed #308) and review of #305 (github-actions dependabot bump — the trimmed ecosystem working as designed).
