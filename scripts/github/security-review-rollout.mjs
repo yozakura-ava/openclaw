@@ -26,10 +26,24 @@ function sha(value, name) {
 /** @returns {Promise<{ mode: "inactive" | "grandfathered" | "enforced" }>} */
 export async function securityReviewRollout({ api, owner, repo, pullRequest }) {
   const { rolloutPullRequest } = loadSecurityReviewPolicy();
-  if (rolloutPullRequest === undefined) {
+  // No rollout reference (unset policy) or explicit zero (env override) means
+  // the rollout gate is closed; security review is always enforced without any
+  // API call. Setting OPENCLAW_SECURITY_REVIEW_ROLLOUT_PR=0 on a fork lets the
+  // review run and gate without ever touching the upstream rollout PR.
+  if (rolloutPullRequest === undefined || rolloutPullRequest === 0) {
     return { mode: "enforced" };
   }
-  const rollout = await api.request(`/repos/${owner}/${repo}/pulls/${rolloutPullRequest}`);
+  // Forks lack the upstream rollout PR. A 404 here is a fork-vs-upstream
+  // mismatch, not a misconfiguration: fall back to enforced rather than fail.
+  let rollout;
+  try {
+    rollout = await api.request(`/repos/${owner}/${repo}/pulls/${rolloutPullRequest}`);
+  } catch (error) {
+    if (error?.status === 404) {
+      return { mode: "enforced" };
+    }
+    throw error;
+  }
   if (
     rollout?.number !== rolloutPullRequest ||
     rollout.base?.ref !== "main" ||
