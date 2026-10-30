@@ -21,6 +21,13 @@ cd "$REPO"
 [ "$(git config --get-all remote.upstream.fetch)" = "+refs/heads/*:refs/remotes/upstream/*" ] \
   || die "remote.upstream.fetch is not +refs/heads/*:refs/remotes/upstream/* — fix config before syncing (skill rule 2)"
 git fetch upstream main --tags
+git fetch origin --prune
+# Remote-tracking freshness (review MEDIUM): protects the merge-base/rebase base
+# and the alignment merge. Refuse to run on a stale local carried branch.
+if git show-ref --verify --quiet "refs/remotes/origin/${BRANCH}"; then
+  [ "$(git rev-parse "refs/heads/${BRANCH}")" = "$(git rev-parse "refs/remotes/origin/${BRANCH}")" ] \
+    || die "local ${BRANCH} diverged from origin/${BRANCH} — reconcile (pull/rebase) before syncing"
+fi
 
 step "verify tag object $NEW_TAG exists"
 NEW_BASE=$(git rev-parse "${NEW_TAG}^{}" 2>/dev/null) || die "tag ${NEW_TAG} not found after fetch"
@@ -59,17 +66,19 @@ git -C "$WT" rebase --onto "$NEW_BASE" "$OLD_BASE" "$BRANCH" || die "rebase conf
 
 step "post-check: fork-only surface must be the expected carried set"
 git -C "$WT" diff --stat "$NEW_BASE..$BRANCH" | tail -3
+[ -n "$(git -C "$WT" diff --stat "$NEW_BASE..$BRANCH")" ] || die "fork-only surface is empty after rebase — carried series lost? aborting"
 
-step "push (force-with-lease; non-force fallback per skill rule 12)"
-if ! git -C "$WT" push --force-with-lease origin "$BRANCH" 2>/dev/null; then
-  echo "   force-with-lease rejected — pushing under fresh name ${BRANCH}-rebased"
-  git -C "$WT" push origin "+${BRANCH}:${BRANCH}-rebased" || die "cannot push rebased branch"
+step "push (force-with-lease; non-force fresh-name fallback per skill rule 12)"
+if ! git -C "$WT" push --force-with-lease origin "$BRANCH"; then
+  echo "   force-with-lease rejected — pushing under fresh name ${BRANCH}-rebased (non-force)"
+  git -C "$WT" push origin "${BRANCH}:${BRANCH}-rebased" || die "non-force fallback push rejected — ${BRANCH}-rebased already exists and diverged; rename or delete the stale fallback branch, then re-run (skill rule 12: fresh-name fallback must not clobber)"
   BRANCH_PUSHED="${BRANCH}-rebased"
 else
   BRANCH_PUSHED="$BRANCH"
 fi
 
 step "open PR from alignment branch (pristine tag + picks + merge main → MERGEABLE, skill rule 12)"
+git fetch origin main
 SYNC="sync/fork-bump-$(date +%Y%m%d-%H%M)"
 git -C "$WT" checkout -b "$SYNC" "$BRANCH_PUSHED"
 git -C "$WT" merge --no-edit origin/main || die "alignment merge against origin/main conflicted — inspect in $WT"

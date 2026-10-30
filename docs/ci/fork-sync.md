@@ -46,8 +46,10 @@ Steps the script performs (numbered checkpoints; **any failure stops the run**):
    resurrect a path upstream deleted.**
 6. **Post-check:** `git diff --stat <new-tag>..fork/carried` must show exactly the
    fork-only file set (expected ≈69 files, +3141/−407 as of 2026-10-30).
-7. **Push:** `--force-with-lease` (approval-gated); fallback = push to
-   `fork/carried-rebased` under a fresh name (skill rule 12).
+7. **Push:** `--force-with-lease` (approval-gated); fallback = **non-force** push to
+   `fork/carried-rebased` under a fresh name (skill rule 12). The fallback never
+   force-pushes: if `fork/carried-rebased` already exists and diverged, the push is
+   rejected — rename or delete the stale fallback branch, then re-run.
 8. **PR** from a throwaway alignment branch (`sync/fork-bump-<date>` =
    `fork/carried` + `git merge main`) so origin/main is an ancestor and the PR is
    MERGEABLE despite rewritten SHAs (skill rule 12 / PR #237 pattern).
