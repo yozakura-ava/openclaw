@@ -70,6 +70,7 @@ Steps the script performs (numbered checkpoints; **any failure stops the run**):
   UPSTREAM-EQUIVALENT (drop — content already in base); unmatched fork-authored work
   is FORK-CUSTOM (keep); unmatched work superseded by later upstream changes is
   OBSOLETE (drop, list as a deliberate delta). Authorship helps triage; patch-id decides.
+- 2026-10-30 sprint close: series synced with the CI trim (#307), fork-sync tooling (#306), and cleanup receipt updates (#303/#304) + codeql=KEEP ruling; tip `02f2c70b8144`, `git diff main fork/carried` = the codeql receipt note pending PR #308 (0 bytes at its merge). Next bump: one `scripts/fork-sync.sh <tag>` run.
 - 2026-10-30 baseline: 38 FORK-CUSTOM commits (36 fork-authored workboard/session/
   scripts/ci/docs fixes + 2 upstream-authored workboard fixes picked from PRs that
   never reached mainline), extracted onto `v2026.10.8` — `git diff main fork/carried`
