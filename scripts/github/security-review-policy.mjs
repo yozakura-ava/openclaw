@@ -78,7 +78,18 @@ export function loadSecurityReviewPolicy() {
     "rollout",
   ]);
   let rolloutPullRequest;
-  if (policy.rollout !== undefined) {
+  // OPENCLAW_SECURITY_REVIEW_ROLLOUT_PR overrides the policy file value so
+  // forks (which lack the upstream rollout PR) can resolve the reference
+  // locally, skip the API call entirely by setting it to 0, or pin a fork-
+  // specific rollout PR. An unset/empty value preserves the file behavior.
+  const envRollout = process.env.OPENCLAW_SECURITY_REVIEW_ROLLOUT_PR;
+  if (envRollout !== undefined && envRollout !== "") {
+    const parsed = Number(envRollout);
+    if (!Number.isSafeInteger(parsed)) {
+      invalid("OPENCLAW_SECURITY_REVIEW_ROLLOUT_PR must be a safe integer (or unset)");
+    }
+    rolloutPullRequest = parsed;
+  } else if (policy.rollout !== undefined) {
     const rollout = mapping(policy.rollout, "rollout", ["pull-request"]);
     if (!Number.isSafeInteger(rollout["pull-request"]) || rollout["pull-request"] <= 0) {
       invalid("rollout.pull-request must be a positive safe integer");
