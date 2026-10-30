@@ -117,6 +117,8 @@ None of these were deleted. `heads/archive/workboard-reclaim-carveout-plus-store
 
 PRs closed with reason: #297, #298, #299 (dependabot ecosystems removed via #301); dependabot branches deleted.
 
+Workflow trim (PR #307): 114 → 8 workflow files — `ci.yml` (hourly cron removed), `security-review.yml`, `workflow-sanity.yml`, 3 ci.yml-referenced reusables (`ios-release-e2e.yml`, `ci-published-driver-update.yml`, `full-release-child-evidence.yml`), and **`codeql.yml` = KEEP by explicit owner decision (2026-10-30 12:12 EDT)**, including its own `schedule` trigger. `deploy-bundle.yml` rewritten fresh (name preserved for canonical-deploy-tarball skill) — the 2026-09-29-era version invoked two `scripts/ci/*` gates that no longer exist on main.
+
 ## Tier 3 disposition — 2026-10-30 (owner directive 11:11 EDT, 72h tip-age rule)
 
 Owner approved removal of all 55 Tier 3 branches with a 72-hour timing rule: tips older than 2026-10-27 11:11 EDT pruned immediately; newer tips scheduled for prune 2026-11-02 ~11:30 EDT unless used before then.
