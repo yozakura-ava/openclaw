@@ -62,13 +62,15 @@ jobs:
         run: pnpm -r --filter '!@openclaw/mermaid-renderer' --include-workspace-root build
 
       - name: Record source manifest hashes
+        env:
+          SOURCE_REF: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
         run: |
           mkdir -p provenance
           MANIFEST_SHA="$(sha256sum package.json | awk '{print $1}')"
           LOCKFILE_SHA="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
           {
             echo "{"
-            echo "  \"source_ref\": \"${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}\","
+            echo "  \"source_ref\": \"${SOURCE_REF}\","
             echo "  \"run_id\": \"${{ github.run_id }}\","
             echo "  \"built_at_utc\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
             echo "  \"manifest_sha256\": \"${MANIFEST_SHA}\","
