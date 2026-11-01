@@ -213,6 +213,7 @@ export function createWorkboardTools(params: {
         const claimed = await store.claim(id, {
           ownerId,
           ttlSeconds: record.ttlSeconds,
+          sessionId: params.context?.sessionKey,
         });
         return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });
       },

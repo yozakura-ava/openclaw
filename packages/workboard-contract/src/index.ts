@@ -210,6 +210,8 @@ export type WorkboardClaim = {
   claimedAt: number;
   lastHeartbeatAt: number;
   expiresAt?: number;
+  /** Owning session key (59663fca claim-fence); absent on legacy claim records. */
+  sessionId?: string;
 };
 
 export type WorkboardDiagnosticAction = {

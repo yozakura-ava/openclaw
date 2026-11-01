@@ -3960,3 +3960,75 @@ describe("Workboard dependency and scheduled promotion", () => {
   });
 });
 /* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
+
+describe("claim fence (59663fca): strict default, legacy rollback, holder refresh", () => {
+  const prevFence = process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+  afterEach(() => {
+    if (prevFence === undefined) {
+      delete process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+    } else {
+      process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE = prevFence;
+    }
+  });
+
+  it("strict: refuses a same-owner re-claim over a live claim (incident 8593cbd6)", async () => {
+    delete process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Fenced", status: "ready" });
+    await store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:subagent:first" });
+    await expect(
+      store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:cron:lane" }),
+    ).rejects.toThrow(/claim-fence:strict/);
+  });
+
+  it("strict: refusal names owner/session and claim time", async () => {
+    delete process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Fenced message", status: "ready" });
+    await store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:subagent:first" });
+    await expect(store.claim(card.id, { ownerId: "tsubaki" })).rejects.toThrow(
+      /session=agent:reina:subagent:first/,
+    );
+  });
+
+  it("strict: holder re-claim with the current token refreshes; release clears for the next owner", async () => {
+    delete process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Refresh", status: "ready" });
+    const first = await store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:s1" });
+    const refreshed = await store.claim(card.id, {
+      ownerId: "reina",
+      token: first.token,
+      sessionId: "agent:reina:s1",
+    });
+    expect(refreshed.card.metadata?.claim?.sessionId).toBe("agent:reina:s1");
+    await store.releaseClaim(card.id, { ownerId: "reina", token: refreshed.token });
+    const next = await store.claim(card.id, { ownerId: "riko" });
+    expect(next.card.metadata?.claim?.ownerId).toBe("riko");
+  });
+
+  it("strict: claim expired past grace is reclaimable by another owner", async () => {
+    delete process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE;
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+      const card = await store.create({ title: "Expired", status: "ready" });
+      await store.claim(card.id, { ownerId: "reina", ttlSeconds: 60 });
+      vi.setSystemTime(1_000_000 + 60_000 + 6 * 60_000);
+      const next = await store.claim(card.id, { ownerId: "riko" });
+      expect(next.card.metadata?.claim?.ownerId).toBe("riko");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("legacy flag: pre-fence semantics — same owner re-claims a live claim freely", async () => {
+    process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE = "legacy";
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const card = await store.create({ title: "Legacy", status: "ready" });
+    await store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:s1" });
+    const second = await store.claim(card.id, { ownerId: "reina", sessionId: "agent:reina:s2" });
+    expect(second.card.metadata?.claim?.sessionId).toBe("agent:reina:s2");
+  });
+});
