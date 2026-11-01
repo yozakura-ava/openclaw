@@ -93,6 +93,8 @@ export type WorkboardClaimInput = {
   ownerId?: unknown;
   token?: unknown;
   ttlSeconds?: unknown;
+  /** Owning session key; injected from plugin tool context, never model-supplied. */
+  sessionId?: unknown;
 };
 export type WorkboardClaimOptions = {
   assertOwnerCurrent?: () => void;

@@ -1987,6 +1987,145 @@ describe("message tool explicit target guard", () => {
   });
 });
 
+// Card 45db88cf — cron/isolated automation runs emit numeric chat ids on the
+// deferred tool_call surface (the compact schema hint truncates target:string).
+// These tests drive the harness before-tool-call wrapper so the guard's
+// prepare/finalize hooks run exactly as they do in an isolated run.
+describe("message tool explicit target numeric normalisation", () => {
+  function createGuardedTool() {
+    return wrapToolWithBeforeToolCallHook(
+      createMessageTool({
+        runMessageAction: mocks.runMessageAction as never,
+        requireExplicitTarget: true,
+        currentChannelProvider: "telegram",
+        currentChannelId: "telegram:dm-user-1",
+      }),
+      { agentId: "main", sessionKey: "agent:main:cron:isolated-run" },
+    );
+  }
+
+  function mockDryRunSend() {
+    mocks.runMessageAction.mockResolvedValueOnce({
+      kind: "action",
+      channel: "telegram",
+      action: "send",
+      handledBy: "dry-run",
+      payload: { ok: true, dryRun: true, channel: "telegram", action: "send" },
+      dryRun: true,
+    });
+  }
+
+  it("delivers an explicit send when target is emitted as a bare JSON number", async () => {
+    mockDryRunSend();
+    const tool = createGuardedTool();
+
+    await tool.execute("cron-numeric-target", {
+      action: "send",
+      channel: "telegram",
+      target: 418181497,
+      message: "morning nudge",
+    });
+
+    expect(firstRunMessageActionInput()?.params?.target).toBe("418181497");
+  });
+
+  it("normalises numeric entries in targets element-wise and keeps string entries", async () => {
+    mockDryRunSend();
+    const tool = createGuardedTool();
+
+    await tool.execute("cron-numeric-targets", {
+      action: "send",
+      channel: "telegram",
+      targets: [418181497, "telegram:alerts"],
+      message: "morning nudge",
+    });
+
+    expect(firstRunMessageActionInput()?.params?.targets).toEqual([
+      "418181497",
+      "telegram:alerts",
+    ]);
+  });
+
+  it("passes an already-string target through unchanged", async () => {
+    mockDryRunSend();
+    const tool = createGuardedTool();
+
+    await tool.execute("cron-string-target", {
+      action: "send",
+      channel: "telegram",
+      target: "418181497",
+      message: "morning nudge",
+    });
+
+    expect(firstRunMessageActionInput()?.params?.target).toBe("418181497");
+  });
+
+  it("keeps the explicit-target denial text for a genuinely absent target", async () => {
+    const tool = createGuardedTool();
+
+    await expect(
+      tool.execute("cron-absent-target", {
+        action: "send",
+        channel: "telegram",
+        message: "morning nudge",
+      }),
+    ).rejects.toThrow(/Explicit message target required for this run/);
+    expect(mocks.runMessageAction).not.toHaveBeenCalled();
+  });
+
+  it("names the type mismatch instead of claiming the target is missing when target is wrong-typed", async () => {
+    const receipts: DecisionReceiptV1[] = [];
+    const clearSink = configureMessageActionDecisionSink((receipt) => {
+      receipts.push(receipt);
+      return true;
+    });
+    const identity = {
+      agentId: "main",
+      sessionKey: "agent:main:cron:isolated-run",
+      executionIdentityToken: createExecutionIdentityAdmissionToken("run-wrong-typed-target", {
+        contextId: "context-wrong-typed-target",
+        executionId: "execution-wrong-typed-target",
+        now: 100,
+      }),
+    };
+    const tool = createGuardedTool();
+    const toolCallId = "cron-boolean-target";
+
+    try {
+      await expect(
+        withGatewayToolCallerIdentity(identity, () =>
+          tool.execute(toolCallId, {
+            action: "send",
+            channel: "telegram",
+            target: true,
+            message: "morning nudge",
+          }),
+        ),
+      ).rejects.toThrow(
+        /Explicit message target was supplied with an unsupported type: target must be a string \(received boolean\)/,
+      );
+    } finally {
+      clearSink();
+    }
+
+    expect(consumePreExecutionBlockedToolCall(toolCallId)).toBe(true);
+    expect(mocks.runMessageAction).not.toHaveBeenCalled();
+    expect(receipts).toEqual([
+      expect.objectContaining({
+        contextId: "context-wrong-typed-target",
+        executionId: "execution-wrong-typed-target",
+        runId: "run-wrong-typed-target",
+        actionId: toolCallId,
+        decision: { outcome: "denied", reasonCode: "message_target_invalid_type" },
+        enforcement: expect.objectContaining({
+          coverageState: "enforced",
+          policyRefs: ["message-target:explicit"],
+        }),
+      }),
+    ]);
+  });
+});
+
 describe("message tool loop detection action runner proof", () => {
   function mockQaChannelGatewayActionRunner() {
     mocks.runMessageAction.mockImplementation(async ({ params }) => {
