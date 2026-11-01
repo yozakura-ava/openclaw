@@ -21,6 +21,58 @@ type ExplicitMessageTargetGuard = {
   require(params: Record<string, unknown>, action: ChannelMessageActionName): void;
 };
 
+function jsonTypeName(value: unknown): string {
+  if (value === null) {
+    return "null";
+  }
+  if (Array.isArray(value)) {
+    return "array";
+  }
+  return typeof value;
+}
+
+// The deferred tool_call surface truncates the compact schema hint before the
+// `target: string` annotation, so isolated automation runs emit numeric chat
+// ids as bare JSON numbers (card 45db88cf: 54/54 cron failures carried a
+// numeric target). Coerce the number to its string form IN PLACE so the params
+// object identity is preserved (the finalize guard keys a WeakMap on it) and
+// the strict Type.String() parameter schema still validates.
+function normalizeExplicitTargetParams(params: Record<string, unknown>): void {
+  if (typeof params.target === "number" && Number.isFinite(params.target)) {
+    params.target = String(params.target);
+  }
+  const targets = params.targets;
+  if (Array.isArray(targets)) {
+    for (let index = 0; index < targets.length; index += 1) {
+      const entry = targets[index];
+      if (typeof entry === "number" && Number.isFinite(entry)) {
+        targets[index] = String(entry);
+      }
+    }
+  }
+}
+
+function describeExplicitTargetTypeProblem(
+  params: Record<string, unknown>,
+): string | undefined {
+  for (const field of ["target", "to", "channelId"] as const) {
+    const value = params[field];
+    if (value !== undefined && typeof value !== "string") {
+      return `${field} must be a string (received ${jsonTypeName(value)})`;
+    }
+  }
+  if (params.targets !== undefined) {
+    if (!Array.isArray(params.targets)) {
+      return `targets must be an array of strings (received ${jsonTypeName(params.targets)})`;
+    }
+    const invalidEntry = params.targets.find((value) => typeof value !== "string");
+    if (invalidEntry !== undefined) {
+      return `targets must be an array of strings (received an array containing ${jsonTypeName(invalidEntry)})`;
+    }
+  }
+  return undefined;
+}
+
 function requireExplicitMessageTarget(
   params: Record<string, unknown>,
   action: ChannelMessageActionName,
@@ -52,6 +104,17 @@ function requireExplicitMessageTarget(
   ) {
     return;
   }
+  const typeProblem = describeExplicitTargetTypeProblem(params);
+  if (typeProblem) {
+    // A target WAS supplied but with an unusable type. Name the mismatch
+    // instead of claiming the target is missing: the misleading "required"
+    // denial is what drove the numeric-target retry storm (card 45db88cf).
+    throw new MessageActionDeniedError(
+      `Explicit message target was supplied with an unsupported type: ${typeProblem}. Re-send the target as a string.`,
+      "message_target_invalid_type",
+      "message-target:explicit",
+    );
+  }
   throw new MessageActionDeniedError(
     "Explicit message target required for this run. Provide target/targets (and channel when needed).",
     "message_target_missing",
@@ -70,8 +133,11 @@ export function createMessageToolExplicitTargetGuard(params: {
 
   return {
     prepareBeforeToolCallParams(rawParams, hookContext) {
-      if (rawParams && typeof rawParams === "object" && hookContext.toolCallId) {
-        toolCallIds.set(rawParams, hookContext.toolCallId);
+      if (rawParams && typeof rawParams === "object") {
+        normalizeExplicitTargetParams(rawParams as Record<string, unknown>);
+        if (hookContext.toolCallId) {
+          toolCallIds.set(rawParams, hookContext.toolCallId);
+        }
       }
       return rawParams;
     },
