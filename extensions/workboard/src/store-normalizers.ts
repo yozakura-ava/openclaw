@@ -658,6 +658,12 @@ function normalizeClaim(record: unknown, fallback?: WorkboardClaim): WorkboardCl
     fallback?.lastHeartbeatAt ?? claimedAt,
   );
   const expiresAt = normalizeTimestamp(record.expiresAt, fallback?.expiresAt ?? 0);
+  const sessionId = normalizeBoundedString(
+    record.sessionId,
+    fallback?.sessionId,
+    160,
+    "claim session",
+  );
   if (!ownerId || !token || !claimedAt || !lastHeartbeatAt) {
     return undefined;
   }
@@ -667,6 +673,7 @@ function normalizeClaim(record: unknown, fallback?: WorkboardClaim): WorkboardCl
     claimedAt,
     lastHeartbeatAt,
     expiresAt: expiresAt || undefined,
+    sessionId,
   });
 }
 
