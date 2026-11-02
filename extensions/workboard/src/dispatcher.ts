@@ -26,6 +26,11 @@ import {
   workboardCardConsumesOwnerSlot,
   workboardCardSlotOwner,
 } from "./store-constants.js";
+import {
+  evaluatePipelineDispatchGate,
+  pipelineDispatchGateFromOptions,
+  type PipelineDispatchGate,
+} from "./store-pipeline-dispatch.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -53,6 +58,8 @@ type WorkboardDispatchStartOptions = {
   resolveAgentWorkspaceRuntime?: ResolveAgentWorkspaceRuntime;
   workspaceAccess?: WorkboardWorkspaceAccess;
   assertOwnerCurrent?: () => void;
+  /** Override for the pipeline auto-dispatch dedup gate (default: env-flag). */
+  pipelineDedupGuard?: boolean;
 };
 
 type WorkboardStartedRun = {
@@ -187,6 +194,11 @@ function selectStartableCards(
   ownerOverride: string | undefined,
   now: number,
   mode: "scheduled" | "exact",
+  // Pipeline auto-dispatch dedup (card ee4dda8f rebuild, PR #118 scope):
+  // scheduled-mode-only gate that silently skips cards dispatched recently
+  // or whose latest attempt failed inside the dedup window. Exact (operator
+  // initiated) starts bypass the gate; selection semantics otherwise unchanged.
+  pipelineGate?: PipelineDispatchGate,
 ): { cards: WorkboardCard[]; rejection?: WorkboardStartFailure } {
   if (limit <= 0) {
     return { cards: [] };
@@ -204,6 +216,9 @@ function selectStartableCards(
   const selectedOwners = new Set<string>();
   const ordered = mode === "scheduled" ? candidates.toSorted(sortReadyCards) : candidates;
   for (const card of ordered) {
+    if (pipelineGate && evaluatePipelineDispatchGate({ card, now, gate: pipelineGate })) {
+      continue;
+    }
     const owner = ownerOverride || workboardCardSlotOwner(card, now);
     const rejection = card.metadata?.archivedAt
       ? "Card is archived; restore it before starting."
@@ -297,6 +312,13 @@ async function runWorkboardDispatch(
     ownerOverride,
     now,
     directCardId ? "exact" : "scheduled",
+    // Dedup gate rides the scheduled path only; exact starts keep semantics.
+    directCardId
+      ? undefined
+      : pipelineDispatchGateFromOptions({
+          strikes: params.store.pipelineStrikes,
+          guard: params.options?.pipelineDedupGuard,
+        }),
   );
   if (selection.rejection) {
     startFailures.push(selection.rejection);
