@@ -248,7 +248,13 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
     M1-H1, card d6748b27) governs — cost-first (never below the measured
     live profile).
     """
-    cell = stats["per_timeframe"][tf]["spread_pips"]
+    per_tf = stats["per_timeframe"]
+    if tf not in per_tf:
+        # FX tables are bootstrapped at M15 only (card 929ae3b9): proxy any
+        # missing TF (M1/M5/M30) with the finest available TF's distribution.
+        proxy_tf = sorted(per_tf)[0]
+        per_tf = {tf: dict(per_tf[proxy_tf], proxied_from=proxy_tf)}
+    cell = per_tf[tf]["spread_pips"]
     p90 = float(cell["p90"])
     # Per-symbol pip size from the stats table (schema "1" carries pip_size;
     # legacy XAUUSD table predates the field and is the only such table).
@@ -259,7 +265,7 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
         "effective_pips": max(p90, floor),
         "stats_p90_pips": p90,
         "provisional_floor_pips": floor,
-        "n_samples": int(stats["per_timeframe"][tf]["n"]),
+        "n_samples": int(per_tf[tf]["n"]),
         "applied_to": ["SpreadGate", "cost_model", "confidence_ctx"],
     }
 
@@ -643,7 +649,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--grid", default=str(_REPO_ROOT / DEFAULT_GRID))
     ap.add_argument("--data-dir", default=str(_REPO_ROOT / DEFAULT_DATA_DIR))
-    ap.add_argument("--spread-stats", default=str(_REPO_ROOT / DEFAULT_STATS))
+    # Default None: after parsing, resolve to the per-symbol spread table
+    # (data/spreads/<symbol>_spread_stats.json) so the ONE-table rule is
+    # per-symbol; explicit --spread-stats still wins for legacy callers.
+    ap.add_argument("--spread-stats", default=None)
     ap.add_argument("--out-dir", default=str(_REPO_ROOT / "data" / "bqes2" / SPRINT / "candidates"))
     ap.add_argument("--summary", default=None, help="summary path (default out_dir/../run_summary.json)")
     ap.add_argument("--holdout-frac", type=float, default=HOLDOUT_FRAC)
@@ -656,6 +665,10 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
     global SYMBOL
     SYMBOL = args.symbol
+    if args.spread_stats is None:
+        per_symbol = _REPO_ROOT / "data" / "spreads" / f"{SYMBOL.lower()}_spread_stats.json"
+        args.spread_stats = str(per_symbol if per_symbol.exists()
+                                else _REPO_ROOT / DEFAULT_STATS)
 
     grid_path = Path(args.grid)
     stats_path = Path(args.spread_stats)
