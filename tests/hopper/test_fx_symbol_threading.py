@@ -156,27 +156,78 @@ def test_default_symbol_is_xauusd_for_legacy_callers():
     assert out.stdout.strip() == "XAUUSD"
 
 
-def test_spread_stats_missing_pip_size_fails_loud(tmp_path):
-    """Non-XAUUSD stats lacking pip_size must abort, not fall back to 0.1."""
-    stats = tmp_path / "stats.json"
-    stats.write_text(json.dumps(
-        {"symbol": "EURUSD",
-         "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
-        encoding="utf-8")
-    rf.SYMBOL = "EURUSD"
+def test_pip_size_governed_by_canonical_map(tmp_path, monkeypatch):
+    """Canonical SYMBOL_PIP_SIZE governs; missing stats field is tolerated
+    (cross-check only per reconciliation with main d604239a, Rin nit 5)."""
+    monkeypatch.setattr(rf, "SYMBOL", "EURUSD")
+    out = rf.spread_for_tf({"symbol": "EURUSD",
+                            "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}},
+                           "M15")
+    assert out["pip_size"] == rf.SYMBOL_PIP_SIZE["EURUSD"] == 0.0001
+    # USDJPY must use 0.01, never the legacy XAUUSD 0.1
+    monkeypatch.setattr(rf, "SYMBOL", "USDJPY")
+    out = rf.spread_for_tf({"symbol": "USDJPY",
+                            "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}},
+                           "M15")
+    assert out["pip_size"] == 0.01
+
+
+def test_spread_stats_pip_size_mismatch_fails_loud(tmp_path, monkeypatch):
+    """Stats-table pip_size contradicting the canonical map must abort."""
+    monkeypatch.setattr(rf, "SYMBOL", "EURUSD")
+    stats = {"symbol": "EURUSD", "pip_size": 0.1,  # stale XAUUSD value
+             "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}
     import pytest
-    with pytest.raises(SystemExit, match="pip_size"):
-        rf.spread_for_tf(json.loads(stats.read_text()), "M15")
+    with pytest.raises(SystemExit, match="contradicts canonical pip_size"):
+        rf.spread_for_tf(stats, "M15")
 
 
-def test_spread_stats_symbol_mismatch_fails_loud(tmp_path):
+def test_spread_stats_symbol_mismatch_fails_loud(tmp_path, monkeypatch):
     """Stats table for another symbol must abort the run."""
-    stats = tmp_path / "stats.json"
-    stats.write_text(json.dumps(
-        {"symbol": "GBPUSD", "pip_size": 0.0001,
-         "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
-        encoding="utf-8")
-    rf.SYMBOL = "EURUSD"
+    monkeypatch.setattr(rf, "SYMBOL", "EURUSD")
+    stats = {"symbol": "GBPUSD", "pip_size": 0.0001,
+             "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}
     import pytest
     with pytest.raises(SystemExit, match="symbol"):
-        rf.spread_for_tf(json.loads(stats.read_text()), "M15")
+        rf.spread_for_tf(stats, "M15")
+
+
+# --------------------------------------------------- spread-stats resolution
+def test_per_symbol_spread_stats_default_resolution(tmp_path, monkeypatch):
+    """Default --spread-stats resolves per-symbol table, legacy fallback,
+    and explicit path precedence."""
+    monkeypatch.setattr(rf, "_REPO_ROOT", tmp_path)
+    spreads = tmp_path / "data" / "spreads"
+    spreads.mkdir(parents=True)
+    # 1) no per-symbol file -> legacy default
+    assert rf.resolve_spread_stats_path(None, "EURUSD").endswith(
+        str(rf.DEFAULT_STATS))
+    # 2) per-symbol file exists -> per-symbol wins
+    per = spreads / "eurusd_spread_stats.json"
+    per.write_text("{}", encoding="utf-8")
+    assert rf.resolve_spread_stats_path(None, "EURUSD") == str(per)
+    # 3) explicit --spread-stats always wins
+    assert rf.resolve_spread_stats_path("/tmp/legacy.json", "EURUSD") == "/tmp/legacy.json"
+
+
+# --------------------------------------------------------- M15 TF proxy path
+def test_tf_proxy_marks_proxied_from_and_propagates_pip_size(tmp_path, monkeypatch):
+    """Missing TF proxies from finest available TF with proxied_from marker;
+    canonical pip_size propagates into the proxied cell."""
+    monkeypatch.setattr(rf, "SYMBOL", "GBPUSD")
+    stats = {"symbol": "GBPUSD", "pip_size": 0.0001,
+             "per_timeframe": {"M15": {"spread_pips": {"p90": 1.5}, "n": 25}}}
+    out = rf.spread_for_tf(stats, "M5")
+    assert out["proxied_from"] == "M15"
+    assert out["pip_size"] == 0.0001
+    assert out["effective_pips"] == 1.5  # p90 carried over by the proxy
+    # M15 itself is not proxied (marker None, not a TF name)
+    direct = rf.spread_for_tf(stats, "M15")
+    assert direct.get("proxied_from") is None
+
+
+def test_unknown_symbol_fails_loud(monkeypatch):
+    """Unknown symbol via pip_size_for aborts with SystemExit(2)."""
+    import pytest
+    with pytest.raises(SystemExit):
+        rf.pip_size_for("US30")
