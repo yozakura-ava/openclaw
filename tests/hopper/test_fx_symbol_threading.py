@@ -110,7 +110,8 @@ def test_load_or_freeze_uses_symbol_csv_paths(tmp_path, monkeypatch):
     csv.write_text("x", encoding="utf-8")  # existence + md5 only
     stats = tmp_path / "stats.json"
     stats.write_text(json.dumps(
-        {"per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
+        {"symbol": "EURUSD", "pip_size": 0.0001,
+         "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
         encoding="utf-8")
     grid = tmp_path / "grid.json"
     grid.write_text("{}", encoding="utf-8")
@@ -153,3 +154,29 @@ def test_default_symbol_is_xauusd_for_legacy_callers():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                          cwd=str(REPO))
     assert out.stdout.strip() == "XAUUSD"
+
+
+def test_spread_stats_missing_pip_size_fails_loud(tmp_path):
+    """Non-XAUUSD stats lacking pip_size must abort, not fall back to 0.1."""
+    stats = tmp_path / "stats.json"
+    stats.write_text(json.dumps(
+        {"symbol": "EURUSD",
+         "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
+        encoding="utf-8")
+    rf.SYMBOL = "EURUSD"
+    import pytest
+    with pytest.raises(SystemExit, match="pip_size"):
+        rf.spread_for_tf(json.loads(stats.read_text()), "M15")
+
+
+def test_spread_stats_symbol_mismatch_fails_loud(tmp_path):
+    """Stats table for another symbol must abort the run."""
+    stats = tmp_path / "stats.json"
+    stats.write_text(json.dumps(
+        {"symbol": "GBPUSD", "pip_size": 0.0001,
+         "per_timeframe": {"M15": {"spread_pips": {"p90": 1.0}, "n": 10}}}),
+        encoding="utf-8")
+    rf.SYMBOL = "EURUSD"
+    import pytest
+    with pytest.raises(SystemExit, match="symbol"):
+        rf.spread_for_tf(json.loads(stats.read_text()), "M15")

@@ -93,11 +93,14 @@ TWO_NIGHT_BUDGET_HOURS = 16.0
 # cost — the "min expected move vs spread" requirement — counted as
 # blocked so the G5 cost-tradability gate stays honest.
 XAUUSD_PIP_SIZE = 0.1  # $ per pip for XAUUSD (digits=2, pip position 2)
-SYMBOL_ATR_BOUNDS = {  # price-domain min/max ATR, per symbol
+SYMBOL_ATR_BOUNDS = {  # price-domain min/max ATR, per symbol.
+    # Lower bounds widened to sit below observed ATR minimums on real node
+    # data (USDJPY 0.0096, EURUSD 9.1e-5, GBPUSD 1.19e-4; card 929ae3b9)
+    # so legitimately observed signals are not gated out (Rin review).
     "XAUUSD": (0.2, 100.0),
-    "USDJPY": (0.02, 5.0),
-    "EURUSD": (0.0002, 0.05),
-    "GBPUSD": (0.0003, 0.05),
+    "USDJPY": (0.009, 5.0),
+    "EURUSD": (0.00008, 0.05),
+    "GBPUSD": (0.0001, 0.05),
 }
 MIN_MOVE_SPREAD_MULT = 3.0  # ATR must be >= 3x spread to be tradable
 SPREAD_SAMPLES_PATH = "data/spreads/xauusd_spread_samples.jsonl"
@@ -258,6 +261,19 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
     p90 = float(cell["p90"])
     # Per-symbol pip size from the stats table (schema "1" carries pip_size;
     # legacy XAUUSD table predates the field and is the only such table).
+    stats_symbol = stats.get("symbol")
+    if stats_symbol and stats_symbol != SYMBOL:
+        raise SystemExit(
+            f"FATAL: spread stats symbol {stats_symbol!r} != --symbol {SYMBOL!r}"
+        )
+    if "pip_size" not in stats and SYMBOL != "XAUUSD":
+        # Legacy XAUUSD table predates the field and is the only exemption;
+        # any other symbol missing pip_size would silently reuse Rin's
+        # reviewed bug class (hardcoded XAUUSD pip conversion).
+        raise SystemExit(
+            f"FATAL: spread stats for {SYMBOL!r} lack 'pip_size'; refusing to "
+            "fall back to XAUUSD_PIP_SIZE (fail-loud per Rin review)"
+        )
     pip_size = float(stats.get("pip_size", XAUUSD_PIP_SIZE))
     floor = float(PROVISIONAL_SYMBOL_TF_SPREADS.get(f"{SYMBOL}:{tf}", 0.0))
     return {
