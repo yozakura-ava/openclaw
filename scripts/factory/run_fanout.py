@@ -93,7 +93,12 @@ TWO_NIGHT_BUDGET_HOURS = 16.0
 # cost — the "min expected move vs spread" requirement — counted as
 # blocked so the G5 cost-tradability gate stays honest.
 XAUUSD_PIP_SIZE = 0.1  # $ per pip for XAUUSD (digits=2, pip position 2)
-SYMBOL_ATR_BOUNDS = {"XAUUSD": (0.2, 100.0)}  # price-domain min/max ATR
+SYMBOL_ATR_BOUNDS = {  # price-domain min/max ATR, per symbol
+    "XAUUSD": (0.2, 100.0),
+    "USDJPY": (0.02, 5.0),
+    "EURUSD": (0.0002, 0.05),
+    "GBPUSD": (0.0003, 0.05),
+}
 MIN_MOVE_SPREAD_MULT = 3.0  # ATR must be >= 3x spread to be tradable
 SPREAD_SAMPLES_PATH = "data/spreads/xauusd_spread_samples.jsonl"
 
@@ -245,8 +250,12 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
     """
     cell = stats["per_timeframe"][tf]["spread_pips"]
     p90 = float(cell["p90"])
+    # Per-symbol pip size from the stats table (schema "1" carries pip_size;
+    # legacy XAUUSD table predates the field and is the only such table).
+    pip_size = float(stats.get("pip_size", XAUUSD_PIP_SIZE))
     floor = float(PROVISIONAL_SYMBOL_TF_SPREADS.get(f"{SYMBOL}:{tf}", 0.0))
     return {
+        "pip_size": pip_size,
         "effective_pips": max(p90, floor),
         "stats_p90_pips": p90,
         "provisional_floor_pips": floor,
@@ -472,7 +481,7 @@ def run_candidate(cand: dict, bars: list, spread_info: dict, fill_cfg: SlippageC
         atr_val = float(atr14(scan, i))
         # Min-expected-move tradability: drop signals whose ATR is not a
         # multiple of the spread cost — counted as blocked so G5 stays honest.
-        if atr_val < MIN_MOVE_SPREAD_MULT * ctx_spread * XAUUSD_PIP_SIZE:
+        if atr_val < MIN_MOVE_SPREAD_MULT * ctx_spread * spread_info["pip_size"]:
             signals.append({
                 "i": i, "ts": bar.time.isoformat(),
                 "direction": str(getattr(sig, "direction", "long")),
