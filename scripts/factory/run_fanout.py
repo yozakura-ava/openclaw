@@ -103,7 +103,28 @@ SYMBOL_ATR_BOUNDS = {  # price-domain min/max ATR, per symbol.
     "GBPUSD": (0.0001, 0.05),
 }
 MIN_MOVE_SPREAD_MULT = 3.0  # ATR must be >= 3x spread to be tradable
-SPREAD_SAMPLES_PATH = "data/spreads/xauusd_spread_samples.jsonl"
+SPREAD_SAMPLES_PATH = "data/spreads/xauusd_spread_samples.jsonl"  # legacy default (XAUUSD)
+#: Canonical pip size in PRICE units per symbol (reconciled with main
+#: d604239a, card 929ae3b9): this map GOVERNS; the spread-stats table's
+#: ``pip_size`` field serves only as a cross-check (fail-loud abort on
+#: mismatch) so a stale or mis-generated stats file can never silently
+#: reintroduce the hardcoded-XAUUSD-pip bug class (Rin review nit 5).
+SYMBOL_PIP_SIZE = {
+    "XAUUSD": 0.1,
+    "EURUSD": 0.0001,
+    "GBPUSD": 0.0001,
+    "USDJPY": 0.01,
+}
+
+
+def pip_size_for(symbol: str) -> float:
+    """PRICE-units-per-pip for a known symbol; fail-loud on unknown."""
+    try:
+        return SYMBOL_PIP_SIZE[symbol]
+    except KeyError:
+        print(f"FATAL: unknown symbol {symbol!r}; known: {sorted(SYMBOL_PIP_SIZE)}",
+              flush=True)
+        raise SystemExit(2) from None
 
 
 def hourly_spread_profile(path: Path) -> dict[int, float]:
@@ -256,25 +277,29 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
         # FX tables are bootstrapped at M15 only (card 929ae3b9): proxy any
         # missing TF (M1/M5/M30) with the finest available TF's distribution.
         proxy_tf = sorted(per_tf)[0]
+        # TODO(cost-re-measure): proxied TFs reuse the M15 spread p90 as a
+        # stand-in; once the sampler accumulates per-TF history (>=1 week),
+        # re-measure M1/M5/M30 costs natively and retire this proxy so the
+        # cost model stops over/under-estimating non-M15 spreads.
         per_tf = {tf: dict(per_tf[proxy_tf], proxied_from=proxy_tf)}
     cell = per_tf[tf]["spread_pips"]
     p90 = float(cell["p90"])
-    # Per-symbol pip size from the stats table (schema "1" carries pip_size;
-    # legacy XAUUSD table predates the field and is the only such table).
+    # Canonical pip map governs (reconciled with main d604239a, Rin nit 5);
+    # stats-table pip_size is a cross-check only.
     stats_symbol = stats.get("symbol")
     if stats_symbol and stats_symbol != SYMBOL:
         raise SystemExit(
             f"FATAL: spread stats symbol {stats_symbol!r} != --symbol {SYMBOL!r}"
         )
-    if "pip_size" not in stats and SYMBOL != "XAUUSD":
-        # Legacy XAUUSD table predates the field and is the only exemption;
-        # any other symbol missing pip_size would silently reuse Rin's
-        # reviewed bug class (hardcoded XAUUSD pip conversion).
-        raise SystemExit(
-            f"FATAL: spread stats for {SYMBOL!r} lack 'pip_size'; refusing to "
-            "fall back to XAUUSD_PIP_SIZE (fail-loud per Rin review)"
-        )
-    pip_size = float(stats.get("pip_size", XAUUSD_PIP_SIZE))
+    pip_size = pip_size_for(SYMBOL)
+    if "pip_size" in stats:
+        stats_pip = float(stats["pip_size"])
+        if abs(stats_pip - pip_size) > max(pip_size, stats_pip) * 1e-6:
+            raise SystemExit(
+                f"FATAL: spread stats pip_size {stats_pip!r} for {SYMBOL!r} "
+                f"contradicts canonical pip_size {pip_size!r} "
+                "(SYMBOL_PIP_SIZE governs; fail-loud cross-check)"
+            )
     floor = float(PROVISIONAL_SYMBOL_TF_SPREADS.get(f"{SYMBOL}:{tf}", 0.0))
     return {
         "pip_size": pip_size,
@@ -282,6 +307,7 @@ def spread_for_tf(stats: dict, tf: str) -> dict:
         "stats_p90_pips": p90,
         "provisional_floor_pips": floor,
         "n_samples": int(per_tf[tf]["n"]),
+        "proxied_from": per_tf[tf].get("proxied_from"),
         "applied_to": ["SpreadGate", "cost_model", "confidence_ctx"],
     }
 
@@ -661,6 +687,19 @@ def _append_trial_row(trials_path: Path, art: dict) -> None:
         fh.write(json.dumps(row) + "\n")
 
 
+def resolve_spread_stats_path(explicit: str | None, symbol: str) -> str:
+    """Per-symbol spread-stats default (ONE-table rule, Rin nit 6 coverage).
+
+    Explicit ``--spread-stats`` wins for legacy callers; otherwise prefer
+    ``data/spreads/<symbol>_spread_stats.json`` when present, falling back
+    to the legacy XAUUSD table only when no per-symbol file exists yet.
+    """
+    if explicit is not None:
+        return explicit
+    per_symbol = _REPO_ROOT / "data" / "spreads" / f"{symbol.lower()}_spread_stats.json"
+    return str(per_symbol if per_symbol.exists() else _REPO_ROOT / DEFAULT_STATS)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--grid", default=str(_REPO_ROOT / DEFAULT_GRID))
@@ -682,9 +721,7 @@ def main(argv: list[str] | None = None) -> int:
     global SYMBOL
     SYMBOL = args.symbol
     if args.spread_stats is None:
-        per_symbol = _REPO_ROOT / "data" / "spreads" / f"{SYMBOL.lower()}_spread_stats.json"
-        args.spread_stats = str(per_symbol if per_symbol.exists()
-                                else _REPO_ROOT / DEFAULT_STATS)
+        args.spread_stats = resolve_spread_stats_path(None, SYMBOL)
 
     grid_path = Path(args.grid)
     stats_path = Path(args.spread_stats)
