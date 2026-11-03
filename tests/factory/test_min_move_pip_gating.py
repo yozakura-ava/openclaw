@@ -36,20 +36,23 @@ def _stats(symbol: str, pip_size: float | None, p90: float = 0.79) -> dict:
     return st
 
 
-def test_pip_size_per_symbol_from_stats():
-    assert rf.spread_for_tf(_stats("USDJPY", 0.01), "M15")["pip_size"] == 0.01
-    assert rf.spread_for_tf(_stats("EURUSD", 0.0001), "M15")["pip_size"] == 0.0001
-    assert rf.spread_for_tf(_stats("GBPUSD", 0.0001), "M15")["pip_size"] == 0.0001
+def test_pip_size_per_symbol_from_stats(monkeypatch):
+    # Canonical map governs (reconciled with main d604239a); --symbol must
+    # match the stats table's symbol (fail-loud cross-check).
+    for sym, pip in (("USDJPY", 0.01), ("EURUSD", 0.0001), ("GBPUSD", 0.0001)):
+        monkeypatch.setattr(rf, "SYMBOL", sym)
+        assert rf.spread_for_tf(_stats(sym, pip), "M15")["pip_size"] == pip
 
 
 def test_legacy_xauusd_stats_fall_back_to_constant():
     assert rf.spread_for_tf(_stats("XAUUSD", None), "M15")["pip_size"] == 0.1
 
 
-def test_usdjpy_signal_previously_blocked_now_passes():
+def test_usdjpy_signal_previously_blocked_now_passes(monkeypatch):
     atr = 0.12          # typical USDJPY M15 ATR (price domain)
     spread_pips = 0.79  # usdjpy stats M15 p90
     old_threshold = rf.MIN_MOVE_SPREAD_MULT * spread_pips * rf.XAUUSD_PIP_SIZE
+    monkeypatch.setattr(rf, "SYMBOL", "USDJPY")
     new_threshold = (
         rf.MIN_MOVE_SPREAD_MULT
         * spread_pips
