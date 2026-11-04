@@ -83,6 +83,12 @@ def validate_entry(entry: dict) -> str | None:
         return f"data_dir not found: {entry['data_dir']}"
     if not all(c.isalnum() or c in "-_" for c in entry["wave_id"]):
         return "wave_id must be a slug ([A-Za-z0-9_-])"
+    # Reconciled with Ayumi-main d604239a (card 929ae3b9) — vendored-patch
+    # direction, card 1fa4bfcb: optional envelope symbol must be an
+    # uppercase alphanumeric instrument code when present.
+    sym = entry.get("symbol")
+    if sym is not None and not (isinstance(sym, str) and sym.isalnum() and sym == sym.upper()):
+        return "symbol must be an uppercase alphanumeric instrument code (e.g. GBPUSD)"
     return None
 
 
@@ -318,12 +324,22 @@ class HopperRunner:
                 summary = {
                     "candidates_completed": (s.get("funnel") or {}).get("completed"),
                     "go_nogo_passed": (s.get("funnel") or {}).get("passed_wf_go_nogo"),
+                    "wave_summary_symbol": s.get("symbol"),
                 }
             except (json.JSONDecodeError, OSError):
                 pass
+        # Card 929ae3b9: receipts are keyed by symbol — the fanout run
+        # summary's grid-resolved symbol is authoritative; the envelope's
+        # optional symbol is advisory and recorded alongside.
+        # (Reconciled into the vendored copy from Ayumi-main d604239a;
+        # vendored-patch direction, card 1fa4bfcb.)
+        wave_symbol = (summary.get("wave_summary_symbol")
+                       or entry.get("symbol") or "XAUUSD")
         receipt = {
             "schema": "hopper_wave_receipt_v1",
             "wave_id": wave_id,
+            "symbol": wave_symbol,
+            "entry_symbol": entry.get("symbol"),
             "finished_utc": _utcnow(),
             "out_dir": str(out_dir),
             "source": entry.get("source"),
