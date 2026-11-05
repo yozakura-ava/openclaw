@@ -52,9 +52,7 @@ function normalizeExplicitTargetParams(params: Record<string, unknown>): void {
   }
 }
 
-function describeExplicitTargetTypeProblem(
-  params: Record<string, unknown>,
-): string | undefined {
+function describeExplicitTargetTypeProblem(params: Record<string, unknown>): string | undefined {
   for (const field of ["target", "to", "channelId"] as const) {
     const value = params[field];
     if (value !== undefined && typeof value !== "string") {

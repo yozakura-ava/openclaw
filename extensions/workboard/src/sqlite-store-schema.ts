@@ -19,6 +19,7 @@ import {
   getAdmittedSqliteSchemaFacts,
   type SqliteDatabaseAdmissionKey,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+import { WORKBOARD_POSTGRES_MIGRATIONS } from "./workboard-postgres-migrations.js";
 import { WORKBOARD_POSTGRES_SCHEMA_SQL } from "./workboard-postgres-schema.js";
 import { SCHEMA_VERSION, WORKBOARD_SCHEMA_SQL } from "./workboard-schema.js";
 export type WorkboardSqlConnection = EngineConnection;
@@ -141,6 +142,7 @@ export function createWorkboardDatabase(
           version: SCHEMA_VERSION,
           sqlite: WORKBOARD_SCHEMA_SQL,
           postgres: WORKBOARD_POSTGRES_SCHEMA_SQL,
+          postgresMigrations: WORKBOARD_POSTGRES_MIGRATIONS,
         },
         input: postgresInput,
         inspectSqlite: () => {

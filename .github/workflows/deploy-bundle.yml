@@ -58,57 +58,76 @@ jobs:
       - name: Build mermaid renderer deps first
         run: pnpm --filter '@openclaw/mermaid-renderer...' build
 
-      - name: Build workspace
-        run: pnpm -r --filter '!@openclaw/mermaid-renderer' --include-workspace-root build
+      - name: Build workspace and runtime assets
+        run: pnpm build
 
-      - name: Record source manifest hashes
+      - name: Record resolved source and provenance
+        id: source
         env:
           SOURCE_REF: ${{ inputs.source_ref != '' && inputs.source_ref || github.sha }}
         run: |
-          mkdir -p provenance
-          MANIFEST_SHA="$(sha256sum package.json | awk '{print $1}')"
-          LOCKFILE_SHA="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
-          {
-            echo "{"
-            echo "  \"source_ref\": \"${SOURCE_REF}\","
-            echo "  \"run_id\": \"${{ github.run_id }}\","
-            echo "  \"built_at_utc\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
-            echo "  \"manifest_sha256\": \"${MANIFEST_SHA}\","
-            echo "  \"lockfile_sha256\": \"${LOCKFILE_SHA}\""
-            echo "}"
-          } > provenance/provenance.json
-          cat provenance/provenance.json
+          mkdir -p "$RUNNER_TEMP/deploy-bundle/provenance"
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          export SOURCE_SHA
+          node --input-type=module <<'JS'
+          import fs from "node:fs";
+          import crypto from "node:crypto";
+          const hash = (path) => crypto.createHash("sha256").update(fs.readFileSync(path)).digest("hex");
+          const provenance = {
+            source_ref: process.env.SOURCE_REF,
+            source_sha: process.env.SOURCE_SHA,
+            run_id: process.env.GITHUB_RUN_ID,
+            run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+            built_at_utc: new Date().toISOString(),
+            node_version: process.version,
+            package_manager: JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager,
+            manifest_sha256: hash("package.json"),
+            lockfile_sha256: hash("pnpm-lock.yaml"),
+          };
+          fs.writeFileSync(`${process.env.RUNNER_TEMP}/deploy-bundle/provenance/provenance.json`, JSON.stringify(provenance, null, 2) + "\n");
+          JS
 
-      - name: Pack deploy bundle tarball
+      - name: Verify required runtime assets
         run: |
-          tar -czf deploy-bundle.tar.gz \
+          for template in AGENTS SOUL IDENTITY USER BOOTSTRAP; do
+            test -s "docs/reference/templates/$template.md"
+          done
+          test -s dist/build-info.json
+          test -s dist/control-ui/index.html
+          test -s dist/extensions/workboard/openclaw.plugin.json
+          test -s dist/entry.js
+          test -s dist/infra/sqlite-readonly-location.worker.js
+          test -s dist/state/openclaw-state-read.worker.js
+          test -d skills
+          test -d node_modules/.pnpm
+
+      - name: Pack deploy bundle tarball outside source tree
+        run: |
+          tar -czf "$RUNNER_TEMP/deploy-bundle/deploy-bundle.tar.gz" \
             --exclude=./node_modules/.cache \
-            --exclude=.git \
+            --exclude=./.git \
             .
 
-      - name: Checksums (tarball + provenance)
+      - name: Checksums and archive integrity
         run: |
-          TARBALL_SHA256="$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')"
-          PROVENANCE_SHA256="$(sha256sum provenance/provenance.json | awk '{print $1}')"
+          cd "$RUNNER_TEMP/deploy-bundle"
           sha256sum deploy-bundle.tar.gz provenance/provenance.json > deploy-bundle-checksums.txt
-          {
-            echo "tarball_sha256=${TARBALL_SHA256}"
-            echo "provenance_sha256=${PROVENANCE_SHA256}"
-          } >> "$GITHUB_OUTPUT"
-          cat deploy-bundle-checksums.txt
-
-      - name: Verify tarball integrity
-        run: |
+          sha256sum --check deploy-bundle-checksums.txt
+          tar -tzf deploy-bundle.tar.gz > "$RUNNER_TEMP/deploy-bundle-contents.txt"
           test -s deploy-bundle.tar.gz
-          tar -tzf deploy-bundle.tar.gz > /dev/null
-          grep -F "$(sha256sum deploy-bundle.tar.gz | awk '{print $1}')  deploy-bundle.tar.gz" deploy-bundle-checksums.txt
+          if grep -Eq '^\./(deploy-bundle\.tar\.gz|\.git)(/|$)' "$RUNNER_TEMP/deploy-bundle-contents.txt"; then
+            echo "Archive includes excluded build output or Git data" >&2
+            exit 1
+          fi
 
       - name: Upload deploy bundle artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: deploy-bundle-${{ github.sha }}
+          name: deploy-bundle-${{ steps.source.outputs.sha }}
           path: |
-            deploy-bundle.tar.gz
-            provenance/provenance.json
-            deploy-bundle-checksums.txt
+            ${{ runner.temp }}/deploy-bundle/deploy-bundle.tar.gz
+            ${{ runner.temp }}/deploy-bundle/provenance/provenance.json
+            ${{ runner.temp }}/deploy-bundle/deploy-bundle-checksums.txt
           if-no-files-found: error
+          compression-level: 0

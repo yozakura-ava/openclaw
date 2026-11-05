@@ -12,6 +12,7 @@ import { createWorkboardDatabase } from "./sqlite-store-schema.js";
 import { createWorkboardSqliteStores } from "./sqlite-store.js";
 import { workboardTestDatabaseInput } from "./test/database-config.js";
 import { openPostgresFixture } from "./test/postgres-fixture.js";
+import { WORKBOARD_POSTGRES_SCHEMA_V3_SQL } from "./workboard-postgres-schema-v3.js";
 
 const postgresInput = workboardTestDatabaseInput();
 const postgresUrl = postgresInput?.connection;
@@ -334,16 +335,45 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
     fs.renameSync(`${dbPath}.replacement`, dbPath);
   }
 
-  it("refuses a PostgreSQL schema version mismatch without migrating it", async () => {
+  it("migrates a version-3 PostgreSQL store without changing existing cards", async () => {
     const dbPath = databasePath();
     const opened = await openDatabase(dbPath);
     const schema = opened.schema;
-    await opened.close();
-    await observer.query(
-      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 4 WHERE store = 'workboard'`,
+    const metadata = await observer.query<{ store_id: string }>(
+      `SELECT store_id FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
     );
+    await opened.close();
+    // Recreate the exact previous generated schema, retaining the fixture anchor identity.
+    await observer.query(
+      `DROP SCHEMA ${quoteIdentifier(schema)} CASCADE; CREATE SCHEMA ${quoteIdentifier(schema)}`,
+    );
+    await observer.query(`SET search_path TO ${quoteIdentifier(schema)}`);
+    try {
+      await observer.query(WORKBOARD_POSTGRES_SCHEMA_V3_SQL);
+      await observer.query(`CREATE TABLE openclaw_schema_meta (
+        store TEXT PRIMARY KEY, version BIGINT NOT NULL, store_id TEXT NOT NULL,
+        fingerprint TEXT, ddl_hash TEXT, server_major BIGINT)`);
+      await observer.query(
+        "INSERT INTO openclaw_schema_meta (store, version, store_id) VALUES ('workboard', 3, $1)",
+        [metadata.rows[0]!.store_id],
+      );
+      await observer.query(
+        "INSERT INTO workboard_boards (id, name, created_at, updated_at) VALUES ('legacy-board', 'Keep legacy data', 1, 2)",
+      );
+    } finally {
+      await observer.query("RESET search_path");
+    }
     replaceAnchorForFreshAdmission(dbPath);
-    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*3/i);
+    const migrated = await openDatabase(dbPath);
+    expect(
+      await migrated.fixture.statements([
+        {
+          sql: "SELECT name FROM workboard_boards WHERE id = ?",
+          method: "get",
+          args: ["legacy-board"],
+        },
+      ]),
+    ).toEqual([{ name: "Keep legacy data" }]);
     expect(
       (
         await observer.query<{ version: number }>(
@@ -351,6 +381,33 @@ describe.skipIf(!postgresUrl)("experimental PostgreSQL workboard admission and r
         )
       ).rows,
     ).toEqual([{ version: 4 }]);
+    expect(
+      (
+        await observer.query<{ table_name: string; column_name: string }>(
+          "SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name IN ('workboard_card_events', 'workboard_card_comments', 'workboard_card_proof') AND column_name IN ('actor_id', 'actor_kind')",
+          [schema],
+        )
+      ).rows,
+    ).toHaveLength(6);
+  });
+
+  it("refuses a PostgreSQL schema version mismatch without migrating it", async () => {
+    const dbPath = databasePath();
+    const opened = await openDatabase(dbPath);
+    const schema = opened.schema;
+    await opened.close();
+    await observer.query(
+      `UPDATE ${quoteIdentifier(schema)}.openclaw_schema_meta SET version = 5 WHERE store = 'workboard'`,
+    );
+    replaceAnchorForFreshAdmission(dbPath);
+    expect(() => createWorkboardDatabase(dbPath, undefined, postgresInput)).toThrow(/expected.*4/i);
+    expect(
+      (
+        await observer.query<{ version: number }>(
+          `SELECT version::integer FROM ${quoteIdentifier(schema)}.openclaw_schema_meta WHERE store = 'workboard'`,
+        )
+      ).rows,
+    ).toEqual([{ version: 5 }]);
   });
 
   it("refuses PostgreSQL metadata belonging to a different anchor", async () => {

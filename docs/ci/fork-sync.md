@@ -33,7 +33,11 @@ Steps the script performs (numbered checkpoints; **any failure stops the run**):
    `upstream/main` stale — skill rule 2).
 2. **Anchor to the TAG OBJECT** (`git rev-parse v<X>^{}`), never `upstream/main`
    (releases live on release branches).
-3. **Old base** = `git merge-base fork/carried <new-tag>` (the previous release tag).
+3. **Old base** = the peeled nearest first-parent release tag of `fork/carried`
+   (`git describe --first-parent --tags --match 'v[0-9]*' --abbrev=0 fork/carried`).
+   Verify no merge commits follow that base. Release branches can diverge: the
+   merge-base with the new release may precede the actual carried base and would
+   replay upstream release commits as customizations.
 4. **Compat audit (hard gate):** if the upstream advance deletes any file the carried
    series touches, the script stops. Resolve per skill rule 7: drop the carried commit
    if upstream already contains the equivalent fix, else port it to the successor
@@ -46,10 +50,9 @@ Steps the script performs (numbered checkpoints; **any failure stops the run**):
    resurrect a path upstream deleted.**
 6. **Post-check:** `git diff --stat <new-tag>..fork/carried` must show exactly the
    fork-only file set (expected ≈69 files, +3141/−407 as of 2026-10-30).
-7. **Push:** `--force-with-lease` (approval-gated); fallback = **non-force** push to
-   `fork/carried-rebased` under a fresh name (skill rule 12). The fallback never
-   force-pushes: if `fork/carried-rebased` already exists and diverged, the push is
-   rejected — rename or delete the stale fallback branch, then re-run.
+7. **Push:** publish the rebased series under a fresh timestamped branch with a
+   normal push. Never force-push an existing carried branch. A rejected push stops
+   the run for inspection.
 8. **PR** from a throwaway alignment branch (`sync/fork-bump-<date>` =
    `fork/carried` + `git merge main`) so origin/main is an ancestor and the PR is
    MERGEABLE despite rewritten SHAs (skill rule 12 / PR #237 pattern).
@@ -75,3 +78,14 @@ Steps the script performs (numbered checkpoints; **any failure stops the run**):
   scripts/ci/docs fixes + 2 upstream-authored workboard fixes picked from PRs that
   never reached mainline), extracted onto `v2026.10.8` — `git diff main fork/carried`
   = 0 bytes.
+
+## 2026.11.1 reconciliation
+
+The 2026.10.8 carried base is `dc2523e5a5c7a309517fd7fa834add938231d526`.
+The 2026.11.1 peeled tag is `4ffdd2047d192dd65554de3c8c46c0e0197c6e2a`.
+Their merge-base is older than the carried base; use the explicit series boundary.
+Before rebasing, reconcile local main, remote main, and carried content in a new
+task-owned branch/worktree and save recovery refs. Preserve occupied worktrees.
+Port the deleted Workboard browser test into current coverage rather than restoring
+its retired path. Keep alignment merges on a separate branch; require tracked-tree
+parity between the final linear carried series, canonical checkout, and fork main.

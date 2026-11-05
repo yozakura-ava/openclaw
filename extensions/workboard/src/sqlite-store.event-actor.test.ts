@@ -40,11 +40,25 @@ it("events without an actor default to the system actor id", async () => {
             toStatus: "running",
             actorId: "tsubaki",
             actorKind: "agent",
-          } as never,
+          },
         ],
       },
     };
     await stores.cards.register(card.card.id, card);
+
+    const restored = await stores.cards.lookup(card.card.id);
+    expect(restored?.card.events?.[1]).toMatchObject({ actorId: "tsubaki", actorKind: "agent" });
+    if (!restored) {
+      throw new Error("persisted fixture card was not found");
+    }
+    await stores.cards.register(card.card.id, {
+      ...restored,
+      card: { ...restored.card, notes: "unrelated update" },
+    });
+    expect((await stores.cards.lookup(card.card.id))?.card.events?.[1]).toMatchObject({
+      actorId: "tsubaki",
+      actorKind: "agent",
+    });
 
     const raw = new DatabaseSync(dbPath, { readOnly: true });
     try {

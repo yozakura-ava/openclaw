@@ -55,6 +55,28 @@ describe("WorkboardWorkflowStore claim guard (#115 scope)", () => {
     expect(snapshotClaimConflictHistory()).toHaveLength(0);
   });
 
+  it.each([undefined, "agent:main:same-session"])(
+    "requires the current token for same-owner refresh with session %s",
+    async (sessionId) => {
+      const store = createWorkboardSqliteTestStore();
+      const card = await store.create({
+        title: "Token-fenced refresh",
+        status: "ready",
+        workspaceAccess: { unrestricted: true },
+      });
+      const first = await store.claim(card.id, { ownerId: "owner-a", sessionId });
+      await expect(store.claim(card.id, { ownerId: "owner-a", sessionId })).rejects.toThrow(
+        /claim-fence:strict/,
+      );
+      const refreshed = await store.claim(card.id, {
+        ownerId: "owner-a",
+        sessionId,
+        token: first.token,
+      });
+      expect(refreshed.token).toBe(first.token);
+    },
+  );
+
   it("claim_on_done_card_throws_and_writes_no_claim_metadata", async () => {
     const store = createWorkboardSqliteTestStore();
     const card = await store.create({

@@ -2037,10 +2037,7 @@ describe("message tool explicit target numeric normalisation", () => {
       message: "morning nudge",
     });
 
-    expect(firstRunMessageActionInput()?.params?.targets).toEqual([
-      "418181497",
-      "telegram:alerts",
-    ]);
+    expect(firstRunMessageActionInput()?.params?.targets).toEqual(["418181497", "telegram:alerts"]);
   });
 
   it("passes an already-string target through unchanged", async () => {

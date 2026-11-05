@@ -45,6 +45,10 @@
         {
           "source": "./src/workboard-schema.postgres.sql",
           "output": "./src/workboard-schema.postgres.sql"
+        },
+        {
+          "source": "./src/workboard-schema.v3.postgres.sql",
+          "output": "./src/workboard-schema.v3.postgres.sql"
         }
       ],
       "workerEntries": [

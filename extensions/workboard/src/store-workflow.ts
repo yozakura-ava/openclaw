@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { stat } from "node:fs/promises";
-import { isDeepStrictEqual, promisify } from "node:util";
+import { isDeepStrictEqual } from "node:util";
 import type {
   WorkboardArtifact,
   WorkboardCard,
@@ -16,7 +14,6 @@ import {
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { normalizeActor } from "./actor-attribution.js";
-import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -40,6 +37,10 @@ import {
   MAX_CARD_ARTIFACTS,
   secondsToDurationMs,
 } from "./store-constants.js";
+import {
+  CONSUMER_SURFACE_EVIDENCE_LABELS,
+  verifyConsumerSurfaceEvidence,
+} from "./store-consumer-surface-evidence.js";
 import type {
   WorkboardBlockInput,
   WorkboardCardPatch,
@@ -85,109 +86,6 @@ function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInp
   if (!token && ownerId && ownerId !== claim.ownerId) {
     throw new Error("claim owner does not match.");
   }
-}
-
-const execFileAsync = promisify(execFile);
-
-/** Card labels that gate completion on consumer_surface_evidence. */
-const CONSUMER_SURFACE_EVIDENCE_LABELS = new Set(["[BUILD]", "[INFRA]"]);
-
-function asConsumerSurfaceEvidence(input: unknown): ConsumerSurfaceEvidence {
-  if (!isRecord(input)) {
-    throw new Error(
-      '[BUILD]/[INFRA] cards require consumer_surface_evidence on completion: an object like { kind: "code" | "skill" | "research", repoPath?, commitSha?, filePath?, consumerId? }. The evidence is verified independently; caller-supplied proof text is never trusted.',
-    );
-  }
-  const kind = input.kind;
-  if (kind !== "code" && kind !== "skill" && kind !== "research") {
-    throw new Error(
-      'consumer_surface_evidence.kind must be one of "code", "skill", or "research".',
-    );
-  }
-  const readPath = (field: string): string | undefined => {
-    const value = input[field];
-    if (value === undefined) {
-      return undefined;
-    }
-    if (typeof value !== "string" || value.trim() === "") {
-      throw new Error(`consumer_surface_evidence.${field} must be a non-empty string.`);
-    }
-    return value;
-  };
-  const evidence: ConsumerSurfaceEvidence = {
-    kind,
-    ...(readPath("repoPath") ? { repoPath: readPath("repoPath") } : {}),
-    ...(readPath("commitSha") ? { commitSha: readPath("commitSha") } : {}),
-    ...(readPath("filePath") ? { filePath: readPath("filePath") } : {}),
-    ...(readPath("consumerId") ? { consumerId: readPath("consumerId") } : {}),
-  };
-  return evidence;
-}
-
-/**
- * Independently verify consumer surface evidence against the world — never
- * trusting caller-supplied text. kind=code resolves the commit in the given
- * git repository; kind=skill requires an existing SKILL.md; kind=research
- * requires an existing non-empty artifact file.
- */
-async function verifyConsumerSurfaceEvidence(
-  input: unknown,
-  now: number,
-): Promise<WorkboardArtifact> {
-  const evidence = asConsumerSurfaceEvidence(input);
-  if (evidence.kind === "code") {
-    if (!evidence.repoPath || !evidence.commitSha) {
-      throw new Error('consumer_surface_evidence kind "code" requires repoPath and commitSha.');
-    }
-    try {
-      await execFileAsync("git", [
-        "-C",
-        evidence.repoPath,
-        "cat-file",
-        "-e",
-        `${evidence.commitSha}^{commit}`,
-      ]);
-    } catch {
-      throw new Error(
-        `consumer_surface_evidence rejected: commit ${evidence.commitSha} does not resolve in repository ${evidence.repoPath}.`,
-      );
-    }
-  }
-  if (evidence.filePath) {
-    try {
-      const info = await stat(evidence.filePath);
-      if (evidence.kind === "research" && !info.isFile()) {
-        throw new Error("not a file");
-      }
-      if (evidence.kind === "research" && info.size === 0) {
-        throw new Error("empty file");
-      }
-      if (
-        evidence.kind === "skill" &&
-        (!info.isFile() || !evidence.filePath.split("/").at(-1)?.endsWith(".md"))
-      ) {
-        throw new Error("not a markdown skill file");
-      }
-    } catch (error) {
-      throw new Error(
-        `consumer_surface_evidence rejected: filePath ${evidence.filePath} failed verification (${error instanceof Error ? error.message : String(error)}).`,
-        { cause: error },
-      );
-    }
-  } else if (evidence.kind === "skill" || evidence.kind === "research") {
-    throw new Error(`consumer_surface_evidence kind "${evidence.kind}" requires filePath.`);
-  }
-  return {
-    id: randomUUID(),
-    createdAt: now,
-    label: `consumer_surface_evidence:${evidence.kind}`,
-    ...(evidence.filePath
-      ? { path: evidence.filePath }
-      : evidence.repoPath
-        ? { path: evidence.repoPath }
-        : {}),
-    ...(evidence.consumerId ? { url: `consumer:${evidence.consumerId}` } : {}),
-  };
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
@@ -274,10 +172,7 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       // kept verbatim below as the instant-rollback lever.
       const fenceStrict = process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE !== "legacy";
       const holderRefresh = Boolean(
-        existingClaim &&
-        existingClaim.ownerId === ownerId &&
-        (existingClaim.token === token ||
-          (existingClaim.sessionId ?? null) === (sessionId ?? null)),
+        existingClaim && existingClaim.ownerId === ownerId && existingClaim.token === token,
       );
       const activeClaim =
         !existingClaim || holderRefresh

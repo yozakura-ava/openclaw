@@ -126,6 +126,8 @@ const workboardEventSchema = sparseObject({
   toStatus: z.enum(WORKBOARD_STATUSES).optional().catch(undefined),
   sessionKey: optionalStringSchema,
   runId: optionalStringSchema,
+  actorId: optionalStringSchema,
+  actorKind: z.enum(["agent", "system"]).optional().catch(undefined),
 });
 const workboardEventsSchema = tolerantArray(workboardEventSchema);
 

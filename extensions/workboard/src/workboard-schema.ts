@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
@@ -118,10 +118,10 @@ export const WORKBOARD_SCHEMA_SQL = `
       card_id TEXT NOT NULL REFERENCES workboard_cards(id) ON DELETE CASCADE,
       ordinal INTEGER NOT NULL,
       body TEXT NOT NULL,
-      actor_id TEXT,
-      actor_kind TEXT,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER
+      updated_at INTEGER,
+      actor_id TEXT,
+      actor_kind TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_comments_card_idx
       ON workboard_card_comments(card_id, ordinal);
@@ -148,9 +148,9 @@ export const WORKBOARD_SCHEMA_SQL = `
       command TEXT,
       url TEXT,
       note TEXT,
+      created_at INTEGER NOT NULL,
       actor_id TEXT,
-      actor_kind TEXT,
-      created_at INTEGER NOT NULL
+      actor_kind TEXT
     ) STRICT;
     CREATE INDEX IF NOT EXISTS workboard_card_proof_card_idx
       ON workboard_card_proof(card_id, ordinal);

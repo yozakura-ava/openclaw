@@ -33,8 +33,12 @@ step "verify tag object $NEW_TAG exists"
 NEW_BASE=$(git rev-parse "${NEW_TAG}^{}" 2>/dev/null) || die "tag ${NEW_TAG} not found after fetch"
 echo "   new base: $NEW_BASE $(git log -1 --format='%ci %s' "$NEW_BASE" | head -c 80)"
 
-step "compute old base (merge-base of fork/carried and ${NEW_TAG})"
-OLD_BASE=$(git merge-base "$BRANCH" "$NEW_BASE") || die "cannot merge-base ${BRANCH} ${NEW_TAG} — is origin/${BRANCH} fetched?"
+step "pin the carried series release base (release branches may diverge)"
+OLD_TAG=$(git describe --first-parent --tags --match 'v[0-9]*' --abbrev=0 "$BRANCH") \
+  || die "cannot identify carried release base"
+OLD_BASE=$(git rev-parse "${OLD_TAG}^{}")
+[ "$(git rev-list --count --merges "$OLD_BASE..$BRANCH")" -eq 0 ] \
+  || die "carried series contains merges; reconcile before syncing"
 [ -n "$OLD_BASE" ] || die "empty old base"
 echo "   old base: $OLD_BASE $(git log -1 --format='%ci %s' "$OLD_BASE" | head -c 80)"
 [ "$OLD_BASE" != "$NEW_BASE" ] || { echo "   already on ${NEW_TAG} — nothing to do"; exit 0; }
@@ -68,22 +72,18 @@ step "post-check: fork-only surface must be the expected carried set"
 git -C "$WT" diff --stat "$NEW_BASE..$BRANCH" | tail -3
 [ -n "$(git -C "$WT" diff --stat "$NEW_BASE..$BRANCH")" ] || die "fork-only surface is empty after rebase — carried series lost? aborting"
 
-step "push (force-with-lease; non-force fresh-name fallback per skill rule 12)"
-if ! git -C "$WT" push --force-with-lease origin "$BRANCH"; then
-  echo "   force-with-lease rejected — pushing under fresh name ${BRANCH}-rebased (non-force)"
-  git -C "$WT" push origin "${BRANCH}:${BRANCH}-rebased" || die "non-force fallback push rejected — ${BRANCH}-rebased already exists and diverged; rename or delete the stale fallback branch, then re-run (skill rule 12: fresh-name fallback must not clobber)"
-  BRANCH_PUSHED="${BRANCH}-rebased"
-else
-  BRANCH_PUSHED="$BRANCH"
-fi
+step "publish the rebased series under a fresh branch (no force-push)"
+BRANCH_PUSHED="fork/carried-${NEW_TAG}-$(date +%Y%m%d-%H%M%S)"
+git -C "$WT" push origin "${BRANCH}:refs/heads/${BRANCH_PUSHED}" \
+  || die "fresh branch push rejected; inspect remote before retrying"
 
 step "open PR from alignment branch (pristine tag + picks + merge main → MERGEABLE, skill rule 12)"
 git fetch origin main
 SYNC="sync/fork-bump-$(date +%Y%m%d-%H%M)"
-git -C "$WT" checkout -b "$SYNC" "$BRANCH_PUSHED"
+git -C "$WT" checkout -b "$SYNC" "$BRANCH"
 git -C "$WT" merge --no-edit origin/main || die "alignment merge against origin/main conflicted — inspect in $WT"
 git -C "$WT" push -u origin "$SYNC" || die "cannot push $SYNC"
-gh pr create --base main --head "$SYNC" \
+gh pr create --repo yozakura-ava/openclaw --base main --head "$SYNC" \
   --title "chore(fork): absorb upstream ${NEW_TAG} + carried series" \
   --body "Upstream bump via fork-sync.sh: rebase fork/carried onto ${NEW_TAG} (${OLD_BASE:0:10} → ${NEW_BASE:0:10}), compat audit clean, alignment merge included so origin/main is an ancestor (MERGEABLE). Runbook: docs/ci/fork-sync.md" \
   || die "gh pr create failed"

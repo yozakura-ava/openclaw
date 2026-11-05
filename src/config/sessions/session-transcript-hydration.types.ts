@@ -14,11 +14,11 @@ import type {
   PreparedSessionTranscriptHydration,
   SessionTranscriptReadSnapshot,
 } from "./session-history-read.types.js";
-import type { SessionTranscriptAnchorEntry } from "./session-transcript-anchor-read.types.js";
 import type {
   SessionRunOutcomesWorkerInput,
   SessionRunOutcomesWorkerValues,
 } from "./session-run-outcomes.types.js";
+import type { SessionTranscriptAnchorEntry } from "./session-transcript-anchor-read.types.js";
 import type { TranscriptEntryAnchor } from "./transcript-entry-anchor.js";
 
 export type { PreparedSessionTranscriptHydration } from "./session-history-read.types.js";

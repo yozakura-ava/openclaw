@@ -112,17 +112,22 @@ export async function addOversizedComment(
           `nothing was written`,
       );
     }
-    const COMMENT_ROW_OVERHEAD_BYTES = 120;
-    // Byte-budget in the same units the trimmer enforces (UTF-8, via
-    // Buffer.byteLength) - JSON.stringify().length counts UTF-16 code
-    // units and undercounts Unicode-heavy bodies, letting the write pass
-    // preflight and then silently drop rows in the per-write trimmer.
-    const estimatedMetadataBytes =
-      Buffer.byteLength(JSON.stringify(preflightCard.metadata ?? {}), "utf8") +
-      labeledChunks.reduce(
-        (sum, chunk) => sum + Buffer.byteLength(chunk, "utf8") + COMMENT_ROW_OVERHEAD_BYTES,
-        0,
-      );
+    // Measure the exact serialized rows that persistence will retain. Raw body
+    // bytes omit JSON escaping and variable actor fields and can admit a split
+    // whose leading chunks would then be trimmed away.
+    const comments = labeledChunks.map((chunk, index) => ({
+      id: randomUUID(),
+      body: chunk,
+      createdAt: now + index,
+      ...actor,
+    }));
+    const estimatedMetadataBytes = Buffer.byteLength(
+      JSON.stringify({
+        ...preflightCard.metadata,
+        comments: [...existingComments, ...comments],
+      }),
+      "utf8",
+    );
     if (estimatedMetadataBytes > MAX_CARD_METADATA_BYTES) {
       throw new Error(
         `oversized comment split would exceed the card metadata budget ` +
@@ -135,13 +140,7 @@ export async function addOversizedComment(
     const written: number[] = [];
     let lastCard: WorkboardCard | undefined;
     try {
-      for (const [index, chunk] of labeledChunks.entries()) {
-        const comment = {
-          id: randomUUID(),
-          body: chunk,
-          createdAt: now + index,
-          ...actor,
-        };
+      for (const [index, comment] of comments.entries()) {
         const result = await host.updateLatestCard(id, (current) => {
           assertCanMutateClaimedCard(current, scope);
           return {

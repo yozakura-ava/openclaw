@@ -126,6 +126,8 @@ export type WorkboardExecution = {
 };
 
 export type WorkboardEvent = {
+  actorId?: string;
+  actorKind?: "agent" | "system";
   id: string;
   kind: WorkboardEventKind;
   at: number;

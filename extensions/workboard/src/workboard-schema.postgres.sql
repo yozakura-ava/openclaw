@@ -72,6 +72,8 @@ CREATE TABLE "workboard_card_comments" (
   "body" text COLLATE "C" NOT NULL,
   "created_at" bigint NOT NULL,
   "updated_at" bigint,
+  "actor_id" text COLLATE "C",
+  "actor_kind" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 
@@ -99,6 +101,8 @@ CREATE TABLE "workboard_card_events" (
   "to_status" text COLLATE "C",
   "session_key" text COLLATE "C",
   "run_id" text COLLATE "C",
+  "actor_id" text COLLATE "C",
+  "actor_kind" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 
@@ -144,6 +148,8 @@ CREATE TABLE "workboard_card_proof" (
   "url" text COLLATE "C",
   "note" text COLLATE "C",
   "created_at" bigint NOT NULL,
+  "actor_id" text COLLATE "C",
+  "actor_kind" text COLLATE "C",
   PRIMARY KEY ("id")
 );
 

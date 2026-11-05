@@ -18,6 +18,7 @@ import {
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
 import { isRecord } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { definedFields } from "../record-fields.js";
+import { normalizeActor } from "./actor-attribution.js";
 import type { WorkboardSqlConnection } from "./sqlite-store-schema.js";
 import { normalizeLaunchState } from "./store-normalizers.js";
 export type Row = Record<string, unknown>;
@@ -220,6 +221,10 @@ function readEvents(
       toStatus: stringValue(row, "to_status") as WorkboardEvent["toStatus"],
       sessionKey: stringValue(row, "session_key"),
       runId: stringValue(row, "run_id"),
+      ...normalizeActor({
+        actorId: stringValue(row, "actor_id"),
+        actorKind: stringValue(row, "actor_kind"),
+      }),
     });
   });
   return events.length > 0 ? events : undefined;
