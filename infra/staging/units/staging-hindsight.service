@@ -1,6 +1,7 @@
-# Staging skeleton unit — payload lands in a later sprint card.
+# Ava vNext staging hindsight — W4 payload: import adapter verify (oneshot).
+# Preserves W2 pins: User/Group svc-stg-hindsight, MemoryMax 4G, MemorySwapMax=0.
 [Unit]
-Description=Ava vNext staging hindsight (skeleton)
+Description=Ava vNext staging hindsight (W4: import adapter verify)
 After=network-online.target
 Wants=network-online.target
 
@@ -8,7 +9,9 @@ Wants=network-online.target
 Type=oneshot
 User=svc-stg-hindsight
 Group=svc-stg-hindsight
-ExecStart=/bin/true
+WorkingDirectory=/opt/ava-staging/hindsight
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/ava-staging/hindsight/bin/verify.sh
 RemainAfterExit=yes
 MemoryMax=4G
 MemorySwapMax=0
