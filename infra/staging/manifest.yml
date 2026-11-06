@@ -36,4 +36,7 @@ gateway_payload:
     node: v24.22.2
   bind: "127.0.0.1:18800"          # loopback only (port_registry: openclaw-staging)
   dashboard: tailscale-serve-443    # tailnet-only 100.119.82.96; Serve, never Funnel
+  runtime_closure:
+    source: "~/staging/worktrees/openclaw-w1-reland/node_modules/@openclaw (pnpm, lockfile cac4e381)"
+    install: "cp -aL resolved to /opt/ava-staging/gateway/node_modules; CLOSURE-SHA256SUMS.txt generated at apply"
   canary: singleton-exactly-one-response

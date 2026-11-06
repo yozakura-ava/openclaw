@@ -27,6 +27,8 @@ ck "staging-gateway ExecStart is pinned dist" "systemctl show staging-gateway -p
 ck "gateway listener 127.0.0.1:18800" "ss -tln | grep ':18800 ' | grep -q '127.0.0.1:18800'"
 ck "no non-loopback 18800 listener" "! ss -tln | grep ':18800 ' | grep -qv '127.0.0.1:18800'"
 ck "tailscale serve -> 18800 configured" "sudo tailscale serve status 2>/dev/null | grep -q 18800"
+ck "runtime closure present" "test -f $OPT/gateway/node_modules/@openclaw/fs-safe/package.json"
+ck "closure manifest recorded" "test -f $OPT/gateway/CLOSURE-SHA256SUMS.txt"
 ck "singleton canary GREEN" "grep -q ' GREEN ' /var/lib/ava-staging/gateway/canary/singleton.state 2>/dev/null"
 # --- bypass audit (wrapper-receipted privileged ops only)
 bypass=$(sudo journalctl -q _COMM=sudo --since "2026-11-05" 2>/dev/null | grep -E 'ava-agent.*(systemctl (daemon-reload|enable|start|restart)|useradd|/etc/systemd/system/staging-|/opt/ava-staging|tailscale serve)' | grep -v "$(basename $0)" | wc -l)

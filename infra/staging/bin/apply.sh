@@ -68,6 +68,25 @@ sudo install -m 0755 "$NODE_SRC" "$OPT/toolchain/node-v24.22.2/bin/node"
 sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" --version 2>&1 | tee -a "$LOG" | grep -q 'v24.22.2' || { echo "apply: node toolchain check failed" >&2; exit 5; }
 sudo install -m 0755 "$ROOT/bin/singleton-canary.sh" "$OPT/gateway/bin/singleton-canary.sh"
 
+# --- W3 runtime dependency closure: dist bundles npm externals but keeps
+# @openclaw/* workspace siblings external (production ships node_modules/@openclaw/*).
+SRC_WT="$HOME/staging/worktrees/openclaw-w1-reland"
+sudo rm -rf "$OPT/gateway/node_modules"
+sudo mkdir -p "$OPT/gateway/node_modules"
+sudo cp -aL "$SRC_WT/node_modules/@openclaw" "$OPT/gateway/node_modules/@openclaw" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/package.json" "$OPT/gateway/package.json"
+sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/package.json"
+sudo -u svc-stg-gateway test -f "$OPT/gateway/node_modules/@openclaw/fs-safe/package.json" || { echo "apply: closure resolve check failed" >&2; exit 6; }
+( cd "$OPT/gateway/node_modules" && sudo find . -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
+CLOSURE_SHA=$(sudo sha256sum "$OPT/gateway/CLOSURE-SHA256SUMS.txt" | cut -d" " -f1)
+CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" -type f | wc -l)
+echo "closure: $CLOSURE_N files manifest-sha=$CLOSURE_SHA" | tee -a "$LOG"
+
+# --- pre-restart smoke gate: full module graph must load as the service user
+SMOKE_OUT=$(sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" "$OPT/gateway/dist/index.js" --version 2>&1 | tee -a "$LOG")
+echo "$SMOKE_OUT" | grep -q "2026.11.1" || { echo "apply: /opt smoke gate FAILED: $SMOKE_OUT" >&2; exit 7; }
+echo "smoke: $SMOKE_OUT" | tee -a "$LOG"
+
 # --- units (W2 loop, unchanged for hindsight/backup)
 for svc in gateway hindsight backup; do
   sudo install -m 0644 "$ROOT/units/staging-$svc.service" "/etc/systemd/system/staging-$svc.service" 2>&1 | tee -a "$LOG"
