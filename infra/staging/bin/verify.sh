@@ -33,6 +33,7 @@ ck "closure manifest recorded" "test -f $OPT/gateway/CLOSURE-SHA256SUMS.txt"
 ck "closure includes tslog (attempt-4 external)" "ls -d $OPT/gateway/node_modules/.pnpm/tslog@* >/dev/null 2>&1"
 ck "server-wide openclaw CLI" "/usr/local/bin/openclaw --version 2>/dev/null | grep -q 2026.11.1"
 ck "gateway trusts loopback proxy" "sudo grep -q 'trustedProxies' /var/lib/ava-staging/gateway/.openclaw/openclaw.json"
+ck "workspace templates packaged" "test -f /opt/ava-staging/gateway/docs/reference/templates/AGENTS.md"
 ck "singleton canary GREEN" "grep -q ' GREEN ' /var/lib/ava-staging/gateway/canary/singleton.state 2>/dev/null"
 # --- bypass audit (wrapper-receipted privileged ops only)
 bypass=$(sudo journalctl -q _COMM=sudo --since "2026-11-05" 2>/dev/null | grep -E 'ava-agent.*(systemctl (daemon-reload|enable|start|restart)|useradd|/etc/systemd/system/staging-|/opt/ava-staging|tailscale serve)' | grep -v "$(basename $0)" | wc -l)

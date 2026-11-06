@@ -29,6 +29,7 @@ t "apply.sh pins W1.1 SUMS set" "grep -q 27c23ea6009a796eaf2d37dd135203435d0672f
 t "apply.sh serve tailnet-only 443" "grep -q 'tailscale serve --bg 18800' '$ROOT/bin/apply.sh'"
 t "apply.sh reverts serve + /opt" "grep -q 'serve off' '$ROOT/bin/apply.sh' && grep -q 'rm -rf \"\$OPT\"' '$ROOT/bin/apply.sh'"
 t "verify.sh node path parity" "grep -q 'node-v24.22.2/bin/node' '$ROOT/bin/verify.sh'"
+t "W3.1 workspace templates in closure" "grep -q 'docs/reference/templates' '$ROOT/bin/apply.sh' && grep -q 'docs/reference/templates' '$ROOT/bin/verify.sh'"
 t "W3.1 CLI wrapper + trust seed in apply" "grep -q '/usr/local/bin/openclaw' '$ROOT/bin/apply.sh' && test -x '$ROOT/bin/openclaw-cli'"
 t "verify.sh checks artifact hash" "grep -q 'a33d0d7e' '$ROOT/bin/verify.sh'"
 t "verify.sh checks canary state" "grep -q 'singleton.state' '$ROOT/bin/verify.sh'"
