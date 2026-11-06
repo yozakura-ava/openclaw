@@ -70,21 +70,25 @@ sudo install -m 0755 "$ROOT/bin/singleton-canary.sh" "$OPT/gateway/bin/singleton
 
 # --- W3 runtime dependency closure: dist bundles npm externals but keeps
 # @openclaw/* workspace siblings AND npm externals (tslog et al.) external.
-# FULL worktree pnpm node_modules copy, DEREFERENCED (cp -aL): workspace links
-# (node_modules/@openclaw/* -> ../../packages/*) point OUTSIDE node_modules;
-# cp -a would leave them dangling in /opt (attempt 5). -aL materializes all real.
+# Deployment = worktree runtime SUBSET: dist + node_modules (cp -a, links
+# intact) + packages (target of ../../packages/* workspace links) + package.json.
+# Every link resolves exactly as in the proven worktree, including pnpm cycles;
+# the -xtype l audit above fail-closes on ANY dangling link (attempts 5/6 classes).
 SRC_WT="$HOME/staging/worktrees/openclaw-w1-reland"
 sudo rm -rf "$OPT/gateway/node_modules"
-sudo cp -aL "$SRC_WT/node_modules" "$OPT/gateway/node_modules" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/node_modules" "$OPT/gateway/node_modules" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/packages" "$OPT/gateway/packages" 2>&1 | tee -a "$LOG"
 sudo cp -a "$SRC_WT/package.json" "$OPT/gateway/package.json"
-sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/package.json"
+sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/package.json"
+DANGLING=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" -xtype l 2>/dev/null | head -5)
+if [ -n "$DANGLING" ]; then echo "apply: dangling symlinks in closure (first 5):" >&2; printf '%s\n' "$DANGLING" >&2; exit 6; fi
 sudo -u svc-stg-gateway test -f "$OPT/gateway/node_modules/@openclaw/fs-safe/package.json" || { echo "apply: closure resolve check failed (@openclaw/fs-safe)" >&2; exit 6; }
 sudo test -n "$(ls -d "$OPT/gateway/node_modules/.pnpm"/tslog@* 2>/dev/null | head -1)" || { echo "apply: closure resolve check failed (tslog)" >&2; exit 6; }
 RESCHECK=$(sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" -e "process.chdir('$OPT/gateway');Promise.all([import('@openclaw/ai'),import('tslog')]).then(()=>{console.log('closure resolution gate: @openclaw/ai + tslog OK');process.exit(0)},e=>{console.error('closure resolution gate FAILED: '+e.message);process.exit(1)})" 2>&1 | tee -a "$LOG")
 echo "$RESCHECK" | grep -q 'closure resolution gate: @openclaw/ai + tslog OK' || { echo "apply: closure resolution gate FAILED" >&2; exit 6; }
-( cd "$OPT/gateway/node_modules" && sudo find . -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
+( cd "$OPT/gateway" && sudo find node_modules packages -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
 CLOSURE_SHA=$(sudo sha256sum "$OPT/gateway/CLOSURE-SHA256SUMS.txt" | cut -d" " -f1)
-CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" -type f | wc -l)
+CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" -type f | wc -l)
 echo "closure: $CLOSURE_N files manifest-sha=$CLOSURE_SHA" | tee -a "$LOG"
 
 # --- pre-restart smoke gate: full module graph must load as the service user
