@@ -1,0 +1,63 @@
+{
+  "schema": "ava.hindsight.adapter-config/1",
+  "pinned_versions": {
+    "hindsight_engine": "1.1.0",
+    "hindsight_openclaw_plugin": "1.2.0",
+    "embedVersion": "v1",
+    "pins_note": "research-brief-P0 R1/R2: reporter-era versions of the Hindsight API (1.1.0) and hindsight-openclaw plugin (1.2.0) match our target era; embedVersion is PINNED — upstream default 'latest' is prohibited (spec §7 / R2). Re-verify upstream fix state of issue #5569 before pinning for bulk import.",
+    "embedding_model_pin": {
+      "provider_id": "ollama-local",
+      "model": "bge-m3",
+      "endpoint": "http://127.0.0.1:11434",
+      "context_window": 8192,
+      "identity": "ollama-local/bge-m3",
+      "dimension": 1024,
+      "normalization": "l2",
+      "artifact_sha256": "7907646426070047a77226ac3e684fbbe8410524f7b4a74d02837e43f2146bab",
+      "artifact_sha256_note": "ollama model digest for bge-m3:latest (gguf F16, 566.70M params), read from /api/tags on ava-primary 2026-11-06",
+      "status": "qualified-2026-11-06",
+      "status_note": "one-way door (MiniMax C-19, spec §7) RESOLVED at provider qualification — QUALIFIED 2026-11-06: provider ollama-local, model bge-m3 (8192 ctx), endpoint http://127.0.0.1:11434 live on-box. dimension 1024 and L2 normalization measured on-box (embed probe: dim=1024, l2norm=1.000001). Fills the former pending-p3-provider-qualification slots; config lint is GREEN for production-import with this pin. 'latest' is never an accepted value."
+    }
+  },
+  "credentials": {
+    "mode": "SecretRef-only",
+    "note": "staging holds zero production credentials; inline secrets are a lint failure (spec §3, R2)",
+    "refs": {
+      "hindsight_api_token": { "ref_source": "env", "ref": "HINDSIGHT_API_TOKEN" },
+      "openclaw_rpc_token": { "ref_source": "env", "ref": "AVA_OPENCLAW_RPC_TOKEN" }
+    }
+  },
+  "target": {
+    "mode": "external-api",
+    "mode_note": "external-API Hindsight is the stated default pending pilot P9 (spec §3/§7)",
+    "g5_endpoint_env": "G5_ENDPOINT",
+    "loopback_default": true,
+    "live_endpoint": "http://avaworker:8766",
+    "live_endpoint_note": "ABSENT as of 2026-11-06: node tailscale-pings OK, port 8766 closed (G5 ACL grant owner-gated; avaworker SSH granted to no lane by design). Loopback contract mode is the qualified write path until the endpoint exists."
+  },
+  "import": {
+    "transform_version": "1",
+    "batch_size": 200,
+    "update_mode_allowed": ["append", "supersede"],
+    "replace_prohibited": true,
+    "consolidation": "off",
+    "consolidation_note": "OFF for the entire backfill + benchmark phase; >=300s settle window before any recall measurement (MiniMax C-18, P6)",
+    "settle_window_seconds": 300,
+    "exclusion": {
+      "exclude_providers": ["heartbeat", "cron", "subagent"],
+      "retain_roles": ["user", "assistant"],
+      "exclude_session_types": ["operational", "heartbeat", "cron", "subagent", "monitoring"],
+      "exempt_session_keys": [],
+      "exempt_note": "evaluator/backfill-exempt sessions are EXPLICITLY listed here (red-team E1/F1) — never inferred",
+      "ghost_window": ["2026-10-28T04:00:00Z", "2026-11-05T04:00:00Z"],
+      "ghost_window_note": "pinned importer constant per diet-design §2 (dates re-verified against diary evidence before bulk import); never runtime config"
+    },
+    "tool_result_truncation_chars": 2000,
+    "truncation_note": "known-lossy defaults ledger records retainRoles + 2000-char tool truncation as POLICY losses (diet-design §6)"
+  },
+  "assertions": {
+    "allowKnowledgeDelete": false,
+    "allowKnowledgeDelete_note": "explicitly asserted (HG-13): adapter-level delete calls are DISABLED during backfill/benchmark; target-side delete propagation is proven separately at pilot P8 with explicit enablement — never left at an unasserted default",
+    "bank_router_fails_closed": true
+  }
+}
