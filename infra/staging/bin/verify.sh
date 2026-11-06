@@ -29,6 +29,7 @@ ck "no non-loopback 18800 listener" "! ss -tln | grep ':18800 ' | grep -qv '127.
 ck "tailscale serve -> 18800 configured" "sudo tailscale serve status 2>/dev/null | grep -q 18800"
 ck "runtime closure present" "test -f $OPT/gateway/node_modules/@openclaw/fs-safe/package.json"
 ck "closure manifest recorded" "test -f $OPT/gateway/CLOSURE-SHA256SUMS.txt"
+ck "closure includes tslog (attempt-4 external)" "ls -d $OPT/gateway/node_modules/.pnpm/tslog@* >/dev/null 2>&1"
 ck "singleton canary GREEN" "grep -q ' GREEN ' /var/lib/ava-staging/gateway/canary/singleton.state 2>/dev/null"
 # --- bypass audit (wrapper-receipted privileged ops only)
 bypass=$(sudo journalctl -q _COMM=sudo --since "2026-11-05" 2>/dev/null | grep -E 'ava-agent.*(systemctl (daemon-reload|enable|start|restart)|useradd|/etc/systemd/system/staging-|/opt/ava-staging|tailscale serve)' | grep -v "$(basename $0)" | wc -l)
