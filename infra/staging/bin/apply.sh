@@ -89,7 +89,7 @@ DANGLING=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/g
 if [ -n "$DANGLING" ]; then echo "apply: dangling symlinks in closure (first 5):" >&2; printf '%s\n' "$DANGLING" >&2; exit 6; fi
 sudo -u svc-stg-gateway test -f "$OPT/gateway/node_modules/@openclaw/fs-safe/package.json" || { echo "apply: closure resolve check failed (@openclaw/fs-safe)" >&2; exit 6; }
 sudo test -n "$(ls -d "$OPT/gateway/node_modules/.pnpm"/tslog@* 2>/dev/null | head -1)" || { echo "apply: closure resolve check failed (tslog)" >&2; exit 6; }
-RESCHECK=$(sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" -e "process.chdir('$OPT/gateway');Promise.all([import('@openclaw/ai'),import('tslog')]).then(()=>{console.log('closure resolution gate: @openclaw/ai + tslog OK');process.exit(0)},e=>{console.error('closure resolution gate FAILED: '+e.message);process.exit(1)})" 2>&1 | tee -a "$LOG")
+RESCHECK=$( cd "$OPT/gateway" && sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" -e "Promise.all([import('@openclaw/ai'),import('tslog')]).then(()=>{console.log('closure resolution gate: @openclaw/ai + tslog OK');process.exit(0)},e=>{console.error('closure resolution gate FAILED: '+e.message);process.exit(1)})" 2>&1 | tee -a "$LOG")
 echo "$RESCHECK" | grep -q 'closure resolution gate: @openclaw/ai + tslog OK' || { echo "apply: closure resolution gate FAILED" >&2; exit 6; }
 ( cd "$OPT/gateway" && sudo find node_modules packages extensions ui tools examples -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
 CLOSURE_SHA=$(sudo sha256sum "$OPT/gateway/CLOSURE-SHA256SUMS.txt" | cut -d" " -f1)
