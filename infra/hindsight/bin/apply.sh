@@ -15,7 +15,7 @@ DEST=/opt/ava-staging/hindsight
 UNIT_DST=/etc/systemd/system/staging-hindsight.service
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PKG_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"            # infra/hindsight
-REPO_ROOT="$(cd "$PKG_ROOT/.." && pwd)"             # repo root
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"             # repo root (3 levels: bin->hindsight->infra->root)
 UNIT_SRC="$REPO_ROOT/infra/staging/units/staging-hindsight.service"
 
 mkdir -p "$RECEIPT_DIR" "$LOG_DIR"
