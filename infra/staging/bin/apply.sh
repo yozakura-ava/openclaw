@@ -9,9 +9,10 @@ RECEIPT_DIR=/var/lib/staging-iac/receipts
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 LOCK=/var/lib/staging-iac/apply.lock
 SRC_DIST="$HOME/staging/worktrees/openclaw-w1-reland/dist"
-SUMS="$HOME/staging/w1.1-artifact/W1-DIST-SHA256SUMS.txt"
+SUMS="$HOME/staging/w1.1-artifact/W1-DIST-SHA256SUMS.rebuild-20261106.txt"
 PIN=a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
-SUMS_PIN=27c23ea6009a796eaf2d37dd135203435d0672f1440bbf4c3560999232ebc3ca
+SUMS_PIN=a5123f10a5afd546cbc663c279c59a941d9c1e27f32b8c22037d66d7e4ccfd23
+# R5 supersession (2026-11-06): artifact-of-record dist lost with old hardware; manifest regenerated from verified rebuild of W1.1 port commit 32b91da7cd8. Delta vs original manifest: 21904/21920 rows byte-identical, 16 rows build-timestamp/buildmeta class (buildstamps, build-info, font css + index.html/sw.js/webmanifest embedding build id). See R5 receipt + Rin delta-confirm.
 NODE_SRC="$HOME/staging/toolchain/node-v24.22.2-linux-x64/bin/node"
 OPT=/opt/ava-staging
 
