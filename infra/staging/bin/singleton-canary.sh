@@ -12,8 +12,8 @@ mkdir -p "$STATE_DIR" 2>/dev/null || true
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
 # Wait for first boot to answer (StateDirectory init can take tens of seconds).
-for i in $(seq 1 60); do
-  curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/" && break
+for i in $(seq 1 45); do   # ceiling ~135s, stays under unit TimeoutStartSec=180
+  curl -s -o /dev/null --max-time 1 "http://127.0.0.1:$PORT/" && break
   sleep 2
 done
 

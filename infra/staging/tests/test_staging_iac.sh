@@ -19,6 +19,7 @@ t "W3 manifest artifact pin" "grep -q 'a33d0d7e5151f57be71120700cc6e73813a93e9f5
 t "W3 canary script executable" "test -x '$ROOT/bin/singleton-canary.sh'"
 t "W3 canary single-request nonce logic" "grep -q 'X-Singleton-Canary' '$ROOT/bin/singleton-canary.sh'"
 t "apply.sh source-hash fail-closed gate" "grep -q 'a33d0d7e' '$ROOT/bin/apply.sh' && grep -q 'sha256sum -c' '$ROOT/bin/apply.sh'"
+t "unit/apply node path parity" "grep -q 'toolchain/node-v24.22.2/bin/node' '$ROOT/units/staging-gateway.service' && grep -q 'toolchain/node-v24.22.2/bin/node' '$ROOT/bin/apply.sh'"
 t "apply.sh pins W1.1 SUMS set" "grep -q 27c23ea6009a796eaf2d37dd135203435d0672f1440bbf4c3560999232ebc3ca '$ROOT/bin/apply.sh'"
 t "apply.sh serve tailnet-only 443" "grep -q 'tailscale serve --bg 18800' '$ROOT/bin/apply.sh'"
 t "apply.sh reverts serve + /opt" "grep -q 'serve off' '$ROOT/bin/apply.sh' && grep -q 'rm -rf \"\$OPT\"' '$ROOT/bin/apply.sh'"

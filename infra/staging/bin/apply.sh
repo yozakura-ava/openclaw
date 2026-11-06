@@ -54,7 +54,7 @@ done
 
 # --- W3 artifact + toolchain install (/opt, root-owned, read-only to services)
 T0=$(date +%s)
-sudo mkdir -p "$OPT/gateway/bin" "$OPT/toolchain/node-v24.22.2"
+sudo mkdir -p "$OPT/gateway/bin" "$OPT/toolchain/node-v24.22.2/bin"
 sudo rm -rf "$OPT/gateway/dist"
 sudo cp -a "$SRC_DIST" "$OPT/gateway/dist" 2>&1 | tee -a "$LOG"
 sudo chown -R root:root "$OPT"
@@ -64,8 +64,8 @@ if ! ( cd "$OPT/gateway" && sudo sha256sum -c --quiet W1-DIST-SHA256SUMS.install
   echo "apply: full 21920-row SUMS verification FAILED" >&2; exit 4
 fi
 T1=$(date +%s); echo "artifact: 21920 files SUMS-verified in $((T1-T0))s" | tee -a "$LOG"
-sudo install -m 0755 "$NODE_SRC" "$OPT/toolchain/node-v24.22.2/node"
-sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/node" --version 2>&1 | tee -a "$LOG" | grep -q 'v24.22.2' || { echo "apply: node toolchain check failed" >&2; exit 5; }
+sudo install -m 0755 "$NODE_SRC" "$OPT/toolchain/node-v24.22.2/bin/node"
+sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" --version 2>&1 | tee -a "$LOG" | grep -q 'v24.22.2' || { echo "apply: node toolchain check failed" >&2; exit 5; }
 sudo install -m 0755 "$ROOT/bin/singleton-canary.sh" "$OPT/gateway/bin/singleton-canary.sh"
 
 # --- units (W2 loop, unchanged for hindsight/backup)
