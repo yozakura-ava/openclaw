@@ -82,17 +82,18 @@ sudo mkdir -p "$OPT/gateway/tools"
 sudo cp -a "$SRC_WT/extensions" "$OPT/gateway/extensions" 2>&1 | tee -a "$LOG"
 sudo cp -a "$SRC_WT/ui" "$OPT/gateway/ui" 2>&1 | tee -a "$LOG"
 sudo cp -a "$SRC_WT/tools/solid-lint" "$OPT/gateway/tools/solid-lint" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/examples" "$OPT/gateway/examples" 2>&1 | tee -a "$LOG"
 sudo cp -a "$SRC_WT/package.json" "$OPT/gateway/package.json"
-sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/package.json"
-DANGLING=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" -xtype l 2>/dev/null | head -20 || true)
+sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" "$OPT/gateway/package.json"
+DANGLING=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" -xtype l 2>/dev/null | head -20 || true)
 if [ -n "$DANGLING" ]; then echo "apply: dangling symlinks in closure (first 5):" >&2; printf '%s\n' "$DANGLING" >&2; exit 6; fi
 sudo -u svc-stg-gateway test -f "$OPT/gateway/node_modules/@openclaw/fs-safe/package.json" || { echo "apply: closure resolve check failed (@openclaw/fs-safe)" >&2; exit 6; }
 sudo test -n "$(ls -d "$OPT/gateway/node_modules/.pnpm"/tslog@* 2>/dev/null | head -1)" || { echo "apply: closure resolve check failed (tslog)" >&2; exit 6; }
 RESCHECK=$(sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" -e "process.chdir('$OPT/gateway');Promise.all([import('@openclaw/ai'),import('tslog')]).then(()=>{console.log('closure resolution gate: @openclaw/ai + tslog OK');process.exit(0)},e=>{console.error('closure resolution gate FAILED: '+e.message);process.exit(1)})" 2>&1 | tee -a "$LOG")
 echo "$RESCHECK" | grep -q 'closure resolution gate: @openclaw/ai + tslog OK' || { echo "apply: closure resolution gate FAILED" >&2; exit 6; }
-( cd "$OPT/gateway" && sudo find node_modules packages extensions ui tools -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
+( cd "$OPT/gateway" && sudo find node_modules packages extensions ui tools examples -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
 CLOSURE_SHA=$(sudo sha256sum "$OPT/gateway/CLOSURE-SHA256SUMS.txt" | cut -d" " -f1)
-CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" -type f | wc -l)
+CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" -type f | wc -l)
 echo "closure: $CLOSURE_N files manifest-sha=$CLOSURE_SHA" | tee -a "$LOG"
 
 # --- pre-restart smoke gate: full module graph must load as the service user
