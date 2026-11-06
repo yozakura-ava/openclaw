@@ -31,7 +31,7 @@ BACKUP_ROOT="${AVA_BACKUP_ROOT:-/var/backups/ava-staging}"
 WORKSPACE_ARG="${AVA_BACKUP_WORKSPACE:-}"
 LABEL=""
 
-die() { echo "snapshot: $*" >&2; exit "${2:-1}"; }
+die() { echo "snapshot: $1" >&2; exit "${2:-1}"; }
 usage() { sed -n '/^# Usage:/,/^set -euo/p' "$0" | sed 's/^# \{0,1\}//' | head -n -1; exit 0; }
 
 while [ $# -gt 0 ]; do
