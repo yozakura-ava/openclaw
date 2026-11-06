@@ -23,3 +23,17 @@ services:
     memory_swap_max: "0"
     cpu_accounting: true
     secret_refs: []
+
+# W3 gateway payload (first boot) — added 2026-11-06, card c631b24b
+gateway_payload:
+  artifact:
+    source_dist: "~/staging/worktrees/openclaw-w1-reland/dist"   # W1 artifact of record (re-land, NOT w1-deployed-dist)
+    source_commit: 32b91da7cd8c
+    dist_index_sha256: a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
+    sums_file_sha256: 2629df3bb31902ab51392ab82e46dbb8a7ef3e0eed13b188f37a54618ad7a04b
+    files: 21920
+  toolchain:
+    node: v24.22.2
+  bind: "127.0.0.1:18800"          # loopback only (port_registry: openclaw-staging)
+  dashboard: tailscale-serve-443    # tailnet-only 100.119.82.96; Serve, never Funnel
+  canary: singleton-exactly-one-response

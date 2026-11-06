@@ -1,20 +1,36 @@
-# Staging skeleton unit — payload lands in a later sprint card.
+# Ava vNext staging gateway — W3 first-boot payload: W1 pinned rebuild
+# (v2026.11.1 re-land 32b91da) booted under the W2 skeleton's unit slot.
 [Unit]
-Description=Ava vNext staging gateway (skeleton)
+Description=Ava vNext staging gateway (W3 payload: pinned rebuild first boot)
 After=network-online.target
 Wants=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
-Type=oneshot
+Type=simple
 User=svc-stg-gateway
 Group=svc-stg-gateway
-ExecStart=/bin/true
-RemainAfterExit=yes
+ExecStart=/opt/ava-staging/toolchain/node-v24.22.2/bin/node --max-old-space-size=6144 --max-semi-space-size=64 --expose-gc /opt/ava-staging/gateway/dist/index.js gateway --bind loopback --port 18800 --allow-unconfigured
+ExecStartPost=-/opt/ava-staging/gateway/bin/singleton-canary.sh
+Restart=always
+RestartSec=5
+TimeoutStartSec=180
+TimeoutStopSec=120
+KillMode=mixed
+Environment=HOME=/var/lib/ava-staging/gateway
+Environment=NODE_ENV=production
+Environment=OPENCLAW_SERVICE_VERSION=2026.11.1-reland-32b91da
+Environment=OPENCLAW_SERVICE_KIND=gateway
+Environment=OPENCLAW_SERVICE_MARKER=openclaw-staging
+StateDirectory=ava-staging/gateway
+WorkingDirectory=/opt/ava-staging/gateway
 MemoryMax=8G
 MemorySwapMax=0
 CPUAccounting=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
+ProtectHome=yes
 PrivateTmp=yes
 
 [Install]
