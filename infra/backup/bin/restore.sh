@@ -142,8 +142,8 @@ INCOMING="$TARGET/incoming"
 # paired revert — remove ONLY this run's in-flight dirs; receipt stays for audit
 revert() {
   echo "[revert] discarding in-flight restore work under $TARGET" >&2 || true
-  [ -d "$WORK" ] && rm -rf "$WORK"
-  [ -d "$INCOMING" ] && [ "$MODE" = "xeon-drill" ] && rm -rf "$INCOMING"
+  if [ -d "$WORK" ]; then rm -rf "$WORK"; fi
+  if [ -d "$INCOMING" ] && [ "$MODE" = "xeon-drill" ]; then rm -rf "$INCOMING"; fi
   python3 - "$TARGET/restore-receipt.json" <<'PYFAIL' 2>/dev/null || true
 import json, os, sys
 p = sys.argv[1]

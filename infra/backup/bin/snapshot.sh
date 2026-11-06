@@ -67,7 +67,7 @@ flock -n 9 || { echo "snapshot: another snapshot/apply holds the lock — single
 # paired revert — remove ONLY this run's in-flight dir; keep receipt for audit
 revert() {
   echo "[revert] discarding in-flight snapshot $WORK" | tee -a "$LOG" >&2 || true
-  [ -d "$WORK" ] && rm -rf "$WORK"
+  if [ -d "$WORK" ]; then rm -rf "$WORK"; fi
   echo "status: FAILED" >> "$RECEIPT" 2>/dev/null || true
 }
 trap 'ec=$?; [ $ec -ne 0 ] && revert; exit $ec' EXIT
