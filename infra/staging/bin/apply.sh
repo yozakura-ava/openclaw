@@ -9,8 +9,9 @@ RECEIPT_DIR=/var/lib/staging-iac/receipts
 TS=$(date -u +%Y%m%dT%H%M%SZ)
 LOCK=/var/lib/staging-iac/apply.lock
 SRC_DIST="$HOME/staging/worktrees/openclaw-w1-reland/dist"
-SUMS="$HOME/staging/w1-artifact/W1-DIST-SHA256SUMS.txt"
+SUMS="$HOME/staging/w1.1-artifact/W1-DIST-SHA256SUMS.txt"
 PIN=a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
+SUMS_PIN=27c23ea6009a796eaf2d37dd135203435d0672f1440bbf4c3560999232ebc3ca
 NODE_SRC="$HOME/staging/toolchain/node-v24.22.2-linux-x64/bin/node"
 OPT=/opt/ava-staging
 
@@ -42,6 +43,7 @@ trap 'ec=$?; [ $ec -ne 0 ] && revert; exit $ec' EXIT
 # --- W3 preflight: pinned-artifact gate, fail closed BEFORE any mutation
 [ -f "$SRC_DIST/index.js" ] || { echo "apply: source dist missing: $SRC_DIST" >&2; exit 3; }
 echo "$PIN  $SRC_DIST/index.js" | sha256sum -c - || { echo "apply: source dist hash mismatch vs W1 pin" >&2; exit 3; }
+echo "$SUMS_PIN  $SUMS" | sha256sum -c - || { echo "apply: SUMS file sha mismatch vs W1.1 artifact-of-record pin" >&2; exit 3; }
 
 # --- users (idempotent, W2)
 for svc in gateway hindsight backup; do

@@ -27,10 +27,10 @@ services:
 # W3 gateway payload (first boot) — added 2026-11-06, card c631b24b
 gateway_payload:
   artifact:
-    source_dist: "~/staging/worktrees/openclaw-w1-reland/dist"   # W1 artifact of record (re-land, NOT w1-deployed-dist)
+    source_dist: "~/staging/worktrees/openclaw-w1-reland/dist"   # W1.1 set, post-#120 rebuild (NOT w1-deployed-dist)
     source_commit: 32b91da7cd8c
     dist_index_sha256: a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
-    sums_file_sha256: 2629df3bb31902ab51392ab82e46dbb8a7ef3e0eed13b188f37a54618ad7a04b
+    sums_file_sha256: 27c23ea6009a796eaf2d37dd135203435d0672f1440bbf4c3560999232ebc3ca  # W1.1 set: Rin-promoted artifact of record
     files: 21920
   toolchain:
     node: v24.22.2
