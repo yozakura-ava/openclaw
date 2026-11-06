@@ -121,6 +121,26 @@ for i in $(seq 1 60); do
   sleep 3
 done
 
+# --- W3.1: Serve proxy trust (narrow: loopback Serve proxy) + server-wide CLI
+STG_STATE=/var/lib/ava-staging/gateway
+sudo mkdir -p "$STG_STATE/.openclaw"
+sudo chown -R svc-stg-gateway:svc-stg-gateway "$STG_STATE"
+sudo python3 - "$STG_STATE/.openclaw/openclaw.json" <<'PYCFG'
+import json, os, sys
+p = sys.argv[1]
+cfg = {}
+if os.path.exists(p):
+    try: cfg = json.load(open(p))
+    except Exception: cfg = {}
+g = cfg.setdefault("gateway", {})
+g["trustedProxies"] = ["127.0.0.1"]
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(cfg, open(p, "w"), indent=2)
+PYCFG
+sudo chown -R svc-stg-gateway:svc-stg-gateway "$STG_STATE/.openclaw"
+sudo install -m 0755 "$ROOT/bin/openclaw-cli" /usr/local/bin/openclaw
+/usr/local/bin/openclaw --version 2>&1 | grep -q "2026.11.1" || { echo "apply: server-wide CLI check failed" >&2; exit 8; }
+
 bash "$ROOT/bin/verify.sh" 2>&1 | tee -a "$LOG"
 trap - EXIT
 echo "apply: OK — receipt $RECEIPT"
