@@ -126,6 +126,7 @@ export type WorkboardCompleteInput = {
   summary?: unknown;
   proof?: unknown;
   proofId?: unknown;
+  consumer_surface_evidence?: unknown;
   artifacts?: unknown;
   createdCardIds?: unknown;
 };
