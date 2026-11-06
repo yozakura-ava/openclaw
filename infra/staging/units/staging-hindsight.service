@@ -1,0 +1,21 @@
+# Staging skeleton unit — payload lands in a later sprint card.
+[Unit]
+Description=Ava vNext staging hindsight (skeleton)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=svc-stg-hindsight
+Group=svc-stg-hindsight
+ExecStart=/bin/true
+RemainAfterExit=yes
+MemoryMax=4G
+MemorySwapMax=0
+CPUAccounting=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

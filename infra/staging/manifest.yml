@@ -1,0 +1,25 @@
+# Staging service roster — source of truth for units, users, limits.
+# Owner ruling 2026-11-06T00:23Z: limits are raisable, never lowered.
+version: 1
+services:
+  - name: staging-gateway
+    user: svc-stg-gateway
+    unit: staging-gateway.service
+    memory_max: 8G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []          # W3 will add SecretRef entries; values never inline
+  - name: staging-hindsight
+    user: svc-stg-hindsight
+    unit: staging-hindsight.service
+    memory_max: 4G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []
+  - name: staging-backup
+    user: svc-stg-backup
+    unit: staging-backup.service
+    memory_max: 4G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []
