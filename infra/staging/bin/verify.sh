@@ -2,6 +2,7 @@
 # Post-apply verification: units, users, limits, secret-scan, bypass log,
 # W3 gateway payload (pinned artifact, loopback bind, Serve, canary).
 set -uo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 fail=0
 OPT=/opt/ava-staging
 PIN=a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
@@ -17,15 +18,15 @@ ck "backup MemoryMax 4G" "systemctl show staging-backup -p MemoryMax | grep -q 4
 for svc in gateway hindsight backup; do
   ck "staging-$svc MemorySwapMax=0" "systemctl show staging-$svc -p MemorySwapMax | grep -q 0"
 done
-ck "secret-scan green" "bash \"$(dirname \"$0\")/secret-scan.sh\""
+ck "secret-scan green" "bash '$ROOT/bin/secret-scan.sh'"
 # --- W3 payload
 ck "gateway payload installed" "test -f $OPT/gateway/dist/index.js"
 ck "gateway artifact hash matches W1 pin" "echo '$PIN  $OPT/gateway/dist/index.js' | sha256sum -c - >/dev/null 2>&1"
-ck "node toolchain v24.22.2 runs as svc user" "sudo -u svc-stg-gateway $OPT/toolchain/node-v24.22.2/node --version 2>/dev/null | grep -q v24.22.2"
+ck "node toolchain v24.22.2 runs as svc user" "sudo -u svc-stg-gateway $OPT/toolchain/node-v24.22.2/bin/node --version 2>/dev/null | grep -q v24.22.2"
 ck "staging-gateway active" "systemctl is-active staging-gateway | grep -q '^active\$'"
 ck "staging-gateway ExecStart is pinned dist" "systemctl show staging-gateway -p ExecStart | grep -q '/opt/ava-staging/gateway/dist/index.js'"
 ck "gateway listener 127.0.0.1:18800" "ss -tln | grep ':18800 ' | grep -q '127.0.0.1:18800'"
-ck "no non-loopback 18800 listener" "! ss -tln | grep ':18800 ' | grep -qv '127.0.0.1:18800'"
+ck "no non-loopback 18800 listener" "! ss -tln | grep ':18800' | grep -vE '(127[.]0[.]0[.]1|\[::1\]):18800' | grep -q ."
 ck "tailscale serve -> 18800 configured" "sudo tailscale serve status 2>/dev/null | grep -q 18800"
 ck "runtime closure present" "test -f $OPT/gateway/node_modules/@openclaw/fs-safe/package.json"
 ck "closure manifest recorded" "test -f $OPT/gateway/CLOSURE-SHA256SUMS.txt"
