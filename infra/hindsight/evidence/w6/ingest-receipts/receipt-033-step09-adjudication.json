@@ -1,0 +1,8 @@
+{
+ "adjudicated": 469,
+ "decision_provider": "deterministic-default (LLM adjudicator qualifies separately, \u00a78)",
+ "kind": "step09-adjudication",
+ "prev_receipt_sha256": "1a25dc71023bb95a1f4883d5ad7582afa24966467afbb5b20328e7562139e6bc",
+ "receipt_sha256": "d947539b73d9ec5f7beb15bdb82f2c1952e354493c6cb8f5a3b99a202aefa0d7",
+ "third_reviewer_queue": 442
+}

@@ -1,0 +1,31 @@
+{
+ "batch_size": 200,
+ "batches": [
+  "w6-A-core-000",
+  "w6-A-protected-000",
+  "w6-A-protected-001",
+  "w6-A-protected-002",
+  "w6-A-protected-003",
+  "w6-A-wiki-000",
+  "w6-B-daily-000",
+  "w6-B-daily-001",
+  "w6-B-daily-002",
+  "w6-B-daily-003",
+  "w6-B-daily-004",
+  "w6-B-daily-005",
+  "w6-B-daily-006",
+  "w6-B-growth-000",
+  "w6-B-other-000",
+  "w6-C-flag-000",
+  "w6-T-dreaming-000",
+  "w6-T-dreaming-001",
+  "w6-T-dreaming-002",
+  "w6-D-suspect-000",
+  "w6-D-ghost-window-000"
+ ],
+ "consolidation": "off",
+ "kind": "step11-batch-plan",
+ "prev_receipt_sha256": "1bfc27a2e0170bc39a893ded955342b8e60b2684d3bddb7fdcf84d57a45693b1",
+ "qualification_receipt_sha": "e92341cb877e7d07edca8a5702760b2fd538c838d6433b9b91f7c459ee7a42ae",
+ "receipt_sha256": "3b4cf20d522e9a72b94b421bd3b8a96c5afd86b0bd7c81f650432c357612003e"
+}

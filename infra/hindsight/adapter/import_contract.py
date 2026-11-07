@@ -19,6 +19,9 @@ Spec-mandated invariants enforced by this module:
 - Idempotency: operation_id changes with payload or transform_version, so a
   replay of the same operation is detectable and a stale-cache replay of an
   older payload produces a different operation_id.
+- W6 (card d244e8fa) ADDITIVE extension: optional source_time_utc + source_tz
+  fields carry the §6 binding field source_time (UTC + original tz). Defaults
+  preserve every W4 construction path; no behavior change otherwise.
 
 Pure stdlib; PEP 604/585 style.
 """
@@ -26,6 +29,7 @@ Pure stdlib; PEP 604/585 style.
 from __future__ import annotations
 
 import hashlib
+import re
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Sequence
@@ -65,6 +69,10 @@ CHECKPOINT_ORDER: tuple[str, ...] = (
 GHOST_WINDOW = ("2026-10-28T04:00:00Z", "2026-11-05T04:00:00Z")
 
 _SHA_HEX_LEN = 64
+
+# source_time_utc: ISO-8601 UTC instant ('2026-11-07T02:21:58Z'); original tz
+# recorded separately in source_tz ('UTC' when the epoch source carries none).
+_ISO_UTC_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
 
 
 class ContractValidationError(ValueError):
@@ -176,6 +184,8 @@ class ImportRecord:
     erasure_key_id: str | None = None
     retention_class: str = "standard"
     redaction_state: str = "none"
+    source_time_utc: str | None = None
+    source_tz: str | None = None
     transform_version: str = TRANSFORM_VERSION_DEFAULT
     ingest_checkpoint: str | None = None
     checkpoint: str = CHECKPOINT_SUBMITTED
@@ -202,6 +212,10 @@ class ImportRecord:
         if self.checkpoint not in CHECKPOINT_ORDER:
             raise ContractValidationError(
                 f"checkpoint {self.checkpoint!r} not in {CHECKPOINT_ORDER}"
+            )
+        if self.source_time_utc is not None and not _ISO_UTC_RE.match(self.source_time_utc):
+            raise ContractValidationError(
+                "source_time_utc must be an ISO-8601 UTC instant like 2026-11-07T02:21:58Z"
             )
         object.__setattr__(self, "operation_id", operation_id(
             self.canonical_id, self.ingested_sha256, self.transform_version
@@ -302,6 +316,8 @@ def build_record(
         erasure_key_id=payload.get("erasure_key_id"),
         retention_class=str(payload.get("retention_class", "standard")),
         redaction_state=str(payload.get("redaction_state", "none")),
+        source_time_utc=payload.get("source_time_utc"),
+        source_tz=payload.get("source_tz"),
         transform_version=str(payload.get("transform_version", transform_version)),
         ingest_checkpoint=payload.get("ingest_checkpoint"),
         generation=generation,
