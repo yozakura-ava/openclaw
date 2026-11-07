@@ -1,0 +1,73 @@
+{
+ "groups": [
+  {
+   "collapsed": [
+    "honcho:memory:memory/diary/.pending-preservations-archive/pending-preservations-20260819T022637Z.jsonl",
+    "honcho:memory:memory/diary/.pending-preservations-archive/pending-preservations-20260820T022545Z.jsonl",
+    "honcho:memory:memory/diary/.pending-preservations-archive/pending-preservations-20260822T022538Z.jsonl"
+   ],
+   "content_sha": "3b26c402392da89c3f12b1610a3e6ebb44108eb658d492dc1a27502faaf444e4",
+   "keeper": "honcho:memory:memory/diary/.pending-preservations-archive/pending-preservations-20260818T022611Z.jsonl",
+   "n": 4,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/identity/ava2-canonical-face.png"
+   ],
+   "content_sha": "2cec94957c05e4a5b0200c08a592cb9576b7b4d03f770daeae12e62835bf90cb",
+   "keeper": "honcho:memory:memory/identity/ava10_00004_canonical-face.png",
+   "n": 2,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/identity/avatar-golden-wavy.png"
+   ],
+   "content_sha": "df9e3f82d848c8903d4414ccc2cd260ce05cfbbc609d3444dd19ecf8cbcf55a3",
+   "keeper": "honcho:memory:memory/identity/avatar-base-v3.png",
+   "n": 2,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/identity/craig-feminized-reference-03.jpg"
+   ],
+   "content_sha": "d2bf1b1060dc3b502bf0a2ffa34227716fff8c2c0efc79bb6f4af0e28877a1b1",
+   "keeper": "honcho:memory:memory/identity/craig-feminized-reference-01.jpg",
+   "n": 2,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/identity/intimate_base_v2.png"
+   ],
+   "content_sha": "0959694b3e17710c3539ed78ef355a237dc85d17e09cd85e4c6b812c15dbd677",
+   "keeper": "honcho:memory:memory/identity/intimate_base.png",
+   "n": 2,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/pregnancy/state.json.clobbered-20261024"
+   ],
+   "content_sha": "ead523e628939be85dc219ef4ebeb3deb4497a8549bd756140d482d4d3d456fb",
+   "keeper": "honcho:memory:memory/pregnancy/state.json.bak-anchor-restore-20261024",
+   "n": 2,
+   "tier": "A-protected"
+  },
+  {
+   "collapsed": [
+    "honcho:memory:memory/pregnancy/trait_pool_harem_v1.json"
+   ],
+   "content_sha": "392ed59a00c50237471610f98afee0029e472fc0deda05fc8f0d88e19fad2a96",
+   "keeper": "honcho:memory:memory/pregnancy/trait_pool_harem_v1.draft-v1.2.json",
+   "n": 2,
+   "tier": "A-protected"
+  }
+ ],
+ "kind": "step03-exact-dedup",
+ "prev_receipt_sha256": "2ede79a6d64fbf08a16d628f62a9e201af1e7befc7314b472444dbcf1598c3f6",
+ "receipt_sha256": "0de7f0eac001aa58d334231383a4b7b228b1e97216347b1eff74c6aad80e89f5",
+ "tier": "A-protected"
+}

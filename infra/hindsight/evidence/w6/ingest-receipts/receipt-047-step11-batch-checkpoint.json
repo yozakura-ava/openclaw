@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-B-daily-005",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "0cdc594f548493591828baaf0606ce60f4aa08b521ce831618dabaeb652a654f",
+ "quarantined": [],
+ "receipt_sha256": "33e8aee0755433ed4cb911abc9652553c90213925013dce88b60f7212ba4211c",
+ "submitted": 200,
+ "tier": "B-daily"
+}
