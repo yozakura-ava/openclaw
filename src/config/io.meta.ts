@@ -69,10 +69,23 @@ export function stampConfigWriteMetadata(
   const migrationStamped =
     previousConfig === undefined
       ? cfg
-      : materializeUtilityModelSeparation(
-          materializeModelPolicyAllowlist(cfg, previousConfig).config,
-          previousConfig,
-        ).config;
+      : (() => {
+          const allowlistMigrated = materializeModelPolicyAllowlist(cfg, previousConfig);
+          const utilityMigrated = materializeUtilityModelSeparation(
+            allowlistMigrated.config,
+            previousConfig,
+          );
+          // Audit record: model assignment changes must never be silent.
+          if (utilityMigrated.changes.length > 0) {
+            const stamp = new Date().toISOString();
+            for (const change of utilityMigrated.changes) {
+              console.warn(
+                `[model-assignment-audit] ${stamp} utility-model-separation: ${change}`,
+              );
+            }
+          }
+          return utilityMigrated.config;
+        })();
   if (resolveUpdateRehearsalRoot(env)) {
     // Released drivers compare this copy before activation. Keep real migrations,
     // but leave writer-only stamps for the subsequent live config write.
