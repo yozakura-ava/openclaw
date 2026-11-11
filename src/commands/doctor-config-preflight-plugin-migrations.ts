@@ -389,7 +389,7 @@ export function createDoctorPluginMigrationPreparation(params: {
           shellEnvFallback: "defer",
         }).readConfigFileSnapshotForWrite();
         if (
-          snapshot.readError ||
+          !snapshot.valid ||
           describeConfigSnapshotInputChange(sourceSnapshot, snapshot, {
             compareResolvedConfig: false,
           })

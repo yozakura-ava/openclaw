@@ -5,7 +5,6 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "openclaw/plugin-sdk/sqlite-worker-runtime";
-import { SYSTEM_FALLBACK_ACTOR } from "./actor-attribution.js";
 import {
   jsonValue,
   type CARD_CHILD_TABLES,
@@ -59,25 +58,6 @@ export function prepareWorkboardUpsert(
   return () => {
     statement.run(...bind());
   };
-}
-
-const DEFAULT_EVENT_ACTOR_ID = "system";
-const DEFAULT_EVENT_ACTOR_KIND = "system";
-
-function bindEventActor(entry: unknown, key: "actorId" | "actorKind"): SQLInputValue {
-  const value = entry !== null && typeof entry === "object" ? Reflect.get(entry, key) : undefined;
-  return bindNull(value) ?? (key === "actorId" ? DEFAULT_EVENT_ACTOR_ID : DEFAULT_EVENT_ACTOR_KIND);
-}
-
-function bindStoredActor(entry: unknown, key: "actorId" | "actorKind"): SQLInputValue {
-  const actorId =
-    entry !== null && typeof entry === "object" ? Reflect.get(entry, "actorId") : undefined;
-  const actorKind =
-    entry !== null && typeof entry === "object" ? Reflect.get(entry, "actorKind") : undefined;
-  if (key === "actorId") {
-    return bindNull(actorId) ?? SYSTEM_FALLBACK_ACTOR.actorId;
-  }
-  return bindNull(actorKind ?? (actorId ? undefined : SYSTEM_FALLBACK_ACTOR.actorKind));
 }
 
 function insertChildren<T>(
@@ -175,8 +155,6 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     to_status: (event) => bindNull(event.toStatus),
     session_key: (event) => bindNull(event.sessionKey),
     run_id: (event) => bindNull(event.runId),
-    actor_id: (event) => bindEventActor(event, "actorId"),
-    actor_kind: (event) => bindEventActor(event, "actorKind"),
   });
   insertChildren(db, "workboard_card_attempts", card.id, metadata?.attempts, {
     id: (entry) => entry.id,
@@ -195,12 +173,6 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     id: (entry) => entry.id,
     card_id: () => card.id,
     body: (entry) => entry.body,
-    // Card 9dd79ad6: an unattributed write still happened via the workboard
-    // system, so it is attributed to WORKBOARD_SYSTEM_ACTOR_ID instead of
-    // landing anonymous. Historical NULL rows are read back as-is (tolerance;
-    // no backfill — they cannot be truthfully attributed).
-    actor_id: (entry) => bindStoredActor(entry, "actorId"),
-    actor_kind: (entry) => bindStoredActor(entry, "actorKind"),
     created_at: (entry) => entry.createdAt,
     updated_at: (entry) => bindNull(entry.updatedAt),
   });
@@ -221,9 +193,6 @@ export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): voi
     command: (entry) => bindNull(entry.command),
     url: (entry) => bindNull(entry.url),
     note: (entry) => bindNull(entry.note),
-    // Card 9dd79ad6: same system-attribution default as comments above.
-    actor_id: (entry) => bindStoredActor(entry, "actorId"),
-    actor_kind: (entry) => bindStoredActor(entry, "actorKind"),
     created_at: (entry) => entry.createdAt,
   });
   insertChildren(db, "workboard_card_artifacts", card.id, metadata?.artifacts, {

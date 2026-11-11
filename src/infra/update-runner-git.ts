@@ -26,6 +26,7 @@ import {
 import {
   runGitActivationBranchCheckStep,
   runGitCleanCheckStep,
+  readGitRollbackPreservation,
   runGitRollbackSteps,
   runGitUpstreamStep,
 } from "./update-runner-git-steps.js";
@@ -203,18 +204,21 @@ export async function updateGitCheckout(params: {
     runtimeSha = beforeSha,
     source?: { sha: string; branch: string | null },
   ) => {
-    const restoreSource = () =>
-      runGitRollbackSteps({
-        beforeSha,
-        branch,
-        gitRoot,
-        createdDevBranchDuringUpdate,
-        sourceTreeStagingPaths: runtimePromotion?.sourceTreeStagingPaths,
-        recoveryStep,
-        checkSourceUnchanged,
-        assertCurrent,
-        activatedSource: source,
-      });
+    const rollback = {
+      beforeSha,
+      branch,
+      gitRoot,
+      createdDevBranchDuringUpdate,
+      sourceTreeStagingPaths: runtimePromotion?.sourceTreeStagingPaths,
+      recoveryStep,
+      checkSourceUnchanged,
+      assertCurrent,
+      activatedSource: source,
+    };
+    const restoreSource = () => runGitRollbackSteps(rollback);
+    // Check before runtime restoration rewrites tracked output.
+    const preserved = source ? undefined : await readGitRollbackPreservation(rollback);
+    steps.push(...(preserved ? [preserved] : []));
     // Retained rollback must settle every source/ref fence before changing runtime.
     let sourceRestored = source ? await restoreSource() : false;
     let runtimeRestored = true;
@@ -226,7 +230,7 @@ export async function updateGitCheckout(params: {
       steps.push(failureStep("git-runtime-rollback", "restore previous runtime", String(error)));
     }
     // Immediate activation recovery reconstructs tracked output after runtime restoration.
-    if (!source) {
+    if (!source && !preserved) {
       sourceRestored = await restoreSource();
     }
     recovery = !sourceRestored
@@ -334,7 +338,6 @@ export async function updateGitCheckout(params: {
     }
     return undefined;
   };
-
   const runUpdate = async (): Promise<UpdateRunResult> => {
     const inspectAndPrepare = async (
       inspectionRoot: string,
@@ -383,7 +386,7 @@ export async function updateGitCheckout(params: {
         steps,
       });
       if (!fetched.ok) {
-        return { status: "error" as const, reason: "fetch-failed" };
+        return { status: "error" as const, reason: fetched.reason ?? "fetch-failed" };
       }
       const inspectTarget = async (revision: string, root = inspectionRoot) => {
         await prepareGitMutation({
@@ -406,6 +409,7 @@ export async function updateGitCheckout(params: {
         channel,
         devTarget,
         refreshedRemotes: fetched.refreshedRemotes,
+        devSource: fetched.devSource,
         beforeSha,
         beforeRuntimeVerified: recovery.serviceRestartSafe,
         sourceRuntimePrepared: opts.sourceRuntimePrepared,
@@ -460,9 +464,7 @@ export async function updateGitCheckout(params: {
         return selected;
       }
       if (!publishedCandidate) {
-        const upstreamRef = selected.selectedDevUpstream
-          ? `refs/remotes/${selected.selectedDevUpstream}`
-          : undefined;
+        const upstreamRef = selected.selectedDevUpstream ?? undefined;
         const imported = await importCandidate(selected.candidateSha, upstreamRef);
         if (imported.status !== "ok") {
           return imported;
@@ -538,15 +540,20 @@ export async function updateGitCheckout(params: {
         return await rollbackError("checkout-failed");
       }
     }
-    if (!runtimePromotion) {
+    const promotedRuntime = runtimePromotion;
+    if (!promotedRuntime) {
       return await rollbackError("runtime-verification-failed");
     }
     try {
-      await runtimePromotion.activate();
-    } catch (error) {
-      steps.push(
-        failureStep("git-runtime-activation", "activate validated runtime", String(error)),
-      );
+      // Timed like other activation work; a thrown activation records the failed step.
+      await runStep({
+        ...workStep("git-runtime-activation", [], gitRoot),
+        runCommand: async () => {
+          await promotedRuntime.activate();
+          return { code: 0, stdout: "", stderr: "" };
+        },
+      });
+    } catch {
       return await rollbackError("runtime-verification-failed");
     }
 
@@ -558,7 +565,7 @@ export async function updateGitCheckout(params: {
         }
       };
       runtimeRetained = true;
-      const promotion = runtimePromotion;
+      const promotion = promotedRuntime;
       await opts.onTransaction(
         createGitRuntimeTransaction({
           root: gitRoot,

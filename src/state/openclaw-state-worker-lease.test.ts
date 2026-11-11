@@ -16,7 +16,7 @@ import {
 } from "./openclaw-state-db-async-lifecycle.js";
 import type { OpenClawStateWorkerContext } from "./openclaw-state-worker-context.types.js";
 import type { OpenClawStateWorkerOperations } from "./openclaw-state-worker-contract.js";
-import { getOpenClawStateWorkerOwner } from "./openclaw-state-worker-owner-get.js";
+import { getOpenClawStateWorkerOwner } from "./openclaw-state-worker-owner.js";
 import {
   createOpenClawStateWorkerLease,
   runOpenClawStateWorkerOperation,

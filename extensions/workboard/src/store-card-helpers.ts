@@ -22,7 +22,6 @@ import {
   MAX_WORKER_CONTEXT_RECENT_CARDS,
   READY_STRANDED_MS,
   RUNNING_HEARTBEAT_STALE_MS,
-  isWorkboardClaimReclaimable,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import { capText, normalizeTimestamp, removeUndefinedMetadataFields } from "./store-normalizers.js";
@@ -131,13 +130,11 @@ export function appendComment(
   comments: WorkboardMetadata["comments"],
   body: string | undefined,
   now?: number,
-  actor?: { actorId: string; actorKind: "agent" | "system" },
 ): WorkboardMetadata["comments"] {
   return body
-    ? [
-        ...(comments ?? []),
-        { id: randomUUID(), body, createdAt: now ?? Date.now(), ...actor },
-      ].slice(-MAX_CARD_COMMENTS)
+    ? [...(comments ?? []), { id: randomUUID(), body, createdAt: now ?? Date.now() }].slice(
+        -MAX_CARD_COMMENTS,
+      )
     : comments;
 }
 
@@ -328,13 +325,7 @@ export function assertCanMutateClaimedCard(
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
   if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
-    // Expired-claim recovery: a claim past its reclaim grace no longer fences
-    // mutations. Otherwise the operator reclaim/release paths are unreachable
-    // (card ba1c45e3): the claim fence exists to protect a LIVE worker's
-    // token, not to entomb a card whose worker already died.
-    if (!isWorkboardClaimReclaimable(claim, Date.now())) {
-      throw new Error(`card is claimed by ${claim.ownerId}.`);
-    }
+    throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }
 
@@ -687,26 +678,4 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
     return 1;
   }
   return a.id.localeCompare(b.id);
-}
-
-/**
- * Split an oversized comment body into sequential chunks of at most
- * `maxLength` characters, preferring whitespace boundaries so words are not
- * cut mid-token. Pure function; callers own persistence and labeling.
- */
-export function splitCommentBody(body: string, maxLength: number): string[] {
-  const chunks: string[] = [];
-  let remaining = body;
-  while (remaining.length > maxLength) {
-    let cut = remaining.lastIndexOf(" ", maxLength);
-    if (cut <= 0) {
-      cut = maxLength;
-    }
-    chunks.push(remaining.slice(0, cut).trimEnd());
-    remaining = remaining.slice(cut).trimStart();
-  }
-  if (remaining.length > 0 || chunks.length === 0) {
-    chunks.push(remaining);
-  }
-  return chunks;
 }

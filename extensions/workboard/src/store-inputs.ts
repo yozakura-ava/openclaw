@@ -54,7 +54,7 @@ export type WorkboardUpdateCardOptions = {
   preserveProofId?: string;
   preserveNotificationId?: string;
 };
-export type WorkboardCommentInput = { body?: unknown; actorId?: unknown; actorKind?: unknown };
+export type WorkboardCommentInput = { body?: unknown };
 export type WorkboardLinkInput = {
   type?: unknown;
   targetCardId?: unknown;
@@ -68,8 +68,6 @@ export type WorkboardProofInput = {
   command?: unknown;
   url?: unknown;
   note?: unknown;
-  actorId?: unknown;
-  actorKind?: unknown;
 };
 export type WorkboardArtifactInput = {
   label?: unknown;
@@ -98,8 +96,6 @@ export type WorkboardClaimInput = {
   ownerId?: unknown;
   token?: unknown;
   ttlSeconds?: unknown;
-  /** Owning session key; injected from plugin tool context, never model-supplied. */
-  sessionId?: unknown;
 };
 export type WorkboardClaimOptions = {
   assertOwnerCurrent?: () => void;
@@ -128,8 +124,6 @@ export type WorkboardCompleteInput = {
   ownerId?: unknown;
   token?: unknown;
   summary?: unknown;
-  actorId?: unknown;
-  actorKind?: unknown;
   proof?: unknown;
   proofId?: unknown;
   consumer_surface_evidence?: unknown;

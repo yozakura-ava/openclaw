@@ -1,10 +1,9 @@
 import type { WorkboardCard } from "@openclaw/workboard-contract";
-import { jsonResult } from "openclaw/plugin-sdk/core";
+import { jsonResult, readStringParam } from "openclaw/plugin-sdk/core";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { asRecord, readStringValue } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type, type TProperties } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
-import { isWorkboardClaimReclaimable } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
 import type { WorkboardStore } from "./store.js";
 
@@ -17,30 +16,14 @@ type WorkboardCardMutation = (
 export function createWorkboardCardMutations(store: WorkboardStore, ownerId: string) {
   const readParams = async (rawParams: unknown, requireClaim = false) => {
     const record = asRecord(rawParams);
-    const id =
-      typeof record.id === "string" && record.id.trim() !== ""
-        ? record.id
-        : typeof record.cardId === "string" && record.cardId.trim() !== ""
-          ? record.cardId
-          : (() => {
-              throw new Error("card id is required (provide `id` or `cardId`).");
-            })();
+    const id = readStringParam(record, "id", { required: true });
     const token = readStringValue(record.token);
     const card = await store.get(id);
     if (!card) {
       throw new Error(`card not found: ${id}`);
     }
     const claim = card.metadata?.claim;
-    if (
-      claim &&
-      claim.ownerId !== ownerId &&
-      !safeEqualSecret(token, claim.token) &&
-      // Expired-claim recovery: past the reclaim grace a stale claim no
-      // longer fences tool access — otherwise workboard_reclaim / reassign /
-      // move are unreachable for a card whose worker died (card ba1c45e3).
-      // The store layer (assertCanMutateClaimedCard) applies the same rule.
-      !isWorkboardClaimReclaimable(claim, Date.now())
-    ) {
+    if (claim && claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
       throw new Error(`card is claimed by ${claim.ownerId ?? "another agent"}.`);
     }
     if (requireClaim && !claim) {

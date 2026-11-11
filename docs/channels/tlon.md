@@ -71,7 +71,7 @@ OpenClaw persists accepted Tlon DM and group-chat events before agent dispatch. 
 
 If the connection stops delivering data or heartbeats for about 60 seconds, OpenClaw reconnects to the same Eyre channel so unacknowledged events can replay. Time spent handling a received event does not count toward this idle timeout.
 
-Delivery is at least once across the queue-to-agent boundary: a crash during handoff can replay a turn. Agent actions that produce external side effects should therefore remain idempotent where practical.
+Delivery is at least once across the queue-to-agent boundary: a crash during handoff can replay a turn. Agent actions that produce external side effects should therefore avoid duplicating those effects on retries where practical.
 
 ## Private/LAN ships
 
@@ -253,7 +253,7 @@ regardless of this flag):
 }
 ```
 
-Auto-accept group invites from an allowlist (fails closed: with `autoAcceptGroupInvites: true` and
+Auto-accept group invites from an allowlist (with `autoAcceptGroupInvites: true` and
 an empty `groupInviteAllowlist`, no non-owner invite is accepted):
 
 ```json5

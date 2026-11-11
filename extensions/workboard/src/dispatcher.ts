@@ -21,11 +21,7 @@ import {
 } from "./dispatcher-workspace.js";
 import { workboardSessionKeyForCard } from "./session-link.js";
 import { cardBoardId } from "./store-card-helpers.js";
-import {
-  MAX_OWNER_CLAIMS,
-  workboardCardConsumesOwnerSlot,
-  workboardCardSlotOwner,
-} from "./store-constants.js";
+import { workboardCardConsumesOwnerSlot, workboardCardSlotOwner } from "./store-constants.js";
 import { WorkboardStore, type WorkboardDispatchResult } from "./store.js";
 import {
   assertCanonicalWorkboardRootAccess,
@@ -191,13 +187,12 @@ function selectStartableCards(
   if (limit <= 0) {
     return { cards: [] };
   }
-  const runningByOwner = new Map<string, number>();
+  const runningOwners = new Set<string>();
   for (const card of cards) {
     if (!workboardCardConsumesOwnerSlot(card, now)) {
       continue;
     }
-    const owner = workboardCardSlotOwner(card);
-    runningByOwner.set(owner, (runningByOwner.get(owner) ?? 0) + 1);
+    runningOwners.add(workboardCardSlotOwner(card));
   }
   const selected: WorkboardCard[] = [];
   const fallback: WorkboardCard[] = [];
@@ -216,8 +211,8 @@ function selectStartableCards(
               card.status !== "todo" &&
               card.status !== "ready"
             ? `Card cannot start from ${card.status}; move it to backlog, todo, or ready first.`
-            : (runningByOwner.get(owner) ?? 0) >= MAX_OWNER_CLAIMS
-              ? `Owner ${owner} already has ${MAX_OWNER_CLAIMS} active Workboard claims; complete or stop one before starting another card.`
+            : runningOwners.has(owner)
+              ? `Owner ${owner} already has active Workboard work; complete or stop it before starting another card.`
               : undefined;
     if (rejection !== undefined) {
       if (mode === "exact") {

@@ -20,7 +20,6 @@ export const WORKBOARD_STATUSES = [
   "review",
   "blocked",
   "done",
-  "cancelled",
 ] as const;
 
 export const WORKBOARD_PRIORITIES = ["low", "normal", "high", "urgent"] as const;
@@ -220,8 +219,6 @@ export type WorkboardClaim = {
   claimedAt: number;
   lastHeartbeatAt: number;
   expiresAt?: number;
-  /** Owning session key (59663fca claim-fence); absent on legacy claim records. */
-  sessionId?: string;
 };
 
 export type WorkboardDiagnosticAction = {
@@ -307,10 +304,6 @@ export type WorkboardAutomation = {
   dispatchCount?: number;
   lastDispatchAt?: number;
   launch?: WorkboardLaunchState;
-  /** Build branch recorded by the merge lane; must survive specify re-stamps. */
-  branch?: string;
-  /** Build commit SHA recorded by the merge lane; must survive specify re-stamps. */
-  headSha?: string;
 };
 
 export type WorkboardBoardMetadata = {
