@@ -38,6 +38,7 @@ import type {
 } from "./store-inputs.js";
 import { capText, normalizeBoardId, normalizeTimestamp } from "./store-normalizers.js";
 import { WorkboardNotificationStore } from "./store-notifications.js";
+import { PipelineStrikeMap } from "./store-pipeline-strikes.js";
 import { readCards } from "./store-read.js";
 
 export type { WorkboardDispatchResult } from "./store-inputs.js";
@@ -186,6 +187,9 @@ function lifecycleExecution(params: {
 
 // Capability layers share persistence handles and the runtime's mutation ordering.
 export class WorkboardStore extends WorkboardNotificationStore {
+  /** Pipeline auto-dispatch dedup strikes (card ee4dda8f rebuild); in-memory. */
+  readonly pipelineStrikes = new PipelineStrikeMap();
+
   async prepareExecutionLaunch(
     id: string,
     input: {

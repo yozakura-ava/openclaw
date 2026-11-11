@@ -4032,3 +4032,29 @@ describe("claim fence (59663fca): strict default, legacy rollback, holder refres
     expect(second.card.metadata?.claim?.sessionId).toBe("agent:reina:s2");
   });
 });
+
+describe("pipeline strike store wiring (rebuild of ee4dda8f)", () => {
+  it("exposes an in-memory strike map with record/lookup/clear on the store", () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    expect(store.pipelineStrikes.size).toBe(0);
+    store.pipelineStrikes.record("card-1", 1_000, "dedup window");
+    expect(store.pipelineStrikes.lookup("card-1")).toMatchObject({
+      cardId: "card-1",
+      skippedAt: 1_000,
+    });
+    expect(store.pipelineStrikes.lookup("card-1")).not.toBe(store.pipelineStrikes.lookup("other"));
+    expect(store.pipelineStrikes.hasRecentStrike("card-1", 2_000, 10 * 60 * 1000)).toBe(true);
+    expect(store.pipelineStrikes.hasRecentStrike("card-1", 2_000_000, 10 * 60 * 1000)).toBe(false);
+    store.pipelineStrikes.clear();
+    expect(store.pipelineStrikes.lookup("card-1")).toBeUndefined();
+    expect(store.pipelineStrikes.size).toBe(0);
+  });
+
+  it("strike map is per-store and does not leak between instances", () => {
+    const a = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const b = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    a.pipelineStrikes.record("card-x", 5_000, "skipped");
+    expect(a.pipelineStrikes.lookup("card-x")).toBeDefined();
+    expect(b.pipelineStrikes.lookup("card-x")).toBeUndefined();
+  });
+});
