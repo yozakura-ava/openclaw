@@ -679,3 +679,27 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
   }
   return a.id.localeCompare(b.id);
 }
+
+// --- canonical graft (fork-lane promotion) ---
+export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
+  const next = { ...card };
+  for (const key of [
+    "notes",
+    "agentId",
+    "sessionKey",
+    "runId",
+    "sourceUrl",
+    "execution",
+    "startedAt",
+    "completedAt",
+    "metadata",
+  ] as const) {
+    if (next[key] === undefined) {
+      delete next[key];
+    }
+  }
+  if (metadataIsEmpty(next.metadata)) {
+    delete next.metadata;
+  }
+  return next;
+}
