@@ -1,7 +1,3 @@
-<<<<<<< HEAD
-=======
-import type { DatabasePortRecoveryIntent } from "./database-port-recovery.js";
->>>>>>> 97b6e87616f
 import type { GatewayLockRole } from "./gateway-lock-payload.js";
 import type { GatewayOwnerSupervisor } from "./gateway-owner-lease.types.js";
 import type { GatewayStateProjection } from "./gateway-state-owner.js";
@@ -36,11 +32,6 @@ export type GatewayLockOptions = {
   onWait?: (message: string) => void;
   /** Transfer a relocated Doctor root only after the target exclusion is held. */
   relocatedMaintenanceOwner?: GatewayLockHandle;
-<<<<<<< HEAD
-=======
-  /** Internal offline port recovery; validated only after acquiring fresh physical custody. */
-  databasePortRecovery?: DatabasePortRecoveryIntent;
->>>>>>> 97b6e87616f
   listenerMode?: "foreground" | "supervised";
   supervisor?: GatewayOwnerSupervisor | null;
   /** Override process command-line reader (testing seam). */

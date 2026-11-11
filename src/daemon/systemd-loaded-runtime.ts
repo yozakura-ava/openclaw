@@ -1,9 +1,6 @@
 // Admission reads already-loaded state. Recovery may load a bound definition
 // under live custody; neither mode starts a unit or a bus service.
-import {
-  runServiceInspectionGuard,
-  withServiceInspectionBudget,
-} from "./service-inspection-budget.js";
+import { isDeepStrictEqual } from "node:util";
 import {
   runServiceInspectionGuard,
   withServiceInspectionBudget,
@@ -43,14 +40,10 @@ const isInt32 = (value: unknown): value is number =>
   Number.isInteger(value) &&
   value >= -0x80000000 &&
   value <= 0x7fffffff;
-const optionalCounter = (value: unknown): number | undefined => {
-  if (typeof value === "bigint") {
-    return value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : undefined;
-  }
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
-};
+const optionalCounter = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 
-/** Read one best-effort snapshot from the selected manager. */
+/** The selected manager must retain the same loaded unit throughout inspection. */
 export async function readLoadedSystemdServiceRuntime(
   env: GatewayServiceEnv,
   timeoutMs?: number,
@@ -64,11 +57,7 @@ export async function readLoadedSystemdServiceRuntime(
     const timeoutBudget =
       timeoutMs !== undefined && Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 5000;
     const deadline = budget.now() + timeoutBudget;
-<<<<<<< HEAD
     let remainingQueries = 7;
-=======
-    let remainingQueries = 5;
->>>>>>> 97b6e87616f
     const unavailable = () =>
       new Error("Loaded systemd runtime could not be inspected without activation.");
     const query = async (args: string[], signatures: string[]): Promise<unknown[]> => {
@@ -141,13 +130,8 @@ export async function readLoadedSystemdServiceRuntime(
         ["o"],
       );
       const unitPath = readSystemdUnitObjectPath(unit, unavailable);
-<<<<<<< HEAD
       const readUnit = () =>
         query(
-=======
-      const [id, load, active, sub, burst, unitFileState, refuseManualStart, canStart] =
-        await query(
->>>>>>> 97b6e87616f
           [
             "get-property",
             owner,
@@ -158,16 +142,12 @@ export async function readLoadedSystemdServiceRuntime(
             "ActiveState",
             "SubState",
             "StartLimitBurst",
-<<<<<<< HEAD
             "ActiveEnterTimestampMonotonic",
             "InactiveEnterTimestampMonotonic",
-=======
->>>>>>> 97b6e87616f
             "UnitFileState",
             "RefuseManualStart",
             "CanStart",
           ],
-<<<<<<< HEAD
           ["s", "s", "s", "s", "u", "t", "t", "s", "b", "b"],
         );
       const before = await readUnit();
@@ -183,10 +163,6 @@ export async function readLoadedSystemdServiceRuntime(
         refuseManualStart,
         canStart,
       ] = before;
-=======
-          ["s", "s", "s", "s", "u", "s", "b", "b"],
-        );
->>>>>>> 97b6e87616f
       const startRefusal = resolveSystemdServiceStartRefusal({
         unit: unitName,
         scope,
@@ -196,16 +172,12 @@ export async function readLoadedSystemdServiceRuntime(
         refuseManualStart: refuseManualStart === true,
         canStart: typeof canStart === "boolean" ? canStart : undefined,
       });
-<<<<<<< HEAD
       if (
         load === "masked" &&
         id === unitName &&
         isDeepStrictEqual(before, await readUnit()) &&
         owner === (await readOwner())
       ) {
-=======
-      if (load === "masked" && id === unitName) {
->>>>>>> 97b6e87616f
         return {
           status: "unknown",
           detail: startRefusal?.message,
@@ -256,7 +228,6 @@ export async function readLoadedSystemdServiceRuntime(
           Array.isArray(processes[0]) &&
           processes[0].length === 0;
       }
-<<<<<<< HEAD
       // Same manager identity alone does not exclude unit restart/state changes.
       // Compare native transition generations as well as state to reject ABA observations.
       const after = await readUnit();
@@ -267,10 +238,6 @@ export async function readLoadedSystemdServiceRuntime(
         !isDeepStrictEqual(before, after) ||
         optionalCounter(entered) === undefined ||
         optionalCounter(left) === undefined ||
-=======
-      // A restart during inspection may mix two snapshots; the next read refreshes it.
-      if (
->>>>>>> 97b6e87616f
         id !== unitName ||
         load !== "loaded" ||
         typeof active !== "string" ||

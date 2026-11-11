@@ -267,11 +267,18 @@ export function createWorktreeGcRemoval(context: {
       assertOwnerPolicyAllowsCleanup(record, policy, retiredOwner);
     };
   };
-  const ownerGuard = (record: ManagedWorktreeRecord, commitGuard: () => void) => ({
+  const ownerGuard = (
+    record: ManagedWorktreeRecord,
+    retiredOwner: boolean,
+    commitGuard: () => void,
+  ) => ({
     id: record.id,
     signal,
     workerAuthority: {
-      assertCurrent: commitGuard,
+      assertCurrent: () => {
+        assertCurrent?.();
+        assertOwnerPolicyAllowsCleanup(record, policy, retiredOwner);
+      },
       predicates: [{ kind: "activity", id: record.id, lastActiveAt: record.lastActiveAt }],
     } satisfies WorktreeWorkerAuthority,
     commitGuard,
@@ -325,7 +332,7 @@ export function createWorktreeGcRemoval(context: {
         if (await hasMissingManagedWorktreeGitdir(record)) {
           const token = randomUUID();
           const assertOwnerCurrent = await prepareOwnerCurrent(record, retiredOwner);
-          const custody = { env, ...ownerGuard(record, assertOwnerCurrent) };
+          const custody = { env, ...ownerGuard(record, retiredOwner, assertOwnerCurrent) };
           await withOwnerMutation(() =>
             claimWorktreeRemoval(env, {
               worktreeId: record.id,
@@ -401,10 +408,7 @@ export function createWorktreeGcRemoval(context: {
   };
   const repositoryProtection = (repoRoot: string) => repositoryFailures.get(repoRoot)?.reason;
   return {
-<<<<<<< HEAD
     repositoryProtection,
-=======
->>>>>>> 97b6e87616f
     collect: async (
       protect: (record: ManagedWorktreeRecord) => Promise<string | undefined>,
       checkpoint?: () => Promise<void> | undefined,
@@ -460,11 +464,7 @@ export function createWorktreeGcRemoval(context: {
             await withOwnerCleanup(record, async (withOwnerMutation) => {
               const assertOwnerCurrent = await prepareOwnerCurrent(record, retiredOwner);
               return context.remove({
-<<<<<<< HEAD
                 ...ownerGuard(record, retiredOwner, assertOwnerCurrent),
-=======
-                ...ownerGuard(record, assertOwnerCurrent),
->>>>>>> 97b6e87616f
                 reason: retiredOwner ? "owner-gc" : "idle-gc",
                 withOwnerMutation,
               });

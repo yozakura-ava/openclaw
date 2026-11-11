@@ -9,7 +9,6 @@ describe("msteams HTML attachment summaries", () => {
       summarizeMSTeamsHtmlAttachments(
         html('<img src="cid:a"><img src="data:image/png;base64,AA"><attachment id="file-1">'),
       ),
-<<<<<<< HEAD
     ).toMatchObject({
       imgTags: 2,
       cidImages: 1,
@@ -17,9 +16,6 @@ describe("msteams HTML attachment summaries", () => {
       attachmentTags: 1,
       attachmentIds: ["file-1"],
     });
-=======
-    ).toMatchObject({ imgTags: 2, cidImages: 1, dataImages: 1, attachmentIds: ["file-1"] });
->>>>>>> 97b6e87616f
   });
 
   it("returns promptly for many unterminated image and attachment tags", () => {

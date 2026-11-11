@@ -111,14 +111,7 @@ describe("cross-OS release checks workflow", () => {
           matrix.include
             .filter((entry) => entry.os_id === osId && entry.suite === suite)
             .map((entry) => entry.node_version),
-<<<<<<< HEAD
         ).toEqual(["24.22.1", "26.12.1"]);
-=======
-        ).toEqual([
-          osId === "windows" && suite === "packaged-fresh" ? "24.22.1" : "24.22.1",
-          "26.12.1",
-        ]);
->>>>>>> 97b6e87616f
       }
     }
     expect(

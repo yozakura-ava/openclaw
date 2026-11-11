@@ -16,7 +16,6 @@ import { setConsoleSubsystemFilter } from "../logging/console.js";
 import { setLoggerOverride } from "../logging/logger.js";
 import { loggingState } from "../logging/state.js";
 import { withEnvAsync } from "../test-utils/env.js";
-import { requireNativeSqliteDatabase } from "../test-utils/native-sqlite.js";
 import {
   openClawStateDatabaseCache,
   recordOpenClawStateDatabaseOpenFailure,
@@ -74,7 +73,7 @@ describe("unpublished state database acquisition", () => {
     const seed = openUnpublishedStateDatabase(params);
     seed.db.exec("INSERT INTO payload VALUES ('committed');");
     seed.walMaintenance.close();
-    closeTrackedStateDatabase(requireNativeSqliteDatabase(seed.db));
+    closeTrackedStateDatabase(seed.db);
     const opened: DatabaseSync[] = [];
     const targetLocations = new Set([pathname, nodeSqlite.resolveExistingSqliteFileUri(pathname)]);
     const openNative = nodeSqlite.openNodeSqliteDatabase;
@@ -106,7 +105,7 @@ describe("unpublished state database acquisition", () => {
       expect(prepare).toHaveBeenCalledWith("PRAGMA wal_checkpoint(PASSIVE);");
     } finally {
       reopened.walMaintenance.close();
-      closeTrackedStateDatabase(requireNativeSqliteDatabase(reopened.db));
+      closeTrackedStateDatabase(reopened.db);
     }
     expect(maintenanceOwnerCount()).toBe(0);
     prepare.mockClear();
@@ -153,7 +152,7 @@ describe("unpublished state database acquisition", () => {
       } finally {
         acquired?.walMaintenance.close();
         if (acquired) {
-          closeTrackedStateDatabase(requireNativeSqliteDatabase(acquired.db));
+          closeTrackedStateDatabase(acquired.db);
         }
       }
 
@@ -206,7 +205,7 @@ describe("unpublished state database acquisition", () => {
     } finally {
       acquired?.walMaintenance.close();
       if (acquired) {
-        closeTrackedStateDatabase(requireNativeSqliteDatabase(acquired.db));
+        closeTrackedStateDatabase(acquired.db);
       }
     }
     expect.soft(failure).toBeInstanceOf(Error);
@@ -271,7 +270,7 @@ describe("unpublished state database acquisition", () => {
         ]);
       } finally {
         acquired.walMaintenance.close();
-        closeTrackedStateDatabase(requireNativeSqliteDatabase(acquired.db));
+        closeTrackedStateDatabase(acquired.db);
       }
     },
   );
@@ -293,7 +292,7 @@ describe("unpublished state database acquisition", () => {
     } finally {
       acquired?.walMaintenance.close();
       if (acquired) {
-        closeTrackedStateDatabase(requireNativeSqliteDatabase(acquired.db));
+        closeTrackedStateDatabase(acquired.db);
       }
     }
     expect.soft(fs.existsSync(directory)).toBe(false);
@@ -321,10 +320,9 @@ describe("unpublished state database acquisition", () => {
         const { params, open } = acquisitionFixture();
         const database = openUnpublishedStateDatabase(params);
         open.mockClear();
-        const sqlite = requireNativeSqliteDatabase(database.db);
-        const prepare = sqlite.prepare.bind(sqlite);
+        const prepare = database.db.prepare.bind(database.db);
         const checkpointFailure = new Error("checkpoint storage unavailable");
-        const intercepted = vi.spyOn(sqlite, "prepare").mockImplementation((sql) => {
+        const intercepted = vi.spyOn(database.db, "prepare").mockImplementation((sql) => {
           if (sql === "PRAGMA wal_checkpoint(PASSIVE);") {
             throw checkpointFailure;
           }
@@ -358,7 +356,7 @@ describe("unpublished state database acquisition", () => {
         } finally {
           intercepted.mockRestore();
           database.walMaintenance.close();
-          closeTrackedStateDatabase(requireNativeSqliteDatabase(database.db));
+          closeTrackedStateDatabase(database.db);
         }
       } finally {
         Object.assign(loggingState, previousLogging);
@@ -408,11 +406,7 @@ describe("unpublished state database acquisition", () => {
           } finally {
             fs.rmSync(ownerPath, { force: true });
             database.walMaintenance.close();
-<<<<<<< HEAD
             closeTrackedStateDatabase(database.db);
-=======
-            closeTrackedStateDatabase(requireNativeSqliteDatabase(database.db));
->>>>>>> 97b6e87616f
           }
         } finally {
           Object.assign(loggingState, previousLogging);

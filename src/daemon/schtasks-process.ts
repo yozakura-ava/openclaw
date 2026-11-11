@@ -137,19 +137,15 @@ async function resolveScheduledTaskGatewayOwnership(
     ? owner.port === port && hasCurrentProcessIdentity(owner) && isTaskSupervisor(owner.supervisor)
       ? [owner.pid]
       : []
-<<<<<<< HEAD
     : await resolveLegacyScheduledTaskOwnedGatewayPids(env, context, command);
-=======
-    : await resolveLegacyScheduledTaskOwnedGatewayPids(env, command, port, context?.probeHosts);
->>>>>>> 97b6e87616f
   if (stalled) {
     pids.splice(0, pids.length, stalled.pid);
   }
   if (captureExisting && owner && pids.length > 0) {
     pids.push(
-      ...(
-        await resolveLegacyScheduledTaskOwnedGatewayPids(env, command, port, context?.probeHosts)
-      ).filter((pid) => pid !== owner.pid),
+      ...(await resolveLegacyScheduledTaskOwnedGatewayPids(env, context, command)).filter(
+        (pid) => pid !== owner.pid,
+      ),
     );
   }
   const starts = new Map<number, number | null>();
@@ -232,14 +228,22 @@ async function resolveScheduledTaskGatewayOwnership(
 
 async function resolveLegacyScheduledTaskOwnedGatewayPids(
   env: GatewayServiceEnv,
-  command: GatewayServiceCommandConfig | null,
-  port: number,
-  probeHosts?: readonly string[],
+  context?: { port: number | null; probeHosts?: readonly string[] },
+  installedCommand?: GatewayServiceCommandConfig | null,
 ): Promise<number[]> {
+  const command =
+    installedCommand === undefined
+      ? await readScheduledTaskCommand(env).catch(() => null)
+      : installedCommand;
   const installedArguments = command?.programArguments;
   if (!installedArguments?.length) {
     return [];
   }
+  const port = context ? context.port : resolveScheduledTaskCommandPort(env, command);
+  if (!port) {
+    return [];
+  }
+
   const snapshot = readWindowsProcessSnapshot();
   if (process.platform === "win32" && snapshot) {
     // Before a Gateway exists, capture its exact supervisor, which can outlive /End.
@@ -264,9 +268,9 @@ async function resolveLegacyScheduledTaskOwnedGatewayPids(
     return [];
   }
   // Per-PID fallback still requires the same port and persisted argv.
-  const diagnostics = await inspectPortUsage(port, {
-    probeHosts: probeHosts ?? (await resolveGatewayServiceProbeHosts({ env, command })),
-  }).catch(() => null);
+  const probeHosts =
+    context?.probeHosts ?? (await resolveGatewayServiceProbeHosts({ env, command }));
+  const diagnostics = await inspectPortUsage(port, { probeHosts }).catch(() => null);
   if (diagnostics?.status !== "busy") {
     return [];
   }

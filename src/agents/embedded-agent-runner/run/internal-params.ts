@@ -1,5 +1,4 @@
 import type { SessionTranscriptRuntimeTarget } from "../../../config/sessions/session-accessor.js";
-import type { SessionAdmissionTransition } from "../../../config/sessions/session-admission-transition.types.js";
 import type { SessionTranscriptTargetBinding } from "../../../config/sessions/transcript-target-binding.js";
 import type { InternalSessionEntry } from "../../../config/sessions/types.js";
 import type { Model } from "../../../llm/types.js";
@@ -7,11 +6,9 @@ import type { PreparedTtsPreferences } from "../../../tts/tts-preferences.js";
 import type { AgentExecutionAuthBinding } from "../../execution-auth-binding.js";
 import type { ModelFallbackRouteResolution } from "../../model-fallback.types.js";
 import type { PreparedModelRuntimePluginGeneration } from "../../prepared-model-runtime.types.js";
-import type { ReplyDeliveryFactsObserver } from "../../reply-completion.js";
 import type { BoundAgentRunSessionTarget } from "../../run-session-target.types.js";
 import type { CompactionRequestBudget } from "../../sessions/compaction/request-budget.js";
 import type { SystemAgentToolOptions } from "../../tools/system-agent-tool.js";
-import type { ResolvedRunEntryModelSelection } from "../run-entry.types.js";
 import type { DeferredEmbeddedRunLifecycleOwner } from "./deferred-lifecycle-owner.js";
 import type { RunEmbeddedAgentParams } from "./params.js";
 import type { EmbeddedRunCompletionCheck } from "./terminal-retry-state.js";
@@ -36,11 +33,6 @@ export type CompactionAccountingFact = Readonly<
         target: CompactionAccountingTarget;
         /** Present only when the host committed a successor session rotation. */
         previousSessionId?: string;
-<<<<<<< HEAD
-=======
-        /** Ordered, host-committed identity changes; never inferred from a returned session ID. */
-        admissionTransitions?: readonly SessionAdmissionTransition[];
->>>>>>> 97b6e87616f
         /** Native-thread compaction leaves the host transcript unchanged. */
         hostCompactionCommitted?: boolean;
       }
@@ -49,13 +41,9 @@ export type CompactionAccountingFact = Readonly<
 >;
 
 export type RunEmbeddedAgentInternalParams = RunEmbeddedAgentParams & {
-  /** The logical run already invoked model routing before preparing its candidate chain. */
-  resolvedModelSelection?: ResolvedRunEntryModelSelection;
   preparedTtsPreferences?: PreparedTtsPreferences;
   /** Fail-closed caller input admission against the actual prepared model, before dispatch. */
   assertModelInput?: (model: Pick<Model, "input">) => void;
-  /** Keep source-owned custody separate from streamed-block completion in one observation. */
-  resolveReplyDeliveryFacts?: ReplyDeliveryFactsObserver;
   /** Reset deferred terminal facts when the host admits a new attempt, before preparation. */
   onAttemptStart?: () => void;
   /** Keep a bounded auxiliary tool set directly visible after runtime admission. */

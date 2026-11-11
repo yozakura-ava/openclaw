@@ -3,7 +3,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { root } from "../infra/fs-safe.js";
 import {
-  enqueueConfigAuditRecord,
+  appendConfigAuditRecordSync,
   captureConfigAuditAppender,
   createConfigObserveAuditRecord,
 } from "./io.audit.js";
@@ -24,10 +24,6 @@ import {
   createConfigBackupMissingEffect,
   createConfigBackupReadEffect,
   commitRecoveryFileIfCurrent,
-<<<<<<< HEAD
-=======
-  createRecoveryCommitEffect,
->>>>>>> 97b6e87616f
   type ConfigRecoveryEffect,
 } from "./io.observe-recovery-effects.js";
 import {
@@ -449,7 +445,7 @@ function* planSuspiciousConfigRead(
         }),
       };
       yield {
-        sync: () => enqueueConfigAuditRecord(audit),
+        sync: () => appendConfigAuditRecordSync(audit),
         async: (_health, appendAudit) => appendAudit(audit.record),
       };
       if (restoredFromBackup) {

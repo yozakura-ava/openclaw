@@ -1,13 +1,6 @@
-import { createHmac } from "node:crypto";
-import { describe, expect, it, vi } from "vitest";
-import { loadChatRequestIdentityKeyAsync } from "../../infra/device-identity-async.js";
+import { describe, expect, it } from "vitest";
 import { normalizeChatSendRequest } from "./chat-send-request.js";
 import type { GatewayRequestHandlerOptions } from "./types.js";
-
-vi.mock("../../infra/device-identity-async.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../../infra/device-identity-async.js")>()),
-  loadChatRequestIdentityKeyAsync: vi.fn(async (): Promise<Buffer | null> => Buffer.alloc(32, 7)),
-}));
 
 function copilotClient(caps: string[] = []): NonNullable<GatewayRequestHandlerOptions["client"]> {
   return {
@@ -74,7 +67,6 @@ describe("normalizeChatSendRequest", () => {
       const client = humanClient();
       client.connect.client.id = id;
       client.connect.client.mode = "backend";
-<<<<<<< HEAD
       const result = await normalizeChatSendRequest({
         params: validParams({ __controlUiReconnectResume: true }),
         client,
@@ -90,49 +82,6 @@ describe("normalizeChatSendRequest", () => {
     { page: "chat", title: "Parser work", sessionKey: "agent:main:parser" },
     { page: "review:board", detail: { filter: "stuck" } },
   ])(
-=======
-      expect(
-        await normalizeChatSendRequest({
-          params: validParams({ __controlUiReconnectResume: true }),
-          client,
-        }),
-      ).toMatchObject({ ok: false, error: expect.stringContaining("unexpected property") });
-    },
-  );
-
-  it("fingerprints input with the purpose-specific identity key", async () => {
-    const result = await normalizeChatSendRequest({ params: validParams(), client: null });
-    expect(result).toMatchObject({
-      ok: true,
-      value: {
-        requestIdentity: createHmac("sha256", Buffer.alloc(32, 7))
-          .update(JSON.stringify([" hello ", []]))
-          .digest("hex"),
-      },
-    });
-  });
-
-  it("normalizes a first-time send without a fingerprint when the Gateway identity is missing", async () => {
-    vi.mocked(loadChatRequestIdentityKeyAsync).mockResolvedValueOnce(null);
-    const result = await normalizeChatSendRequest({ params: validParams(), client: null });
-    expect(result).toMatchObject({ ok: true, value: { rawMessage: "hello" } });
-    if (!result.ok) {
-      throw new Error(result.error);
-    }
-    expect(result.value).not.toHaveProperty("requestIdentity");
-  });
-
-  it("keeps Stop normalization synchronous", () => {
-    expect(
-      normalizeChatSendRequest({
-        params: validParams({ message: "/stop" }),
-        client: humanClient(),
-      }),
-    ).toMatchObject({ ok: true, value: { stopCommand: true } });
-  });
-
-  it.each([{ page: "chat", title: "Parser work", sessionKey: "agent:main:parser" }])(
->>>>>>> 97b6e87616f
     "keeps $page context out of authored text while preserving the model payload",
     async (workContext) => {
       const result = await normalizeChatSendRequest({
@@ -171,6 +120,7 @@ describe("normalizeChatSendRequest", () => {
   it.each([
     { message: "/stop", workContext: { page: "chat" } },
     { workContext: { page: "chat", selection: "x".repeat(641) } },
+    { workContext: { page: "chat", permission: "admin" } },
     { workContext: { page: " " } },
   ])("rejects invalid context rather than accepting hidden control input: %j", async (input) => {
     expect(
@@ -178,10 +128,10 @@ describe("normalizeChatSendRequest", () => {
     ).toBe(false);
   });
 
-  it("normalizes ordinary chat and selected mention spans before fingerprinting", async () => {
+  it("normalizes ordinary chat and selected mention spans without yielding", () => {
     const message = "  e\u0301 @Zoe\u0308 🌈  ";
     const mentions = [{ profileId: "zoe", start: 5, end: 10 }];
-    const result = await normalizeChatSendRequest({
+    const result = normalizeChatSendRequest({
       params: validParams({ message, mentions }),
       client: humanClient(),
     });
@@ -192,6 +142,21 @@ describe("normalizeChatSendRequest", () => {
         mentions: [{ profileId: "zoe", start: 2, end: 6 }],
         p: { message, mentions },
       },
+    });
+  });
+
+  it("shifts spans across stripped controls outside the selected token", async () => {
+    expect(
+      await normalizeChatSendRequest({
+        params: validParams({
+          message: "hi\u0001 @Bob",
+          mentions: [{ profileId: "bob", start: 4, end: 8 }],
+        }),
+        client: humanClient(),
+      }),
+    ).toMatchObject({
+      ok: true,
+      value: { rawMessage: "hi @Bob", mentions: [{ profileId: "bob", start: 3, end: 7 }] },
     });
   });
 
@@ -276,7 +241,7 @@ describe("normalizeChatSendRequest", () => {
     ).toMatchObject({ ok: false });
   });
 
-  it.each(["/stop", "  résumé\n\n  preserve spacing  "])(
+  it.each(["/stop", "/btw investigate", "  résumé\n\n  preserve spacing  "])(
     "admits Goal objective %j literally without command interpretation",
     async (message) => {
       expect(
@@ -330,7 +295,6 @@ describe("normalizeChatSendRequest", () => {
     ).toMatchObject({ ok: false });
   });
 
-<<<<<<< HEAD
   it("binds Goal retries to immutable attachments, reply context, options, and timestamp", async () => {
     const base = validParams({
       intent: { kind: "session-goal-start", version: 1, issuedAtMs: 1 },
@@ -373,8 +337,6 @@ describe("normalizeChatSendRequest", () => {
     });
   });
 
-=======
->>>>>>> 97b6e87616f
   it("rejects an empty text-and-attachment request", async () => {
     const result = await normalizeChatSendRequest({
       params: validParams({ message: "  " }),
@@ -382,6 +344,24 @@ describe("normalizeChatSendRequest", () => {
     });
 
     expect(result).toEqual({ ok: false, error: "message or attachment required" });
+  });
+
+  it("accepts start-or-steer requests with or without a transcript leaf", async () => {
+    expect(
+      await normalizeChatSendRequest({
+        params: validParams({ queueMode: "steer" }),
+        client: null,
+      }),
+    ).toMatchObject({ ok: true });
+    expect(
+      await normalizeChatSendRequest({
+        params: validParams({
+          queueMode: "steer",
+          expectedLeafEntryId: "leaf-1",
+        }),
+        client: null,
+      }),
+    ).toMatchObject({ ok: true });
   });
 
   it("accepts an attachment-only request after attachment normalization", async () => {

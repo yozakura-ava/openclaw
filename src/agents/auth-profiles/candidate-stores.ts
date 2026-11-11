@@ -12,7 +12,7 @@ import {
   type DatabasePathIdentity,
 } from "../../infra/sqlite-worker-identity.js";
 import { normalizeAgentId } from "../../routing/session-key.js";
-import { listOpenClawRegisteredAgentDatabasesAsync } from "../../state/openclaw-agent-db-registry-listing.js";
+import { listOpenClawRegisteredAgentDatabases } from "../../state/openclaw-agent-db-registry-listing.js";
 import { listAgentEntries, resolveAgentDir } from "../agent-scope.js";
 import { AUTH_STORE_VERSION, reportCommittedInlineAuthFailure } from "./constants.js";
 import { isSameOAuthRefreshGeneration } from "./oauth-refresh-marker.js";
@@ -114,7 +114,7 @@ export async function listCandidateAuthProfileStores(params: {
     });
   }
   sources.push(...(await collectStateRootCandidates(env)));
-  for (const registered of await listOpenClawRegisteredAgentDatabasesAsync({ env })) {
+  for (const registered of listOpenClawRegisteredAgentDatabases({ env })) {
     const agentId = normalizeAgentId(registered.agentId);
     sources.push({
       agentId,
@@ -146,21 +146,12 @@ export async function listCandidateAuthProfileStores(params: {
   );
 }
 
-function assertCandidateDatabaseIdentity(candidate: CandidateAuthProfileStore): void {
-  if (candidate.databaseIdentity.key.startsWith("path:")) {
-    // Discovery captured no file; startup or another operation may create it before first use.
-    candidate.databaseIdentity = readDatabasePathIdentitySync(candidate.databasePath);
-  } else {
-    assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity);
-  }
-}
-
 /** Read an already-discovered candidate without creating a missing database. */
 export function loadCandidateAuthProfileStore(
   candidate: CandidateAuthProfileStore,
 ): AuthProfileStore | null {
   try {
-    assertCandidateDatabaseIdentity(candidate);
+    assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity);
     return loadPersistedAuthProfileStoreAtDatabasePath(candidate.databasePath, "agent");
   } finally {
     if (!candidate.configured) {
@@ -173,12 +164,12 @@ export function loadCandidateAuthProfileStore(
 export async function loadCandidateAuthProfileStoreAsync(
   candidate: CandidateAuthProfileStore,
 ): Promise<AuthProfileStore | null> {
-  assertCandidateDatabaseIdentity(candidate);
+  assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity);
   const reader = prepareAgentAuthProfileRowsRead(candidate);
   try {
     const rows = await reader.read();
     reader.assertCurrent();
-    assertCandidateDatabaseIdentity(candidate);
+    assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity);
     return loadPersistedAuthProfileStoreFromRows(rows, candidate.databasePath);
   } finally {
     await reader.dispose();
@@ -244,11 +235,7 @@ async function runCandidateAuthProfileUpdate(
   if (workerWrites) {
     const assertCurrent = () => {
       workerWrites.assertOwner(candidate.env);
-<<<<<<< HEAD
       assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity);
-=======
-      assertCandidateDatabaseIdentity(candidate);
->>>>>>> 97b6e87616f
     };
     return runAuthProfileUsage(() =>
       workerWrites.run(() => {
@@ -326,7 +313,8 @@ async function runCandidateAuthProfileUpdate(
     envOnly: false,
     peerGeneration,
     options: { env: candidate.env },
-    assertCurrent: () => assertCandidateDatabaseIdentity(candidate),
+    assertCurrent: () =>
+      assertDatabasePathIdentity(candidate.databasePath, candidate.databaseIdentity),
     update(prepared) {
       const store = prepared.store;
       const changed = params.updater(store);

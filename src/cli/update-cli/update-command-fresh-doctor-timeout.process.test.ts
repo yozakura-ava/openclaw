@@ -81,14 +81,6 @@ setInterval(() => {}, 1000);
           expect(steps).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-<<<<<<< HEAD
-=======
-                name: "post-plugin doctor",
-                exitCode: 124,
-                advisory: { kind: "recoverable-maintenance", message: expect.any(String) },
-              }),
-              expect.objectContaining({
->>>>>>> 97b6e87616f
                 name: "doctor process settlement",
                 exitCode: 0,
                 advisory: {

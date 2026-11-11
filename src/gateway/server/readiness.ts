@@ -100,6 +100,7 @@ export function createReadinessChecker(
     getEventLoopHealth?: () => GatewayEventLoopHealth | undefined;
     getStateDatabaseFailure?: () => Error | undefined;
     getAgentDatabaseAdmissionRefusals?: () => readonly AgentDatabaseAdmissionRefusal[];
+    allowPendingAgentDatabases?: boolean;
     getPluginReloadStatus?: () => GatewayPluginReloadStatus | undefined;
     shouldSkipChannelReadiness?: () => boolean;
     cacheTtlMs?: number;
@@ -134,16 +135,17 @@ export function createReadinessChecker(
         uptimeMs,
       };
     }
-    if (agentDatabases?.length) {
+    const failedAgents = agentDatabases?.filter(
+      (refusal) =>
+        deps.allowPendingAgentDatabases === false ||
+        refusal.code !== "agent-database-inspection-pending",
+    );
+    if (failedAgents?.length) {
       cachedState = null;
       return {
         ready: false,
         coreReady: false,
-<<<<<<< HEAD
         failing: failedAgents.map(({ agentId }) => `agent-database:${agentId}`),
-=======
-        failing: agentDatabases.map(({ agentId }) => `agent-database:${agentId}`),
->>>>>>> 97b6e87616f
         uptimeMs,
       };
     }

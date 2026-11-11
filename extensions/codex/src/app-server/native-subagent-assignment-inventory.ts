@@ -223,28 +223,17 @@ export class CodexNativeSubagentAssignmentInventory {
     const custody = owner.completionCustody.retain();
     try {
       await this.drain(state);
-<<<<<<< HEAD
       store.assertCurrent();
       for (const assignment of store.read()) {
-=======
-      const assignments = await store.read();
-      if (!this.dependencies.isCurrent(state) || !custody.isCurrent()) {
-        return;
-      }
-      for (const assignment of assignments) {
->>>>>>> 97b6e87616f
         if (!matchesNativeAssignmentLifecycle(assignment.owner, current)) {
           continue;
         }
         const recovery = await this.dependencies.readHistory(assignment);
-<<<<<<< HEAD
         const pending = store.read();
-=======
-        const pending = await store.read();
->>>>>>> 97b6e87616f
         if (!this.dependencies.isCurrent(state) || !custody.isCurrent()) {
           return;
         }
+        store.assertCurrent();
         if (!recovery || recovery.parentThreadId !== assignment.nativeParentThreadId) {
           continue;
         }

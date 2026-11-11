@@ -219,10 +219,7 @@ suite.define(() => {
           status: run.status,
           updatedAtMs: run.updatedAtMs,
         });
-<<<<<<< HEAD
         await gateway.waitForRequest("update.runs.get", { after: finalReads });
-=======
->>>>>>> 97b6e87616f
         const headline = "✅ OpenClaw updated to 2.0.0 (from 1.0.0); 3 warnings need attention.";
         await runView.getByText(headline, { exact: true }).first().waitFor();
         await runView.getByText("Gateway downtime: 1s.", { exact: false }).waitFor();

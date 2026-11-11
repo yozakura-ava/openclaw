@@ -12,16 +12,11 @@ import { createAgentRunDirectAbortError } from "../../run-termination.js";
 import { captureSubagentCommands } from "./subagent-control-commands.js";
 import { createSubagentKillAcceptance } from "./subagent-control-kill-acceptance.js";
 import { matchesSubagentKillIntent } from "./subagent-control-kill-intent.js";
-import {
-  interruptLegacySubagentRun,
-  prepareLegacySubagentKill,
-} from "./subagent-control-legacy-interruption.js";
 import type { SubagentKillSession } from "./subagent-control-session.js";
 import * as runtime from "./subagent-control.runtime.js";
 import type {
   SubagentCancellationControl,
   SubagentKillTargetState,
-  SubagentRunKillResult,
 } from "./subagent-control.types.js";
 import { SUBAGENT_ENDED_REASON_KILLED } from "./subagent-lifecycle-events.js";
 import { resolveSubagentKillTargetState } from "./subagent-registry-completion.js";
@@ -55,14 +50,13 @@ export async function mutateSubagentRunForKill(
     cancellationControl: SubagentCancellationControl;
     suppressTaskDelivery?: boolean;
     commands?: ReturnType<typeof captureSubagentCommands>;
-    beforeSessionKill?: () => boolean | Promise<boolean>;
+    beforeSessionKill?: () => boolean;
     isCurrent: (entry: SubagentRunRecord, requirePreparedSession?: boolean) => boolean;
     withdrawQueuedReservation: () => void;
     refreshDescendants: () => Promise<number>;
   },
   captureExecution: () => ReturnType<typeof captureSubagentExecution>,
   stopAcceptance: { accepted: boolean },
-<<<<<<< HEAD
 ): Promise<{
   killed: boolean;
   continuationRetired?: true;
@@ -72,9 +66,6 @@ export async function mutateSubagentRunForKill(
   error?: string;
   completedCleanupError?: string;
 }> {
-=======
-): Promise<SubagentRunKillResult> {
->>>>>>> 97b6e87616f
   const { stateContext } = params;
   const currentEntry = () => getCurrentSubagentRunOwner(subagentRuns, params.entry);
   const assertKnownOutcome = () => {
@@ -174,8 +165,6 @@ export async function mutateSubagentRunForKill(
   }
   const childSessionKey = params.entry.childSessionKey;
   const resolved = params.session;
-  const { legacy, embeddedExecution, replyExecution } = await prepareLegacySubagentKill(initial);
-  assertSelectedRun();
   const sessionId = resolved.entry?.sessionId;
   const commands = params.commands ?? captureSubagentCommands(initial, resolved);
   const sessionLifecycleRevision = resolved.entry?.lifecycleRevision;
@@ -356,13 +345,13 @@ export async function mutateSubagentRunForKill(
       assertState();
       // The session fence is active before resolving/signaling other owners.
       // A refused full-session Stop must not interrupt their admissions or this collector.
-      if (!legacy && params.beforeSessionKill) {
+      if (params.beforeSessionKill) {
         commands?.observe(currentEntry());
       }
       const execution = captureExecution()?.execution;
       const alreadyAborted = execution?.controller.signal.aborted;
       try {
-        if (!legacy && (await params.beforeSessionKill?.()) === false) {
+        if (params.beforeSessionKill?.() === false) {
           admission = "declined";
           return;
         }
@@ -418,28 +407,6 @@ export async function mutateSubagentRunForKill(
       }
       captureExecution();
       commands?.observe(currentEntry());
-      if (legacy) {
-        const interrupted = await interruptLegacySubagentRun({
-          entry: params.entry,
-          session: resolved,
-          embeddedExecution,
-          replyExecution,
-          captureExecution,
-          commands,
-          acceptance,
-          stopAcceptance,
-          assertCallerCurrent: params.cancellationControl.assertCurrent,
-          assertSelectedRun,
-        });
-        if (interrupted === "superseded") {
-          preparationResult = killClaim
-            ? await releaseChangedSessionKill(killClaim)
-            : { killed: false, superseded: true };
-        } else {
-          admission = interrupted;
-        }
-        return;
-      }
       const interruption = startSessionWorkAdmissionInterruption({
         scope: resolved.storePath,
         identities: [childSessionKey, sessionId],
@@ -612,13 +579,6 @@ export async function mutateSubagentRunForKill(
         }
         return { killed: marked > 0 };
       };
-      if (legacy) {
-        if (!stopAcceptance.accepted) {
-          params.cancellationControl.assertCurrent();
-        }
-        assertSelectedRun();
-        return await settleTargetCancellation();
-      }
       try {
         if (!ownsSessionIncarnation()) {
           return releaseChangedSessionKill(claimedKill);

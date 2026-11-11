@@ -57,11 +57,9 @@ export async function readFailedUpdateGatewayState(
   }
   const executor = run.executorFence;
   executor?.assertCurrent();
-  const deadline =
-    run.deadline ??
-    createGatewayRestartDeadline({
-      timeoutMs: Math.min(timeoutMs, GATEWAY_RESTART_PROBE_TIMEOUT_MS),
-    });
+  const deadline = createGatewayRestartDeadline({
+    timeoutMs: Math.min(timeoutMs, GATEWAY_RESTART_PROBE_TIMEOUT_MS),
+  });
   let runtime: GatewayServiceRuntime | undefined;
   try {
     runtime = await deadline.run(() =>
@@ -78,9 +76,7 @@ export async function readFailedUpdateGatewayState(
       throw new CommandProcessCleanupError({ cause: error });
     }
   } finally {
-    if (!run.deadline) {
-      deadline.dispose();
-    }
+    deadline.dispose();
   }
   executor?.assertCurrent();
   const verified = getUpdateRun(run.runId, { env: run.env })?.verification;
@@ -223,32 +219,17 @@ export async function verifyUpdatedGateway(
   const { health, readyz, http, launchAgentRecovery } = await observeUpdateGatewayReadiness({
     ...params,
     assertCurrent,
-    deadline: params.opts.run?.deadline ?? params.deadline,
   });
   const coreReady = http?.coreReady ?? readyz;
-<<<<<<< HEAD
   const channelWarnings = getGatewayChannelWarnings(health, http).map(({ id, error }) =>
-=======
-  const verificationWarnings = getGatewayChannelWarnings(health, http).map(({ id, error }) =>
->>>>>>> 97b6e87616f
     redactSupportDiagnosticLine(
       `Channel health warning (${id}: ${error}). Run openclaw channels status --probe or openclaw health --json to inspect it.`,
       { env: params.serviceEnv, stateDir: resolveStateDir(params.serviceEnv) },
     ),
   );
-  if (health.healthy && health.authenticationError) {
-    verificationWarnings.push(
-      redactSupportDiagnosticLine(
-        `Gateway RPC authentication rejected (${health.authenticationError}); verified through local HTTP readiness and runtime identity.`,
-        { env: params.serviceEnv, stateDir: resolveStateDir(params.serviceEnv) },
-      ),
-    );
-  }
-  if (launchAgentRecovery && launchAgentRecovery.status !== "not-needed") {
+  if (launchAgentRecovery?.attempted) {
     defaultRuntime.error(
-      launchAgentRecovery.status === "recovered"
-        ? launchAgentRecovery.message
-        : launchAgentRecovery.detail,
+      launchAgentRecovery.recovered ? launchAgentRecovery.message : launchAgentRecovery.detail,
     );
   }
   const serviceRunning = !params.requireRunningService || health.runtime.status === "running";
@@ -298,8 +279,8 @@ export async function verifyUpdatedGateway(
       durationMs: endedAtMs - startedAtMs,
       exitCode: failureFacts ? 1 : warning && params.purpose === "recovery" ? null : 0,
       ...(failureFacts ? { failureFacts } : {}),
-      ...(verificationWarnings.length
-        ? { warnings: [...(warning ? [warning] : []), ...verificationWarnings] }
+      ...(channelWarnings.length
+        ? { warnings: [...(warning ? [warning] : []), ...channelWarnings] }
         : {}),
       ...(warning
         ? {
@@ -355,24 +336,15 @@ export async function verifyUpdatedGateway(
             : "Gateway: restarted and verified.",
         ),
       );
-      for (const warning of [
-        ...pluginWarnings.map((entry) => entry.message),
-        ...verificationWarnings,
-      ]) {
+      for (const warning of [...pluginWarnings.map((entry) => entry.message), ...channelWarnings]) {
         defaultRuntime.log(theme.warn(warning));
       }
     }
     return {
       ok: true,
       score: 7,
-<<<<<<< HEAD
       summary:
         channelWarnings.length > 0
-=======
-      summary: health.authenticationError
-        ? "Gateway service, version, and readiness verified through local HTTP; RPC authentication needs attention."
-        : verificationWarnings.length > 0
->>>>>>> 97b6e87616f
           ? "Gateway service, version, and readiness verified; channel warnings need attention."
           : pluginWarnings.length > 0
             ? "Gateway service, version, channels, and readiness verified; plugin failures need a retry."
@@ -409,9 +381,9 @@ export async function verifyUpdatedGateway(
       ? ["Gateway responded, but the managed service did not report running after restart."]
       : []),
     ...renderRestartDiagnostics(health),
-    ...(launchAgentRecovery && launchAgentRecovery.status !== "not-needed"
+    ...(launchAgentRecovery?.attempted
       ? [
-          launchAgentRecovery.status === "recovered"
+          launchAgentRecovery.recovered
             ? `LaunchAgent recovery: ${launchAgentRecovery.message}`
             : `LaunchAgent recovery failed: ${launchAgentRecovery.detail}`,
         ]

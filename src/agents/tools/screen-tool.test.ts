@@ -1,15 +1,11 @@
 import { Value } from "typebox/value";
 import { describe, expect, it } from "vitest";
 import { GATEWAY_CLIENT_CAPS } from "../../../packages/gateway-protocol/src/client-info.js";
-<<<<<<< HEAD
 import {
   UiCommandParamsSchema,
   UiCommandResultSchema,
 } from "../../../packages/gateway-protocol/src/schema/ui-command.js";
 import { compactToolOutputHint } from "../tool-schema-hints.js";
-=======
-import { UiCommandResultSchema } from "../../../packages/gateway-protocol/src/schema/ui-command.js";
->>>>>>> 97b6e87616f
 import type { InProcessGatewayCaller } from "./in-process-gateway.js";
 import { createScreenTool } from "./screen-tool.js";
 
@@ -33,13 +29,7 @@ describe("screen tool", () => {
 
     expect(tool.outputSchema).toBe(UiCommandResultSchema);
     expect(Value.Check(tool.outputSchema!, result.details)).toBe(true);
-    expect(
-      Value.Check(tool.outputSchema!, {
-        ok: true,
-        delivery: "dispatched",
-        presentation: { portalId: "app", status: "blocked", reason: "remote-ingress-required" },
-      }),
-    ).toBe(true);
+    expect(compactToolOutputHint(tool.outputSchema)).toBe("{ ok: boolean }");
   });
 
   it("omits unsupported actions and requires the UI capability", () => {
@@ -58,31 +48,12 @@ describe("screen tool", () => {
     });
   });
 
-<<<<<<< HEAD
   it("exposes GitHub identity settings only for a capable Control UI", () => {
     const tool = createScreenTool({ githubIdentitySettingsAvailable: true });
     expect(tool.parameters).toMatchObject({
       properties: { action: { enum: expect.arrayContaining(["github_identity_settings"]) } },
     });
     expect(tool.description).toContain("github_identity_settings");
-=======
-  it("offers and dispatches masked GitHub settings only to capable clients", async () => {
-    const { callGateway, calls } = createGatewayRecorder();
-    const tool = createScreenTool({
-      agentSessionKey: "agent:main:main",
-      callGateway,
-      githubIdentitySettingsAvailable: true,
-    });
-    expect(tool.parameters).toMatchObject({
-      properties: { action: { enum: expect.arrayContaining(["github_identity_settings"]) } },
-    });
-
-    await tool.execute("call", { action: "github_identity_settings" });
-
-    expect(calls).toEqual([
-      ["ui.command", { command: { kind: "agent-github-settings" }, sessionKey: "agent:main:main" }],
-    ]);
->>>>>>> 97b6e87616f
   });
 
   it.each([

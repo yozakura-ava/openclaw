@@ -38,13 +38,8 @@ export async function createBackupScratchDirectory(root: string): Promise<Backup
     let boundary: Root | undefined;
     try {
       boundary = await createRoot(directory);
-      const observed = await fs.lstat(directory, { bigint: true });
-      const admitted = await boundary.stat(".");
-      if (
-        !observed.isDirectory() ||
-        !admitted.exactIdentity ||
-        !sameFileIdentity(observed, admitted.exactIdentity)
-      ) {
+      const observed = await fs.lstat(directory);
+      if (!observed.isDirectory() || !sameFileIdentity(observed, await boundary.stat("."))) {
         throw new Error("Backup scratch directory identity changed");
       }
       return { directory, boundary, release: acquireSqliteStagingToken(directory, "create") };
@@ -54,8 +49,8 @@ export async function createBackupScratchDirectory(root: string): Promise<Backup
       if (
         isSqliteLockError(error) ||
         error instanceof SqliteStagingRetiredError ||
-        ((isMissingPathError(error) ||
-          isSqliteNativeOpenFailure(error) ||
+        isMissingPathError(error) ||
+        ((isSqliteNativeOpenFailure(error) ||
           (error instanceof FsSafeError &&
             error.code === "path-mismatch" &&
             isMissingPathError(error.cause))) &&
@@ -172,37 +167,22 @@ async function cleanupBackupScratchDirectory(
   let boundary = initialBoundary;
   try {
     if (boundary && !path.basename(directory).startsWith(retiredPrefix)) {
-      const expected = (await boundary.stat(".")).exactIdentity;
-      if (!expected) {
-        throw new Error("Backup scratch directory identity unavailable");
-      }
+      const expected = await boundary.stat(".");
       const parent = await createRoot(path.dirname(directory));
       const retiredPath =
         process.platform === "win32"
           ? path.join(parent.rootReal, `${retiredPrefix}${crypto.randomUUID()}`)
           : await createPrivateSqliteTempDirectory(parent.rootReal, retiredPrefix);
-<<<<<<< HEAD
       const reservation = process.platform === "win32" ? undefined : await fs.lstat(retiredPath);
       // Windows cannot rename onto a directory; fs-safe's native no-replace move
       // claims the absent name atomically. POSIX retains its owned reservation.
       // The retired name survives failures after the token itself is removed.
-=======
-      const reservation =
-        process.platform === "win32" ? undefined : await fs.lstat(retiredPath, { bigint: true });
-      // Windows cannot rename onto a directory; fs-safe's native no-replace move
-      // claims the absent name atomically. POSIX retains its owned reservation.
->>>>>>> 97b6e87616f
       await parent.move(path.basename(directory), path.basename(retiredPath), {
         overwrite: reservation !== undefined,
         mutationSymlinks: "reject",
         assertBeforeMutation: () => {
-<<<<<<< HEAD
           const current = fsSync.lstatSync(directory);
           const destination = reservation && fsSync.lstatSync(retiredPath);
-=======
-          const current = fsSync.lstatSync(directory, { bigint: true });
-          const destination = reservation && fsSync.lstatSync(retiredPath, { bigint: true });
->>>>>>> 97b6e87616f
           if (
             !current.isDirectory() ||
             !sameFileIdentity(expected, current) ||
@@ -215,8 +195,7 @@ async function cleanupBackupScratchDirectory(
       });
       directory = retiredPath;
       boundary = await createRoot(directory);
-      const retired = await boundary.stat(".");
-      if (!retired.exactIdentity || !sameFileIdentity(expected, retired.exactIdentity)) {
+      if (!sameFileIdentity(expected, await boundary.stat("."))) {
         throw new Error("Retired backup scratch directory identity changed");
       }
     }
@@ -312,11 +291,8 @@ export async function maintainBackupScratch(params: {
         }
         let release: SqliteStagingToken | undefined;
         try {
-          const before = await fs.lstat(directory, { bigint: true });
-          if (
-            !before.isDirectory() ||
-            (process.getuid && before.uid !== BigInt(process.getuid()))
-          ) {
+          const before = await fs.lstat(directory);
+          if (!before.isDirectory() || (process.getuid && before.uid !== process.getuid())) {
             continue;
           }
           const token = await fs
@@ -348,13 +324,11 @@ export async function maintainBackupScratch(params: {
             release = acquireSqliteStagingToken(directory, "reclaim", { allowMissing: owned });
           }
           const boundary = await createRoot(directory);
-          const current = await fs.lstat(directory, { bigint: true });
-          const admitted = await boundary.stat(".");
+          const current = await fs.lstat(directory);
           if (
             !current.isDirectory() ||
             !sameFileIdentity(before, current) ||
-            !admitted.exactIdentity ||
-            !sameFileIdentity(before, admitted.exactIdentity)
+            !sameFileIdentity(before, await boundary.stat("."))
           ) {
             throw new Error("Scratch directory identity changed");
           }

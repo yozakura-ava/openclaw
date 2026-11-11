@@ -1,13 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import * as dispatcherWorkspace from "./dispatcher-workspace.js";
 import { dispatchAndStartWorkboardCards } from "./dispatcher.js";
-import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
+import {
+  createWorkboardSqliteTestHarness,
+  createWorkboardSqliteTestStore,
+} from "./test/sqlite-store.js";
 import * as workspaceAccess from "./workspace-access.js";
 
 const CLAIM_RECLAIM_MS = 5 * 60 * 1000;
 
 describe("Workboard dispatcher ownership", () => {
-<<<<<<< HEAD
   it("falls back to one default owner for persisted blank and unassigned agents", async () => {
     const { store, stores } = createWorkboardSqliteTestHarness();
     const keyed = stores.cards;
@@ -80,8 +82,6 @@ describe("Workboard dispatcher ownership", () => {
     await expect(store.get(queued.id)).resolves.toMatchObject({ status: "ready" });
   });
 
-=======
->>>>>>> 97b6e87616f
   it("bounds failed worker attempts without draining the ready queue", async () => {
     const store = createWorkboardSqliteTestStore();
     const cards = [];
@@ -166,10 +166,14 @@ describe("Workboard dispatcher ownership", () => {
   });
 
   it.each([
+    { stage: "authority", error: "workspace authority unavailable" },
+    { stage: "implicit", error: "implicit workspace denied" },
+    { stage: "explicit", error: "explicit workspace denied" },
     {
       stage: "missing-target",
       error: "target agent workspace is unavailable for restricted dispatch",
     },
+    { stage: "non-error", error: "non-Error authority failure" },
   ])(
     "keeps $stage preflight failures unclaimed and continues to a healthy card",
     async ({ stage, error }) => {
@@ -316,7 +320,10 @@ describe("Workboard dispatcher ownership", () => {
     await expect(store.get(healthy.id)).resolves.toMatchObject({ status: "running" });
   });
 
-  it.each([{ name: "different", agentId: "assigned-worker" }])(
+  it.each([
+    { name: "matching", agentId: "shared-worker" },
+    { name: "different", agentId: "assigned-worker" },
+  ])(
     "keeps a cross-board running worker slot for a $name assigned agent until its heartbeat grace expires",
     async ({ agentId }) => {
       vi.useFakeTimers();
@@ -415,7 +422,6 @@ describe("Workboard dispatcher ownership", () => {
     },
   );
 
-<<<<<<< HEAD
   // NOTE: Removed the "selects at the dispatch snapshot while claiming at
   // current time" scenario table. It asserted that the dispatcher selects a
   // ready card but the claim path then fails with "Owner shared-worker
@@ -427,73 +433,11 @@ describe("Workboard dispatcher ownership", () => {
   // gate; that contract is covered by the "serializes concurrent board
   // dispatches", "keeps global owner capacity for exact dashboard starts",
   // and "counts the active claim owner" tests already in this file.
-=======
-  it.each([{ wallClock: 10_000, dispatchNow: 50_000, expectedClaimAttempts: 1 }])(
-    "selects at the dispatch snapshot while claiming at current time ($wallClock, $dispatchNow)",
-    async ({ wallClock, dispatchNow, expectedClaimAttempts }) => {
-      vi.useFakeTimers();
-      try {
-        vi.setSystemTime(wallClock);
-        const store = createWorkboardSqliteTestStore();
-        const review = await store.create({
-          title: "Review claim with a deterministic expiry",
-          status: "review",
-          agentId: "shared-worker",
-          metadata: {
-            claim: {
-              ownerId: "shared-worker",
-              token: "timed-token",
-              claimedAt: 1_000,
-              lastHeartbeatAt: 1_000,
-              expiresAt: 20_000,
-            },
-          },
-        });
-        const ready = await store.create({
-          title: "Worker using dispatch-time capacity",
-          status: "ready",
-          agentId: "shared-worker",
-          workspaceAccess: { unrestricted: true },
-        });
-        const run = vi.fn().mockResolvedValue({ runId: "run-at-dispatch-time" });
-        const claim = vi.spyOn(store, "claim");
 
-        const result = await dispatchAndStartWorkboardCards({
-          store,
-          subagent: { run },
-          options: { now: dispatchNow, maxStarts: 1 },
-        });
-
-        expect(claim.mock.calls.map(([id]) => id)).toEqual(
-          expectedClaimAttempts === 1 ? [ready.id] : [],
-        );
-        expect(run).not.toHaveBeenCalled();
-        expect(result.started).toEqual([]);
-        expect(result.startFailures).toEqual(
-          expectedClaimAttempts === 1
-            ? [
-                expect.objectContaining({
-                  cardId: ready.id,
-                  error: "Owner shared-worker already has active Workboard work.",
-                }),
-              ]
-            : [],
-        );
-        const unchangedReady = await store.get(ready.id);
-        expect(unchangedReady?.status).toBe("ready");
-        expect(unchangedReady?.metadata?.claim).toBeUndefined();
-        await expect(store.get(review.id)).resolves.toMatchObject({
-          status: "review",
-          metadata: { claim: review.metadata?.claim },
-        });
-      } finally {
-        vi.useRealTimers();
-      }
-    },
-  );
->>>>>>> 97b6e87616f
-
-  it.each([{ agentId: undefined, ownerId: "workboard-dispatcher" }])(
+  it.each([
+    { agentId: "shared-worker", ownerId: "shared-worker" },
+    { agentId: undefined, ownerId: "workboard-dispatcher" },
+  ])(
     "replaces an expired ready-card claim with the $ownerId slot",
     async ({ agentId, ownerId }) => {
       const store = createWorkboardSqliteTestStore();
@@ -614,7 +558,7 @@ describe("Workboard dispatcher ownership", () => {
     await expect(store.get(product.id)).resolves.toMatchObject({ status: "ready" });
   });
 
-  it.each(["dashboard exact-card start"] as const)(
+  it.each(["scheduled dispatch", "dashboard exact-card start"] as const)(
     "persists launch association before %s and keeps accepted runs visible",
     async (origin) => {
       const store = createWorkboardSqliteTestStore();
@@ -708,36 +652,80 @@ describe("Workboard dispatcher ownership", () => {
     },
   );
 
-  it.each([{ label: "future", offsetMs: 60_000, starts: false }])(
-    "handles a $label scheduled exact dashboard card",
-    async ({ offsetMs, starts }) => {
+  it("marks a prepared launch accepted after Gateway acceptance", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({
+      title: "Worker with durable acceptance",
+      status: "ready",
+      workspaceAccess: { unrestricted: true },
+    });
+    const canonicalSessionKey = `agent:worker:subagent:workboard-default-${card.id}`;
+    let provisionalRunId = "";
+    const run = vi.fn().mockImplementation(async (input) => {
+      provisionalRunId = input.idempotencyKey;
+      await expect(store.get(card.id)).resolves.toMatchObject({
+        sessionKey: input.sessionKey,
+        runId: provisionalRunId,
+        metadata: {
+          automation: {
+            launch: {
+              phase: "prepared",
+              requestedSessionKey: input.sessionKey,
+              provisionalRunId,
+            },
+          },
+        },
+      });
+      return { sessionKey: canonicalSessionKey, runId: "accepted-run" };
+    });
+
+    await dispatchAndStartWorkboardCards({
+      store,
+      subagent: { run },
+      options: { maxStarts: 1 },
+    });
+
+    await expect(store.get(card.id)).resolves.toMatchObject({
+      sessionKey: canonicalSessionKey,
+      runId: "accepted-run",
+      metadata: {
+        automation: {
+          launch: {
+            phase: "accepted",
+            requestedSessionKey: expect.any(String),
+            provisionalRunId,
+            acceptedSessionKey: canonicalSessionKey,
+            acceptedRunId: "accepted-run",
+          },
+        },
+      },
+    });
+  });
+
+  it.each(["backlog", "todo", "ready"] as const)(
+    "starts an exact dashboard card from %s",
+    async (status) => {
       const store = createWorkboardSqliteTestStore();
-      const now = Date.now();
       const card = await store.create({
-        title: "Scheduled exact",
-        status: "scheduled",
-        scheduledAt: now + offsetMs,
-        agentId: "scheduled-worker",
+        title: `Exact ${status}`,
+        status,
+        agentId: `worker-${status}`,
         workspaceAccess: { unrestricted: true },
       });
-      const run = vi.fn().mockResolvedValue({ runId: "scheduled-run" });
+      const run = vi.fn().mockResolvedValue({ runId: `run-${status}` });
 
       const result = await dispatchAndStartWorkboardCards({
         store,
         subagent: { run },
-        options: { cardId: card.id, maxStarts: 1, now },
+        options: { cardId: card.id, maxStarts: 1 },
       });
 
-      expect(run).toHaveBeenCalledTimes(starts ? 1 : 0);
-      expect(result.started).toHaveLength(starts ? 1 : 0);
-      expect(result.startFailures).toHaveLength(starts ? 0 : 1);
-      await expect(store.get(card.id)).resolves.toMatchObject({
-        status: starts ? "running" : "scheduled",
-      });
+      expect(result.started).toEqual([expect.objectContaining({ cardId: card.id })]);
+      expect(result.startFailures).toEqual([]);
+      expect((await store.get(card.id))?.status).toBe("running");
     },
   );
 
-<<<<<<< HEAD
   it("rejects an exact dashboard card in blocked status", async () => {
     const status = "blocked";
     const store = createWorkboardSqliteTestStore();
@@ -842,8 +830,6 @@ describe("Workboard dispatcher ownership", () => {
     await expect(store.get(target.id)).resolves.toMatchObject({ status: "todo" });
   });
 
-=======
->>>>>>> 97b6e87616f
   it("starts the exact lower-priority card without selecting a sibling", async () => {
     const store = createWorkboardSqliteTestStore();
     const urgent = await store.create({

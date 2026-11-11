@@ -1,12 +1,7 @@
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-<<<<<<< HEAD
 import { GATEWAY_SHUTDOWN_RESERVE_MS } from "../../../gateway-shutdown-budget.mjs";
 import { GATEWAY_OWNER_HEARTBEAT_MS } from "../../infra/gateway-lock-payload.js";
-=======
-import { GATEWAY_OWNER_HEARTBEAT_MS } from "../../infra/gateway-lock-payload.js";
-import { GATEWAY_SHUTDOWN_RESERVE_MS } from "../../infra/gateway-shutdown-budget.js";
->>>>>>> 97b6e87616f
 import { readControlPlaneUpdateSentinelMeta } from "../../infra/update-control-plane-sentinel.js";
 import { resolveUpdateInstallRoot } from "../../infra/update-install-root.js";
 import type { ManagedCommandProcessAuthority } from "../../infra/update-managed-command-custody.js";
@@ -222,29 +217,11 @@ export async function withDelegatedUpdateCommandExecutor<T>(
       );
       // A stalled await cannot recheck its fence. End orphaned maintenance through
       // the normal bounded shutdown; peers still wait for this process to exit.
-<<<<<<< HEAD
-=======
-      let parentTerminationRequested = false;
-      const requestCliParentTermination = () => {
-        if (parentTerminationRequested) {
-          return;
-        }
-        parentTerminationRequested = true;
-        setTimeout(() => process.kill(process.pid, "SIGKILL"), GATEWAY_SHUTDOWN_RESERVE_MS).unref();
-        if (!process.emit("SIGTERM")) {
-          process.kill(process.pid, "SIGTERM");
-        }
-      };
->>>>>>> 97b6e87616f
       const parentWatch = setInterval(() => {
         for (const identity of processes.values()) {
           const state = store.inspectProcessIdentity(identity);
           if (state === "dead" || state === "mismatch") {
-<<<<<<< HEAD
             requestOrphanedWorkerTermination();
-=======
-            requestCliParentTermination();
->>>>>>> 97b6e87616f
             break;
           }
         }
@@ -254,6 +231,10 @@ export async function withDelegatedUpdateCommandExecutor<T>(
         return await withUpdateCommandExecutorOperation(
           {
             children: owner,
+            assertCurrent: () => {
+              fence.assertCurrent();
+              identityWarnings.flush();
+            },
             operation: () => {
               fence.assertCurrent();
               admittedAuthorities.set(fence, {
@@ -289,10 +270,6 @@ export async function withDelegatedUpdateCommandExecutor<T>(
         );
       } finally {
         clearInterval(parentWatch);
-<<<<<<< HEAD
-=======
-        identityWarnings.flush();
->>>>>>> 97b6e87616f
         active = false;
         childOwners.delete(fence);
         slotReservations.delete(fence);

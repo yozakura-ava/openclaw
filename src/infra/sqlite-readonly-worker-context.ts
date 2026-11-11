@@ -1,5 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { SqliteReadOnlyWorkerSession } from "./sqlite-readonly-worker-session-types.js";
+import type { SqliteAuthProfileReadOptions } from "./sqlite-readonly-worker-protocol.js";
+import type {
+  createSqliteReadOnlyWorkerSession,
+  SqliteReadOnlyWorkerLaunch,
+} from "./sqlite-readonly-worker-session.js";
 
 export type SqliteReadOnlyWorkerScope = {
   active: boolean;
@@ -7,8 +11,13 @@ export type SqliteReadOnlyWorkerScope = {
   controller: AbortController;
   pending: Set<Promise<unknown>>;
   deadlineOwnedByCaller: boolean;
-  worker?: SqliteReadOnlyWorkerSession;
-  releaseReadWorker?: () => Promise<void>;
+  worker?: ReturnType<typeof createSqliteReadOnlyWorkerSession>;
+  readWorker?: {
+    source: SqliteAuthProfileReadOptions["source"];
+    launch: SqliteReadOnlyWorkerLaunch;
+    session: ReturnType<typeof createSqliteReadOnlyWorkerSession>;
+  };
+  readTail: Promise<void>;
 };
 export const readOnlyWorkerScope = new AsyncLocalStorage<SqliteReadOnlyWorkerScope>();
 
@@ -23,10 +32,7 @@ export function createSqliteReadOnlyWorkerScope(options?: {
     controller: new AbortController(),
     pending: new Set(),
     deadlineOwnedByCaller: options?.deadlineOwnedByCaller ?? false,
-<<<<<<< HEAD
     readTail: Promise.resolve(),
-=======
->>>>>>> 97b6e87616f
   };
   const abort = () => scope.controller.abort(options?.signal.reason);
   options?.signal.addEventListener("abort", abort, { once: true });
@@ -46,11 +52,7 @@ export function createSqliteReadOnlyWorkerScope(options?: {
         await Promise.allSettled(scope.pending);
         const closed = await Promise.allSettled([
           scope.worker?.close(),
-<<<<<<< HEAD
           scope.readWorker?.session.close(),
-=======
-          scope.releaseReadWorker?.(),
->>>>>>> 97b6e87616f
         ]);
         const failures = closed.flatMap((result) =>
           result.status === "rejected" ? [result.reason] : [],

@@ -3,6 +3,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeTestText } from "../../test/helpers/normalize-text.js";
 import { testing as cliBackendsTesting } from "../agents/cli-backends.test-support.js";
 import type { OpenClawConfig } from "../config/config.js";
+import { resolveSessionStorePathCore } from "../config/sessions/paths.js";
+import {
+  appendTranscriptMessageSync,
+  replaceSessionEntrySync,
+} from "../config/sessions/session-accessor.js";
 import {
   buildStatusMessage as buildStatusMessageRaw,
   statusModelRefs,
@@ -91,6 +96,32 @@ afterEach(() => {
   listPluginCommands.mockImplementation(() => []);
 });
 
+type ContextBudgetStatus = NonNullable<
+  NonNullable<Parameters<typeof buildStatusMessage>[0]["sessionEntry"]>["contextBudgetStatus"]
+>;
+
+function makeContextBudgetStatus(): ContextBudgetStatus {
+  return {
+    schemaVersion: 1,
+    source: "pre-prompt-estimate",
+    updatedAt: 1,
+    provider: "anthropic",
+    model: "claude-sonnet-4.6",
+    route: "fits",
+    shouldCompact: false,
+    estimatedPromptTokens: 640_000,
+    contextTokenBudget: 1_000_000,
+    promptBudgetBeforeReserve: 900_000,
+    reserveTokens: 100_000,
+    effectiveReserveTokens: 100_000,
+    remainingPromptBudgetTokens: 260_000,
+    overflowTokens: 0,
+    toolResultReducibleChars: 0,
+    messageCount: 2,
+    unwindowedMessageCount: 2,
+  };
+}
+
 type FallbackContextStatusOverrides = {
   activeProvider?: string;
   activeModel?: string;
@@ -153,7 +184,32 @@ function makeFallbackContextStatusArgs({
   };
 }
 
+function withStatusHome(run: () => Promise<void>) {
+  return withTempHome(run, { prefix: "openclaw-status-" });
+}
+
 describe("buildStatusMessage", () => {
+  it("uses estimated context budget status when fresh totalTokens are unavailable", () => {
+    const text = buildStatusMessage({
+      ...modelArgs("anthropic", "claude-sonnet-4.6"),
+      sessionEntry: {
+        inputTokens: 3_800_000,
+        outputTokens: 20_000,
+        totalTokens: 3_800_000,
+        totalTokensFresh: false,
+        contextTokens: 1_000_000,
+        contextBudgetStatus: makeContextBudgetStatus(),
+      },
+
+      now: 10 * 60_000,
+    });
+    const normalized = normalizeTestText(text);
+
+    expect(normalized).toContain("Context: ~640k/1.0m (64% est)");
+    expect(normalized).not.toContain("Context: ?/1.0m");
+    expect(normalized).not.toContain("Context: 3.8m/1.0m");
+  });
+
   it("shows sanitized TTS provider details in the voice status line", async () => {
     await withTempHome(async () => {
       const text = buildStatusMessage({
@@ -202,6 +258,26 @@ describe("buildStatusMessage", () => {
     const normalized = normalizeTestText(text);
     expect(normalized).toContain("Runtime: gemini (acp/acpx\\nrewritten)");
     expect(text).not.toContain("\u001b");
+  });
+
+  it("shows plugin status lines only when verbose is enabled", () => {
+    const render = (verboseLevel: "on" | "off") =>
+      normalizeTestText(
+        buildStatusMessage({
+          ...modelArgs("anthropic", "test:opus"),
+          sessionEntry: {
+            verboseLevel,
+            pluginDebugEntries: [
+              {
+                pluginId: "active-memory",
+                lines: ["🧩 Active Memory: status=timeout elapsed=15s query=recent"],
+              },
+            ],
+          },
+        }),
+      );
+    expect(render("on")).toContain("Active Memory: status=timeout elapsed=15s query=recent");
+    expect(render("off")).not.toContain("Active Memory: status=timeout elapsed=15s query=recent");
   });
 
   it("shows trace lines only when trace is enabled", () => {
@@ -401,6 +477,23 @@ describe("buildStatusMessage", () => {
     expect(normalized).not.toContain("Context: 49k/200k");
   });
 
+  it("uses per-agent sandbox config when config and session key are provided", () => {
+    const text = buildStatusMessage({
+      config: {
+        agents: {
+          entries: {
+            main: {},
+            discord: { sandbox: { mode: "all" } },
+          },
+        },
+      } as unknown as OpenClawConfig,
+      agent: {},
+      sessionKey: "agent:discord:discord:channel:1456350065223270435",
+    });
+
+    expect(normalizeTestText(text)).toContain("Execution: docker/all");
+  });
+
   it("includes media understanding decisions when present", () => {
     const text = buildStatusMessage({
       queue: { mode: "none" },
@@ -496,6 +589,68 @@ describe("buildStatusMessage", () => {
     expect(normalizeTestText(text)).not.toContain("empty output");
   });
 
+  it("shows the selected model and authenticated fallback route", () => {
+    const text = buildStatusMessage({
+      modelRefs: statusModelRefs(
+        { provider: "openai", model: "gpt-4.1-mini" },
+        { provider: "anthropic", model: "claude-haiku-4-5" },
+      ),
+
+      sessionEntry: {
+        providerOverride: "openai",
+        modelOverride: "gpt-4.1-mini",
+        modelProvider: "anthropic",
+        model: "claude-haiku-4-5",
+        fallbackNotice: {
+          kind: "active",
+          selectedModel: "openai/gpt-4.1-mini",
+          activeModel: "anthropic/claude-haiku-4-5",
+          reason: "rate limit",
+        },
+        contextTokens: 32_000,
+      },
+      modelAuth: "api-key",
+      activeModelAuth: "api-key di_123…abc (deepinfra:default)",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("Model: openai/gpt-4.1-mini");
+    expect(normalized).toContain("Fallback: anthropic/claude-haiku-4-5");
+    expect(normalized).toContain("(rate limit)");
+    expect(normalized).not.toContain(" - Reason:");
+    expect(normalized).not.toContain("Active:");
+    expect(normalized).toContain("di_123...abc");
+  });
+
+  it("omits active fallback details when runtime drift does not match fallback state", () => {
+    const text = buildStatusMessage({
+      modelRefs: statusModelRefs(
+        { provider: "openai", model: "gpt-4.1-mini" },
+        { provider: "anthropic", model: "claude-haiku-4-5" },
+      ),
+      agent: {
+        model: "openai/gpt-4.1-mini",
+      },
+      sessionEntry: {
+        modelProvider: "anthropic",
+        model: "claude-haiku-4-5",
+        fallbackNotice: {
+          kind: "active",
+          selectedModel: "fireworks/accounts/fireworks/routers/kimi-k2p5-turbo",
+          activeModel: "deepinfra/moonshotai/Kimi-K2.5",
+          reason: "rate limit",
+        },
+      },
+
+      activeModelAuth: "api-key di_123…abc (deepinfra:default)",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("Model: openai/gpt-4.1-mini");
+    expect(normalized).not.toContain("Fallback:");
+    expect(normalized).not.toContain("(rate limit)");
+  });
+
   it("shows configured fallback models when provided", () => {
     const text = buildStatusMessage({
       agent: {
@@ -536,7 +691,6 @@ describe("buildStatusMessage", () => {
     expect(normalized).toContain("Model: google/gemini-3.1-flash-lite");
     expect(normalized).not.toContain("Fallbacks:");
   });
-<<<<<<< HEAD
 
   it("shows queue details when overridden", () => {
     const text = buildStatusMessage({
@@ -937,8 +1091,6 @@ describe("buildStatusMessage", () => {
       expect(normalized).not.toContain("Context: 1.2k/128k");
     });
   });
-=======
->>>>>>> 97b6e87616f
 });
 
 describe("buildCommandsMessage", () => {
@@ -963,6 +1115,16 @@ describe("buildCommandsMessage", () => {
 });
 
 describe("buildHelpMessage", () => {
+  it("hides config/debug when disabled", () => {
+    const text = buildHelpMessage({
+      commands: { config: false, debug: false },
+    } as unknown as OpenClawConfig);
+    expect(text).toContain("Skills");
+    expect(text).toContain("/skill <name> [input]");
+    expect(text).not.toContain("/config");
+    expect(text).not.toContain("/debug");
+  });
+
   it("includes /fast in help output", () => {
     expect(buildHelpMessage()).toContain("/fast status|auto|on|off|ultrafast|default");
   });
@@ -1001,6 +1163,7 @@ describe("buildCommandsMessagePaginated", () => {
     expect(pluginPage.text).toContain("/plugin_cmd (demo-plugin) - Plugin command");
   });
 });
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
 
 describe("buildToolsMessage", () => {
   const tool = (id: string, label: string, description: string, pluginId?: string) => ({

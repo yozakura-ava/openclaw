@@ -27,6 +27,10 @@ import {
   getOpenClawAgentMigrationSchema,
 } from "./openclaw-agent-db-schema-helpers.js";
 import type { OpenClawAgentSchemaPreflightResult } from "./openclaw-database-preflight.types.js";
+import {
+  canReuseOpenClawAgentIntegrityVerification,
+  type readOpenClawAgentIntegrityVerification,
+} from "./openclaw-quarantine-store.js";
 import { OPENCLAW_SQLITE_BUSY_TIMEOUT_MS } from "./openclaw-state-db-contract.js";
 
 export type AgentSchemaInspectionInput = {
@@ -38,12 +42,8 @@ export type AgentSchemaInspectionInput = {
   inspectOwnership?: boolean;
   requireStartupMigrationReadiness?: boolean;
   deferRuntimeIntegrity?: boolean;
-<<<<<<< HEAD
   startupIntegrityStateDir?: string;
   startupIntegrityVerification?: ReturnType<typeof readOpenClawAgentIntegrityVerification>;
-=======
-  startupIntegrityVerification?: { verifiedAt: number };
->>>>>>> 97b6e87616f
   inspectEmptyStore?: boolean;
 };
 
@@ -159,7 +159,13 @@ export function inspectAgentDatabaseSchema(
       const migrationPending =
         version !== input.supportedVersion ||
         hasPendingCurrentVersionAgentDatabaseMigration(database);
-      if (input.startupIntegrityVerification !== undefined && !migrationPending) {
+      if (
+        canReuseOpenClawAgentIntegrityVerification(
+          input.pathname,
+          input.startupIntegrityVerification,
+          migrationPending,
+        )
+      ) {
         inspection.integrityGateOutcome = "cached";
       } else if (input.deferRuntimeIntegrity && !migrationPending) {
         // The pending Gateway owner claims the live lease and validates before writes.
@@ -167,9 +173,6 @@ export function inspectAgentDatabaseSchema(
       } else {
         assertSqliteIntegrity(database, input.pathname);
         inspection.integrityGateOutcome = "healthy";
-      }
-      if (migrationPending && version === input.supportedVersion) {
-        inspection.preparationPending = true;
       }
       assertCanonicalAgentPersistenceVersion(database, input.pathname, version);
     }

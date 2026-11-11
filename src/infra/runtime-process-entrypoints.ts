@@ -1,9 +1,16 @@
-// Native build tooling imports this declaration without a TypeScript resolver.
-import { createRuntimeProcessEntrypoints } from "./runtime-process-manifest.ts";
+// Runtime launchers and the package build share these subprocess locations.
+function runtimeProcessEntrypoint(modulePath: string) {
+  return {
+    currentModuleUrl: import.meta.url,
+    sourceWorkerName: modulePath.startsWith("infra/")
+      ? modulePath.slice("infra/".length)
+      : `../${modulePath}`,
+    distWorkerPath: `${modulePath}.js`,
+  } as const;
+}
 
 export const SQLITE_READONLY_CHILD_ARG = "--openclaw-sqlite-readonly-child";
 
-<<<<<<< HEAD
 export const runtimeProcessEntrypoints = {
   secretEgressProxy: runtimeProcessEntrypoint("secrets/egress-proxy/proxy.worker"),
   codeModeNode: runtimeProcessEntrypoint("agents/code-mode-node.worker"),
@@ -114,7 +121,3 @@ export const runtimeProcessEntrypoints = {
   // executables so they select the same SQLite library the Gateway will run with.
   bunSqliteLibrary: runtimeProcessEntrypoint("infra/bun-sqlite-library"),
 } as const;
-=======
-// Launchers keep this declaration boundary so compiled subprocesses resolve in their generation.
-export const runtimeProcessEntrypoints = createRuntimeProcessEntrypoints(import.meta.url);
->>>>>>> 97b6e87616f

@@ -4,10 +4,6 @@ import type { CronJob, CronStoredJob } from "./types.js";
 export function toPublicCronJob(job: CronStoredJob): CronJob {
   const {
     operatorSource: _operatorSource,
-<<<<<<< HEAD
-=======
-    inferenceBinding: _inferenceBinding,
->>>>>>> 97b6e87616f
     sourceConversation: _sourceConversation,
     skillLibrarySelections: _skillLibrarySelections,
     createdActor: _createdActor,

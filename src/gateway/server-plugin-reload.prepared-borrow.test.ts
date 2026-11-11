@@ -189,7 +189,7 @@ describe("prepared Gateway plugin borrowing", () => {
           config,
           env,
         });
-        const initial = await bootstrap.prepareGatewayPluginLoad({
+        const initial = bootstrap.prepareGatewayPluginLoad({
           pluginMetadataSnapshot: metadataSnapshot,
           pluginLookUpTable: loadPluginLookUpTable({
             config,
@@ -408,12 +408,7 @@ describe("prepared Gateway plugin borrowing", () => {
             context.getRuntimeConfig = () => config;
             context.resolveGatewayContext = () => context;
             const handler: GatewayRequestHandler = async ({ respond }) => {
-<<<<<<< HEAD
               expect(oldInstance.retainedWorkCount).toBe(0);
-=======
-              // Provider catalog refresh may still retain the plugin after this turn closes.
-              expect(lease).toBeUndefined();
->>>>>>> 97b6e87616f
               await startReload();
               respond(true, { ok: true, runtime: { generation: 2, pluginIds: [toolPluginId] } });
             };
@@ -618,7 +613,7 @@ describe("published Gateway plugin services", () => {
         const logs = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
         const log = { ...createSubsystemLogger("gateway/plugins"), ...logs };
         const initialMetadata = await resolveConfigWidePluginMetadataSnapshotAsync({ config, env });
-        const initial = await bootstrap.prepareGatewayPluginLoad({
+        const initial = bootstrap.prepareGatewayPluginLoad({
           pluginMetadataSnapshot: initialMetadata,
           pluginLookUpTable: loadPluginLookUpTable({
             config,

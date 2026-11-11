@@ -11,6 +11,8 @@ import { observeSqliteWalPeriodicWork } from "../../infra/sqlite-wal-scheduler.t
 import { configureSqliteWalMaintenance } from "../../infra/sqlite-wal.js";
 import * as workerAdmission from "../../infra/sqlite-worker-operation-admission.js";
 import { sqliteWorkerOwnerProbe as probe } from "../../infra/sqlite-worker-owner-probe.test-support.js";
+import * as workerStore from "../../infra/sqlite-worker-store.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 import { closeCachedOpenClawAgentDatabase } from "../../state/openclaw-agent-db-lifecycle.js";
 import { withOpenClawAgentDatabaseReadOnly } from "../../state/openclaw-agent-db-readonly.js";
 import { drainAgentDatabaseResources } from "../../state/openclaw-agent-db-resources.js";
@@ -36,7 +38,7 @@ import {
 } from "./session-history-budget-state.js";
 
 const hooks = vi.hoisted(() => ({
-  admitted: undefined as (() => void) | undefined,
+  beforeAuthorization: undefined as (() => void) | undefined,
 }));
 vi.mock("./session-accessor.sqlite-reclamation-worker.js", async (importOriginal) => {
   const actual =
@@ -52,11 +54,10 @@ vi.mock("./session-accessor.sqlite-reclamation-worker.js", async (importOriginal
           const spy = vi.spyOn(worker, "run").mockImplementation((params) =>
             originalRun({
               ...params,
-              withWriteAdmission: (admit, diagnostics) =>
-                params.withWriteAdmission(async (refusal) => {
-                  hooks.admitted?.();
-                  return admit(refusal);
-                }, diagnostics),
+              onCommitRequest: () => {
+                hooks.beforeAuthorization?.();
+                return params.onCommitRequest();
+              },
             }),
           );
           try {
@@ -73,7 +74,7 @@ vi.mock("./session-accessor.sqlite-reclamation-worker.js", async (importOriginal
 
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 afterEach(async () => {
-  hooks.admitted = undefined;
+  hooks.beforeAuthorization = undefined;
   await closeOpenClawAgentDatabasesAsync();
   closeOpenClawAgentDatabasesForTest();
   closeOpenClawStateDatabaseForTest();
@@ -92,10 +93,18 @@ function createFixture() {
   return { database, databaseOptions: { ...options, path: database.path } };
 }
 
-test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
+test.each([
+  "reclaim",
+  "resource-close",
+  "shared-state-close",
+  "resource-close-replaced",
+  "resource-close-removed",
+] as const)(
   "reclaims pages off-thread and applies current checkpoint receipts (%s)",
   async (recovery) => {
     const { database, databaseOptions } = createFixture();
+    const staleReceipt =
+      recovery === "resource-close-replaced" || recovery === "resource-close-removed";
     const databasePathKey = sqliteReaderDatabasePathKey(database.path);
     database.db.exec(`INSERT INTO cache_entries(scope, key, blob, updated_at)
     VALUES ('wal-proof', 'pages', zeroblob(4194304), 1);
@@ -149,7 +158,6 @@ test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
           },
         });
       });
-<<<<<<< HEAD
     const nativeStopped = createDeferredCore();
     const releaseReceipt = createDeferredCore();
     const openStore = workerStore.openAgentDatabaseSqliteWorkerStore;
@@ -174,8 +182,6 @@ test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
             }),
           )
       : undefined;
-=======
->>>>>>> 97b6e87616f
     let following: Promise<void> | undefined;
     try {
       reader.exec("BEGIN");
@@ -231,7 +237,7 @@ test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
       expect(ordering).toEqual(["archive-start", "archive-complete", "following-writer"]);
       expect(parentReclaim).not.toHaveBeenCalled();
       if (recovery !== "reclaim") {
-        closeCachedOpenClawAgentDatabase(database);
+        closeCachedOpenClawAgentDatabase(database, { eviction: true });
         expect(database.db.isOpen).toBe(false);
         const deferredCheckpoint = budget.checkpointBlocked;
         assert(deferredCheckpoint);
@@ -263,19 +269,44 @@ test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
           closing = closing.then(() => {
             closeSettled = true;
           });
+          if (staleReceipt) {
+            await Promise.race([nativeStopped.promise, closing]);
+            expect(closeSettled).toBe(false);
+            expect(database.db.isOpen).toBe(false);
+            expect(reader.isOpen).toBe(false);
+            expect(getOpenClawAgentDatabaseIfOpen(databaseOptions)).toBeUndefined();
+            // Native close has released the handles and lease; receipt publication is still gated.
+            const retiredPath = `${database.path}.retired`;
+            fs.renameSync(database.path, retiredPath);
+            if (recovery === "resource-close-replaced") {
+              fs.copyFileSync(retiredPath, database.path);
+            }
+            releaseReceipt.resolve();
+          }
           await closing;
           expect(closeSettled).toBe(true);
           const walPath = `${database.path}-wal`;
           expect(fs.existsSync(walPath) ? fs.statSync(walPath).size : 0).toBe(0);
-          expect(observed).toContain("complete");
+          if (staleReceipt) {
+            expect(observed).not.toContain("complete");
+            expect(relayedCompletions).toEqual([]);
+            expect(budget.checkpointBlocked).toBe(deferredCheckpoint);
+          } else {
+            expect(observed).toContain("complete");
+          }
         } finally {
+          releaseReceipt.resolve();
           await Promise.allSettled([closing]);
           unsubscribe();
         }
       }
-      expect(relayedCompletions.length).toBeGreaterThan(0);
-      expect(budget.checkpointBlocked).toBeUndefined();
+      if (!staleReceipt) {
+        expect(relayedCompletions.length).toBeGreaterThan(0);
+        expect(budget.checkpointBlocked).toBeUndefined();
+      }
     } finally {
+      releaseReceipt.resolve();
+      delayReceipt?.mockRestore();
       if (reader.isOpen) {
         if (reader.isTransaction) {
           reader.exec("ROLLBACK");
@@ -290,138 +321,176 @@ test.each(["reclaim", "resource-close", "shared-state-close"] as const)(
   },
 );
 
-test("periodic vacuum waits for an admitted reclamation to settle", async () => {
-  const { database, databaseOptions } = createFixture();
-  // sqlite-allow-raw -- Disposable free pages exercise the real incremental vacuum.
-  database.db.exec(`CREATE TABLE reclamation_fixture (payload BLOB);
+test.each([false, true])(
+  "periodic vacuum waits for reclamation settlement (rejected: %s)",
+  async (rejected) => {
+    const { database, databaseOptions } = createFixture();
+    // sqlite-allow-raw -- Disposable free pages exercise the real incremental vacuum.
+    database.db.exec(`CREATE TABLE reclamation_fixture (payload BLOB);
       INSERT INTO reclamation_fixture VALUES (zeroblob(8388608));
       DROP TABLE reclamation_fixture;`);
-  const freePages = () =>
-    Number(database.db.prepare("PRAGMA freelist_count").get()?.freelist_count);
-  const before = freePages();
-  expect(before).toBeGreaterThan(512);
-  const plan = createLifecycleArtifactReclamationPlan({
-    agentId: databaseOptions.agentId,
-    databaseOptions,
-    entries: [],
-    materializedPlans: [],
-  });
-  const maintenanceErrors: unknown[] = [];
-  let nativeSettled = false;
-  let reclamationWorker: Worker | undefined;
-  const stopObservingWorkers: Array<() => void> = [];
-  const observeWorker = (worker: Worker) => {
-    const onMessage = (message: unknown) => {
-      if (isRecord(message) && message.type === "admission-request") {
-        reclamationWorker = worker;
-        nativeSettled = false;
-      }
-      if (
-        worker === reclamationWorker &&
-        isRecord(message) &&
-        (message.type === "reclaimed" || message.type === "refused") &&
-        message.settled === true
-      ) {
-        nativeSettled = true;
-      }
-    };
-    const onExit = () => {
-      if (worker === reclamationWorker) {
-        nativeSettled = true;
-      }
-    };
-    worker.on("message", onMessage);
-    worker.once("exit", onExit);
-    stopObservingWorkers.push(() => {
-      worker.off("message", onMessage);
-      worker.off("exit", onExit);
-    });
-  };
-  process.on("worker", observeWorker);
-  const maintenanceAdmissions: Array<{
-    stage: "transaction" | "commit";
-    nativeSettled: boolean;
-  }> = [];
-  const databasePathKey = sqliteReaderDatabasePathKey(database.path);
-  const observeAdmission = probe.admission(workerAdmission, (request, grant, admit) => {
-    if (
-      (request.stage === "transaction" || request.stage === "commit") &&
-      isRecord(request.facts) &&
-      isRecord(request.facts.identity) &&
-      typeof request.facts.identity.nativeLocation === "string" &&
-      sqliteReaderDatabasePathKey(request.facts.identity.nativeLocation) === databasePathKey
-    ) {
-      maintenanceAdmissions.push({
-        stage: request.stage,
-        nativeSettled,
-      });
-    }
-    admit(request, grant);
-  });
-  const execSpy = vi.spyOn(database.db, "exec");
-  const scheduled = observeSqliteWalPeriodicWork();
-  let maintenance: ReturnType<typeof configureSqliteWalMaintenance>;
-  try {
-    maintenance = configureSqliteWalMaintenance(database.db, {
-      busyTimeoutMs: 1_000,
-      onCheckpointError: (error) => maintenanceErrors.push(error),
-    });
-  } finally {
-    scheduled.restore();
-  }
-  const periodic = scheduled.periodic;
-  const periodicWork: Promise<unknown>[] = [];
-  hooks.admitted = () => {
-    // Periodic work must join behind the writer whose admission is already held.
-    periodicWork.push(Promise.resolve(periodic()));
-  };
-  try {
-    const reclamation = runSqliteSessionReclamation({
-      plan,
-    });
-    await expect(reclamation).resolves.toMatchObject({
-      kind: "lifecycle-artifacts",
-      value: { removedEntries: 0 },
-    });
-    expect(periodicWork.length).toBeGreaterThan(0);
-    await Promise.all(periodicWork);
-    expect(maintenanceAdmissions[0]).toEqual({
-      stage: "transaction",
-      nativeSettled: true,
-    });
-    expect(maintenanceAdmissions.some((request) => request.stage === "commit")).toBe(true);
-    expect(maintenanceAdmissions.every((request) => request.nativeSettled)).toBe(true);
-    expect(
-      execSpy.mock.calls.filter(([statement]) =>
-        statement.startsWith("PRAGMA incremental_vacuum("),
-      ),
-    ).toEqual([]);
-    expect(getOpenClawAgentDatabaseIfOpen(databaseOptions)?.db === database.db).toBe(true);
-    await maintenance.stop();
-    maintenance.close({ checkpointMode: "PASSIVE" });
-    await closeOpenClawAgentDatabasesAsync();
-    expect(reclamationWorker?.threadId).toBe(-1);
-    const remaining = withOpenClawAgentDatabaseReadOnly(
-      ({ db }) => Number(db.prepare("PRAGMA freelist_count").get()?.freelist_count),
+    const freePages = () =>
+      Number(database.db.prepare("PRAGMA freelist_count").get()?.freelist_count);
+    const before = freePages();
+    expect(before).toBeGreaterThan(512);
+    const plan = createLifecycleArtifactReclamationPlan({
+      agentId: databaseOptions.agentId,
       databaseOptions,
-    );
-    assert.ok(remaining.found);
-    const reclaimed = before - remaining.value;
-    expect(reclaimed).toBeGreaterThan(0);
-    expect(reclaimed).toBeLessThanOrEqual(512);
-    expect(maintenanceErrors).toEqual([]);
-  } finally {
-    process.off("worker", observeWorker);
-    for (const stop of stopObservingWorkers) {
-      stop();
+      entries: [],
+      materializedPlans: [],
+    });
+    const maintenanceErrors: unknown[] = [];
+    let commitChecks = 0;
+    let commitRequested = false;
+    let checksDuringMaintenance = 0;
+    let authorizationChecked = false;
+    let nativeSettled = false;
+    let reclamationWorker: Worker | undefined;
+    const stopObservingWorkers: Array<() => void> = [];
+    const observeWorker = (worker: Worker) => {
+      const onMessage = (message: unknown) => {
+        if (isRecord(message) && message.type === "commit-request") {
+          reclamationWorker = worker;
+          nativeSettled = false;
+        }
+        if (
+          worker === reclamationWorker &&
+          isRecord(message) &&
+          (message.type === "reclaimed" || message.type === "refused") &&
+          message.settled === true
+        ) {
+          nativeSettled = true;
+        }
+      };
+      const onExit = () => {
+        if (worker === reclamationWorker) {
+          nativeSettled = true;
+        }
+      };
+      worker.on("message", onMessage);
+      worker.once("exit", onExit);
+      stopObservingWorkers.push(() => {
+        worker.off("message", onMessage);
+        worker.off("exit", onExit);
+      });
+    };
+    process.on("worker", observeWorker);
+    const maintenanceAdmissions: Array<{
+      stage: "transaction" | "commit";
+      authorizationChecked: boolean;
+      nativeSettled: boolean;
+    }> = [];
+    const databasePathKey = sqliteReaderDatabasePathKey(database.path);
+    const observeAdmission = probe.admission(workerAdmission, (request, grant, admit) => {
+      if (
+        (request.stage === "transaction" || request.stage === "commit") &&
+        isRecord(request.facts) &&
+        isRecord(request.facts.identity) &&
+        typeof request.facts.identity.nativeLocation === "string" &&
+        sqliteReaderDatabasePathKey(request.facts.identity.nativeLocation) === databasePathKey
+      ) {
+        maintenanceAdmissions.push({
+          stage: request.stage,
+          authorizationChecked,
+          nativeSettled,
+        });
+      }
+      admit(request, grant);
+    });
+    const execSpy = vi.spyOn(database.db, "exec");
+    const scheduled = observeSqliteWalPeriodicWork();
+    let maintenance: ReturnType<typeof configureSqliteWalMaintenance>;
+    try {
+      maintenance = configureSqliteWalMaintenance(database.db, {
+        busyTimeoutMs: 1_000,
+        onCheckpointError: (error) => maintenanceErrors.push(error),
+      });
+    } finally {
+      scheduled.restore();
     }
-    observeAdmission.mockRestore();
-    execSpy.mockRestore();
-    await maintenance.stop();
-    await Promise.all(periodicWork);
-    if (database.db.isOpen) {
+    const periodic = scheduled.periodic;
+    const periodicWork: Promise<unknown>[] = [];
+    hooks.beforeAuthorization = () => {
+      // Timer work must queue without synchronously servicing or delaying this approval.
+      commitRequested = true;
+      const checksBeforeMaintenance = commitChecks;
+      periodicWork.push(Promise.resolve(periodic()));
+      checksDuringMaintenance = commitChecks - checksBeforeMaintenance;
+    };
+    try {
+      const reclamation = runSqliteSessionReclamation({
+        forceInProcess: false,
+        plan,
+        assertCommitAllowed: () => {
+          commitChecks += 1;
+          if (commitRequested) {
+            authorizationChecked = true;
+          }
+          if (rejected && commitRequested) {
+            throw new Error("reclamation owner retired");
+          }
+        },
+      });
+      if (rejected) {
+        await expect(reclamation).rejects.toThrow("reclamation owner retired");
+      } else {
+        await expect(reclamation).resolves.toMatchObject({
+          kind: "lifecycle-artifacts",
+          value: { removedEntries: 0 },
+        });
+      }
+      await Promise.all(periodicWork);
+      await runExclusiveSqliteSessionWrite(
+        databaseOptions,
+        async () => undefined,
+        "session.transcript.batch",
+      );
+      expect(checksDuringMaintenance).toBe(0);
+      expect(authorizationChecked).toBe(true);
+      expect(maintenanceAdmissions[0]).toEqual({
+        stage: "transaction",
+        authorizationChecked: true,
+        nativeSettled: true,
+      });
+      expect(maintenanceAdmissions.some((request) => request.stage === "commit")).toBe(true);
+      expect(
+        maintenanceAdmissions.every(
+          (request) => request.authorizationChecked && request.nativeSettled,
+        ),
+      ).toBe(true);
+      expect(
+        execSpy.mock.calls.filter(([statement]) =>
+          statement.startsWith("PRAGMA incremental_vacuum("),
+        ),
+      ).toEqual([]);
+      expect(getOpenClawAgentDatabaseIfOpen(databaseOptions)?.db === database.db).toBe(true);
+      await maintenance.stop();
       maintenance.close({ checkpointMode: "PASSIVE" });
+      await closeOpenClawAgentDatabasesAsync();
+      expect(reclamationWorker?.threadId).toBe(-1);
+      const remaining = withOpenClawAgentDatabaseReadOnly(
+        ({ db }) => Number(db.prepare("PRAGMA freelist_count").get()?.freelist_count),
+        databaseOptions,
+      );
+      assert.ok(remaining.found);
+      const reclaimed = before - remaining.value;
+      expect(reclaimed).toBeGreaterThan(0);
+      expect(reclaimed).toBeLessThanOrEqual(512);
+      expect(maintenanceErrors).toEqual([]);
+    } finally {
+      process.off("worker", observeWorker);
+      for (const stop of stopObservingWorkers) {
+        stop();
+      }
+      observeAdmission.mockRestore();
+      execSpy.mockRestore();
+      await maintenance.stop();
+      await Promise.all(periodicWork);
+      if (database.db.isOpen) {
+        maintenance.close({ checkpointMode: "PASSIVE" });
+      }
+      await closeOpenClawAgentDatabasesAsync();
     }
-    await closeOpenClawAgentDatabasesAsync();
-  }
-}, 20_000);
+  },
+  20_000,
+);

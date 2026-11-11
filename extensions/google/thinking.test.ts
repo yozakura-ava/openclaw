@@ -65,10 +65,6 @@ describe("Google transport thinking config", () => {
       { id: "gemini-flash-lite-latest", thinkingLevel: "MINIMAL" },
       { id: "gemini-3.6-flash", thinkingLevel: "MINIMAL" },
       { id: "gemini-3.7-flash", thinkingLevel: "LOW" },
-<<<<<<< HEAD
-=======
-      { id: "gemini-3.8-flash", thinkingLevel: "LOW" },
->>>>>>> 97b6e87616f
       { id: "gemini-4-argon", thinkingLevel: "LOW" },
     ].map(({ id, thinkingLevel }) => ({
       name: `${id} disabled thinking floor`,
@@ -77,15 +73,6 @@ describe("Google transport thinking config", () => {
       expected: { thinkingLevel },
     })),
     {
-<<<<<<< HEAD
-=======
-      name: "Gemini 3.8 Flash floors minimal thinking at LOW",
-      model: { id: "gemini-3.8-flash" },
-      options: { reasoning: "minimal" },
-      expected: { includeThoughts: true, thinkingLevel: "LOW" },
-    },
-    {
->>>>>>> 97b6e87616f
       name: "explicit Gemini 3 budget becomes a level",
       model: { id: "gemini-3-flash-preview" },
       options: { thinking: { enabled: true, budgetTokens: 8192 } },

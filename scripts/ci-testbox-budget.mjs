@@ -5,10 +5,6 @@ import { pathToFileURL } from "node:url";
 
 const PROFILES = {
   "check-focused": { runner: "blacksmith-4vcpu-ubuntu-2404", minutes: 60 },
-<<<<<<< HEAD
-=======
-  "check-routine": { runner: "blacksmith-8vcpu-ubuntu-2404", minutes: 120 },
->>>>>>> 97b6e87616f
   check: { runner: "blacksmith-16vcpu-ubuntu-2404", minutes: 240 },
   "check-memory": { runner: "blacksmith-32vcpu-ubuntu-2404", minutes: 240 },
   arm: { runner: "blacksmith-16vcpu-ubuntu-2404-arm", minutes: 120 },
@@ -51,11 +47,7 @@ export function planTestboxAdmission(
   ) {
     throw new Error(`Runner ${selectedRunner} is not allowed for the ${profile} Testbox profile.`);
   }
-<<<<<<< HEAD
   const defaultMinutes = ["check", "check-focused"].includes(profile)
-=======
-  const defaultMinutes = ["check", "check-focused", "check-routine"].includes(profile)
->>>>>>> 97b6e87616f
     ? DEFAULT_STANDARD_MINUTES
     : policy.minutes;
   const timeout = minutes === undefined || minutes === "" ? defaultMinutes : Number(minutes);

@@ -155,27 +155,30 @@ export function updateOwnersForScopedRefresh(
   retiredPublications.forEach(releasePreparedPluginPublication);
 }
 
-/** Includes unfinished or changed owners without replacing unrelated prepared generations. */
+/** Keeps a requested scope only when every retained owner has identical prepared dependencies. */
 export function resolveSafeRefreshAgentIds(
   config: OpenClawConfig,
   options: PreparedModelRuntimeRefreshOptions,
   owners: Map<string, PreparedModelRuntimeOwner>,
 ): ReadonlySet<string> | undefined {
-  if (!options.agentIds) {
+  const requested = options.agentIds;
+  if (!requested) {
     return undefined;
   }
-  const agentIds = new Set(options.agentIds);
   const inputs = new Map(
     listConfiguredRefreshInputs(config, options, owners).flatMap((input) =>
       input.agentId ? [[input.agentId, input] as const] : [],
     ),
   );
   for (const owner of owners.values()) {
-    if (owner.provenance !== "configured" || !owner.input.agentId) {
+    if (
+      owner.provenance !== "configured" ||
+      !owner.input.agentId ||
+      requested.has(owner.input.agentId)
+    ) {
       continue;
     }
     const input = inputs.get(owner.input.agentId);
-    inputs.delete(owner.input.agentId);
     if (
       !input ||
       !owner.snapshot ||
@@ -185,13 +188,10 @@ export function resolveSafeRefreshAgentIds(
         owner.snapshot.metadataSnapshot !== options.pluginMetadataSnapshot) ||
       ownerKey({ ...owner.input, config: input.config }) !== ownerKey(input)
     ) {
-      agentIds.add(owner.input.agentId);
+      return undefined;
     }
   }
-  for (const agentId of inputs.keys()) {
-    agentIds.add(agentId);
-  }
-  return agentIds;
+  return requested;
 }
 
 /** Recovery operations share configured owners and the lifecycle's existing publication barrier. */
@@ -348,7 +348,6 @@ export function createPreparedModelRuntimeRecovery(host: {
     const affected = [...host.owners.values()].filter(
       (candidate) => candidate.catalogRecovery === recovery,
     );
-    const recoveryClaim: { gateId?: PreparedModelRuntimeReplacement["gateId"] } = {};
     const publication = host
       .publish(owner.input.config, {
         catalogMode: owner.catalogMode,
@@ -356,10 +355,7 @@ export function createPreparedModelRuntimeRecovery(host: {
         agentIds: new Set(affected.flatMap((candidate) => candidate.input.agentId ?? [])),
         pluginMetadataSnapshot: owner.snapshot?.metadataSnapshot,
         isPublicationCurrent: () =>
-          host.canRecover() &&
-          (host.owners.get(ownerKey(owner.input)) === owner ||
-            (recoveryClaim.gateId !== undefined &&
-              host.getReplacement()?.gateId === recoveryClaim.gateId)),
+          host.canRecover() && host.owners.get(ownerKey(owner.input)) === owner,
       })
       .catch((error: unknown) => {
         if (
@@ -386,14 +382,7 @@ export function createPreparedModelRuntimeRecovery(host: {
         }
       });
     recovery.pending = publication;
-<<<<<<< HEAD
     recovery.replacementGateId = host.getReplacement()?.gateId;
-=======
-    // This publication can replace its own owner before commit. Keep only its exact gate alive;
-    // newer replacement epochs remain fenced by the publication queue.
-    recoveryClaim.gateId = host.getReplacement()?.gateId;
-    recovery.replacementGateId = recoveryClaim.gateId;
->>>>>>> 97b6e87616f
     await racePromiseWithAbortSignal(publication, abortSignal);
     assertLifetime();
   }

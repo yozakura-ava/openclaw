@@ -9,12 +9,16 @@ import {
 } from "../../../test/helpers/sqlite-parent-observer.js";
 import { resolveHeartbeatSession } from "../../infra/heartbeat-runner-session.js";
 import { openNodeSqliteDatabase } from "../../infra/node-sqlite.js";
+import type { SqliteWorkerOperationSettlement } from "../../infra/sqlite-worker-operation-settlement.js";
 import { createDeferredCore } from "../../shared/deferred.js";
+import { readOpenClawAgentDatabaseIdentity } from "../../state/openclaw-agent-db-identity.js";
+import * as registryListing from "../../state/openclaw-agent-db-registry-listing.js";
 import {
   registerOpenClawAgentDatabase,
   unregisterOpenClawAgentDatabase,
 } from "../../state/openclaw-agent-db-registry.js";
 import {
+  closeOpenClawAgentDatabaseByPathAsync,
   closeOpenClawAgentDatabasesAsync,
   openOpenClawAgentDatabase,
   resolveOpenClawAgentSqlitePath,
@@ -23,6 +27,7 @@ import {
 import type { OpenClawAgentDatabaseExecution } from "../../state/openclaw-agent-execution-contract.js";
 import * as executionOwner from "../../state/openclaw-agent-execution.js";
 import { runOpenClawAgentWorkerWrite } from "../../state/openclaw-agent-write-admission.js";
+import { captureOpenClawStateWorkerContext } from "../../state/openclaw-state-worker-context.js";
 import {
   createOpenClawTestState,
   type OpenClawTestState,
@@ -30,17 +35,19 @@ import {
 import { loadSessionEntryForAdmission } from "./session-accessor.sqlite-entry-admission.js";
 import {
   loadSessionEntry,
-  replaceSessionEntry,
+  patchSessionEntryTarget,
   replaceSessionEntrySync,
 } from "./session-accessor.sqlite-entry.js";
+import { loadExactSessionEntryReadOnly } from "./session-accessor.sqlite-exact-read.js";
 import { resolveSqliteScope, toDatabaseOptions } from "./session-accessor.sqlite-scope.js";
-import type { SessionAccessScope } from "./session-accessor.types.js";
-import { memorySessionActorOwners } from "./session-actor-memory-owner.js";
+import type { SessionAccessScope, SessionEntryTargetPatchScope } from "./session-accessor.types.js";
 import {
   readSessionEntryInWorker,
   readSessionEntryReadOnlyInWorker,
   withSessionEntriesFromStoresInWorker,
 } from "./session-entry-read-runtime.js";
+import { addSessionMember } from "./session-sharing-store.native.js";
+import { targetDiscoveryLane } from "./session-transcript-worker-resources.js";
 
 let state: OpenClawTestState;
 beforeAll(async () => {
@@ -55,7 +62,6 @@ function storedScope(storePath: string, scope: Partial<SessionAccessScope> = {})
 }
 
 function holdExecution(
-<<<<<<< HEAD
   stage:
     | "while-queued"
     | "before-open"
@@ -63,9 +69,6 @@ function holdExecution(
     | "after-release"
     | "after-discovery-cleanup"
     | "reply",
-=======
-  stage: "before-open" | "reply",
->>>>>>> 97b6e87616f
   shouldHold: (execution: OpenClawAgentDatabaseExecution) => boolean = () => true,
   once = stage === "reply",
 ) {
@@ -73,10 +76,7 @@ function holdExecution(
     entered: createDeferredCore(),
     release: createDeferredCore(),
     armed: stage !== "reply",
-<<<<<<< HEAD
     executionReleased: false,
-=======
->>>>>>> 97b6e87616f
     restore: () => intercept.mockRestore(),
   };
   const hold = async (execution: OpenClawAgentDatabaseExecution) => {
@@ -91,23 +91,16 @@ function holdExecution(
     .spyOn(executionOwner, "captureOpenClawAgentDatabaseExecution")
     .mockImplementation((...args) => {
       const execution = capture(...args);
-<<<<<<< HEAD
       if (stage === "while-queued") {
         gate.entered.resolve();
       }
-=======
->>>>>>> 97b6e87616f
       const overrides: Partial<OpenClawAgentDatabaseExecution> = {};
       if (stage === "before-open") {
         overrides.prepare = async (source) => {
           await hold(execution);
           await execution.prepare(source);
         };
-<<<<<<< HEAD
       } else if (stage === "after-row" || stage === "reply") {
-=======
-      } else if (stage === "reply") {
->>>>>>> 97b6e87616f
         overrides.runExisting = (source, operation, options) =>
           execution.runExisting(
             source,
@@ -117,7 +110,6 @@ function holdExecution(
                 await hold(execution);
                 return result;
               };
-<<<<<<< HEAD
               const result = await operation(stage === "reply" ? { execute } : worker);
               if (stage === "after-row") {
                 await hold(execution);
@@ -158,16 +150,6 @@ function interceptRegistryRead(onError: (error: unknown) => void) {
         },
       };
     });
-=======
-              return operation({ execute });
-            },
-            options,
-          );
-      }
-      return { ...execution, ...overrides };
-    });
-  return gate;
->>>>>>> 97b6e87616f
 }
 
 async function readFirstSession(
@@ -260,7 +242,6 @@ it("preserves heartbeat entries and SQLite creation without materializing the JS
   }
 });
 
-<<<<<<< HEAD
 it("refuses a successor registration instead of extending the captured pending join", async () => {
   const agentId = "bounded-registration";
   const scope = storedScope(state.statePath("pending-registration", agentId, "sessions.json"), {
@@ -397,8 +378,6 @@ it.each(
   },
 );
 
-=======
->>>>>>> 97b6e87616f
 it.each(["read", "admission"] as const)(
   "joins concurrent first %s requests through the queued database owner",
   async (kind) => {
@@ -563,7 +542,6 @@ it("keeps writable schema-repair admission for a logical read", async () => {
   }
 });
 
-<<<<<<< HEAD
 it("refuses malformed folded candidate state while retaining the healthy requested row", async () => {
   const scope = {
     agentId: "aliases",
@@ -612,26 +590,22 @@ it("refuses malformed folded candidate state while retaining the healthy request
 
 it.each([
   { stage: "while-queued", change: "registry", registration: "changed" },
-=======
-it.for([
->>>>>>> 97b6e87616f
   { stage: "while-queued", change: "file", registration: "changed" },
   { stage: "while-queued", change: "file", registration: "unchanged" },
   { stage: "while-queued", change: "caller", registration: "changed" },
+  { stage: "before-open", change: "registry", registration: "changed" },
+  { stage: "after-row", change: "registry", registration: "changed" },
+  { stage: "after-release", change: "registry", registration: "changed" },
+  { stage: "after-discovery-cleanup", change: "registry", registration: "changed" },
 ] as const)(
   "refuses $change replacement $stage ($registration registration)",
-<<<<<<< HEAD
   async ({ stage, change, registration }) => {
-=======
-  async ({ stage, change, registration }, { signal }) => {
->>>>>>> 97b6e87616f
     const scope = storedScope(state.statePath(stage, change, registration, "sessions.json"));
     replaceSessionEntrySync(scope, { sessionId: "selected-row", updatedAt: 1 });
     const target = toDatabaseOptions(resolveSqliteScope(scope));
     if (change === "file") {
       await closeOpenClawAgentDatabasesAsync();
     }
-<<<<<<< HEAD
     const gate = holdExecution(stage);
     const holdDiscoveryCleanup = async () => {
       if (stage === "after-discovery-cleanup" && gate.executionReleased) {
@@ -664,25 +638,6 @@ it.for([
     if (priorWriter) {
       await writerEntered.promise;
     }
-=======
-    const writerEntered = createDeferredCore();
-    const releaseWriter = createDeferredCore();
-    let priorWriter: Promise<void> | undefined;
-    const capture = executionOwner.captureOpenClawAgentDatabaseExecution;
-    const intercept = vi
-      .spyOn(executionOwner, "captureOpenClawAgentDatabaseExecution")
-      .mockImplementationOnce((...args) => {
-        intercept.mockRestore();
-        const execution = capture(...args);
-        // Discovery must finish its cold admission before a writer can hold the read queue.
-        priorWriter = runOpenClawAgentWorkerWrite(target, async () => {
-          writerEntered.resolve();
-          await releaseWriter.promise;
-        });
-        void priorWriter.catch((error: unknown) => writerEntered.reject(error));
-        return execution;
-      });
->>>>>>> 97b6e87616f
     let callerCurrent = true;
     const reading = readSessionEntryInWorker(scope, () => {
       if (!callerCurrent) {
@@ -692,7 +647,6 @@ it.for([
       (value) => ({ value, error: undefined }),
       (error: unknown) => ({ value: undefined, error }),
     );
-<<<<<<< HEAD
     void reading.then((result) => {
       gate.entered.reject(
         result.error ?? new Error("Logical read completed before its held boundary"),
@@ -700,19 +654,10 @@ it.for([
     });
     try {
       await gate.entered.promise;
-=======
-    try {
-      await withinTest(
-        awaitGateBeforeSettlement(
-          writerEntered.promise,
-          reading,
-          "Logical read completed before its held writer",
-        ),
-        signal,
-      );
->>>>>>> 97b6e87616f
       const databasePath = resolveOpenClawAgentSqlitePath(target);
-      if (change === "file") {
+      if (change === "registry") {
+        unregisterOpenClawAgentDatabase({ agentId: "ops", path: databasePath, env: state.env });
+      } else if (change === "file") {
         fs.renameSync(databasePath, `${databasePath}.original`);
         fs.copyFileSync(`${databasePath}.original`, databasePath);
       } else {
@@ -720,46 +665,35 @@ it.for([
       }
       if (registration === "changed") {
         registerOpenClawAgentDatabase({
-          agentId: "ops",
+          agentId: change === "registry" ? "other" : "ops",
           path: databasePath,
           env: state.env,
         });
       }
-<<<<<<< HEAD
       gate.release.resolve();
-=======
-      releaseWriter.resolve();
-      await priorWriter;
->>>>>>> 97b6e87616f
       const result = await reading;
       expect(result.value).toBeUndefined();
       expect(result.error).toBeInstanceOf(Error);
     } finally {
-<<<<<<< HEAD
       gate.release.resolve();
       await reading;
       await priorWriter;
       gate.restore();
       closeIntercept.mockRestore();
       rotateIntercept.mockRestore();
-=======
-      releaseWriter.resolve();
-      intercept.mockRestore();
-      await Promise.allSettled([reading, priorWriter]);
->>>>>>> 97b6e87616f
     }
   },
 );
 
-it.each([
-  { agentId: undefined, keyKind: "short" },
-  { agentId: "main", keyKind: "qualified" },
-])(
-  "preserves a populated incognito owner for an explicit locator ($agentId, $keyKind)",
-  async ({ agentId, keyKind }) => {
-    const owner = { agentId: `ops-memory-${agentId ?? "missing"}-${keyKind}`, env: state.env };
+it.each(
+  [undefined, "main", "other"].flatMap((agentId) =>
+    ["global", "topic"].map((sessionKey) => ({ agentId, sessionKey })),
+  ),
+)(
+  "preserves a populated incognito owner for an explicit locator ($agentId, $sessionKey)",
+  async ({ agentId, sessionKey }) => {
+    const owner = { agentId: `ops-memory-${agentId ?? "missing"}-${sessionKey}`, env: state.env };
     const storePath = resolveIncognitoOpenClawAgentSqlitePath(owner);
-<<<<<<< HEAD
     const ownedScope = { ...owner, storePath, sessionKey };
     const entry = { sessionId: "private-ops-session", updatedAt: 1 };
     replaceSessionEntrySync(ownedScope, entry);
@@ -900,33 +834,24 @@ it.each(["reset", "delete", "physical replacement", "release"] as const)(
     const { scope, entry, database } = createCohortFixture(`revoke-${change.replaceAll(" ", "-")}`);
     const { claim, reader } = await admitCohort(scope);
     const consume = vi.fn();
-=======
-    const canonicalKey = `agent:${owner.agentId}:dashboard:incognito-topic`;
-    const sessionKey = keyKind === "qualified" ? canonicalKey : "dashboard:incognito-topic";
-    const ownedScope = { ...owner, storePath, sessionKey: canonicalKey };
-    const entry = { sessionId: "private-ops-session", updatedAt: 1, incognito: true as const };
-    await replaceSessionEntry(ownedScope, entry);
-    const memory = memorySessionActorOwners.read({ ...owner, path: storePath });
-    expect(memory).toBeDefined();
-    const observer = observeParentSqlite();
->>>>>>> 97b6e87616f
     try {
-      const scope = { env: state.env, storePath, sessionKey, agentId };
-      if (agentId === undefined) {
-        expect(loadSessionEntry(scope)).toMatchObject(entry);
-        await expect(readSessionEntryInWorker(scope)).resolves.toMatchObject(entry);
+      if (change === "reset") {
+        replaceSessionEntrySync(scope, { ...entry, lifecycleRevision: "successor" });
+      } else if (change === "delete") {
+        database.db
+          .prepare("DELETE FROM session_nodes WHERE session_key = ?")
+          .run(scope.sessionKey);
+      } else if (change === "physical replacement") {
+        fs.copyFileSync(database.path, `${database.path}.replacement`);
+        fs.renameSync(`${database.path}.replacement`, database.path);
       } else {
-        const mismatch =
-          "Explicit incognito database target does not match its agent and state root";
-        expect(() => loadSessionEntry(scope)).toThrow(mismatch);
-        await expect(readSessionEntryInWorker(scope)).rejects.toThrow(mismatch);
+        await claim.release();
       }
-      expect(fs.existsSync(storePath)).toBe(false);
-      expect(memorySessionActorOwners.read({ ...owner, path: storePath })).toBe(memory);
-      expect(loadSessionEntry(ownedScope)).toMatchObject(entry);
-      expect(observer.counts).toEqual(emptySqliteCounts());
+      await expect(
+        reader.withRead({ sessionKeys: [scope.sessionKey] }, () => {}, consume),
+      ).rejects.toThrow(/changed|replaced|released|closed/iu);
+      expect(consume).not.toHaveBeenCalled();
     } finally {
-<<<<<<< HEAD
       await claim.release();
     }
   },
@@ -1042,10 +967,6 @@ it.for(
         awaitGateBeforeSettlement(entered.promise, writer, "Host FIFO blocker did not enter"),
         signal,
       );
-=======
-      observer.restore();
-      memorySessionActorOwners.closeDatabase({ ...owner, path: storePath });
->>>>>>> 97b6e87616f
     }
     reading = reader.withRead(request, () => {}, consume);
     let readSettled = false;

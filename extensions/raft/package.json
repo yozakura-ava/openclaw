@@ -1,10 +1,6 @@
 {
   "name": "@openclaw/raft",
-<<<<<<< HEAD
   "version": "2026.10.8",
-=======
-  "version": "2026.11.1",
->>>>>>> 97b6e87616f
   "description": "OpenClaw Raft channel plugin for Raft CLI wake bridges.",
   "repository": {
     "type": "git",
@@ -19,11 +15,7 @@
     "openclaw": "workspace:*"
   },
   "peerDependencies": {
-<<<<<<< HEAD
     "openclaw": ">=2026.10.8"
-=======
-    "openclaw": ">=2026.11.1"
->>>>>>> 97b6e87616f
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -42,17 +34,10 @@
       "minHostVersion": ">=2026.6.8"
     },
     "compat": {
-<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "openclawVersion": "2026.10.8"
-=======
-      "pluginApi": ">=2026.11.1"
-    },
-    "build": {
-      "openclawVersion": "2026.11.1"
->>>>>>> 97b6e87616f
     },
     "channel": {
       "id": "raft",

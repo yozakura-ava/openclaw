@@ -8,18 +8,15 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 import type { Readable } from "node:stream";
+import { setTimeout as waitForProcessTick } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { withTimeout } from "@openclaw/fs-safe/advanced";
 import { expectDefined } from "@openclaw/normalization-core";
 import { asOptionalRecord as asRecord } from "@openclaw/normalization-core/record-coerce";
-<<<<<<< HEAD
 import {
   inspectManagedProcessGroup,
   terminateManagedChild,
 } from "../../scripts/lib/managed-child-process.mts";
-=======
-import { formatCliCommand } from "../../src/cli/command-format.js";
->>>>>>> 97b6e87616f
 import { readSessionArchiveContentSync } from "../../src/config/sessions/archive-compression.js";
 import { formatSqliteSessionFileMarker } from "../../src/config/sessions/legacy-sqlite-marker.js";
 import {
@@ -43,7 +40,6 @@ import { closeOpenClawStateDatabaseForTest } from "../../src/state/openclaw-stat
 import { sleep } from "../../src/utils.js";
 import {
   createOpenClawTestInstance,
-  GatewayAgentAdmissionError,
   GatewayStartupRefusedError,
 } from "./openclaw-test-instance.js";
 import { withinTest } from "./promise.js";
@@ -866,24 +862,11 @@ async function requireLegacyStartupRefusal(inst: OpenClawTestInstance, context: 
       refusal = error;
       message = error instanceof Error ? error.message : String(error);
     }
-    const legacyProcessRefusal =
-      refusal instanceof GatewayStartupRefusedError &&
-      refusal.reason === "legacy-migration-required" &&
-      refusal.legacyStorePath === legacyStorePath;
-    const deferredAdmissionRefusal =
-      refusal instanceof GatewayAgentAdmissionError &&
-      refusal.refusals.some(
-        (entry) =>
-          entry.code === "agent-database-inspection-failed" &&
-          entry.agentId === context.agentId &&
-          Array.isArray(entry.paths) &&
-          entry.paths.includes(context.agentDbPath) &&
-          entry.reason ===
-            `Legacy session store requires migration: ${legacyStorePath}. Run "${formatCliCommand("openclaw doctor --fix", inst.env)}" against the same state/config before starting OpenClaw.` &&
-          typeof entry.repairHint === "string" &&
-          entry.repairHint.includes("doctor --fix"),
-      );
-    if (!legacyProcessRefusal && !deferredAdmissionRefusal) {
+    if (
+      !(refusal instanceof GatewayStartupRefusedError) ||
+      refusal.reason !== "legacy-migration-required" ||
+      refusal.legacyStorePath !== legacyStorePath
+    ) {
       throw new Error(
         `expected legacy session migration refusal on startup ${attempt}, got: ${message || "ready Gateway"}`,
       );
@@ -1407,9 +1390,13 @@ async function runAbruptRestartProof(
   // The caller has joined agent.wait and observed both committed messages. This
   // covers completed-turn durability, not an interrupted transaction or active run.
   const before = await snapshot(client);
+  const child = expectDefined(inst.child, "running Gateway before abrupt restart");
   await disconnect();
-  const forcedExit = await forceGatewayExit(inst, context.signal);
+  const forcedExit = await forceGatewayExit(child, context.signal);
   await record("after-abrupt-gateway-exit");
+  // Release the existing owner only after forced exit and tree closure are proven;
+  // its graceful stop must not turn a failed kill into a passing recovery test.
+  await inst.stopGateway();
   await inst.startGateway();
   await record("after-abrupt-gateway-restart");
   const restarted = await connectProofClient(inst, context, "sqlite-abrupt-restart");
@@ -1446,8 +1433,7 @@ async function runAbruptRestartProof(
   return await proof;
 }
 
-async function forceGatewayExit(instance: OpenClawTestInstance, abortSignal?: AbortSignal) {
-  const child = expectDefined(instance.child, "running Gateway before abrupt restart");
+async function forceGatewayExit(child: ProofChildProcess, abortSignal?: AbortSignal) {
   if (child.exitCode !== null || child.signalCode !== null) {
     throw new Error("Gateway already exited before the abrupt-restart proof");
   }
@@ -1458,30 +1444,33 @@ async function forceGatewayExit(instance: OpenClawTestInstance, abortSignal?: Ab
     once(child, "close", { signal: abort.signal }),
   ]);
   try {
-    child.kill("SIGKILL");
+    const termination = terminateManagedChild(child, "SIGKILL");
     const [[code, signal], [closeCode, closeSignal]] = await (abortSignal
       ? withinTest(observed, abortSignal)
       : observed);
     if (
       (process.platform === "win32"
-        ? code === null || code === 0
+        ? termination?.processTreeState !== "terminated" || code === null || code === 0
         : code !== null || signal !== "SIGKILL") ||
       closeCode !== code ||
       closeSignal !== signal
     ) {
-      throw new Error(`Gateway did not exit forcibly: ${JSON.stringify({ code, signal })}`);
+      throw new Error(
+        `Gateway did not exit forcibly: ${JSON.stringify({ code, signal, termination })}`,
+      );
     }
-    // Root exit and output closure do not certify descendants. Join the fixture's
-    // exact custody owner after proving SIGKILL, before admitting another Gateway.
-    await instance.stopGateway();
-    return {
-      code,
-      signal,
-      closeCode,
-      closeSignal,
-      platform: process.platform,
-      processTreeState: "dead" as const,
-    };
+    // Child close cannot report descendants without inherited pipes. The managed
+    // owner exposes a census, not an extinction event; only cancellation bounds this check.
+    let processTreeState = inspectManagedProcessGroup(child, { errorPolicy: "indeterminate" });
+    while (processTreeState !== "dead") {
+      try {
+        await waitForProcessTick(10, undefined, { signal: abortSignal });
+      } catch (cause) {
+        throw new Error("Gateway process tree remained alive after SIGKILL", { cause });
+      }
+      processTreeState = inspectManagedProcessGroup(child, { errorPolicy: "indeterminate" });
+    }
+    return { code, signal, closeCode, closeSignal, platform: process.platform, processTreeState };
   } finally {
     abort.abort();
     await Promise.allSettled([observed]);
@@ -1507,7 +1496,7 @@ async function readRecoverySession(
         .prepare(
           "SELECT seq, event_json AS eventJson FROM transcript_events WHERE session_id = ? ORDER BY seq ASC",
         )
-        .all(sessionId) as Array<{ seq: number; eventJson: string | null }>,
+        .all(sessionId) as Array<{ seq: number; eventJson: string }>,
   );
   const messages = events.flatMap(({ seq, eventJson }) => {
     const event = parseJsonObject(eventJson);
@@ -1750,7 +1739,7 @@ async function waitForAgentRunSettled(client: GatewayClient, runId: string): Pro
   if (result.status === "ok") {
     return;
   }
-  // Deletion can settle with its action or the runtime's terminal abort error.
+  // Deletion can settle with its action or an admission/runtime abort reason.
   // A wait deadline has no endedAt and must still fail this proof.
   const terminalLifecycleStatus = result.status === "timeout" || result.status === "error";
   if (
@@ -2408,11 +2397,7 @@ function findArchiveArtifact(
   );
 }
 
-// Large events are stored compressed (`event_zstd`) with a NULL `event_json`.
-function parseJsonObject(text: string | null | undefined): Record<string, unknown> | undefined {
-  if (typeof text !== "string") {
-    return undefined;
-  }
+function parseJsonObject(text: string): Record<string, unknown> | undefined {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start < 0 || end < start) {

@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { setRuntimeConfigSnapshot } from "../../../config/runtime-snapshot.js";
 import { createTestGatewayScheduler } from "../../../test-utils/gateway-scheduler-clock.js";
 import {
   withOpenClawTestState,
@@ -14,8 +13,6 @@ import type {
 } from "./internal-params.js";
 
 async function createSettlementFixture(state: OpenClawTestState) {
-  const config = {};
-  setRuntimeConfigSnapshot(config);
   const { loadSessionEntry, replaceSessionEntry } =
     await import("../../../config/sessions/session-accessor.js");
   const {
@@ -42,12 +39,7 @@ async function createSettlementFixture(state: OpenClawTestState) {
     updatedAt: 1,
   });
   const runId = randomUUID();
-  const admission = prepareSystemAgentRunAdmission(
-    config,
-    runId,
-    target.agentId,
-    "settlement-test",
-  );
+  const admission = prepareSystemAgentRunAdmission({}, runId, target.agentId, "settlement-test");
   const controller = new AbortController();
   const unsubscriptions: Array<() => void> = [];
   const close = () => {
@@ -267,9 +259,6 @@ describe("settleEmbeddedRun compaction identity", () => {
           fixture.observeIdentity(fixture.stop);
         }
         const accepted = await fixture.accept(randomUUID());
-        if (!accepted.admissionTransition) {
-          throw new Error("missing committed transition");
-        }
         const cleanupFacts: Array<CompactionAccountingFact | undefined> = [];
         fixture.input.runtime.stopRuntimeAuthRefreshTimer = () => {
           cleanupFacts.push(fixture.facts[0]);
@@ -289,10 +278,6 @@ describe("settleEmbeddedRun compaction identity", () => {
           currentContextSnapshot: { tokens: 3_000 },
           previousSessionId: fixture.target.sessionId,
           hostCompactionCommitted: true,
-<<<<<<< HEAD
-=======
-          admissionTransitions: [accepted.admissionTransition],
->>>>>>> 97b6e87616f
           target: {
             ...fixture.target,
             sessionId: accepted.entry.sessionId,
@@ -307,40 +292,6 @@ describe("settleEmbeddedRun compaction identity", () => {
       });
     },
   );
-
-  it("carries every committed transition through settlement and a later zero-count candidate", async () => {
-    await withSettlementFixture(async (fixture) => {
-      const first = await fixture.accept(randomUUID());
-      const second = await fixture.accept(randomUUID());
-      fixture.input.compaction.state.autoCompactionCount = 2;
-      await fixture.settle();
-      const fact = fixture.facts[0];
-      if (fact?.kind !== "durable") {
-        throw new Error("missing durable host fact");
-      }
-      expect(fact.admissionTransitions).toEqual([
-        first.admissionTransition,
-        second.admissionTransition,
-      ]);
-      expect(fact.target.sessionId).toBe(second.entry.sessionId);
-      const accounting = createCommandCompactionAccounting({
-        persistCounts: false,
-        onDurableFact: () => {},
-        refreshSessionEntry: () => {},
-      });
-      const candidate = accounting.beginCandidate();
-      candidate.observe(fact);
-      await candidate.finish(fixture.loadEntry());
-      const following = accounting.beginCandidate();
-      following.observe({ kind: "durable", count: 0, target: fact.target });
-      await following.finish(fixture.loadEntry());
-      expect(accounting.fact?.admissionTransitions).toEqual([
-        first.admissionTransition,
-        second.admissionTransition,
-      ]);
-      expect(accounting.fact?.count).toBe(2);
-    });
-  });
 
   it("carries original writer custody without inventing a rotation or context observation", async () => {
     await withSettlementFixture(async (fixture) => {

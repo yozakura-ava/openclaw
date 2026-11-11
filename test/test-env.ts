@@ -544,18 +544,7 @@ export function installTestEnv(options?: InstallTestEnvOptions): {
       return { cleanup: () => {}, tempHome: realHome };
     }
 
-<<<<<<< HEAD
     const credentialEnvKeys = live ? [] : Object.keys(process.env).filter(isCredentialEnvName);
-=======
-    // Git config keys and potentially credential-valued entries form one counted tuple.
-    // Removing only KEY_n leaves malformed config and inherited auth values behind.
-    const credentialEnvKeys = live
-      ? []
-      : Object.keys(process.env).filter(
-          (key) =>
-            isCredentialEnvName(key) || /^GIT_CONFIG_(?:COUNT|(?:KEY|VALUE)_\d+)$/u.test(key),
-        );
->>>>>>> 97b6e87616f
     const restore = resolveRestoreEntries(credentialEnvKeys);
     tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "openclaw-test-home-"));
     initializeIsolatedTestEnv(tempHome, credentialEnvKeys);

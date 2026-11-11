@@ -10,6 +10,7 @@ import {
 import type { SqliteWorkerStateContext } from "../infra/sqlite-worker-state-context.js";
 import {
   openSharedStateSqliteWorkerStore,
+  prepareSharedStateSqliteWorkerRuntime,
   closeUnclaimedSharedStateSqliteWorkers,
   hasUnclaimedSharedStateSqliteCleanup,
   isSqliteWorkerStoreAvailable,
@@ -25,7 +26,6 @@ import {
   captureOpenClawStateDatabaseReadAdmission,
   openClawStateDatabaseCache,
   publishOpenClawStateDatabaseWorkerAdmission,
-  assertPublishedOpenClawStateDatabaseLifecycle,
   registerOpenClawStateDatabaseAsyncResource,
   registerOpenClawStateDatabaseLifecycleListener,
 } from "./openclaw-state-db-cache.js";
@@ -36,7 +36,6 @@ import type {
   OpenClawStateWorkerOperationOptions as OperationOptions,
 } from "./openclaw-state-worker-contract.js";
 import { createStateWorkerMemoryPressureSubscription } from "./openclaw-state-worker-memory-pressure.js";
-import * as nativeLoss from "./openclaw-state-worker-native-loss.js";
 import {
   assertOpenClawStateWorkerActorPath,
   assertOpenClawStateWorkerSchemaContext,
@@ -136,10 +135,14 @@ export function createSharedStateWorkerOwner() {
       return;
     }
     const store = entry.store;
+    const generation = entry.operationGeneration;
     const deadline = performance.now() + SQLITE_IDLE_HANDLE_TTL_MS;
     const arm = (delay: number, inspect: boolean) => {
       const isCurrentIdle = () =>
-        entry.idleTimer === timer && entry.activeOperations === 0 && stores.has(entry);
+        entry.idleTimer === timer &&
+        entry.operationGeneration === generation &&
+        entry.activeOperations === 0 &&
+        stores.has(entry);
       const settle = async () => {
         if (!isCurrentIdle()) {
           return;
@@ -211,22 +214,21 @@ export function createSharedStateWorkerOwner() {
     }
     throw error;
   };
-  const retainOperation = (store: Store, onNativeLost?: () => void) => {
+  const retainOperation = (store: Store) => {
     const entry = [...stores].find((candidate) => candidate.store === store);
     if (!entry) {
       throw new Error("Shared-state worker operation lost its actor owner");
     }
     clearIdleRetirement(entry);
+    entry.operationGeneration += 1;
     entry.activeOperations += 1;
     activeEntries.add(entry);
-    const releaseNativeLost = nativeLoss.retainListener(entry, onNativeLost);
     let released = false;
     return () => {
       if (released) {
         return undefined;
       }
       released = true;
-      releaseNativeLost?.();
       entry.activeOperations -= 1;
       if (entry.activeOperations === 0) {
         activeEntries.delete(entry);
@@ -393,7 +395,7 @@ export function createSharedStateWorkerOwner() {
       throw new AggregateError(errors, "Failed to close shared-state SQLite workers");
     }
   }
-  registerOpenClawStateDatabaseAsyncResource({ phase: "after-resources", close });
+  registerOpenClawStateDatabaseAsyncResource({ close });
   registerOpenClawStateDatabaseLifecycleListener((event) => {
     if (event.kind !== "opened") {
       // Synchronous error eviction cannot await, but actor retirement remains
@@ -424,6 +426,9 @@ export function createSharedStateWorkerOwner() {
     }
   }
   return {
+    prepareRuntime() {
+      return prepareSharedStateSqliteWorkerRuntime(captureRuntimeWorkerSource(moduleUrl));
+    },
     close,
     retainOperation,
     // Source and bundled callers must share the owner's backend URL.
@@ -495,7 +500,13 @@ export function createSharedStateWorkerOwner() {
       context: OpenClawStateWorkerContext,
       options: Omit<OperationOptions, "createAdmission"> = {},
     ): Promise<Store | undefined> {
-      const { existingOnly = false, assertCurrent, preparation, signal } = options;
+      const {
+        existingOnly = false,
+        assertCurrent,
+        preparation,
+        runtimePreparation,
+        signal,
+      } = options;
       const { admission } = context;
       const wait = <T>(pending: Promise<T>) => racePromiseWithAbortSignal(pending, signal);
       const source = captureRuntimeWorkerSource(moduleUrl);
@@ -602,7 +613,6 @@ export function createSharedStateWorkerOwner() {
         const databaseAdmission = captureOpenClawStateDatabaseReadAdmission(admission.databasePath);
         assertAdmission();
         const openingGuard = captureOpenClawStateWorkerOpeningGuard(context, assertCurrent, signal);
-        const nativeLostListeners = new Set<() => void>();
         const open = () =>
           openingGuard.run(() =>
             openSharedStateSqliteWorkerStore<StoreOperations>(
@@ -616,12 +626,11 @@ export function createSharedStateWorkerOwner() {
               {
                 maintenanceScope: context.maintenanceScope,
                 preparation,
+                runtimePreparation,
                 signal,
                 retainCleanup: (cleanup) => {
                   admitted.cleanup = cleanup;
                 },
-                // Bind only the listener set so the broker does not retain the opening caller.
-                onNativeLost: nativeLoss.createNotifier(nativeLostListeners),
               },
             ),
           );
@@ -631,8 +640,8 @@ export function createSharedStateWorkerOwner() {
           databaseAdmission,
           openingAdmission: openingGuard.admission,
           existingOnly,
-          nativeLostListeners,
           activeOperations: 0,
+          operationGeneration: 0,
           // Maintenance may already be draining an accepted callback; its native
           // opening must retain that callback's live admission through settlement.
           opening: context.maintenanceScope ? open() : runInDetachedAsyncContext(open),
@@ -711,16 +720,3 @@ export function createSharedStateWorkerOwner() {
     },
   };
 }
-<<<<<<< HEAD
-=======
-
-export function getOpenClawStateWorkerOwner() {
-  // The owner registers with and publishes into the cache that created it. A
-  // retired generation must neither install its owner nor drive the current one.
-  assertPublishedOpenClawStateDatabaseLifecycle();
-  return resolveGlobalSingleton(
-    Symbol.for("openclaw.sharedStateWorkerOwner"),
-    createSharedStateWorkerOwner,
-  );
-}
->>>>>>> 97b6e87616f

@@ -1,21 +1,13 @@
-import fs from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildOpenAIResponsesParams } from "../../../../packages/ai/src/transports/openai-responses-params-internal.js";
-import { createSolidPngBuffer } from "../../../../test/helpers/image-fixtures.js";
 import { createDeferred } from "../../../../test/helpers/promise.js";
-import { setRuntimeConfigSnapshot } from "../../../config/runtime-snapshot.js";
 import {
   loadTranscriptEventsSync,
   upsertSessionEntryCore,
 } from "../../../config/sessions/session-accessor.js";
-<<<<<<< HEAD
 import type { Context } from "../../../llm/types.js";
-=======
-import type { Context, ImageContent } from "../../../llm/types.js";
-import { finalizeRuntimePromptImages } from "../../../media/runtime-prompt-image-provenance.js";
->>>>>>> 97b6e87616f
 import { annotateInterSessionPromptText } from "../../../sessions/input-provenance.js";
 import {
   createUserTurnTranscriptRecorder,
@@ -38,7 +30,7 @@ import { serializeCacheTtlToolResultProjections } from "../cache-ttl-checkpoint.
 import {
   clearEmbeddedSessionPromptStates,
   createToolResultPromptProjectionState,
-  retainEmbeddedSessionPromptState,
+  getEmbeddedSessionPromptState,
   persistToolResultProjections,
 } from "../session-prompt-state.js";
 import { restoreCacheTtlToolResultProjections } from "../tool-result-truncation.js";
@@ -49,7 +41,6 @@ import {
   sessionId as modelPromptSessionId,
 } from "./attempt-prompt-submit.test-support.js";
 import { createUserTranscriptContextRegistry } from "./attempt-user-transcript-context-registry.js";
-import { hydratePromptMediaMessages } from "./images.js";
 import { createEmbeddedRunSessionPromptState } from "./session-prompt-state.js";
 
 registerAgentSessionLoopTestLifecycle();
@@ -62,87 +53,62 @@ afterEach(() => {
 describe("durable model prompt projection at provider dispatch", () => {
   const sessionId = modelPromptSessionId;
   it.each([
-    { projection: "unchanged prompt", steering: "midturn" },
-    { projection: "unchanged prompt", steering: "retry" },
     { projection: "prepend/append hooks", steering: "midturn" },
     { projection: "modelPrompt replacement", steering: "midturn" },
     { projection: "prepend/append hooks", steering: "initial" },
-    { projection: "prepend/append hooks with log patterns", steering: "midturn" },
+    { projection: "redacted prepend/append hooks", steering: "midturn" },
   ] as const)(
-    "preserves complete serialized prefixes across $steering continuation, another turn, and reopen: $projection",
+    "preserves complete serialized prefixes across $steering steering, another turn, and reopen: $projection",
     async ({ projection, steering }) => {
       await withOpenClawTestState({ label: "model-prompt-projection" }, async (state) => {
-        const withLogPatterns = projection === "prepend/append hooks with log patterns";
-        const withImage = projection === "unchanged prompt";
-        const imagePath = path.join(state.workspaceDir, "prompt-image.png");
-        const imageBuffer = createSolidPngBuffer(1, 1, { r: 12, g: 34, b: 56 });
-        if (withImage) {
-          await fs.writeFile(imagePath, imageBuffer);
-        }
+        const redactHook = projection === "redacted prepend/append hooks";
         const target = {
           agentId: "main",
           sessionId,
           sessionKey: "agent:main:model-prompt-projection",
           storePath: path.join(state.agentDir("main"), "openclaw-agent.sqlite"),
-          ...(withLogPatterns ? { config: { logging: { redactPatterns: ["hidden"] } } } : {}),
+          ...(redactHook ? { config: { logging: { redactPatterns: ["hidden"] } } } : {}),
         };
-        setRuntimeConfigSnapshot(target.config ?? {});
         await upsertSessionEntryCore(target, { sessionId, updatedAt: 1 });
         const requests: ReturnType<typeof buildOpenAIResponsesParams>[] = [];
-        const userEnvelopes: string[][] = [];
         const openSession = async () => {
           const contexts = createUserTranscriptContextRegistry();
-          const manager = await SessionManager.openAsync(target, state.workspaceDir);
-          const result = await createTestSession({
-            sessionManager: manager,
-            ...(withImage ? { model: { ...testModel, input: ["text", "image"] } } : {}),
-          });
+          const manager = guardSessionManager(
+            await SessionManager.openAsync(target, state.workspaceDir),
+            {
+              onUserMessagePersisted: (message, runtimeMessage) => {
+                if (runtimeMessage) {
+                  contexts.record(runtimeMessage, message);
+                }
+              },
+            },
+          );
+          const result = await createTestSession({ sessionManager: manager });
           const convert = result.session.agent.convertToLlm;
-          result.session.agent.convertToLlm = async (messages) => {
-            const normalized = normalizeMessagesForLlmBoundary(messages, {
-              sessionVersion: manager.getHeader()?.version,
-              userTranscriptContexts: contexts.list(),
-              timezone: "UTC",
-            });
-            return convert(
-              withImage
-                ? await hydratePromptMediaMessages(normalized, {
-                    workspaceDir: state.workspaceDir,
-                    model: { input: ["text", "image"] },
-                    workspaceOnly: true,
-                  })
-                : normalized,
+          result.session.agent.convertToLlm = (messages) =>
+            convert(
+              normalizeMessagesForLlmBoundary(messages, {
+                sessionVersion: manager.getHeader()?.version,
+                userTranscriptContexts: contexts.list(),
+                timezone: "UTC",
+              }),
             );
-          };
-          return { ...result, contexts, getUserTranscriptContexts: () => contexts.list() };
+          return { ...result, getUserTranscriptContexts: () => contexts.list() };
         };
         const first = await openSession();
         streamMocks.streamSimple.mockImplementation((model, context) => {
           requests.push(structuredClone(buildOpenAIResponsesParams(model, context, undefined)));
-          userEnvelopes.push(
-            context.messages
-              .filter((message) => message.role === "user")
-              .map((message) => JSON.stringify(message)),
-          );
           if (steering === "midturn" && requests.length === 1) {
             first.session.agent.steer({ role: "user", content: "queued correction", timestamp: 2 });
-          }
-          if (steering === "retry" && requests.length === 1) {
-            return createAssistantResultStream({
-              ...createAssistant(model, [{ type: "text", text: "Partial answer" }], "error"),
-              errorMessage: "HTTP 503 interrupted response",
-            });
           }
           return createAssistantResultStream(
             createAssistant(model, [{ type: "text", text: `answer ${requests.length}` }]),
           );
         });
         const expectedProjection = (turn: number) =>
-          projection === "unchanged prompt"
-            ? `original turn ${turn}`
-            : projection === "modelPrompt replacement"
-              ? `replacement for turn ${turn}`
-              : `hook before ${turn}${withLogPatterns ? " hidden" : ""}\n\noriginal turn ${turn}\n\nhook after ${turn}`;
+          projection === "modelPrompt replacement"
+            ? `replacement for turn ${turn}`
+            : `hook before ${turn}${redactHook ? " ***" : ""}\n\noriginal turn ${turn}\n\nhook after ${turn}`;
         const submit = async (active: typeof first, turn: number) => {
           const transcriptPrompt = `original turn ${turn}`;
           const recorder = createUserTurnTranscriptRecorder({
@@ -150,121 +116,42 @@ describe("durable model prompt projection at provider dispatch", () => {
               text: transcriptPrompt,
               timestamp: turn,
               idempotencyKey: `projection:${turn}:user`,
-              ...(withImage && turn === 1
-                ? { media: [{ path: imagePath, contentType: "image/png" }] }
-                : {}),
             },
             target: { ...target, sessionEntry: { sessionId, updatedAt: 1 } },
           });
-          if (withImage && turn === 1) {
-            // Admission precedes guard installation, as in current-turn replay.
-            // Suppressed persistence must adopt the row's envelope without
-            // losing ownership of the already loaded image.
-            await recorder.persistApproved();
-            await active.sessionManager.reloadPersistedTranscriptAsync();
-          }
           guardSessionManager(active.sessionManager, {
             preparedUserTurnMessage: recorder.message,
             preparedUserTurnTranscriptRecorder: recorder,
-            suppressNextUserMessagePersistence: withImage && turn === 1,
-            onUserMessagePersisted: (message, runtimeMessage) => {
-              if (runtimeMessage) {
-                active.contexts.record(runtimeMessage, message);
-              }
-            },
           });
           await submitEmbeddedAttemptPrompt({
             ...createBaseInput(),
             attempt: { sessionId, userTurnTranscriptRecorder: recorder },
-            ...(withImage && turn === 1
-              ? {
-                  images: finalizeRuntimePromptImages([
-                    {
-                      image: {
-                        type: "image" as const,
-                        data: imageBuffer.toString("base64"),
-                        mimeType: "image/png",
-                      },
-                      factIndex: 0,
-                    },
-                  ]).images,
-                }
-              : {}),
             activeSession: active.session,
             transcriptPrompt,
             modelPrompt: projection === "modelPrompt replacement" ? expectedProjection(turn) : "",
-            prependContext:
-              projection === "unchanged prompt"
-                ? undefined
-                : `hook before ${turn}${withLogPatterns ? " hidden" : ""}`,
-            appendContext: projection === "unchanged prompt" ? undefined : `hook after ${turn}`,
+            prependContext: `hook before ${turn}${redactHook ? " hidden" : ""}`,
+            appendContext: `hook after ${turn}`,
             getUserTranscriptContexts: active.getUserTranscriptContexts,
             withTranscriptWrite: (write) => withSessionManagerWrite(active.sessionManager, write),
             promptActiveSession: (prompt, options) => active.session.prompt(prompt, options),
           });
-          expect(
-            active.session.getLastAssistantText(),
-            JSON.stringify(
-              active.session.messages.flatMap((message) =>
-                message.role === "assistant"
-                  ? [{ stopReason: message.stopReason, errorMessage: message.errorMessage }]
-                  : [],
-              ),
-            ),
-          ).toBe(
-            steering === "retry" && requests.length === 1
-              ? "Partial answer"
-              : `answer ${requests.length}`,
-          );
-          return recorder;
+          expect(active.session.getLastAssistantText()).toBe(`answer ${requests.length}`);
         };
 
         if (steering === "initial") {
           first.session.agent.steer({ role: "user", content: "queued correction", timestamp: 2 });
         }
-        const firstRecorder = await submit(first, 1);
-        let firstTurnRequests = steering === "midturn" ? 2 : 1;
+        await submit(first, 1);
+        const firstTurnRequests = steering === "midturn" ? 2 : 1;
         expect(requests).toHaveLength(firstTurnRequests);
-        if (steering === "retry") {
-          await submitEmbeddedAttemptPrompt({
-            ...createBaseInput(),
-            attempt: { sessionId, userTurnTranscriptRecorder: firstRecorder },
-            activeSession: first.session,
-            transcriptPrompt: "original turn 1",
-            modelPrompt: "Changed prompt from the retry",
-            images: finalizeRuntimePromptImages([
-              {
-                image: {
-                  type: "image",
-                  data: createSolidPngBuffer(1, 1, { r: 200, g: 100, b: 50 }).toString("base64"),
-                  mimeType: "image/png",
-                } satisfies ImageContent,
-                factIndex: 0,
-              },
-            ]).images,
-            getUserTranscriptContexts: first.getUserTranscriptContexts,
-            withTranscriptWrite: (write) => withSessionManagerWrite(first.sessionManager, write),
-            promptActiveSession: (prompt, options) => first.session.prompt(prompt, options),
-          });
-          firstTurnRequests++;
-          expect(requests).toHaveLength(firstTurnRequests);
-          expect(JSON.stringify(requests.at(-1))).not.toContain("Changed prompt from the retry");
-        }
         await submit(first, 2);
         expect(requests).toHaveLength(firstTurnRequests + 1);
         first.session.dispose();
         const reopened = await openSession();
         await submit(reopened, 3);
         expect(requests).toHaveLength(firstTurnRequests + 2);
-        if (withImage) {
-          for (const request of requests) {
-            expect(JSON.stringify(request).match(/"type":"input_image"/g)).toHaveLength(1);
-          }
-        }
 
         for (let index = 1; index < requests.length; index++) {
-          const previousUsers = userEnvelopes[index - 1]!;
-          expect(userEnvelopes[index]!.slice(0, previousUsers.length)).toEqual(previousUsers);
           const previous = requests[index - 1]!;
           const current = requests[index]!;
           expect(
@@ -275,9 +162,7 @@ describe("durable model prompt projection at provider dispatch", () => {
         for (const turn of [1, 2, 3]) {
           expect(serialized).toContain(JSON.stringify(expectedProjection(turn)).slice(1, -1));
         }
-        if (steering !== "retry") {
-          expect(serialized).toContain("queued correction");
-        }
+        expect(serialized).toContain("queued correction");
         expect(serialized).not.toContain("modelPromptProjection");
 
         const users = (await readTranscriptMessages(target)).filter(
@@ -285,38 +170,20 @@ describe("durable model prompt projection at provider dispatch", () => {
         );
         expect(users.map((message) => message.content)).toEqual([
           "original turn 1",
-          ...(steering === "retry" ? [] : ["queued correction"]),
+          "queued correction",
           "original turn 2",
           "original turn 3",
         ]);
         for (const [index, turn] of [1, 2, 3].entries()) {
-          expect(users[steering === "retry" || index === 0 ? index : index + 1]).toMatchObject({
+          expect(users[index === 0 ? 0 : index + 1]).toMatchObject({
             idempotencyKey: `projection:${turn}:user`,
-            __openclaw: {
-              modelPromptProjection: { version: 1, text: expectedProjection(turn) },
-            },
+            __openclaw: { modelPromptProjection: { version: 1, text: expectedProjection(turn) } },
           });
         }
-        if (steering !== "retry") {
-          expect(users[1]).not.toHaveProperty("__openclaw.modelPromptProjection");
-        }
-        if (withImage) {
-          expect(users[0]).toHaveProperty("__openclaw.media", [
-            expect.objectContaining({ path: imagePath, contentType: "image/png" }),
-          ]);
-          expect(users[0]).not.toHaveProperty("__openclaw.mediaImageBlockFactIndexes");
-          expect(JSON.parse(userEnvelopes[0]![0]!)).toMatchObject({
-            timestamp: 1,
-            idempotencyKey: "projection:1:user",
-            __openclaw: {
-              media: [expect.objectContaining({ path: imagePath, contentType: "image/png" })],
-              mediaImageBlockFactIndexes: [0],
-            },
-          });
-        }
-        if (withLogPatterns) {
-          expect(JSON.stringify(requests)).toContain("hidden");
-          expect(JSON.stringify(users)).toContain("hidden");
+        expect(users[1]).not.toHaveProperty("__openclaw.modelPromptProjection");
+        if (redactHook) {
+          expect(JSON.stringify(requests)).not.toContain("hidden");
+          expect(JSON.stringify(users)).not.toContain("hidden");
         }
       });
     },
@@ -332,7 +199,6 @@ describe("durable model prompt projection at provider dispatch", () => {
           sessionKey: "agent:main:fallback-model-projection",
           storePath: path.join(state.agentDir("main"), "openclaw-agent.sqlite"),
         };
-        setRuntimeConfigSnapshot({});
         await upsertSessionEntryCore(target, { sessionId, updatedAt: 1 });
         const original = "Keep the original user request.";
         const firstProjection = enriched ? "Original request with captured context." : original;
@@ -440,7 +306,6 @@ describe("durable model prompt projection at provider dispatch", () => {
         );
         expect(users).toHaveLength(2);
         expect(users[0]).toMatchObject({ content: original, idempotencyKey: "fallback:user" });
-<<<<<<< HEAD
         expect(users[1]).toMatchObject({
           content: [{ type: "text", text: retry }],
           display: false,
@@ -454,12 +319,6 @@ describe("durable model prompt projection at provider dispatch", () => {
         } else {
           expect(users[0]).not.toHaveProperty("__openclaw.modelPromptProjection");
         }
-=======
-        expect(users[0]).toHaveProperty("__openclaw.modelPromptProjection", {
-          version: 1,
-          text: firstProjection,
-        });
->>>>>>> 97b6e87616f
       });
     },
   );
@@ -475,7 +334,6 @@ describe("durable model prompt projection at provider dispatch", () => {
           storePath: path.join(state.agentDir("main"), "openclaw-agent.sqlite"),
           sessionEntry: { sessionId, updatedAt: 1 },
         };
-        setRuntimeConfigSnapshot({});
         await upsertSessionEntryCore(target, target.sessionEntry);
         const original = {
           text: "describe this image",
@@ -593,7 +451,6 @@ describe("durable model prompt projection at provider dispatch", () => {
         storePath: path.join(state.agentDir("main"), "openclaw-agent.sqlite"),
         sessionEntry: { sessionId, updatedAt: 1 },
       };
-      setRuntimeConfigSnapshot({});
       await upsertSessionEntryCore(target, target.sessionEntry);
       const recorder = createUserTurnTranscriptRecorder({
         input: { text: "original compacted turn", timestamp: 1 },
@@ -655,11 +512,7 @@ describe("durable model prompt projection at provider dispatch", () => {
   it.each([
     { body: "plain", nested: false, hook: false },
     { body: "forwarded inter-session", nested: true, hook: false },
-<<<<<<< HEAD
     { body: "redacted hook", nested: false, hook: true },
-=======
-    { body: "hook", nested: false, hook: true },
->>>>>>> 97b6e87616f
   ])(
     "replays an inter-session turn with its stored provenance envelope: $body body",
     async ({ nested, hook }) => {
@@ -672,10 +525,6 @@ describe("durable model prompt projection at provider dispatch", () => {
           sessionEntry: { sessionId, updatedAt: 1 },
           ...(hook ? { config: { logging: { redactPatterns: ["hidden"] } } } : {}),
         };
-<<<<<<< HEAD
-=======
-        setRuntimeConfigSnapshot(target.config ?? {});
->>>>>>> 97b6e87616f
         await upsertSessionEntryCore(target, target.sessionEntry);
         const provenance = {
           kind: "inter_session" as const,
@@ -714,11 +563,7 @@ describe("durable model prompt projection at provider dispatch", () => {
           );
         });
 
-<<<<<<< HEAD
         // The active turn sends the routed body; its provenance travels in runtime context.
-=======
-        // The first request keeps the same stored provenance envelope as replay.
->>>>>>> 97b6e87616f
         await submitEmbeddedAttemptPrompt({
           ...createBaseInput(),
           activeSession: session,
@@ -750,11 +595,7 @@ describe("durable model prompt projection at provider dispatch", () => {
         expect(firstUser(requests[0]!)).toContain("sourceSession=agent:main:parent");
         expect(firstUser(requests[0]!)).toContain(task);
         expect(firstUser(requests[1]!)).toBe(firstUser(requests[0]!));
-<<<<<<< HEAD
         // Unredacted hook text never reaches the provider.
-=======
-        // A replacement that drops the source envelope is ignored.
->>>>>>> 97b6e87616f
         expect(JSON.stringify(requests)).not.toContain("hidden");
         expect(JSON.stringify(loadTranscriptEventsSync(target))).not.toContain(
           "modelPromptProjection",
@@ -811,8 +652,7 @@ describe("tool-result projection persistence at dispatch", () => {
 
   it("writes one marker for unchanged requests and another for a new frozen batch", async () => {
     const { session: activeSession, sessionManager: manager } = await createTestSession();
-    using promptStateLease = retainEmbeddedSessionPromptState(toolProjectionSessionId);
-    const sessionPromptState = promptStateLease.state;
+    const sessionPromptState = getEmbeddedSessionPromptState(toolProjectionSessionId);
     const projectionState = sessionPromptState.toolResults;
     const requests: Context["messages"][] = [];
     activeSession.agent.streamFn = (model, context) => {

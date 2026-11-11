@@ -1,7 +1,6 @@
 import type { toolIcons } from "../../components/icons-tools.ts";
 
 export type PendingInputStatus =
-  | "queued"
   | "waitingForWorkerSetup"
   | "waitingForWorkspaceSync"
   | "resuming"
@@ -14,11 +13,7 @@ type SystemNoticeKind = {
   // Fixed operator summary shown instead of the raw model prompt. Omit when the
   // producer emits variable, informative text (reasons, doctor hints) that must
   // stay visible; the notice then keeps the message body under the kind label.
-<<<<<<< HEAD
   // Null keeps only the label unless a pending state supplies an actionable summary.
-=======
-  // Null retains the label unless a pending state supplies an actionable summary.
->>>>>>> 97b6e87616f
   summaryKey?: string | null;
   pendingSummaryKeys?: Partial<Record<PendingInputStatus, string>>;
   // Collapse the variable body behind a disclosure. For bulky injected context
@@ -39,11 +34,6 @@ const systemNoticeKinds: Readonly<Record<string, SystemNoticeKind>> = {
       interrupted: "chat.systemNotice.restartRecovery.interrupted",
       cancelled: "chat.systemNotice.restartRecovery.cancelled",
     },
-  },
-  cron_failure_repair: {
-    icon: "cpu",
-    labelKey: "chat.systemNotice.automationRecovery.label",
-    summaryKey: "chat.systemNotice.automationRecovery.summary",
   },
   "restart-sentinel": {
     icon: "cpu",

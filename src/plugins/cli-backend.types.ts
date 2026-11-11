@@ -210,16 +210,6 @@ export type CliBackendLiveSessionCapability = {
   remove(handle: CliBackendLiveSessionHandle): void;
 };
 
-/** Plugin-owned input sink for the admitted turn; the host revalidates authority at each effect. */
-export type CliBackendMessageInjection = {
-  isAvailable(): boolean;
-  /**
-   * Ask the host to prepare current authority and invoke the synchronous native write.
-   * Resolve only after the runtime acknowledges consumption, not after the write.
-   */
-  queueMessage(text: string, withCurrent: (submit: () => void) => Promise<void>): Promise<void>;
-};
-
 /** Turn-only context that must not become an operator-authored native transcript row. */
 export type CliBackendPromptContext = {
   prependContext?: string;
@@ -248,8 +238,6 @@ export type CliBackendExecuteContext = {
   toolAvailability?: CliBackendToolAvailability;
   /** Exact host-owned reusable process lifecycle and current-turn admission. */
   liveSession?: CliBackendLiveSessionCapability;
-  /** Offers same-turn input for this run; the host drops it when the run closes. */
-  registerMessageInjection?: (injection: CliBackendMessageInjection) => void;
   /** Closure-bound approval capability; retained copies fail after the run closes. */
   requestToolPermission: (
     request: CliBackendToolPermissionRequest,
@@ -526,11 +514,7 @@ type CliBackendPluginBase = {
    * otherwise expose no native tools. Core applies the same list to ordinary and
    * verified completion turns, so return only tools that confer no capability
    * through `projectNativeToolAuthority`; caller caps, restricted senders,
-<<<<<<< HEAD
    * and workspace-only runs still receive none.
-=======
-   * delegated execution, and workspace-only runs still receive none.
->>>>>>> 97b6e87616f
    */
   resolveManagedNativeTools?: (ctx: {
     config?: OpenClawConfig;

@@ -20,7 +20,6 @@ import {
   routeResolverFactory,
   subscriptionRoute,
 } from "./model-auth-availability.test-support.js";
-import { projectClaudeCliNativeCatalog } from "./model-catalog-cli-wildcard.js";
 import {
   createModelCatalogDecisions,
   prepareModelCatalogDecisions,
@@ -151,53 +150,6 @@ describe("captured model decisions", () => {
                   serviceTiers: ["ultrafast"],
                 },
               ],
-=======
-  it.each(["session", "configured", "automatic"])(
-    "prepares %s account discovery",
-    async (selection) => {
-      const pluginRegistry = harnessRegistry("codex");
-      const catalog = vi.fn(
-        async (ctx: import("../plugins/provider-catalog.types.js").ProviderCatalogContext) => {
-          const auth = ctx.resolveProviderAuth("openai");
-          expect([
-            "openai:selected",
-            ...(selection === "automatic" ? ["openai:auto"] : []),
-          ]).toContain(auth.profileId);
-          return {
-            provider: { baseUrl: subscriptionRoute.baseUrl, models: [] },
-            outcomes: [
-              {
-                provider: "openai",
-                profileId: auth.profileId,
-                status: "ready" as const,
-                modelServiceTiers: [
-                  {
-                    modelId: entry.id,
-                    runtimeId: "codex",
-                    api: subscriptionRoute.api,
-                    baseUrl: subscriptionRoute.baseUrl,
-                    serviceTiers: ["ultrafast"],
-                  },
-                ],
-              },
-            ],
-          };
-        },
-      );
-      pluginRegistry.providers.push({
-        pluginId: "openai",
-        source: "fixture",
-        provider: { id: "openai", label: "OpenAI", auth: [], catalog: { run: catalog } },
-      });
-      const sharedSnapshot = { entries: [entry], routeVariants: [entry] };
-      const cfg: OpenClawConfig = {
-        ...config,
-        agents: {
-          defaults: {
-            ...config.agents?.defaults,
-            model: {
-              primary: `openai/${entry.id}@openai:${selection === "session" ? "shared" : "selected"}`,
->>>>>>> 97b6e87616f
             },
           ],
         };
@@ -369,7 +321,6 @@ describe("captured model decisions", () => {
       id: "codex",
       source: "implicit",
     });
-<<<<<<< HEAD
   });
 
   it("honors an invalid configured primary account pin over native login", async () => {
@@ -389,27 +340,6 @@ describe("captured model decisions", () => {
       unavailableReason: "auth-failed",
     });
     expect(owner.runtimeChoices(entry)).toEqual([]);
-=======
->>>>>>> 97b6e87616f
-  });
-
-  it("honors an invalid configured primary account pin over native login", async () => {
-    const cfg: OpenClawConfig = {
-      ...config,
-      agents: {
-        defaults: {
-          model: { primary: "openai/gpt-5.4@openai:missing" },
-          models: config.agents?.defaults?.models,
-        },
-      },
-    };
-    const owner = nativeOwner(true, true, () => true, cfg);
-
-    expect(await owner.evaluateEntry(entry)).toMatchObject({
-      availability: false,
-      unavailableReason: "auth-failed",
-    });
-    expect(await owner.runtimeChoices(entry)).toEqual([]);
   });
 
   it("keeps ordinary host authentication distinct from native login", async () => {
@@ -817,7 +747,7 @@ describe("catalog decisions with prepared CLI auth directories", () => {
     });
   });
 
-  it.each(["ready", "unavailable"] as const)("keeps CLI menu on %s", async (status) => {
+  it("lights up the Claude CLI sign-in wildcard only for models the Claude CLI catalog lists", async () => {
     await withOpenClawTestState({ layout: "state-only" }, async (state) => {
       cliBackendsTesting.setDepsForTest({
         resolvePluginSetupCliBackend: () => undefined,
@@ -855,17 +785,10 @@ describe("catalog decisions with prepared CLI auth directories", () => {
           workspaceDir: state.workspaceDir,
           snapshot: {
             entries: [
-              { provider: "claude-cli", id: "claude-stale", name: "Stale static row" },
+              { provider: "claude-cli", id: "claude-listed", name: "Listed" },
               { provider: "google-gemini-cli", id: "gemini-listed", name: "Listed" },
             ],
             routeVariants: [],
-            providerOutcomes: [
-              {
-                provider: "claude-cli",
-                status,
-                listedModelIds: ["claude-listed"],
-              },
-            ],
           },
           metadataSnapshot: cliMetadata,
           preparedAuthStore: {
@@ -885,7 +808,6 @@ describe("catalog decisions with prepared CLI auth directories", () => {
         owner.evaluateEntry({ provider, id }).availability;
 
       expect(availability("anthropic", "claude-listed")).toBe(true);
-      expect(availability("anthropic", "claude-stale")).toBe(false);
       // API-only rows stay out of a Claude CLI picker without a sign-in prompt.
       const apiOnly = owner.evaluateEntry({ provider: "anthropic", id: "claude-mythos-5" });
       expect(apiOnly.availability).toBe(false);
@@ -911,53 +833,4 @@ describe("catalog decisions with prepared CLI auth directories", () => {
       ).toBe(false);
     });
   });
-});
-
-it("projects exact native IDs and effort levels without expanding a restricted menu", () => {
-  const native: ModelCatalogEntry = {
-    provider: "claude-cli",
-    id: "claude-future",
-    name: "Future",
-    reasoning: true,
-    thinkingLevelMap: { low: "low", max: "max" },
-  };
-  const donor: ModelCatalogEntry = {
-    provider: "anthropic",
-    id: "claude-future",
-    name: "Hosted metadata",
-    contextWindow: 456_000,
-    thinkingLevelMap: { high: "high" },
-  };
-  const hostedOnly = { provider: "anthropic", id: "claude-hosted-only", name: "Hosted only" };
-  const snapshot = {
-    entries: [
-      native,
-      donor,
-      hostedOnly,
-      { provider: "claude-cli", id: "claude-stale", name: "Stale" },
-    ],
-    routeVariants: [],
-    staticEntries: [donor, hostedOnly],
-    providerOutcomes: [
-      {
-        provider: "claude-cli",
-        status: "ready" as const,
-        listedModelIds: [native.id],
-      },
-    ],
-  };
-  const projected = projectClaudeCliNativeCatalog(snapshot, true);
-  expect(projected.entries.find((row) => row.provider === "anthropic")).toMatchObject({
-    id: native.id,
-    contextWindow: 456_000,
-    thinkingLevelMap: native.thinkingLevelMap,
-  });
-  expect(projected.entries).toHaveLength(1);
-  expect(projected.entries.every((row) => row.provider === "anthropic")).toBe(true);
-  expect(projected.staticEntries).toEqual([]);
-  expect(projected.entries.some((row) => row.id === "claude-stale")).toBe(false);
-  expect(projectClaudeCliNativeCatalog(snapshot, false).entries).toContain(donor);
-  expect(
-    projectClaudeCliNativeCatalog({ ...snapshot, providerOutcomes: [] }, true).entries,
-  ).toEqual([donor, hostedOnly]);
 });

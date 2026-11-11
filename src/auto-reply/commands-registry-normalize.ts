@@ -17,11 +17,7 @@ type TextAliasSpec = {
 let cachedTextAliases: Map<string, TextAliasSpec> | undefined;
 
 // Commands whose free-text argument becomes agent input keep every line and its spacing.
-<<<<<<< HEAD
 const ARGUMENT_PRESERVING_COMMAND_KEYS = new Set(["btw", "goal", "loop", "steer"]);
-=======
-const ARGUMENT_PRESERVING_COMMAND_KEYS = new Set(["acp", "btw", "goal", "loop", "steer"]);
->>>>>>> 97b6e87616f
 
 const TARGETED_COMMAND_BODY_RE =
   /^\/([^\s@]+)@([A-Za-z0-9_]+)(?=$|\s|[.!?！？…,，。;；:：'"’”)\]}])([\s\S]*)$/u;

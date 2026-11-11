@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
+import { isBuiltin } from "node:module";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import type { JitiOptions } from "jiti";
 import { hasErrnoCode } from "../infra/errno.js";
 import { isPathInside, relativePluginPathInsideRootSync } from "./path-safety.js";
 import { getPluginCache } from "./plugin-cache.js";
@@ -14,21 +17,44 @@ import {
 import {
   createPluginDependencyResolver,
   createPluginSourceCapture,
+  type PluginDependencyResolution,
   type PluginModuleCapture,
   type createPluginPackageMetadataCapture,
   findPluginCapturedPackage,
   type PluginPackageCapture,
 } from "./plugin-package-metadata-capture.js";
 import type { PluginNativeArtifactFact } from "./plugin-source-admission.types.js";
-import type { PluginCapturedSourceFact } from "./plugin-source-verification.js";
+import {
+  pluginSourceInputIdentity,
+  pluginSourceFileProbe,
+  readPluginSourceDirectory,
+  verifyPluginSourceInputs,
+  type PluginCapturedSourceFact,
+} from "./plugin-source-verification.js";
+
+type DependencyLookup = {
+  name: string;
+  importer: string;
+  resolved: PluginDependencyResolution | undefined;
+};
+type ModuleLookup = {
+  source: string;
+  reference: string;
+  conditions: string[];
+  options: Pick<JitiOptions, "alias" | "extensions" | "nativeModules" | "tsconfigPaths">;
+  resolved: string | undefined;
+};
 type SourceCustody = {
   source: PluginRecoverySource;
   files: ReadonlyMap<string, PluginCapturedSourceFact>;
+  assertCurrent: () => void;
+  sourceDigest: string;
 };
 export type PluginSourceCustodyFork = Pick<SourceCustody, "source" | "files">;
+type SourceRoot = { rootDir: string; sourceRoot: string; entryFile?: string; entry?: string };
 type PluginGenerationCaptureArguments = [
   rootDir: string,
-  entryFile?: string | readonly string[],
+  entryFile?: string,
   execute?: <V>(run: () => V) => V,
   moduleSource?: (filename: string) => string,
   nativeRecovery?: PluginNativeRecovery,
@@ -36,6 +62,7 @@ type PluginGenerationCaptureArguments = [
 ];
 const sourceCustody = new AsyncLocalStorage<{
   sources: Map<string, SourceCustody>;
+  closed: boolean;
 }>();
 
 /** Retain files across management phases, without retaining their callback instances or leases. */
@@ -45,7 +72,9 @@ export async function withPluginGenerationSourceCustody<T>(run: () => Promise<T>
   }
   await using scope = {
     sources: new Map<string, SourceCustody>(),
+    closed: false,
     async [Symbol.asyncDispose]() {
+      this.closed = true;
       const results = await Promise.allSettled(
         [...this.sources.values()].map(({ source }) => source.disposeAsync()),
       );
@@ -63,6 +92,7 @@ export async function withPluginGenerationSourceCustody<T>(run: () => Promise<T>
 /** Bind scoped file custody around an instance's independently constructed module graph. */
 export function createPluginGenerationCapture<
   T extends {
+    sourceDigest: string;
     retainSourceCustody(): SourceCustody;
     dispose(): void;
   },
@@ -83,13 +113,20 @@ export function createPluginGenerationCapture<
     if (!custody) {
       return create(...args);
     }
-    const key = JSON.stringify([
-      path.resolve(rootDir),
-      typeof entryFile === "string"
-        ? path.resolve(entryFile)
-        : entryFile?.map((file) => path.resolve(file)),
-    ]);
+    if (custody.closed) {
+      throw new Error("Plugin source custody has been closed");
+    }
+    const key = JSON.stringify([path.resolve(rootDir), entryFile && path.resolve(entryFile)]);
     let retained = custody.sources.get(key);
+    if (retained) {
+      try {
+        retained.assertCurrent();
+      } catch {
+        custody.sources.delete(key);
+        retained.source.dispose();
+        retained = undefined;
+      }
+    }
     if (!retained) {
       // This namespace is never executed; no instance can mutate the retained source bytes.
       const seed = create(
@@ -112,10 +149,15 @@ export function createPluginGenerationCapture<
     const fork = retained.source.fork();
     try {
       fork.native?.retain(getPluginCache());
-      return create(rootDir, entryFile, execute, moduleSource, undefined, undefined, {
+      const artifact = create(rootDir, entryFile, execute, moduleSource, undefined, undefined, {
         source: fork,
         files: retained.files,
       });
+      if (artifact.sourceDigest !== retained.sourceDigest) {
+        artifact.dispose();
+        throw new Error("Plugin source changed while adopting its retained capture");
+      }
+      return artifact;
     } catch (error) {
       fork.dispose();
       throw error;
@@ -123,7 +165,6 @@ export function createPluginGenerationCapture<
   };
 }
 
-<<<<<<< HEAD
 export function assertPluginSourceRootCurrent({
   rootDir,
   sourceRoot,
@@ -193,17 +234,21 @@ function resolveModuleTarget(resolved: string | undefined): string | undefined {
 }
 
 /** Record source and dependency facts where recovery detaches them from instance lifetime. */
-=======
-/** Reuse captured bytes across one management operation; source edits take effect next time. */
->>>>>>> 97b6e87616f
 export function createPluginSourceFacts(
+  rootDir: string,
+  entryFile: string | undefined,
   dependencyLookupBoundary: Parameters<typeof createPluginDependencyResolver>[0],
   captureForCustody: boolean,
 ) {
   const files = new Map<string, PluginCapturedSourceFact>();
+  const directories = new Map<string, PluginCapturedSourceFact>();
+  const dependencies = new Map<string, DependencyLookup>();
+  const moduleLookups = new Map<string, ModuleLookup>();
+  const missingFiles = new Set<string>();
+  const fileProbes = new Map<string, string | undefined>();
+  const resolve = createPluginDependencyResolver(dependencyLookupBoundary);
   return {
     files: captureForCustody ? files : undefined,
-<<<<<<< HEAD
     resolveDependency: (name: string, importer: string) => {
       const resolved = resolve(name, importer);
       if (captureForCustody) {
@@ -283,13 +328,6 @@ export function createPluginSourceFacts(
       assertCurrent();
       return { source: capture(), files: retainedFiles, sourceDigest, assertCurrent };
     },
-=======
-    resolveDependency: createPluginDependencyResolver(dependencyLookupBoundary),
-    captureCustody: (capture: () => PluginRecoverySource): SourceCustody => ({
-      source: capture(),
-      files: structuredClone(files),
-    }),
->>>>>>> 97b6e87616f
   };
 }
 
@@ -396,13 +434,10 @@ function copyRecoverySource({
     for (const [target, fact] of hardlinkedTargets) {
       assertReference(target, fact, native!.namespaces.get(fact.namespace)!);
     }
-<<<<<<< HEAD
     // A partial capture can copy successfully while losing an already-loaded companion.
     for (const captured of new Set(sources.values())) {
       fs.lstatSync(relocate(captured));
     }
-=======
->>>>>>> 97b6e87616f
     const copiedSources = new Map(
       Array.from(sources, ([source, captured]) => [source, relocate(captured)]),
     );
@@ -420,6 +455,9 @@ function copyRecoverySource({
       fork() {
         if (disposed) {
           throw new Error("Plugin source recovery has been disposed");
+        }
+        for (const captured of new Set(copiedSources.values())) {
+          sourceCapture.assertModuleAvailable(captured);
         }
         return copyRecoverySource({
           rootDir,

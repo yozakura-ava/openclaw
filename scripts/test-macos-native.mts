@@ -3,11 +3,9 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { root as openCaptureRoot } from "@openclaw/fs-safe/root";
-import { readProcessIdentity } from "@openclaw/proc-safe/identity";
 import { runWithFailedTrailer } from "./lib/failed-trailer.mts";
 import { runManagedCommand, waitForManagedProcessGroupExit } from "./lib/managed-child-process.mts";
 
-<<<<<<< HEAD
 // release/2026.10.5 does not ship @openclaw/proc-safe; ESRCH is the absent-process fact main reads.
 function processExists(pid: number): boolean {
   try {
@@ -18,8 +16,6 @@ function processExists(pid: number): boolean {
   }
 }
 
-=======
->>>>>>> 97b6e87616f
 function validateSwiftTestingCompletion(eventStreamPath: string, expectedFilter?: string): void {
   const functions = new Set<string>();
   const started = new Set<string>();
@@ -337,8 +333,6 @@ await runWithFailedTrailer("macos-native", async () => {
                 "inherited",
                 "browser-sign-in-before",
                 "browser-sign-in-after",
-                "dashboard-reconnect-before",
-                "dashboard-reconnect-after",
                 "guest-model-permitted",
                 "guest-model-null",
                 "guest-model-open",
@@ -440,11 +434,7 @@ await runWithFailedTrailer("macos-native", async () => {
           const groupGone = await waitForManagedProcessGroupExit({ pid }, 30_000, {
             errorPolicy: "indeterminate",
           });
-<<<<<<< HEAD
           retired &&= groupGone && !processExists(pid);
-=======
-          retired &&= groupGone && readProcessIdentity(pid) === null;
->>>>>>> 97b6e87616f
         }
         canRemove = retired;
         if (!canRemove) {

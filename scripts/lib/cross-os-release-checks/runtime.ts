@@ -11,12 +11,15 @@ import type {
 import {
   CROSS_OS_DASHBOARD_FETCH_TIMEOUT_MS,
   CROSS_OS_DASHBOARD_SMOKE_TIMEOUT_MS,
+  CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
   buildReleaseModelConfigCommands,
+  gatewayReadyDeadlineMs,
   managedGatewayRestartCommandTimeoutMs,
 } from "./config.ts";
-import { waitForReleaseGateway, type GatewayReadinessParams } from "./gateway-readiness.ts";
 import { installedEntryPath } from "./install.ts";
 import {
+  appendGatewayStatusHelpProbeFallback,
+  buildGatewayStatusArgsFromHelpText,
   buildReleaseOnboardArgs,
   ensureManagedGatewayReady,
   resolveInstalledGatewayStopArgs,
@@ -29,7 +32,6 @@ import {
   resolveDashboardAssetUrls,
   verifyDashboardAssetUrls,
 } from "./network-smokes.ts";
-<<<<<<< HEAD
 import {
   captureGatewayProcess,
   configureReplacementGatewayPort,
@@ -38,9 +40,6 @@ import {
   runCommand,
   waitForGatewayWithStartupRecovery,
 } from "./process.ts";
-=======
-import { captureGatewayProcess, registerActiveChildProcessTree, runCommand } from "./process.ts";
->>>>>>> 97b6e87616f
 import { logLanePhase } from "./reporting.ts";
 import { formatError, sleep } from "./shared.ts";
 
@@ -167,7 +166,6 @@ export async function startGateway(params: LaneCommandParams): Promise<GatewayHa
   );
 }
 
-<<<<<<< HEAD
 export async function waitForGateway(
   params: LaneCommandParams & {
     gateway?: GatewayHandle;
@@ -262,15 +260,6 @@ async function resolveGatewayStatusArgs(lane: LaneState, env: NodeJS.ProcessEnv,
     appendGatewayStatusHelpProbeFallback(logPath, error);
     return buildGatewayStatusArgsFromHelpText("--require-rpc");
   }
-=======
-export async function waitForGateway(params: GatewayReadinessParams) {
-  await waitForReleaseGateway(
-    params,
-    (args, timeoutMs) => runOpenClaw({ ...params, args, timeoutMs, check: false }),
-    (logPath) => startGateway({ lane: params.lane, env: params.env, logPath }),
-    true,
-  );
->>>>>>> 97b6e87616f
 }
 
 export async function runModelsSet(params: LaneCommandParams & { providerConfig: ProviderConfig }) {

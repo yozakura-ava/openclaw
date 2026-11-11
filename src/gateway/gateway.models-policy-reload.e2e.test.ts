@@ -9,14 +9,7 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import * as policy from "../plugins/provider-policy-surface.js";
 import * as artifacts from "../plugins/public-surface-loader.js";
 import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
-<<<<<<< HEAD
 import { getPluginRegistryForContext } from "../plugins/runtime/gateway-request-scope.js";
-=======
-import {
-  getPluginRegistryForContext,
-  getPluginRuntimeGatewayRequestScope,
-} from "../plugins/runtime/gateway-request-scope.js";
->>>>>>> 97b6e87616f
 import { connectUserModelAccountAsync } from "../state/user-model-account-operations.js";
 import { GATEWAY_CLIENT_MODES, GATEWAY_CLIENT_NAMES } from "../utils/message-channel.js";
 import { disconnectGatewayClient, startGatewayWithClient } from "./test-helpers.e2e.js";
@@ -114,35 +107,13 @@ it("reuses provider policy artifacts after a model config hot reload", async () 
     artifacts,
     "loadBundledPluginPublicArtifactModuleFromCandidatesSync",
   );
-<<<<<<< HEAD
-=======
-  let requesterProfileId: string | undefined;
-  let measuredLoads = 0;
-  let measuredLookups = 0;
->>>>>>> 97b6e87616f
   const versions = new Set<number | undefined>();
   const original = policy.resolveDirectBundledProviderPolicySurface;
   const resolvePolicy = vi
     .spyOn(policy, "resolveDirectBundledProviderPolicySurface")
     .mockImplementation((id) => {
-<<<<<<< HEAD
       versions.add(getPluginRegistryVersion(getPluginRegistryForContext()));
       return original(id);
-=======
-      const client = getPluginRuntimeGatewayRequestScope()?.client;
-      // Watcher validation owns fresh caches; measure only this authenticated requester.
-      const measured =
-        requesterProfileId !== undefined &&
-        client?.authenticatedUserProfile?.profileId === requesterProfileId;
-      const beforeLoads = candidateLoads.mock.calls.length;
-      const surface = original(id);
-      if (measured) {
-        measuredLoads += candidateLoads.mock.calls.length - beforeLoads;
-        measuredLookups += 1;
-        versions.add(getPluginRegistryVersion(getPluginRegistryForContext()));
-      }
-      return surface;
->>>>>>> 97b6e87616f
     });
   let authProfileId: string;
   let requestIndex = 0;
@@ -160,28 +131,15 @@ it("reuses provider policy artifacts after a model config hot reload", async () 
     candidateLoads.mockClear();
     resolvePolicy.mockClear();
     versions.clear();
-<<<<<<< HEAD
     const timings: number[] = [];
     for (let i = 0; i < 12; i++) {
       const started = performance.now();
-=======
-    measuredLoads = 0;
-    measuredLookups = 0;
-    const timings: number[] = [];
-    for (let i = 0; i < 12; i++) {
-      const started = performance.now();
-      const beforeLookups = measuredLookups;
->>>>>>> 97b6e87616f
       const result = await gateway.client.request<{
         models: { id: string }[];
         accountSelection?: { kind: string };
       }>("models.list", nextRequest());
       expect(result.models.some((model) => model.id === "model-0")).toBe(true);
       expect(result.accountSelection?.kind).toBe("personal");
-<<<<<<< HEAD
-=======
-      expect(measuredLookups).toBeGreaterThan(beforeLookups);
->>>>>>> 97b6e87616f
       timings.push(performance.now() - started);
     }
     timings.sort((a, b) => a - b);
@@ -190,7 +148,6 @@ it("reuses provider policy artifacts after a model config hot reload", async () 
         label,
         p50: timings[5],
         p95: timings[11],
-<<<<<<< HEAD
         loads: candidateLoads.mock.calls.length,
         lookups: resolvePolicy.mock.calls.length,
         versions: [...versions],
@@ -198,23 +155,10 @@ it("reuses provider policy artifacts after a model config hot reload", async () 
     );
     expect(resolvePolicy.mock.calls.length).toBeGreaterThan(0);
     return candidateLoads.mock.calls.length;
-=======
-        loads: measuredLoads,
-        lookups: measuredLookups,
-        versions: [...versions],
-      }),
-    );
-    expect(measuredLookups).toBeGreaterThan(0);
-    return measuredLoads;
->>>>>>> 97b6e87616f
   };
   try {
     await gateway.server.startupSettled;
     const self = await gateway.client.request<{ profile: { id: string } }>("users.self", {});
-<<<<<<< HEAD
-=======
-    requesterProfileId = self.profile.id;
->>>>>>> 97b6e87616f
     ({ authProfileId } = await connectUserModelAccountAsync({
       ownerProfileId: self.profile.id,
       credential: { type: "api_key", provider: "openai", key: "fixture-personal-key" },

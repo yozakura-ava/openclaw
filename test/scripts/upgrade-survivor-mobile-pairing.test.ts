@@ -1,7 +1,17 @@
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MOBILE_PAIRING_AUDIT_CLIENT,
@@ -146,6 +156,46 @@ describe("upgrade survivor mobile pairing client", () => {
     expect(() => assertGatewayHealth({})).toThrow(/health response invalid/);
   });
 
+  it("uses the node approval CLI backend identity for pairing audits", () => {
+    expect(MOBILE_PAIRING_AUDIT_CLIENT).toMatchObject({
+      id: "gateway-client",
+      version: MOBILE_PAIRING_CLIENT.version,
+      instanceId: "c0202128-dbd7-42a5-a8ac-aaf20dc14c9c",
+    });
+    const request = buildConnectRequest({
+      challengePayload: { nonce: "nonce-audit", ts: 1_700_000_000_000 },
+      client: MOBILE_PAIRING_AUDIT_CLIENT,
+      mode: "backend",
+      role: "operator",
+      scopes: ["operator.pairing"],
+      auth: { password: "audit-password" },
+    });
+    expect(request.params).toMatchObject({
+      client: { id: "gateway-client", mode: "backend" },
+      role: "operator",
+      scopes: ["operator.pairing"],
+      auth: { password: "audit-password" },
+    });
+    expect(request.params).not.toHaveProperty("device");
+  });
+
+  it("pins the shipped iOS 2026.8.10 V2 compatibility payload bytes", () => {
+    expect(
+      buildDeviceAuthCompatibilityPayloadV2({
+        deviceId: "dev-1",
+        clientId: "openclaw-ios",
+        clientMode: "ui",
+        role: "operator",
+        scopes: ["operator.read", "operator.write"],
+        signedAtMs: 1_700_000_000_001,
+        token: "operator-token",
+        nonce: "nonce-1",
+      }),
+    ).toBe(
+      "v2|dev-1|openclaw-ios|ui|operator|operator.read,operator.write|1700000000001|operator-token|nonce-1",
+    );
+  });
+
   it("uses shipped protocol ranges, challenge time, instance id, and auth.token", () => {
     const identity = createMobilePairingIdentity();
     const challengePayload = { nonce: " nonce-1 ", ts: 1_700_000_000_001 };
@@ -198,9 +248,6 @@ describe("upgrade survivor mobile pairing client", () => {
       nonce: "nonce-1",
     });
 
-    expect(payload).toBe(
-      `v2|${identity.deviceId}|openclaw-ios|node|node||1700000000001|node-token|nonce-1`,
-    );
     expect(nodeParams).toMatchObject({
       minProtocol: 3,
       maxProtocol: 4,
@@ -281,6 +328,49 @@ describe("upgrade survivor mobile pairing client", () => {
     expect(credentials.operator.scopes).not.toContain("operator.pairing");
     expect(credentials.operator.scopes).not.toContain("operator.admin");
     expect(credentials.client.instanceId).toBe(MOBILE_PAIRING_CLIENT.instanceId);
+  });
+
+  it("persists rotated hello tokens and uses the newest credential on the next reconnect", () => {
+    const identity = createMobilePairingIdentity();
+    const credentials = extractBootstrapCredentials({
+      url: "ws://127.0.0.1:18789",
+      client: MOBILE_PAIRING_CLIENT,
+      identity,
+      hello: bootstrapHello("node-token-1", "operator-token-1"),
+    });
+    const nodeTransition = persistHelloCredential({
+      credentials,
+      role: "node",
+      hello: {
+        type: "hello-ok",
+        auth: {
+          role: "node",
+          scopes: [],
+          deviceToken: "node-token-2",
+        },
+      },
+    });
+    const nextRequest = buildConnectRequest({
+      challengePayload: { nonce: "nonce-2", ts: 1_700_000_000_002 },
+      client: MOBILE_PAIRING_CLIENT,
+      mode: "node",
+      role: "node",
+      scopes: credentials.node.scopes,
+      auth: { token: credentials.node.token },
+      identity,
+    });
+    const nextParams = nextRequest.params as { auth: Record<string, string> };
+
+    expect(nodeTransition).toEqual({
+      role: "node",
+      scopes: [],
+      usedTokenHash: tokenHash("node-token-1"),
+      storedTokenHash: tokenHash("node-token-2"),
+      deviceTokenReturned: true,
+      tokenRotated: true,
+    });
+    expect(credentials.node).toEqual({ token: "node-token-2", scopes: [] });
+    expect(nextParams.auth).toEqual({ token: "node-token-2" });
   });
 
   it("accepts only the known node authority expansion for the mobile identity", () => {
@@ -491,7 +581,6 @@ describe("upgrade survivor mobile pairing client", () => {
       }),
     );
 
-    expect(credentials.node).toEqual({ token: "rotated-node-token", scopes: [] });
     expect(serialized).not.toContain(nodeToken);
     expect(serialized).not.toContain(operatorToken);
     expect(serialized).not.toContain(credentials.identity.privateKeyPem);
@@ -584,7 +673,6 @@ describe("upgrade survivor mobile pairing client", () => {
     expect(candidateRestart).toBeLessThan(doctor);
     expect(doctor).toBeLessThan(final);
   });
-<<<<<<< HEAD
 
   it("uses npm package-manager replacement only for the exact shipped 7.1 to 8.1 row", () => {
     const source = readFileSync(RUNNER_PATH, "utf8");
@@ -921,6 +1009,4 @@ replace_historical_mobile_pairing_candidate
       expect(body).toContain('return "$stop_status"');
     }
   });
-=======
->>>>>>> 97b6e87616f
 });

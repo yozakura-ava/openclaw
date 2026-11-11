@@ -1,7 +1,7 @@
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { detectCurrentSqliteCapabilities, nodeRuntimeFailure } from "../../../node-sqlite.mjs";
 import {
-  formatNodeSecurityWarning,
   formatUnsupportedNodeVersionMessage,
   SUPPORTED_NODE_VERSION_RANGE,
 } from "../../../node-version.mjs";
@@ -17,10 +17,7 @@ import {
 } from "../../infra/gateway-supervision.js";
 import { resolveOpenClawPackageRootSync } from "../../infra/openclaw-root.js";
 import { settlePendingPackageActivation } from "../../infra/package-update-activation.js";
-<<<<<<< HEAD
 import { normalizeUpdateChannel } from "../../infra/update-channels.js";
-=======
->>>>>>> 97b6e87616f
 import { resolveUpdateInstallKind } from "../../infra/update-check.js";
 import {
   readControlPlaneUpdateSentinelMeta,
@@ -44,6 +41,7 @@ import { readUpdateRunDriver } from "../../infra/update-run-driver.js";
 import {
   adoptUpdateRun,
   createUpdateRun,
+  finishInterruptedUpdatePreview,
   finishUpdateRun,
   getUpdateRun,
   heartbeatUpdateRun,
@@ -77,17 +75,9 @@ import { resolveOpenClawStateSqlitePath } from "../../state/openclaw-state-db.pa
 import { assertOpenClawStateWriteAllowedAtPath } from "../../state/openclaw-state-ownership.js";
 import { VERSION } from "../../version.js";
 import { exitCliAfterOutput } from "../one-shot-exit.js";
+import { registerSignalExitBarrier, waitForSignalExitBarriers } from "../signal-exit-barrier.js";
 import type { UpdateDisplayProgress } from "./progress.js";
-<<<<<<< HEAD
 import { parseUpdateTimeoutMs, resolveUpdateRoot, type UpdateCommandOptions } from "./shared.js";
-=======
-import {
-  parseUpdateChannel,
-  parseUpdateTimeoutMs,
-  resolveUpdateRoot,
-  type UpdateCommandOptions,
-} from "./shared.js";
->>>>>>> 97b6e87616f
 import { suppressDeprecations } from "./suppress-deprecations.js";
 import { resolveForegroundUpdateAdmission } from "./update-command-handoff.js";
 import { revalidateUpdateInitializationAdmission } from "./update-command-initialization-revalidation.js";
@@ -96,12 +86,9 @@ import { resolveMutableUpdateInstallKind } from "./update-command-install-kind.j
 import {
   admitMutableUpdateSignalRun,
   retireMutableUpdateSignalRun,
+  withMutableUpdateSignals,
 } from "./update-command-mutable-signals.js";
 import { assertUpdatePackageActivationAdmission } from "./update-command-package-activation.js";
-<<<<<<< HEAD
-=======
-import { admitUpdatePreviewSignalRun } from "./update-command-preview-signals.js";
->>>>>>> 97b6e87616f
 import { UpdateCommandPendingRecoveryFailure } from "./update-command-result.js";
 import {
   resolveOwnedManagedUpdateEnv,
@@ -116,10 +103,36 @@ import {
 } from "./update-command-service-plan.js";
 import { preflightWindowsUpdateTask } from "./update-command-windows-preflight.js";
 
-export {
-  recordUpdateCommandTarget,
-  withUpdatePreviewSignals,
-} from "./update-command-preview-signals.js";
+// Identity in this map is minted only for a new local preview, never reconstructed
+// from a run ID, process absence, or another invocation's diagnostic history.
+const previewAdmissions = new WeakMap<
+  object,
+  { record: UpdateRunRecord; env: NodeJS.ProcessEnv; active?: boolean }
+>();
+
+/** Advance preview custody only across this owner's committed target writes. */
+export function recordUpdateCommandTarget(
+  run: UpdateCommandOptions["run"],
+  patch: { target?: UpdateRunRecord["target"]; step?: UpdateRunStep },
+): void {
+  if (!run) {
+    return;
+  }
+  let before: UpdateRunRecord | undefined;
+  const committed = recordUpdateRunPhase(
+    run.runId,
+    "requested",
+    patch,
+    { env: run.env },
+    (record) => {
+      before = record;
+    },
+  );
+  const admission = previewAdmissions.get(run);
+  if (admission && isDeepStrictEqual(before, admission.record)) {
+    admission.record = committed;
+  }
+}
 
 /** Admission follows the managed service root before a redirect or discovered install. */
 export function resolveUpdateCommandAdmissionRoot(
@@ -215,15 +228,12 @@ export async function admitUpdateCommandRun(params: {
     env,
     recoverOrphanedSidecars: false,
   });
-<<<<<<< HEAD
   await revalidateUpdateInitializationAdmission({
     initialization: params.initialization,
     env,
     opts: params.opts,
     installKind: params.installKind,
   });
-=======
->>>>>>> 97b6e87616f
   const meta = await readControlPlaneUpdateSentinelMeta(env);
   await resolveForegroundUpdateAdmission({
     root: params.root,
@@ -295,12 +305,66 @@ export async function admitUpdateCommandRun(params: {
     env[POST_CORE_UPDATE_ENV] !== "1"
   ) {
     if (params.opts.dryRun === true) {
-      admitUpdatePreviewSignalRun(run, record, env);
+      previewAdmissions.set(run, { record, env: { ...env } });
     } else {
       admitMutableUpdateSignalRun(run, record);
     }
   }
   return run;
+}
+
+/** Own diagnostics only for this freshly admitted invocation's lexical lifetime. */
+export async function withUpdatePreviewSignals<T>(
+  opts: UpdateCommandOptions,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const admission = opts.dryRun === true && opts.run ? previewAdmissions.get(opts.run) : undefined;
+  if (!admission || !opts.run || admission.active) {
+    return await withMutableUpdateSignals(opts, operation);
+  }
+  admission.active = true;
+  const { env } = admission;
+  let interrupted = false;
+  let shutdown: Promise<void> | undefined;
+  const unregister = registerSignalExitBarrier(async () => {
+    if (
+      !interrupted ||
+      process.env.OPENCLAW_UPDATE_RUN_HANDOFF === "1" ||
+      process.env[POST_CORE_UPDATE_ENV] === "1"
+    ) {
+      return;
+    }
+    // Missing/displaced canonical state, pending recovery, or a changed row is
+    // not permission to open a writable runtime or dispose of another owner.
+    await assertUpdateRecoveryAdmission({ env });
+    if (!isDeepStrictEqual(getUpdateRun(admission.record.runId, { env }), admission.record)) {
+      return;
+    }
+    finishInterruptedUpdatePreview(admission.record, { env });
+  });
+  const onSignal = (code: number) => {
+    interrupted = true;
+    shutdown ??= waitForSignalExitBarriers()
+      .catch(() => {
+        defaultRuntime.error(
+          "Preview interruption could not be recorded; history remains pending.",
+        );
+      })
+      .finally(() => process.exit(code));
+  };
+  const onSigint = () => onSignal(130);
+  const onSigterm = () => onSignal(143);
+  process.on("SIGINT", onSigint);
+  process.on("SIGTERM", onSigterm);
+  try {
+    return await operation();
+  } finally {
+    await shutdown;
+    previewAdmissions.delete(opts.run);
+    process.off("SIGINT", onSigint);
+    process.off("SIGTERM", onSigterm);
+    unregister();
+  }
 }
 
 export function createUpdateRunProgress(
@@ -518,12 +582,6 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
     }
     exitCliAfterOutput(defaultRuntime, 1);
   }
-  const nodeSecurityWarning = process.versions.bun
-    ? null
-    : formatNodeSecurityWarning(process.versions.node);
-  if (nodeSecurityWarning) {
-    defaultRuntime.error(`SECURITY WARNING: ${nodeSecurityWarning}`);
-  }
   const startedAt = Date.now();
   suppressDeprecations();
   const postCoreUpdateResume = process.env[POST_CORE_UPDATE_ENV] === "1";
@@ -531,7 +589,12 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
 
   const timeoutMs = parseUpdateTimeoutMs(opts.timeout);
   const shouldRestart = opts.restart !== false;
-  const requestedChannel = parseUpdateChannel(opts.channel);
+  const requestedChannel = normalizeUpdateChannel(opts.channel);
+  if (opts.channel !== undefined && !requestedChannel) {
+    throw new Error(
+      `--channel must be "stable", "extended-stable", "beta", or "dev" (got "${opts.channel}")`,
+    );
+  }
   const devTarget = requestedChannel === "dev" ? readDevUpdateTarget() : undefined;
 
   // The shim can move during preparation; the loaded module owns the executing generation.
@@ -640,7 +703,6 @@ export async function prepareUpdateCommand(opts: UpdateCommandOptions) {
   return {
     startedAt,
     postCoreUpdateResume,
-    ...(nodeSecurityWarning ? { nodeSecurityWarning } : {}),
     postCoreUpdateChannel,
     timeoutMs,
     shouldRestart,

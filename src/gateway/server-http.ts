@@ -1,7 +1,23 @@
-import { createServer as createHttpServer, type Server as HttpServer } from "node:http";
+import {
+  createServer as createHttpServer,
+  type Server as HttpServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import type { TlsOptions } from "node:tls";
+import { isControlUiFocusPath } from "@openclaw/session-url-contract";
+import { ARTIFACT_DOWNLOAD_PATH } from "../../packages/gateway-protocol/src/artifact-download.js";
+import { isCoreCanvasHostEnabled } from "../canvas/config.js";
+import { isCanvasDocumentHttpPath } from "../canvas/constants.js";
+import { getRuntimeConfig } from "../config/io.js";
+import { getRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import {
+  createDiagnosticTraceContext,
+  runWithDiagnosticTraceContext,
+} from "../infra/diagnostic-trace-context.js";
 import { runHttpConnectionRequest } from "../infra/http-request-lifecycle.js";
-<<<<<<< HEAD
 import { readTailscaleWhoisIdentity } from "../infra/tailscale.js";
 import { parseDevicePairingJoinRequestPath } from "../pairing/join-code.js";
 import { getWebhookLegacyListener } from "../plugins/http-legacy-listener.js";
@@ -105,22 +121,9 @@ import {
 } from "./worker-environments/node-workspace-transfer-http.js";
 
 type GatewayHttpRequestHandler = (req: IncomingMessage, res: ServerResponse) => Promise<boolean>;
-=======
-import { createGatewayHttpRequestHandler } from "./server-http-request.js";
-import type { GatewayHttpRequestHandler, GatewayHttpServerOptions } from "./server-http.types.js";
 
-const requestHandlers = new WeakMap<HttpServer, GatewayHttpRequestHandler>();
->>>>>>> 97b6e87616f
+type GatewayHttpRequestStage = () => Promise<boolean> | boolean;
 
-export function getGatewayHttpRequestHandler(server: HttpServer): GatewayHttpRequestHandler {
-  const handler = requestHandlers.get(server);
-  if (!handler) {
-    throw new Error("Gateway HTTP owner is unavailable");
-  }
-  return handler;
-}
-
-<<<<<<< HEAD
 export function createGatewayHttpServer(opts: {
   /** Pre-bound listener supplied by the internal test transport. */
   testListener?: HttpServer;
@@ -197,19 +200,14 @@ export function createGatewayHttpServer(opts: {
     });
   };
   const httpServer =
-=======
-export function createGatewayHttpServer(opts: GatewayHttpServerOptions): HttpServer {
-  const handler = createGatewayHttpRequestHandler(opts);
-  const server =
->>>>>>> 97b6e87616f
     opts.testListener ??
     (opts.tlsOptions ? createHttpsServer(opts.tlsOptions) : createHttpServer());
-  requestHandlers.set(server, handler);
-  server.on("request", (req, res) => void handler(req, res));
-  server.once("close", () => handler.dispose());
-  server.on("checkContinue", (req, res) => void handler(req, res, "continue"));
-  server.on("checkExpectation", (req, res) => void handler(req, res, "reject"));
-  server.on("connect", (req, socket) => {
+  httpServer.on("request", handleServerRequest);
+  httpServer.once("close", () => publicSessionRoute.dispose());
+  // Node otherwise sends interim/expectation responses before application admission.
+  httpServer.on("checkContinue", (req, res) => handleServerRequest(req, res, "continue"));
+  httpServer.on("checkExpectation", (req, res) => handleServerRequest(req, res, "reject"));
+  httpServer.on("connect", (req, socket) => {
     void runHttpConnectionRequest(
       req,
       async () => {
@@ -218,7 +216,6 @@ export function createGatewayHttpServer(opts: GatewayHttpServerOptions): HttpSer
       "upgrade",
     );
   });
-<<<<<<< HEAD
 
   async function handleRequest(
     req: IncomingMessage,
@@ -753,7 +750,4 @@ export function createGatewayHttpServer(opts: GatewayHttpServerOptions): HttpSer
   }
 
   return httpServer;
-=======
-  return server;
->>>>>>> 97b6e87616f
 }

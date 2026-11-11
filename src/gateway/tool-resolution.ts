@@ -15,7 +15,7 @@ import { nodeExecSchema } from "../agents/bash-tools.schemas.js";
 import { resolveConversationCapabilityProfile } from "../agents/conversation-capability-profile.js";
 import { resolveCoreToolFactoryFamily } from "../agents/core-tool-factory-descriptors.js";
 import { applyDelegationCapability } from "../agents/delegation-capability.js";
-import { prepareExecDefaults, resolvePreparedExecDefaultsAsync } from "../agents/exec-defaults.js";
+import { resolveExecDefaults } from "../agents/exec-defaults.js";
 import { createLazyExecTool, resolveExecToolConfig } from "../agents/lazy-exec-tool.js";
 import { createOpenClawToolsAsync } from "../agents/openclaw-tools.js";
 import { filterRequesterYieldTools } from "../agents/openclaw-tools.requester-yield.js";
@@ -24,7 +24,7 @@ import {
   createSwarmCollectorWriteAuthority,
   resolveSwarmCollectorToolContext,
 } from "../agents/openclaw-tools.swarm.js";
-import { resolveSandboxRuntimeStatusAsync } from "../agents/sandbox/runtime-status.js";
+import { resolveSandboxRuntimeStatus } from "../agents/sandbox/runtime-status.js";
 import { createScheduledMessageInvocationAdmission } from "../agents/scheduled-message-invocation.js";
 import { resolveScheduledToolCallerContext } from "../agents/scheduled-tool-policy.js";
 import { buildDeclaredToolAllowlistContext } from "../agents/tool-policy-declared-context.js";
@@ -60,7 +60,6 @@ import type { SessionEventSourcePolicy } from "../auto-reply/reply/session-event
 import type { ConversationReadInvocationOrigin } from "../channels/plugins/conversation-read-origin.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resolveEventSessionRoutingPolicy } from "../infra/event-session-routing.js";
-import { loadExecApprovalsReadOnlyAsync } from "../infra/exec-approvals-store.js";
 import { resolveExactExecModeFromPolicy } from "../infra/exec-approvals.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tool-metadata.js";
@@ -210,7 +209,7 @@ export async function resolveGatewayScopedTools(
   } = configuredToolPolicies;
   const policyAgentId = resolvedPolicyAgentId ?? runtimePolicyAgentId;
   const senderId = params.channelContext?.sender?.id;
-  const requesterPolicies = await resolveGatewayRequesterToolPolicies(params, {
+  const requesterPolicies = resolveGatewayRequesterToolPolicies(params, {
     runtimePolicySessionKey,
     policyAgentId,
     nodeExecSurface,
@@ -223,7 +222,7 @@ export async function resolveGatewayScopedTools(
     requesterPolicies.inheritedToolPolicySource === "sender"
       ? params.sessionPermissionPolicy
       : undefined;
-  const sandboxRuntime = await resolveSandboxRuntimeStatusAsync({
+  const sandboxRuntime = resolveSandboxRuntimeStatus({
     cfg: params.cfg,
     sessionKey: params.sessionKey,
     agentId: sessionAgentId,
@@ -321,14 +320,7 @@ export async function resolveGatewayScopedTools(
   const catalogDenylist = stableSessionSurface
     ? collectExplicitDenylist([...catalogPolicies, ...gatewayDenyPolicies])
     : explicitDenylist;
-<<<<<<< HEAD
   const inheritedToolDenylist = [...explicitDenylist];
-=======
-  const inheritedToolDenylist = [
-    ...explicitDenylist,
-    ...(requesterPolicies.inheritedToolPolicyForSpawn?.deny ?? []),
-  ];
->>>>>>> 97b6e87616f
   // Passed by reference to sessions_spawn and populated after the final policy
   // pass so child sessions inherit the actual parent tool surface.
   const inheritedToolAllowlist: string[] = [];
@@ -448,26 +440,19 @@ export async function resolveGatewayScopedTools(
     inheritedToolAllowlist,
     inheritedToolDenylist,
     inheritedToolPolicySource: requesterPolicies.inheritedToolPolicySource,
-    delegatedToolPolicyUnavailable: Boolean(requesterPolicies.delegatedToolPolicy),
   };
   const openClawTools = await createOpenClawToolsAsync(openClawToolOptions, { assertCurrent });
   assertCurrent();
   const execDefaults =
     nodeExecSurface || mediatedToolNames.size > 0
-      ? await resolvePreparedExecDefaultsAsync(
-          prepareExecDefaults(
-            {
-              cfg: params.cfg,
-              sessionEntry: params.execSession,
-              execOverrides: params.execOverrides,
-              agentId: policyAgentId,
-              sessionKey: runtimePolicySessionKey,
-              sandboxAvailable: sandboxed,
-            },
-            sandboxRuntime,
-          ),
-          loadExecApprovalsReadOnlyAsync,
-        )
+      ? resolveExecDefaults({
+          cfg: params.cfg,
+          sessionEntry: params.execSession,
+          execOverrides: params.execOverrides,
+          agentId: policyAgentId,
+          sessionKey: runtimePolicySessionKey,
+          sandboxAvailable: sandboxed,
+        })
       : undefined;
   const nodeExecDefaults =
     nodeExecSurface &&

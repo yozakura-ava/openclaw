@@ -6,7 +6,6 @@ import {
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { AgentHarnessToolResultTelemetry } from "openclaw/plugin-sdk/agent-harness-tool-runtime";
 import { resolveCodexTtsProvenanceTransfer } from "openclaw/plugin-sdk/codex-mcp-projection";
-import { isSilentReplyText } from "openclaw/plugin-sdk/reply-runtime";
 import {
   attemptTerminal,
   type AttemptFailureSource,
@@ -43,7 +42,6 @@ export type CodexAppServerToolTelemetry = Partial<
   > & {
     didDeliverSourceReplyViaMessageTool?: boolean;
     sourceReplyDelivered?: true;
-    finalSourceReplyDelivered?: true;
     confirmedMediaDeliveries?: Readonly<
       AgentHarnessToolResultTelemetry["confirmedMediaDeliveries"]
     >;
@@ -124,20 +122,12 @@ export abstract class CodexTurnProjection {
       }
     }
     this.nativeToolLifecycleProjector.finalizeActive(undefined, retainedCommands);
-<<<<<<< HEAD
     const rawAssistantTexts = toolTelemetry.sourceReplyDelivered
-=======
-    const rawAssistantTexts = toolTelemetry.finalSourceReplyDelivered
->>>>>>> 97b6e87616f
       ? []
       : this.assistantProjection.collectAssistantTexts();
     const hasDeliverableAssistantOnCompletedTurn =
       this.completedTurn?.status === "completed" &&
-<<<<<<< HEAD
       rawAssistantTexts.some((text) => text.trim().length > 0);
-=======
-      rawAssistantTexts.some((text) => text.trim().length > 0 && !isSilentReplyText(text));
->>>>>>> 97b6e87616f
     const synthesized = this.toolTranscriptProjection.synthesizeMissingToolResults({
       synthesize:
         !this.completedTurn ||
@@ -172,10 +162,7 @@ export abstract class CodexTurnProjection {
     );
     this.contextTokens = options.initialContextTokens;
     this.contextTokensSource = options.initialContextTokens === undefined ? undefined : "resolved";
-    // Terminal diagnostics remain observable after ordinary projection is retired.
-    this.diagnostics = new CodexProjectionDiagnostics(threadId, turnId, (data) =>
-      emitCodexAgentEvent(this.params, { stream: "codex_app_server.diagnostic", data }),
-    );
+    this.diagnostics = new CodexProjectionDiagnostics(threadId, turnId);
     this.nativeToolLifecycleProjector = new CodexNativeToolLifecycleProjector(
       params,
       threadId,
@@ -221,15 +208,10 @@ export abstract class CodexTurnProjection {
     );
     this.assistantProjection = new CodexAssistantProjection(
       this.settlement.params,
-      (event) => {
-        if (!options.hasDeliveredFinalSourceReply?.()) {
-          this.emitAgentEvent(event);
-        }
-      },
+      (event) => this.emitAgentEvent(event),
       (text) => this.toolProgressProjection.matchesEcho(text),
       this.transcriptCheckpoint.nextTimestamp,
       this.transcriptCheckpoint.enqueueCommentary,
-      options.hasDeliveredFinalSourceReply,
     );
     this.reasoningProjection = new CodexReasoningProjection(
       this.settlement.params,
@@ -273,13 +255,7 @@ export abstract class CodexTurnProjection {
     const completedItemCount = this.completedItemIds.size;
     const guardianReviewCount = this.eventProjection.guardianReviewCount;
     const yieldDetected = options?.yieldDetected;
-<<<<<<< HEAD
     const assistantTexts = this.assistantProjection.collectAssistantTexts();
-=======
-    const assistantTexts = toolTelemetry.finalSourceReplyDelivered
-      ? []
-      : this.assistantProjection.collectAssistantTexts();
->>>>>>> 97b6e87616f
     const asyncMessages = this.assistantProjection.collectAsyncMessages();
     const commentaryMessages = this.assistantProjection.collectCommentaryMessages();
     const reasoningText = this.reasoningProjection.reasoningText();
@@ -305,27 +281,9 @@ export abstract class CodexTurnProjection {
             assistantMessageOptions,
           )
         : undefined;
-    let currentAttemptAssistant = toolTelemetry.finalSourceReplyDelivered
-      ? undefined
-      : providerRefusal
-        ? lastAssistant
-        : this.assistantProjection.createCurrentAttemptAssistantMessage(assistantMessageOptions);
-    // Tool-authored completion belongs to this native turn, not another input's
-    // projected answer. Preserve the same identity even for a tool-only turn.
-    if (
-      toolTelemetry.messagingToolSourceReplyPayloads?.some(
-        (reply) => reply.toolAuthoredForTurnId === turnId,
-      )
-    ) {
-      currentAttemptAssistant ??= this.assistantProjection.createAssistantMessage(
-        "",
-        assistantMessageOptions,
-      );
-      currentAttemptAssistant = { ...currentAttemptAssistant, turnId };
-      if (lastAssistant) {
-        lastAssistant.turnId = turnId;
-      }
-    }
+    const currentAttemptAssistant = providerRefusal
+      ? lastAssistant
+      : this.assistantProjection.createCurrentAttemptAssistantMessage(assistantMessageOptions);
     // Stable turn/item identities deduplicate retries and cross-turn replays
     // without collapsing identical text from distinct turns. Codex owns history;
     // this mirror supports OpenClaw history, search, and harness switching.
@@ -428,12 +386,6 @@ export abstract class CodexTurnProjection {
     for (const toolResult of toolTelemetry.coreTtsToolResults ?? []) {
       transferTtsProvenance?.(toolResult, result, toolAutoDeliveryMediaUrls ?? []);
     }
-    this.diagnostics.recordNoAnswer(
-      runParams.runId,
-      result,
-      completedTurn,
-      toolTelemetry.finalSourceReplyDelivered === true,
-    );
     return result;
   }
 

@@ -91,11 +91,7 @@ describe("context cache projection", () => {
 });
 
 describe("context token resolution", () => {
-<<<<<<< HEAD
   it.each(["configuredTokenCache", "discoveredTokenCache", "contextWindowCache"] as const)(
-=======
-  it.each(["configuredTokenCache"] as const)(
->>>>>>> 97b6e87616f
     "keeps captured reporting independent of a stale %s without changing execution lookup",
     (cacheName) => {
       const caches = getContextWindowCaches();
@@ -114,7 +110,6 @@ describe("context token resolution", () => {
     },
   );
 
-<<<<<<< HEAD
   it("preserves genuine selected limits and authored caps without cache lookup", () => {
     const selected = {
       cfg: {},
@@ -149,8 +144,6 @@ describe("context token resolution", () => {
     ).toBe(64_000);
   });
 
-=======
->>>>>>> 97b6e87616f
   it("does not replace unknown captured capacity with a sibling's bare cache", async () => {
     await discover([{ provider: "other", id: "shared-model", contextTokens: 128_000 }]);
     const selected = { cfg: {}, provider: "custom", model: "shared-model" };
@@ -161,15 +154,12 @@ describe("context token resolution", () => {
     );
   });
 
-<<<<<<< HEAD
   it("preserves fixed provider contracts without process cache lookup", () => {
     expect(
       resolve({ provider: "anthropic", model: "claude-sonnet-5", allowCacheLookup: false }),
     ).toBe(1_000_000);
   });
 
-=======
->>>>>>> 97b6e87616f
   it("can exclude unscoped discovery from provider-owned lookup", async () => {
     await discover([{ id: "large", contextTokens: 32_000 }]);
     const params = { provider: "claude-cli", model: "large" };

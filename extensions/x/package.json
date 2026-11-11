@@ -1,31 +1,20 @@
 {
   "name": "@openclaw/x",
-<<<<<<< HEAD
   "version": "2026.10.8",
-=======
-  "version": "2026.11.1",
->>>>>>> 97b6e87616f
   "description": "OpenClaw X mentions and public reply channel plugin",
   "type": "module",
   "dependencies": {
-    "@solidjs/web": "2.0.0-rc.14",
     "linkify-it": "6.1.0",
-    "solid-js": "2.0.0-rc.14",
+    "lit": "3.3.3",
     "tlds": "1.261.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",
-    "@solidjs/compiler": "2.0.0-rc.14",
-    "esbuild": "0.28.2",
     "openclaw": "workspace:*"
   },
   "peerDependencies": {
-<<<<<<< HEAD
     "openclaw": ">=2026.10.8"
-=======
-    "openclaw": ">=2026.11.1"
->>>>>>> 97b6e87616f
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -36,7 +25,7 @@
     "extensions": [
       "./index.ts"
     ],
-    "controlUi": "./src/control-ui.tsx",
+    "controlUi": "./src/control-ui.ts",
     "channel": {
       "id": "x",
       "label": "X (Twitter)",
@@ -52,11 +41,7 @@
       "minHostVersion": ">=2026.9.8"
     },
     "compat": {
-<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
-=======
-      "pluginApi": ">=2026.11.1"
->>>>>>> 97b6e87616f
     },
     "build": {
       "bundledDist": true
@@ -65,7 +50,7 @@
       "build": "cd ../.. && node --import ./scripts/tsx.mjs scripts/build-plugin-control-ui.mts extensions/x",
       "copy": "cd ../.. && node --import ./scripts/tsx.mjs scripts/build-plugin-control-ui.mts extensions/x --copy",
       "buildOutputs": [
-        "dist/openclaw.plugin.json"
+        "openclaw.plugin.json"
       ]
     }
   }

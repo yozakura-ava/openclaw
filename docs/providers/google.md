@@ -145,7 +145,7 @@ the Gateway already runs inside a managed Google Cloud environment.
   </Tab>
 
   <Tab title="Gemini CLI runtime">
-    **Advanced use only:** run a standard `google/*` model through an installed
+    **Advanced use only:** run a canonical `google/*` model through an installed
     Gemini CLI while keeping authentication on the supported AI Studio API-key
     path.
 
@@ -175,7 +175,7 @@ the Gateway already runs inside a managed Google Cloud environment.
         common Windows/npm layouts.
       </Step>
       <Step title="Select the CLI runtime">
-        Keep the standard Google model ref and opt that model into the CLI
+        Keep the canonical Google model ref and opt that model into the CLI
         runtime:
 
         ```json5
@@ -197,7 +197,7 @@ the Gateway already runs inside a managed Google Cloud environment.
 
     - Runtime: `google-gemini-cli`
     - Auth: selected Google AI Studio API-key profile
-    - Model refs: `google/*`
+    - Model refs: canonical `google/*`
 
     `google-gemini-cli` is the CLI backend the bundled Google plugin registers.
     See [CLI backends](/gateway/cli-backends) for its argv, JSONL dialect, and
@@ -220,11 +220,7 @@ the Gateway already runs inside a managed Google Cloud environment.
 
 ## Gemini 4 Argon
 
-<<<<<<< HEAD
 `google/gemini-4-argon` is available in the bundled catalog, with a 1,048,576-token
-=======
-`google/gemini-4-argon` is the default Google model, with a 1,048,576-token
->>>>>>> 97b6e87616f
 context window and up to 65,536 output tokens. `google/gemini-4` is its shorthand;
 the same model ID and shorthand are available for `google-vertex`.
 
@@ -233,14 +229,6 @@ calling, structured outputs, and search grounding. It uses implicit context
 caching only: explicit `cachedContents` handles and the Live API are not
 supported. See [Google's model documentation](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon).
 
-<<<<<<< HEAD
-=======
-The bundled catalog also includes the stable `google/gemini-3.8-flash`, with a
-1,048,576-token context window and up to 65,536 output tokens. The built-in
-`gemini-flash` alias selects this model; `gemini-flash-lite` selects
-`google/gemini-3.5-flash-lite`.
-
->>>>>>> 97b6e87616f
 ## Capabilities
 
 | Capability             | Supported                     |
@@ -457,7 +445,7 @@ Kore: It is waiting at the maintainer gate.
 Gemini 3.1 and 2.5 preview TTS still use `generateContent`. Those models keep
 the older behavior: `audioProfile` is prepended to the transcript, and
 expressive tags use square brackets such as `[whispers]`. An unknown
-`gemini-3.8-*-tts` id is rejected instead of being sent to `generateContent`.
+`gemini-3.8-*-tts` id fails closed instead of being sent to `generateContent`.
 
 For lowest-latency spoken conversations, use the Google realtime voice provider
 backed by the Gemini Live API instead of batch TTS.
@@ -624,35 +612,23 @@ roundtrip; pass `--openai-audio-cycles 3` for a short repeated lifecycle soak.
 
 <AccordionGroup>
   <Accordion title="Gemini Interactions API (stateless)">
-    Gemini Flash text models use the Interactions API by default on the API-key
-    `google` provider when the effective base URL is the official Google AI Studio
-    endpoint. Custom proxy URLs default to `google-generative-ai` (GenerateContent),
-    even when the model comes from the catalog rather than a configured model row.
-    The official-endpoint default includes Flash-Lite, `gemini-flash-latest`, and
-    forward-compatible Flash model IDs. Pro and other non-Flash models, including
-    the default `google/gemini-4-argon`, keep `google-generative-ai` (GenerateContent).
-    Vertex AI, Gemini CLI, image generation, speech, Live, embeddings, media
-    understanding, web search, and PDF processing keep their existing routes.
-
-    GenerateContent, music, and video SDK clients explicitly use `v1beta` unless
-    a configured base URL already includes an API version. Vertex AI keeps `v1`;
-    Live and browser-token routes keep their existing versions.
-
-    To force GenerateContent for a Flash model, set its existing `api` override:
+    Gemini Interactions is an opt-in alternative to the default
+    `google-generative-ai` transport. Register a provider with
+    `api: "google-interactions"` and select models through that provider ID:
 
     ```json5
     {
       models: {
         mode: "merge",
         providers: {
-          google: {
+          "google-interactions": {
             baseUrl: "https://generativelanguage.googleapis.com/v1beta",
-            api: "google-generative-ai",
+            apiKey: "***",
+            api: "google-interactions",
             models: [
               {
                 id: "gemini-3.8-flash",
-                name: "Gemini Flash",
-                api: "google-generative-ai",
+                name: "Gemini 3.8 Flash (Interactions)",
                 reasoning: true,
                 input: ["text", "image"],
                 contextWindow: 1048576,
@@ -663,36 +639,15 @@ roundtrip; pass `--openai-audio-cycles 3` for a short repeated lifecycle soak.
         },
       },
       agents: {
-        defaults: { model: { primary: "google/gemini-3.8-flash" } },
+        defaults: { model: { primary: "google-interactions/gemini-3.8-flash" } },
       },
     }
     ```
 
-    A model-level `api` overrides the provider-level value; either explicit
-    setting wins over the endpoint and catalog defaults. To use Interactions on
-    another Gemini text model, set `api: "google-interactions"` on that model's
-    entry. A compatible proxy can also set it provider-wide.
-
-    Google forwards nucleus sampling (`params.topP` or `params.top_p`) on Interactions,
-    GenerateContent, and Vertex routes. Per-request `topP` takes precedence.
-
-    Interactions honors the Google provider's managed `request.proxy`,
-    `request.tls`, and local-service settings. Requests to the official AI Studio
-    endpoint also use the same Gemini API-key rotation as GenerateContent when
-    rate limited before streaming starts. Custom endpoints, OAuth credentials,
-    and explicit authentication headers do not receive additional Gemini keys.
-
-    Interactions supports tool calling, thinking levels, image and native video
-    inputs, and streamed replies. Native video remains available on supported
-    Gemini models using the official AI Studio endpoint. Inline video uses
-    base64 data; clipping offsets and frame sampling map to Google's
-    [video processing settings](https://ai.google.dev/gemini-api/docs/video-understanding#customize-video-processing).
-    This transport is stateless: OpenClaw sends `store: false`,
-    does not retain a server-side interaction ID, and replays the needed
-    conversation context on each request. It relies on implicit caching:
-    OpenClaw skips explicit cache creation and ignores configured `cachedContent`
-    handles on this route, keeping instructions and tools inline. Select
-    `google-generative-ai` when you need explicit Gemini cache handles.
+    This transport is stateless: OpenClaw sends `store: false`, does not retain a
+    server-side interaction ID, and replays the needed conversation context on
+    each request. Explicit Gemini `cachedContent` handles are not supported on
+    this route; use `google-generative-ai` for that feature.
 
     Interrupted text replies use the normal transient-error retry and failover
     policy. Malformed streaming JSON fails the request instead of silently

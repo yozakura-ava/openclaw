@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 import { isDeepStrictEqual } from "node:util";
 import { UPDATE_RUN_DRIVER_LIMIT } from "../../packages/gateway-protocol/src/update-run-vocabulary.js";
 import { runExistingOpenClawStateWriteTransaction } from "../state/openclaw-state-db-existing-write.js";
@@ -9,10 +10,6 @@ import {
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "./kysely-sync.js";
-<<<<<<< HEAD
-=======
-import type { EngineConnection } from "./sql-connection.js";
->>>>>>> 97b6e87616f
 import { isSqliteLockError } from "./sqlite-error-diagnostics.js";
 import { assertSqliteSchemaContains } from "./sqlite-schema-contract.js";
 import { extractSqliteTableSchema } from "./sqlite-schema-sql.js";
@@ -39,7 +36,6 @@ import {
   finishUpdateRunRecord,
   isAbandonedUpdateRun,
   isUnacknowledgedPackageOwnerRefusal,
-  type CreateUpdateRunInput,
   type UpdateRunRecord,
   type UpdateRunPhase,
   type UpdateRunStep,
@@ -78,15 +74,21 @@ export { finishUpdateRun, recordUpdateRunDiagnostics } from "./update-run-write.
 
 type LedgerDatabase = Pick<DB, "update_runs">;
 export function createUpdateRun(
-  input: CreateUpdateRunInput,
+  input: RunPatch & {
+    runId?: string;
+    trigger: UpdateRunRecord["trigger"];
+    supersedeStaleIdentityless?: boolean;
+    /** Preview history must not repair canonical task data. */
+    preview?: boolean;
+    /** Record an already completed repair without publishing a transient running row. */
+    settlement?: { reason: string; detail: string };
+  },
   options: LedgerOptions = {},
-  assertCurrent?: (stage: "transaction" | "commit") => void,
 ): UpdateRunRecord {
   const now = Date.now();
-  const createdAtMs = input.accepted?.startedAtMs ?? now;
   const initial: UpdateRunRecord = {
     runId: input.runId ?? randomUUID(),
-    createdAtMs,
+    createdAtMs: now,
     updatedAtMs: now,
     trigger: input.trigger,
     phase: "requested",
@@ -95,8 +97,8 @@ export function createUpdateRun(
     origin: input.origin ?? {},
     target: input.target ?? {},
     before: input.before ?? {},
-    after: input.after ?? {},
-    steps: [{ step: "requested", status: "in_progress", startedAtMs: createdAtMs }],
+    after: {},
+    steps: [{ step: "requested", status: "in_progress", startedAtMs: now }],
     verification: {},
     repair: [],
     confirmedAtMs: null,
@@ -111,9 +113,6 @@ export function createUpdateRun(
       detail: input.settlement.detail,
     });
     finishUpdateRunRecord(initial, { status: "succeeded", reason: input.settlement.reason });
-  }
-  if (input.accepted) {
-    finishUpdateRunRecord(initial, { status: "succeeded" });
   }
   const row = encodeRun(initial, options);
   return runUpdateRunAdmission(
@@ -172,7 +171,6 @@ export function createUpdateRun(
     },
     options,
     !input.preview,
-    assertCurrent,
   );
 }
 
@@ -437,7 +435,7 @@ export function reconcilePackageOwnerRefusal(
 }
 
 function finishInterruptedRunInTransaction(
-  db: EngineConnection,
+  db: DatabaseSync,
   expected: UpdateRunRecord,
   status: "skipped" | "failed",
   options: LedgerOptions,

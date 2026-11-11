@@ -134,7 +134,6 @@ describe("PR failure reporting", () => {
     ).toBe(false);
   });
 
-<<<<<<< HEAD
   it.each(["pull_request", "push", "workflow_dispatch"] as const)(
     "keeps canonical PR matrices complete and first-attempt diagnostic continuation (%s)",
     (eventName) => {
@@ -161,17 +160,9 @@ describe("PR failure reporting", () => {
       }
     },
   );
-=======
-  it("keeps every CI matrix row and removes first-attempt continuation gating", () => {
-    const node = readCiWorkflow().jobs["checks-node-core-test-nondist-shard"];
-    const run = node.steps.find((step: WorkflowStep) => step.name === "Run Node test shard");
-    expect(node.strategy["fail-fast"]).toBe(false);
-    expect(run.env).not.toHaveProperty("OPENCLAW_NODE_TEST_PLAN_CONTINUE_ON_FAILURE");
-  });
->>>>>>> 97b6e87616f
 
   it.skipIf(process.platform === "win32")(
-    "finishes selected compiler and lint groups after every non-cancellation failure",
+    "finishes selected compiler and lint groups only for ordinary diagnostic failures",
     () => {
       const workflow = readCiWorkflow();
       const central = workflow.jobs["check-shard"].steps.find(
@@ -187,10 +178,6 @@ describe("PR failure reporting", () => {
         new URL("../../scripts/ci-static-step.sh", import.meta.url),
         path.join(root, ".ci-harness/scripts/ci-static-step.sh"),
       );
-      copyFileSync(
-        new URL("../../scripts/ci-collect-checks.sh", import.meta.url),
-        path.join(root, ".ci-harness/scripts/ci-collect-checks.sh"),
-      );
       mkdirSync(path.join(root, "scripts"));
       writeFileSync(path.join(root, "scripts/run-oxlint-shards.mts"), "// --extension-stripe\n");
       writeFileSync(
@@ -200,8 +187,8 @@ describe("PR failure reporting", () => {
       );
       for (const [evidence, compilerExit, expectedCalls, groups] of [
         ["1", "2", 2, 2],
-        ["0", "2", 2, 2],
-        ["1", "1", 2, 2],
+        ["0", "2", 1, 0],
+        ["1", "1", 1, 0],
       ] as const) {
         writeFileSync(calls, "");
         const run = spawnSync("/bin/bash", ["-c", central.run], {
@@ -256,8 +243,8 @@ describe("PR failure reporting", () => {
       );
       for (const [evidence, compilerExit, expectedCalls, groups] of [
         ["1", "1", 2, 2],
-        ["0", "1", 2, 2],
-        ["1", "2", 2, 2],
+        ["0", "1", 1, 0],
+        ["1", "2", 1, 0],
       ] as const) {
         writeFileSync(calls, "");
         const lintRun = spawnSync("/bin/bash", ["-c", lintScript], {

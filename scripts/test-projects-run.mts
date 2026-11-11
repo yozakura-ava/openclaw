@@ -18,16 +18,7 @@ import { createVitestCacheSlots } from "./lib/vitest-cache-slots.mts";
 import { hasNonRunVitestSubcommand } from "./lib/vitest-cli-mode.mts";
 import { parseVitestExecutionArgs } from "./lib/vitest-cli.mts";
 import { resolveVitestHomeSelection } from "./lib/vitest-home-selection.mts";
-import {
-  isCiLikeEnv,
-  resolveLocalFullSuiteProfile,
-  shouldContinueVitestFailures,
-} from "./lib/vitest-local-scheduling.mts";
-import {
-  VITEST_INFRASTRUCTURE_EXIT_CODE,
-  mergeVitestExitCodes,
-  vitestInfrastructureExitCode,
-} from "./lib/vitest-outcome.mts";
+import { isCiLikeEnv, resolveLocalFullSuiteProfile } from "./lib/vitest-local-scheduling.mts";
 import { resolveCiVitestPlanConcurrency, runVitestPlans } from "./lib/vitest-plan-scheduling.mts";
 import { resolveVitestNodeArgs, resolveVitestProcessEnv } from "./lib/vitest-process-env.mts";
 import type { exitVitestBySignal } from "./lib/vitest-process.mts";
@@ -45,7 +36,7 @@ import {
   readShardTimings,
   writeShardTimings,
 } from "./lib/vitest-shard-timings.mts";
-import { getVitestWorkerDescriptor } from "./lib/vitest-worker-descriptor.mts";
+import { getVitestWorkerDescriptor } from "./lib/vitest-worker-bootstrap.mts";
 import { createVitestWorkerRun, type VitestWorkerRun } from "./lib/vitest-worker-run.mts";
 import { resolveVitestSpawnParams, spawnWatchedVitestProcess } from "./run-vitest.mts";
 import {
@@ -95,7 +86,7 @@ function assertCacheLeaseJoined(spec: VitestRunSpec, result: VitestCommandOutcom
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/test-projects.mts [--changed <base>] [--watch] [targets...] [-- vitest-args...]
+  console.log(`Usage: node --import tsx scripts/test-projects.mts [--changed <base>] [--watch] [targets...] [-- vitest-args...]
 
 Runs the Vitest project shards that own the requested targets. With no targets,
 this runs the full local suite. Use explicit targets for local edit loops.`);
@@ -138,7 +129,7 @@ async function runPnpmSpecCommand(
   });
   const exitSignal = getForwardedSignal() ?? signal;
   return {
-    code: exitSignal ? signalExitCode(exitSignal) : (code ?? VITEST_INFRASTRUCTURE_EXIT_CODE),
+    code: exitSignal ? signalExitCode(exitSignal) : (code ?? 1),
     exitedNormally: typeof code === "number" && !exitSignal,
     noOutputTimedOut,
     signal: exitSignal,
@@ -146,11 +137,7 @@ async function runPnpmSpecCommand(
   };
 }
 
-async function runVitestSpec(
-  spec: VitestRunSpec,
-  reports: VitestReportOwner,
-  observe: (outcome: VitestCommandOutcome) => void,
-) {
+async function runVitestSpec(spec: VitestRunSpec, reports: VitestReportOwner) {
   let preflightJoined = true;
   if (spec.includeFilePath && spec.includePatterns) {
     writeVitestIncludeFile(spec.includeFilePath, spec.includePatterns, {
@@ -168,15 +155,13 @@ async function runVitestSpec(
       );
       preflightJoined = preflightResult.groupJoined;
       if (preflightResult.code !== 0 || preflightResult.signal) {
-        return { ...preflightResult, code: vitestInfrastructureExitCode(preflightResult.code) };
+        return preflightResult;
       }
       assertCacheLeaseJoined(spec, preflightResult);
     }
     const attempt = reports?.attempt(spec.reportIndex!, spec.pnpmArgs);
     try {
       const result = await runPnpmSpecCommand(spec, attempt?.args ?? spec.pnpmArgs, spec.workerRun);
-      // Report persistence must not erase an already settled child outcome.
-      observe(result);
       attempt?.complete(result);
       return { ...result, groupJoined: preflightJoined && result.groupJoined };
     } catch (error) {
@@ -202,20 +187,16 @@ function applyDefaultParallelVitestWorkerBudget(specs: VitestRunSpec[], env: Nod
   }));
 }
 
-async function runLoggedVitestSpec(
-  spec: VitestRunSpec,
-  reports: VitestReportOwner,
-  observe: (outcome: VitestCommandOutcome) => void,
-) {
+async function runLoggedVitestSpec(spec: VitestRunSpec, reports: VitestReportOwner) {
   console.error(`[test] starting ${spec.config}`);
   const startedAt = performance.now();
-  const result = await runVitestSpec(spec, reports, observe);
+  const result = await runVitestSpec(spec, reports);
   const durationMs = performance.now() - startedAt;
   if (result.noOutputTimedOut) {
     console.error(`[test] ${spec.config} exceeded no-output timeout`);
     return {
       ...result,
-      code: vitestInfrastructureExitCode(result.code),
+      code: result.code || 143,
       signal: null,
       timing: null,
     };
@@ -255,11 +236,12 @@ async function runVitestSpecs(
   specs: VitestRunSpec[],
   concurrency: number,
   reports: VitestReportOwner,
-  termination: { signal: NodeJS.Signals | null; exitCode: number },
+  termination: { signal: NodeJS.Signals | null },
   automatic = false,
   continueOnFailure = false,
   stopOnFailure = false,
 ) {
+  let exitCode = 0;
   let stopScheduling = false;
   let completed = 0;
   const failures: FailedVitestShard[] = [];
@@ -272,14 +254,7 @@ async function runVitestSpecs(
     run: async (spec, index) => {
       let result: Awaited<ReturnType<typeof runLoggedVitestSpec>>;
       try {
-        result = await withCacheSlot(spec, (assigned) =>
-          runLoggedVitestSpec(assigned, reports, (outcome) => {
-            termination.exitCode = mergeVitestExitCodes(termination.exitCode, outcome.code);
-            if (!outcome.noOutputTimedOut) {
-              termination.signal ??= outcome.signal;
-            }
-          }),
-        );
+        result = await withCacheSlot(spec, (assigned) => runLoggedVitestSpec(assigned, reports));
       } catch (error) {
         stopScheduling = true;
         throw error;
@@ -294,18 +269,15 @@ async function runVitestSpecs(
       }
       completed += 1;
       if (result.code !== 0) {
-        termination.exitCode = mergeVitestExitCodes(termination.exitCode, result.code);
+        exitCode ||= result.code;
         const continueOrdinaryFailure =
           continueOnFailure &&
           result.exitedNormally &&
-          // Windows retains each namespace and never recycles scheduler cache slots.
-          (result.groupJoined || process.platform === "win32") &&
+          result.groupJoined &&
           !result.noOutputTimedOut;
         if (
-          result.code !== 1 ||
-          (!continueOrdinaryFailure &&
-            (automatic ||
-              ((concurrency === 1 || stopOnFailure) && spec.continueOnFailure !== true)))
+          !continueOrdinaryFailure &&
+          (automatic || ((concurrency === 1 || stopOnFailure) && spec.continueOnFailure !== true))
         ) {
           stopScheduling = true;
         }
@@ -323,7 +295,7 @@ async function runVitestSpecs(
       }
     },
   });
-  return { failures, timings, stopScheduling, completed };
+  return { exitCode, failures, timings, stopScheduling, completed };
 }
 
 export async function runTestProjects(
@@ -457,10 +429,7 @@ export async function runTestProjects(
     })),
     process.cwd(),
   );
-  const termination: { signal: NodeJS.Signals | null; exitCode: number } = {
-    signal: null,
-    exitCode: 0,
-  };
+  const termination: { signal: NodeJS.Signals | null } = { signal: null };
   const preparationAbort = new AbortController();
   let preparingWorkers = false;
   let workers: VitestWorkerRun | undefined;
@@ -511,7 +480,7 @@ export async function runTestProjects(
     );
     if (code !== 0) {
       printTestSummary("failed", 0, performance.now() - suiteStartedAt);
-      process.exitCode = vitestInfrastructureExitCode(code);
+      process.exitCode = code;
       return;
     }
 
@@ -562,7 +531,7 @@ export async function runTestProjects(
       !runSpecs.some((spec) => spec.watchMode);
     const isParallelShardRun =
       isFullSuiteRun || isFullExtensionsProjectRun(runSpecs) || isExplicitParallelMultiConfigRun;
-    // Explicit selectors keep their ordering; CI drains ordinary failures.
+    // Explicit selectors keep their ordering; focused CI shards still stop after failure.
     // Automatic overlap requires joined groups and scheduler-owned cache leaves.
     const automatic =
       exactTargetRun &&
@@ -619,13 +588,12 @@ export async function runTestProjects(
       reports,
       termination,
       automatic,
-      shouldContinueVitestFailures(baseEnv),
+      baseEnv.OPENCLAW_NODE_TEST_PLAN_CONTINUE_ON_FAILURE === "1",
       focusedCiShard,
     );
     if (concurrency === 1 && termination.signal) {
       return;
     }
-    process.exitCode = mergeVitestExitCodes(Number(process.exitCode ?? 0), termination.exitCode);
     if (concurrency > 1 || !result.stopScheduling) {
       writeShardTimings(result.timings, process.cwd(), baseEnv);
     }
@@ -641,11 +609,11 @@ export async function runTestProjects(
         console.error(line);
       }
     }
+    if (result.exitCode !== 0) {
+      process.exitCode = result.exitCode;
+    }
   } catch (error) {
     reportFailure = String(error);
-    process.exitCode = vitestInfrastructureExitCode(
-      mergeVitestExitCodes(Number(process.exitCode ?? 0), termination.exitCode),
-    );
     throw error;
   } finally {
     try {
@@ -653,11 +621,7 @@ export async function runTestProjects(
         ?.dispose({ interrupted: Boolean(termination.signal) })
         .catch((error: unknown) => {
           reportFailure ??= String(error);
-<<<<<<< HEAD
           process.exitCode ||= 1;
-=======
-          process.exitCode = vitestInfrastructureExitCode(Number(process.exitCode));
->>>>>>> 97b6e87616f
           console.error(error);
         });
       if (reports) {
@@ -682,7 +646,9 @@ export async function runTestProjects(
           },
           termination.signal ? `Cancelled by ${termination.signal}` : reportFailure,
         );
-        process.exitCode = mergeVitestExitCodes(Number(process.exitCode ?? 0), reportCode);
+        if (reportCode) {
+          process.exitCode ||= reportCode;
+        }
       }
       printCompletedSummary?.();
     } finally {

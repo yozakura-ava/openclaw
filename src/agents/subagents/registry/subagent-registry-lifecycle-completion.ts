@@ -15,7 +15,6 @@ import {
   clearPublishedSwarmCollectorOutput,
   updateSwarmCollectorCompletion,
 } from "../swarm/swarm-collector.js";
-import { resolveSubagentChildAuthority } from "./subagent-child-owner-match.js";
 import { resolveSubagentChildSessionOwner } from "./subagent-child-session-owner.js";
 import {
   prepareSubagentKillSession,
@@ -41,8 +40,8 @@ import { completeTerminalEffects } from "./subagent-registry-terminal-effects.js
 import type { SubagentCompletionRequest, SubagentRunRecord } from "./subagent-registry.types.js";
 import { isSameSubagentRunOwner } from "./subagent-run-generation.js";
 import {
+  resolveSubagentRunDeadlineMs,
   resolveSubagentRunEffectiveEndedAt,
-  shouldPreservePublishedExplicitRunTimeout,
 } from "./subagent-run-timeout.js";
 
 const MISSING_REQUIRED_FINAL_REPLY_ERROR = "subagent run ended before producing a final reply";
@@ -50,6 +49,26 @@ const MISSING_REQUIRED_FINAL_REPLY_ERROR = "subagent run ended before producing 
 const browserCleanupLoader = createLazyImportLoader(
   () => import("../../../browser-lifecycle-cleanup.js"),
 );
+
+function shouldPreservePublishedExplicitRunTimeout(entry: SubagentRunRecord): boolean {
+  if (
+    entry.execution.outcome?.status !== "timeout" ||
+    typeof entry.execution.endedAt !== "number"
+  ) {
+    return false;
+  }
+  const deadlineMs = resolveSubagentRunDeadlineMs(entry);
+  if (deadlineMs === undefined || entry.execution.endedAt < deadlineMs) {
+    return false;
+  }
+  return (
+    entry.cleanupHandled === true ||
+    typeof entry.cleanupCompletedAt === "number" ||
+    typeof entry.endedHookEmittedAt === "number" ||
+    entry.delivery?.status === "delivered" ||
+    typeof entry.delivery?.announcedAt === "number"
+  );
+}
 
 function resolveTerminalRequest(
   entry: SubagentRunRecord,
@@ -138,7 +157,7 @@ export async function completeSubagentRunAttempt(
     ? getCurrentSubagentRunOwner(params.runs, completeParams.expectedEntry)
     : params.runs.get(completeParams.runId);
   const lifecycleGeneration = getAgentEventLifecycleGeneration();
-  if (!selectedOwner || resolveSubagentChildAuthority(selectedOwner).status === "mismatch") {
+  if (!selectedOwner) {
     return;
   }
   let releaseCompletionLock: (() => void) | undefined = await context.acquireTerminalCompletionLock(
@@ -178,19 +197,13 @@ export async function completeSubagentRunAttempt(
     }
     assertCurrent();
     assertSessionBinding();
-    if (
-      !suppressSessionEffects &&
-      selected.collect &&
-      !selected.collectorCompletion &&
-      resolveSubagentChildAuthority(selected).status === "verified"
-    ) {
+    if (selected.collect && !selected.collectorCompletion) {
       collectorSession = await prepareSubagentKillSession(
         params.getRuntimeConfig(),
         selected.childSessionKey,
         assertCurrent,
         selected.execution.transcriptTarget,
         selected.childAgentId,
-        selected.childSessionIdentity,
       );
     }
     const now = Date.now();
@@ -222,6 +235,7 @@ export async function completeSubagentRunAttempt(
     };
     assertCurrent();
     let settled: ReturnType<typeof planTerminalCompletion>;
+    let terminalGeneration = 0;
     let publishesTerminalSignal = false;
     try {
       const commit = () =>
@@ -304,7 +318,11 @@ export async function completeSubagentRunAttempt(
         );
       settled = collectorSession ? await collectorSession.withPublication(commit) : await commit();
       if (settled) {
+        const bindingChanged =
+          completeParams.sessionEffects !== undefined &&
+          context.getSessionEffects(settled.entry) !== completeParams.sessionEffects;
         context.bindTerminalSessionEffects(settled.entry, completeParams.sessionEffects);
+        terminalGeneration = context.bumpTerminalGeneration(settled.entry, bindingChanged);
         if (settled.replacedProvisionalKill) {
           context.bumpCleanupGeneration(settled.entry);
         }
@@ -323,6 +341,7 @@ export async function completeSubagentRunAttempt(
     await completeTerminalEffects(context, {
       completeParams,
       ...settled,
+      terminalGeneration,
       stateContext,
       assertCurrent,
       loadCleanupBrowserSessionsForLifecycleEnd:
@@ -362,9 +381,7 @@ function planTerminalCompletion(
   if (
     !recoveryRequested &&
     (entry.terminalOwner === "interrupted-recovery" ||
-      (entry.execution.suppressSessionEffects === true &&
-        (entry.execution.status === "terminal" ||
-          resolveSubagentChildAuthority(entry).status !== "legacy-unverified"))) &&
+      entry.execution.suppressSessionEffects === true) &&
     entry.killIntent === undefined
   ) {
     // Restart recovery already persisted the terminal winner for this exact
@@ -430,7 +447,6 @@ function planTerminalCompletion(
     if (!entry.collect && !suppressSessionEffects) {
       // Unfinished work needs its history even when successful completion would delete it.
       entry.cleanup = "keep";
-<<<<<<< HEAD
       if (entry.expectsCompletionMessage === false && entry.completionRequesterSessionId) {
         // Quiet completion does not waive continuation after a restart. Keep the
         // handoff private and bound to the requester captured before launch.
@@ -440,20 +456,6 @@ function planTerminalCompletion(
         entry.completionTarget = "parent";
         entry.requesterTurnRunId = undefined;
       }
-=======
-    }
-    if (
-      !entry.collect &&
-      entry.expectsCompletionMessage === false &&
-      entry.completionRequesterSessionId
-    ) {
-      // The original requester owns this notice even when the child was replaced.
-      // Sessions created without a lifecycle revision (for example by the `agent`
-      // RPC) bind by session id plus the absent revision; a later reset assigns one,
-      // so the requester identity check still rejects replacements.
-      entry.completionTarget = "parent";
-      entry.requesterTurnRunId = undefined;
->>>>>>> 97b6e87616f
     }
   }
   const sessionSuperseded = context.newerGenerationOwnsSession(currentEntry);
@@ -501,11 +503,7 @@ function planTerminalCompletion(
       completionReason = SUBAGENT_ENDED_REASON_KILLED;
       completionOutcome = { status: "error", error: killIntent.reason };
       entry.killIntent = undefined;
-      if (
-        killOwnsCurrentLifecycle &&
-        resolveSubagentChildAuthority(entry).status === "verified" &&
-        entry.execution.suppressSessionEffects !== true
-      ) {
+      if (killOwnsCurrentLifecycle && entry.execution.suppressSessionEffects !== true) {
         suppressSessionEffects = false;
         entry.execution = {
           ...entry.execution,

@@ -9,10 +9,6 @@ import {
   buildStatusUpdateRows,
   formatUpdateRestartStatusValue,
 } from "../../commands/status-update-restart.js";
-<<<<<<< HEAD
-=======
-import { GatewayStateOwnerContentionError } from "../../infra/gateway-state-owner.js";
->>>>>>> 97b6e87616f
 import {
   packageActivationIdentity,
   resolvePackageActivationAnchor,
@@ -157,18 +153,6 @@ afterEach(async () => {
 });
 
 describe("update repair ledger recovery", () => {
-<<<<<<< HEAD
-=======
-  it("tells operators to stop the live Gateway owner before repair", async () => {
-    mocks.ownershipAllowed.mockRejectedValueOnce(
-      new GatewayStateOwnerContentionError("/fixture/state/openclaw.sqlite"),
-    );
-    await expect(updateRepairCommand({ json: true })).rejects.toThrow(
-      /Stop the Gateway first \(openclaw gateway stop\)/,
-    );
-    expect(mocks.finalize).not.toHaveBeenCalled();
-  });
->>>>>>> 97b6e87616f
   it.each(["aborted", "publishing"])(
     "exits nonzero while a released %s package record remains pending",
     async (phase) => {
@@ -290,7 +274,7 @@ describe("update repair ledger recovery", () => {
         }),
       );
       await updateRepairCommand({});
-      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined, undefined);
+      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined);
     },
   );
 
@@ -481,7 +465,7 @@ describe("update repair ledger recovery", () => {
       ).toBe("muted: ℹ️ OpenClaw abandoned update reconciled.");
       expect(getUpdateRun(run.runId)).toEqual(repaired);
       await updateRepairCommand({});
-      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined, undefined);
+      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined);
       expect(getUpdateRun(run.runId)).toMatchObject({ status: "failed", reason: "abandoned" });
     },
   );
@@ -538,7 +522,7 @@ describe("update repair ledger recovery", () => {
         { Item: "Update run", Value: "ℹ️ OpenClaw abandoned update reconciled." },
       ]);
       await updateRepairCommand({});
-      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined, undefined);
+      expect(mocks.finalize).toHaveBeenCalledExactlyOnceWith({}, [], undefined);
       expect(getUpdateRun(run.runId)).toMatchObject({ status: "failed", reason });
     },
   );
@@ -555,7 +539,7 @@ describe("update repair ledger recovery", () => {
       await updateRepairCommand({});
 
       if (offset > 0) {
-        expect(mocks.finalize).toHaveBeenCalledWith({}, [run.runId], undefined, undefined);
+        expect(mocks.finalize).toHaveBeenCalledWith({}, [run.runId], undefined);
         expect(getUpdateRun(run.runId)).toEqual(recorded);
       } else {
         expect(mocks.finalize).not.toHaveBeenCalled();
@@ -634,7 +618,7 @@ describe("update repair ledger recovery", () => {
       if (failedStep) {
         expect(getUpdateRun(run.runId)?.status).toBe("running");
       }
-      expect(mocks.finalize).toHaveBeenCalledWith(opts, [run.runId], undefined, undefined);
+      expect(mocks.finalize).toHaveBeenCalledWith(opts, [run.runId], undefined);
     },
   );
 
@@ -671,12 +655,7 @@ describe("update repair ledger recovery", () => {
         mocks.finalize.mockRejectedValueOnce(new Error("Stop the service through its owner"));
         await expect(updateRepairCommand({})).rejects.toThrow("Stop the service through its owner");
         if (!overflow) {
-          expect(mocks.finalize).toHaveBeenCalledWith(
-            {},
-            [old.runId, newer.runId],
-            undefined,
-            undefined,
-          );
+          expect(mocks.finalize).toHaveBeenCalledWith({}, [old.runId, newer.runId], undefined);
         }
         expect(getUpdateRun(old.runId)).toEqual(old);
         expect(mocks.reachable).not.toHaveBeenCalled();
@@ -853,7 +832,7 @@ describe("update repair ledger recovery", () => {
     await expect(updateRepairCommand({})).rejects.toThrow("Stop the service through its owner");
 
     expect(getUpdateRun(run.runId)).toEqual(run);
-    expect(mocks.finalize).toHaveBeenCalledWith({}, [run.runId], undefined, undefined);
+    expect(mocks.finalize).toHaveBeenCalledWith({}, [run.runId]);
     expect(mocks.runtime.log).not.toHaveBeenCalledWith(expect.stringContaining("Reconciled"));
   });
 

@@ -1,15 +1,11 @@
 {
   "name": "@openclaw/ollama-provider",
-<<<<<<< HEAD
   "version": "2026.10.8",
-=======
-  "version": "2026.11.1",
->>>>>>> 97b6e87616f
   "private": true,
   "description": "OpenClaw Ollama provider plugin",
   "type": "module",
   "dependencies": {
-    "typebox": "1.3.35"
+    "typebox": "1.3.34"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"

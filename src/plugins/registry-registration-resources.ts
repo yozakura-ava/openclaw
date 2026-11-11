@@ -157,7 +157,6 @@ export class PluginRegistrationResourceSource {
   transferRegistrationTo(pluginId: string, target: PluginRegistrationResourceSource): void {
     const entry = this.#registrations.get(pluginId);
     if (entry) {
-<<<<<<< HEAD
       if (this.#closed || target.#closed) {
         throw new Error(`Plugin registration custody cannot transfer: ${pluginId}`);
       }
@@ -174,11 +173,6 @@ export class PluginRegistrationResourceSource {
       // A retained instance can run its synchronous registration callback in the successor
       // before physical custody moves. That creates bookkeeping but no successor-owned resource;
       // the completed source registration remains the sole cleanup owner.
-=======
-      if (this.#closed || target.#closed || target.#registrations.has(pluginId)) {
-        throw new Error(`Plugin registration custody cannot transfer: ${pluginId}`);
-      }
->>>>>>> 97b6e87616f
       this.#registrations.delete(pluginId);
       target.#registrations.set(pluginId, entry);
     }

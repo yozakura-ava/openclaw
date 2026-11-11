@@ -59,10 +59,7 @@ function inspectCurrentUpdateRunContinuation(
   if (record.runId !== inheritedRunId?.trim() || hasUnrecordedUpdateRunDriver(record)) {
     return "not-continuation";
   }
-<<<<<<< HEAD
   let ancestry: ReturnType<typeof inspectSelfAndAncestorPidsSync> | undefined;
-=======
->>>>>>> 97b6e87616f
   let ownsDriver = false;
   for (const driver of recordedUpdateRunDrivers(record)) {
     const liveness = inspectUpdateRunDriver(driver);
@@ -74,25 +71,12 @@ function inspectCurrentUpdateRunContinuation(
     }
     const key = updateRunDriverKey(driver);
     if (!verifiedAncestorDrivers.has(key)) {
-<<<<<<< HEAD
       ancestry ??= inspectSelfAndAncestorPidsSync(undefined, { requireVerifiedParent: true });
       // Every collected PID is a verified ancestor, so finding the driver proves the
       // continuation. The Windows walk often stops short of the root, so completeness
       // only matters when the driver was not found.
       if (!ancestry.pids.has(driver.pid)) {
         return ancestry.complete ? "not-continuation" : "ancestry-unverified";
-=======
-      // Containment ends at this driver; higher supervisors may be unreadable.
-      const ancestry = inspectSelfAndAncestorPidsSync(undefined, {
-        requireVerifiedParent: true,
-        throughPid: driver.pid,
-      });
-      if (!ancestry.complete) {
-        return "ancestry-unverified";
-      }
-      if (!ancestry.pids.has(driver.pid)) {
-        return "not-continuation";
->>>>>>> 97b6e87616f
       }
       verifiedAncestorDrivers.add(key);
     }

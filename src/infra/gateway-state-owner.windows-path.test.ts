@@ -72,10 +72,6 @@ it.each([
       return "C:\\Users\\Tester";
     }
     if (created && candidate.startsWith("c:\\users\\tester\\")) {
-<<<<<<< HEAD
-=======
-      // Native realpath can expose different casing and a namespace after mkdir/open.
->>>>>>> 97b6e87616f
       return `\\\\?\\${candidate}`;
     }
     throw Object.assign(new Error("not created yet"), { code: "ENOENT" });

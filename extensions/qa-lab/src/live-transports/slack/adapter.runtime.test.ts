@@ -7,6 +7,7 @@ import { createQaBusState } from "../../bus-state.js";
 import type { QaChannelE2eDriver } from "../shared/channel-e2e.types.js";
 
 const mocks = vi.hoisted(() => ({
+  captureAvailable: true,
   acquireCaptureStore: vi.fn(),
   acquireCredentialLease: vi.fn(),
   captureRelease: vi.fn(),
@@ -18,10 +19,11 @@ const mocks = vi.hoisted(() => ({
   prepareFlow: vi.fn(),
 }));
 
-vi.mock("openclaw/plugin-sdk/proxy-capture", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("openclaw/plugin-sdk/proxy-capture")>()),
+vi.mock("openclaw/plugin-sdk/proxy-capture", () => ({
   acquireDebugProxyCaptureStoreAsync: mocks.acquireCaptureStore,
-  createDebugProxyCaptureReaderAsync: mocks.createCaptureReader,
+  get createDebugProxyCaptureReaderAsync() {
+    return mocks.captureAvailable ? mocks.createCaptureReader : undefined;
+  },
 }));
 
 vi.mock("../shared/credential-lease.runtime.js", () => ({
@@ -73,6 +75,7 @@ afterEach(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.captureAvailable = true;
   for (const key of [
     "HTTP_PROXY",
     "HTTPS_PROXY",
@@ -280,7 +283,6 @@ function busObservationFixture() {
 }
 
 describe("Slack live adapter reconciliation", () => {
-<<<<<<< HEAD
   it("refuses missing async capture before acquiring credentials or contacting Slack", async () => {
     mocks.captureAvailable = false;
     await expect(createSlackQaTransportAdapter({} as never)).rejects.toThrow(
@@ -291,8 +293,6 @@ describe("Slack live adapter reconciliation", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-=======
->>>>>>> 97b6e87616f
   it("does not acquire a capture reader before a capture is requested", async () => {
     const adapter = await createSlackQaTransportAdapter({
       messages: {

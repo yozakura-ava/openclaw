@@ -13,11 +13,7 @@ export async function restoreCronOperatorSource(params: {
   job: CronStoredJob;
   agentId: string;
   sessionKey: string;
-<<<<<<< HEAD
   entry: InternalSessionEntry;
-=======
-  entry: Pick<InternalSessionEntry, "sessionId" | "lifecycleRevision">;
->>>>>>> 97b6e87616f
   signal?: AbortSignal;
   deliveryAttemptFence: CronCompletionDeliveryFence | null;
 }) {

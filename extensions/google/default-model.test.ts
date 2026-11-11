@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import { applyGoogleGeminiModelDefault, GOOGLE_GEMINI_DEFAULT_MODEL } from "./onboard.js";
 
 describe("google default model", () => {
-<<<<<<< HEAD
   it("sets defaults when model is unset", () => {
     const cfg: OpenClawConfig = { agents: { defaults: {} } };
     const applied = applyGoogleGeminiModelDefault(cfg);
@@ -45,8 +44,6 @@ describe("google default model", () => {
     });
   });
 
-=======
->>>>>>> 97b6e87616f
   it("normalizes retired Gemini model maps even when the primary is already current", () => {
     const applied = applyGoogleGeminiModelDefault({
       agents: {

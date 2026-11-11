@@ -57,7 +57,6 @@ import {
   selectLatestRunsPerLane,
 } from "./lib/release-priority.mjs";
 import { sleep } from "./lib/sleep.mjs";
-import { sameJobExecution } from "./npm-prepared-bundle.mjs";
 import {
   createReleaseEvidenceClient,
   releaseExecutionPlanRestoreContract,
@@ -71,16 +70,11 @@ const DEFAULT_POLL_MS = 30_000;
 const DEFAULT_TIMEOUT_MS = 12 * 60 * 60_000;
 const DEFAULT_RECONCILE_TIMEOUT_MS = 60_000;
 const DEFAULT_WATCH_POLL_MS = 60_000;
-const DEFAULT_PLAN_SEAL_WAIT_MS = 15 * 60_000;
 const DEFAULT_CHILD_MAX_ATTEMPTS = 2;
 const PLAN_ARTIFACT_PROPAGATION_MS = 2 * 60_000;
 const PLAN_FILENAME = "full-release-execution-plan.json";
 const USAGE =
-<<<<<<< HEAD
   "usage: pnpm frv <status|watch|cancel|continue|rerun|verify> --run <id> [--failed | --job <child>:<name> | --child <key|run-id> [--max-attempts <n>]] | pnpm frv prioritize --restore <record>";
-=======
-  "usage: pnpm frv <status|watch|cancel|continue|rerun|verify> --run <id> [--failed [--wait-for-seal] | --job <child>:<name> [--no-follow] | --child <key|run-id> [--max-attempts <n>]] | pnpm frv logs --job <job-id> [--grep <text>] | pnpm frv prioritize --restore <record>";
->>>>>>> 97b6e87616f
 
 function requiredValue(value, label) {
   const normalized = String(value ?? "").trim();
@@ -157,8 +151,6 @@ function parseArgs(argv) {
       options.job = requiredValue(argv[++index], "--job");
     } else if (argument === "--child") {
       options.child = requiredValue(argv[++index], "--child");
-    } else if (argument === "--grep") {
-      options.grep = requiredValue(argv[++index], "--grep");
     } else if (argument === "--max-attempts") {
       options.maxAttempts = positiveInteger(argv[++index], "--max-attempts");
     } else if (argument === "--state") {
@@ -171,8 +163,6 @@ function parseArgs(argv) {
       options.force = true;
     } else if (argument === "--failed") {
       options.failedOnly = true;
-    } else if (argument === "--wait-for-seal") {
-      options.waitForSeal = true;
     } else if (argument === "--restore") {
       options.restore = requiredValue(argv[++index], "--restore");
     } else if (argument === "--json") {
@@ -184,13 +174,7 @@ function parseArgs(argv) {
     }
   }
   if (
-<<<<<<< HEAD
     !["cancel", "continue", "prioritize", "rerun", "status", "verify", "watch"].includes(command)
-=======
-    !["cancel", "continue", "logs", "prioritize", "rerun", "status", "verify", "watch"].includes(
-      command,
-    )
->>>>>>> 97b6e87616f
   ) {
     throw new Error(USAGE);
   }
@@ -198,17 +182,14 @@ function parseArgs(argv) {
     throw new Error("--force is valid only with cancel");
   }
   const restoring = command === "prioritize";
-  const readingLogs = command === "logs";
   if (restoring && options.restore === undefined) {
     // Release validation no longer pauses PR CI; only historical records remain.
     throw new Error("prioritize --run is retired; use prioritize --restore <record>");
   }
-  if (restoring || readingLogs) {
-    if (options.runId !== "") {
-      throw new Error(`${command} does not take --run`);
-    }
-  } else if (!/^[1-9][0-9]*$/u.test(options.runId)) {
-    throw new Error("--run must be a positive decimal");
+  if (restoring ? options.runId !== "" : !/^[1-9][0-9]*$/u.test(options.runId)) {
+    throw new Error(
+      restoring ? "--restore does not take --run" : "--run must be a positive decimal",
+    );
   }
   if (options.restore !== undefined && !restoring) {
     throw new Error("--restore is valid only with prioritize");
@@ -219,12 +200,6 @@ function parseArgs(argv) {
   if (command !== "continue" && options.failedOnly) {
     throw new Error("--failed is valid only with continue");
   }
-<<<<<<< HEAD
-=======
-  if (command !== "continue" && options.waitForSeal) {
-    throw new Error("--wait-for-seal is valid only with continue --failed");
-  }
->>>>>>> 97b6e87616f
   if (!["cancel", "continue", "prioritize", "rerun"].includes(command) && options.dryRun) {
     throw new Error("--dry-run is valid only with cancel, continue, rerun, or prioritize");
   }
@@ -235,16 +210,8 @@ function parseArgs(argv) {
     if (options.job !== undefined) {
       parseJobSelector(options.job);
     }
-  } else if (readingLogs) {
-    positiveInteger(options.job, "--job");
-    if (options.child !== undefined) {
-      throw new Error("--child is valid only with rerun");
-    }
   } else if (options.job !== undefined || options.child !== undefined) {
-    throw new Error("--job and --child are valid only with rerun or logs");
-  }
-  if (options.grep !== undefined && !readingLogs) {
-    throw new Error("--grep is valid only with logs");
+    throw new Error("--job and --child are valid only with rerun");
   }
   if (options.maxAttempts !== undefined && options.child === undefined) {
     throw new Error("--max-attempts is valid only with rerun --child");
@@ -379,24 +346,21 @@ async function ghJson(repository, path, options, fresh) {
   return JSON.parse(await readGhApi(repository, path, [], options, fresh));
 }
 
-async function downloadExecutionPlan(repository, runId, options = {}) {
+async function downloadExecutionPlan(repository, runId) {
   const directory = mkdtempSync(join(tmpdir(), "openclaw-frv-plan-"));
   try {
     try {
-      await execGhRead(
-        [
-          "run",
-          "download",
-          runId,
-          "--repo",
-          repository,
-          "--name",
-          `full-release-execution-plan-${runId}`,
-          "--dir",
-          directory,
-        ],
-        options,
-      );
+      await execGhRead([
+        "run",
+        "download",
+        runId,
+        "--repo",
+        repository,
+        "--name",
+        `full-release-execution-plan-${runId}`,
+        "--dir",
+        directory,
+      ]);
     } catch (error) {
       if (isReleaseGhArtifactMissingError(error)) {
         return undefined;
@@ -453,7 +417,7 @@ function exactParentJob(parentJobs, child, sourceParentAttempt) {
 
 async function inspectArtifactProducers(producers, client, options) {
   return Promise.all(
-    producers.map(async ({ request, runId, runAttempt, preparation }) => {
+    producers.map(async ({ request, runId, runAttempt }) => {
       const run = validateArtifactProducerRun(
         request,
         await client.getRun(runId, options),
@@ -474,7 +438,6 @@ async function inspectArtifactProducers(producers, client, options) {
         conclusion: String(run.conclusion ?? ""),
         status: active ? "active" : passed ? "passed" : "failed",
         passed,
-        preparation,
         url: run.html_url,
       };
     }),
@@ -497,60 +460,6 @@ function continuationStatus(children) {
     missing: children.filter((child) => child.status === "missing"),
     passed: children.filter((child) => child.status === "passed"),
   };
-}
-
-async function assertFailedArtifactProducersAreReusable(plan, status, client, operationDeadline) {
-  if (!plan.candidate) {
-    return;
-  }
-  const consumed = [];
-  for (const child of status.failed.filter((entry) => entry.key === "artifact:npm")) {
-    if (!child.preparation) {
-      continue;
-    }
-    const sourceJobs = await client.getAttemptJobs(child.runId, child.preparation.runAttempt, {
-      operationDeadline,
-    });
-    const preparation = sourceJobs.filter(
-      (job) =>
-        String(job.id) === child.preparation.jobId &&
-        Number(job.run_attempt) === child.preparation.runAttempt,
-    );
-    if (preparation.length !== 1) {
-      throw new Error(
-        `artifact:npm producer ${child.runId} preparation identity is missing or ambiguous; refusing a rerun that could replace consumed candidate bytes`,
-      );
-    }
-    if (preparation[0].status !== "completed" || preparation[0].conclusion !== "success") {
-      consumed.push(child);
-      continue;
-    }
-    let preserved = true;
-    for (
-      let attempt = child.preparation.runAttempt + 1;
-      attempt <= child.effectiveRunAttempt;
-      attempt += 1
-    ) {
-      const jobs = await client.getAttemptJobs(child.runId, attempt, { operationDeadline });
-      const copies = jobs.filter((job) => job.name === preparation[0].name);
-      if (
-        copies.length > 1 ||
-        (copies.length === 1 && !sameJobExecution(preparation[0], copies[0]))
-      ) {
-        preserved = false;
-        break;
-      }
-    }
-    if (!preserved) {
-      consumed.push(child);
-    }
-  }
-  if (consumed.length === 0) {
-    return;
-  }
-  throw new Error(
-    `${consumed.map((child) => `${child.key} producer ${child.runId}`).join(", ")} already supplied the sealed candidate evidence; rerunning cannot preserve those consumed immutable bytes. Dispatch a fresh all-group FRV with reuse_evidence=true to authenticate reuse instead.`,
-  );
 }
 
 async function recheckArtifactProducers(
@@ -671,14 +580,7 @@ function artifactRecoveryJobs(workflow) {
   ) {
     throw new Error("Source workflow artifact producer contract is ambiguous");
   }
-<<<<<<< HEAD
   if (producers.length > 0 && source.env?.FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT !== "1") {
-=======
-  if (
-    producers.length > 0 &&
-    !["1", "2"].includes(source.env?.FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT)
-  ) {
->>>>>>> 97b6e87616f
     throw new Error("Source workflow artifact producer recovery contract is unsupported");
   }
   return producers;
@@ -691,12 +593,7 @@ async function artifactRecoveryProducers(plan, parentJobs, client, repository, w
   } catch {
     throw new Error("Source workflow artifact producer contract is unavailable");
   }
-<<<<<<< HEAD
   if (source?.env?.FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT !== "1") {
-=======
-  const recoveryContract = source?.env?.FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT;
-  if (!["1", "2"].includes(recoveryContract)) {
->>>>>>> 97b6e87616f
     return legacyNpmRecoveryProducers(plan, parentJobs, client, repository, workflow, options);
   }
   const producers = [];
@@ -738,21 +635,6 @@ async function artifactRecoveryProducers(plan, parentJobs, client, repository, w
     ) {
       throw new Error(`Original ${stage} dispatch identity is unavailable or ambiguous`);
     }
-<<<<<<< HEAD
-=======
-    let preparation;
-    if (stage === "npm" && recoveryContract === "2" && plan.candidate) {
-      const identities = [
-        ...log.matchAll(
-          /(?:^|\n)(?:\d{4}-\d\d-\d\dT\S+ )?Artifact preparation npm identity: job ([1-9][0-9]*) \(attempt ([1-9][0-9]*)\)\r?(?=\n|$)/gu,
-        ),
-      ];
-      if (identities.length !== 1) {
-        throw new Error("Original npm preparation identity is unavailable or ambiguous");
-      }
-      preparation = { jobId: identities[0][1], runAttempt: Number(identities[0][2]) };
-    }
->>>>>>> 97b6e87616f
     producers.push({
       request: {
         stage,
@@ -763,10 +645,6 @@ async function artifactRecoveryProducers(plan, parentJobs, client, repository, w
       },
       runId: dispatches[0][4],
       runAttempt: dispatches[0][5],
-<<<<<<< HEAD
-=======
-      preparation,
->>>>>>> 97b6e87616f
     });
   }
   if (new Set(producers.map((producer) => producer.runId)).size !== producers.length) {
@@ -1981,7 +1859,6 @@ export async function continueFailed(plan, rootRunId, reader, options = {}) {
       runKeys.set(producer.runId, `artifact:${producer.request.stage}`);
     }
     status = await inspectRecovery(plan, artifactProducers, client, { operationDeadline });
-    await assertFailedArtifactProducersAreReusable(plan, status, client, operationDeadline);
     for (const child of status.children) {
       const expectedAttempt = ownedAttempts.get(child.runId);
       if (expectedAttempt !== undefined) {
@@ -2304,9 +2181,7 @@ export async function continueFailed(plan, rootRunId, reader, options = {}) {
 export class MissingFrvPlanError extends Error {}
 
 export async function loadPlan(options, loadExecutionPlan = downloadExecutionPlan) {
-  const payload = await loadExecutionPlan(options.repository, options.runId, {
-    operationDeadline: options.operationDeadline,
-  });
+  const payload = await loadExecutionPlan(options.repository, options.runId);
   if (!payload) {
     throw new MissingFrvPlanError("run has no authenticated immutable FRV plan");
   }
@@ -2347,11 +2222,7 @@ function unsealedParentIdentity(run, options) {
 
 /** Project only authenticated lifecycle facts while the immutable plan is not yet available. */
 export async function inspectUnsealedPlan(options, client) {
-<<<<<<< HEAD
   const operationDeadline = createOperationDeadline();
-=======
-  const operationDeadline = options.operationDeadline ?? createOperationDeadline();
->>>>>>> 97b6e87616f
   const parent = await client.getRun(options.runId, { operationDeadline });
   const before = unsealedParentIdentity(parent, options);
   const jobs = await client.getAttemptJobs(options.runId, before.runAttempt, {
@@ -2434,7 +2305,6 @@ export async function loadPlanForCommand(
   client,
   loadExecutionPlan = downloadExecutionPlan,
 ) {
-<<<<<<< HEAD
   try {
     return { plan: await loadPlan(options, loadExecutionPlan) };
   } catch (error) {
@@ -2449,62 +2319,6 @@ export async function loadPlanForCommand(
       `run ${options.runId} plan is ${pending.planAvailability.state}; ${options.command} is unavailable until the immutable plan is sealed; next: ${pending.nextCommand}`,
       { cause: error },
     );
-=======
-  const waitDeadline = options.waitForSeal
-    ? (options.operationDeadline ??
-      Date.now() + configuredTimeout("OPENCLAW_FRV_PLAN_SEAL_WAIT_MS", DEFAULT_PLAN_SEAL_WAIT_MS))
-    : undefined;
-  let pending;
-  const throwSealWaitTimeout = (cause) => {
-    const state = pending?.planAvailability.state;
-    throw new Error(
-      `run ${options.runId}${state ? ` plan is ${state};` : ""} timed out waiting for the immutable plan seal`,
-      { cause },
-    );
-  };
-  while (true) {
-    if (waitDeadline !== undefined && Date.now() >= waitDeadline) {
-      throwSealWaitTimeout();
-    }
-    try {
-      const plan = await loadPlan(
-        { ...options, operationDeadline: waitDeadline ?? options.operationDeadline },
-        loadExecutionPlan,
-      );
-      if (waitDeadline !== undefined && Date.now() >= waitDeadline) {
-        throwSealWaitTimeout();
-      }
-      return { plan };
-    } catch (error) {
-      if (waitDeadline !== undefined && Date.now() >= waitDeadline) {
-        throwSealWaitTimeout(error);
-      }
-      if (!(error instanceof MissingFrvPlanError)) {
-        throw error;
-      }
-      pending = await inspectUnsealedPlan(
-        { ...options, operationDeadline: waitDeadline ?? options.operationDeadline },
-        client,
-      );
-      if (options.command === "status") {
-        return { pending };
-      }
-      if (!options.waitForSeal) {
-        throw new Error(
-          `run ${options.runId} plan is ${pending.planAvailability.state}; ${options.command} is unavailable until the immutable plan is sealed; next: ${pending.nextCommand}`,
-          { cause: error },
-        );
-      }
-      const remaining = waitDeadline - Date.now();
-      if (remaining < 1) {
-        throw new Error(
-          `run ${options.runId} plan is ${pending.planAvailability.state}; timed out waiting for the immutable plan seal`,
-          { cause: error },
-        );
-      }
-      await sleep(Math.min(configuredTimeout("OPENCLAW_FRV_POLL_MS", DEFAULT_POLL_MS), remaining));
-    }
->>>>>>> 97b6e87616f
   }
 }
 
@@ -3245,10 +3059,9 @@ function failedJobEvent(owner, job, attempt) {
   }
   const labels = Array.isArray(job.labels) && job.labels.length > 0 ? job.labels.join(",") : "none";
   const runner = job.runner_name ? ` / ${job.runner_name}` : "";
-  const blocker = owner.startsWith("artifact:") ? " blocker:" : "";
   return [
-    `job:${job.id}:${job.name}`,
-    `${owner}${blocker} job "${job.name}" ${job.conclusion} (attempt ${job.run_attempt ?? attempt}; runner ${labels}${runner})`,
+    `job:${job.id}`,
+    `${owner} job "${job.name}" ${job.conclusion} (attempt ${job.run_attempt ?? attempt}; runner ${labels}${runner})`,
     job.html_url,
   ];
 }
@@ -3642,22 +3455,6 @@ async function main() {
     return;
   }
   const client = createClient(options.repository);
-<<<<<<< HEAD
-=======
-  if (options.command === "logs") {
-    const log = stripVTControlCharacters(
-      await client.getJobLog(positiveInteger(options.job, "--job")),
-    );
-    const output = options.grep
-      ? log
-          .split("\n")
-          .filter((line) => line.includes(options.grep))
-          .join("\n")
-      : log;
-    process.stdout.write(`${output}${output.endsWith("\n") ? "" : "\n"}`);
-    return;
-  }
->>>>>>> 97b6e87616f
   if (options.command === "cancel") {
     const { cancelReleaseTree } = await import("./frv-cancellation.mjs");
     const result = await cancelReleaseTree(options.runId, client, options);

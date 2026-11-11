@@ -58,41 +58,6 @@ describe("update run report", () => {
           { step: "warning:post-plugin-doctor", status: "completed", detail },
         ],
       }),
-<<<<<<< HEAD
-=======
-    );
-    expect(report.lines.filter((line) => line.startsWith("Warning: "))).toEqual([
-      `Warning: ${detail}`,
-    ]);
-    expect(report.headline).toContain("1 warning needs attention");
-  });
-  it.each([
-    {
-      reason: "preflight-node-runtime-incompatible",
-      detail: "Node 24.15.0; requires engines.node >=24.16.0",
-    },
-    { reason: "node-runtime-preflight", detail: "Runtime capability probe failed" },
-  ])("separates the runtime check failure from its $detail diagnostics", ({ reason, detail }) => {
-    const record = run({
-      status: "failed",
-      reason,
-      steps: [
-        { step: "staging", status: "completed" },
-        {
-          step: "preflight-node-runtime",
-          status: "failed",
-          detail,
-          failureFacts: [{ check: "node-runtime", code: reason, affectedKey: "engines.node" }],
-        },
-      ],
-    });
-    const saved = structuredClone(record);
-    const nextAction = "Run `openclaw --profile work triage` to repair this installation.";
-    const report = renderUpdateRunReport(record, { nextAction });
-
-    expect(report.headline).toBe(
-      "⚠️ OpenClaw could not complete the update. A required system check failed.",
->>>>>>> 97b6e87616f
     );
     expect(report.lines.filter((line) => line.startsWith("Warning: "))).toEqual([
       `Warning: ${detail}`,

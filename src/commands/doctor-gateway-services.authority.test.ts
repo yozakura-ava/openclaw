@@ -136,11 +136,7 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
     const originalConfig = `${JSON.stringify(cfg, null, 2)}\n`;
     const packageRoot = path.join(root, "node_modules/openclaw");
     const entrypoint = path.join(packageRoot, "dist/index.js");
-<<<<<<< HEAD
     const oldNode = "/nix/store/fixture-nodejs-24.20.0/bin/node";
-=======
-    const oldNode = "/nix/store/fixture-nodejs-24.15.0/bin/node";
->>>>>>> 97b6e87616f
     const systemNode = "/usr/local/bin/node";
     if (runtimeRepair) {
       const cliNode = path.join(root, "current/bin/node");
@@ -177,20 +173,11 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
       (runtimeRepair === "launcher" ? `ExecStart=\nExecStart=${programArguments.join(" ")}\n` : "");
     const operatorFile = path.join(runtimeDir, "openclaw-homeassistant.env");
     if (runtimeRepair) {
-<<<<<<< HEAD
       await fs.mkdir(path.dirname(dropInPath));
       await fs.writeFile(dropInPath, dropIn);
       await fs.writeFile(
         operatorFile,
         runtimeRepair === "PATH" ? `PATH=${environment.PATH}\n` : "HA_FIXTURE=retained\n",
-=======
-      await fs.mkdir(path.dirname(dropInPath), { mode: 0o700 });
-      await fs.writeFile(dropInPath, dropIn, { mode: 0o600 });
-      await fs.writeFile(
-        operatorFile,
-        runtimeRepair === "PATH" ? `PATH=${environment.PATH}\n` : "HA_FIXTURE=retained\n",
-        { mode: 0o600 },
->>>>>>> 97b6e87616f
       );
     }
     const originalUnit = buildSystemdUnit({ programArguments, environment });
@@ -308,11 +295,7 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
       return {
         stdout: JSON.stringify({
           nodeVersion:
-<<<<<<< HEAD
             file === systemNode ? systemNodeVersion : file === oldNode ? "24.20.0" : "26.12.1",
-=======
-            file === systemNode ? systemNodeVersion : file === oldNode ? "24.15.0" : "26.12.1",
->>>>>>> 97b6e87616f
           sqliteVersion: "3.51.3",
           sqliteProbe: { available: true, version: "3.51.3", text: true, blob: true, json: true },
         }),
@@ -598,11 +581,7 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
 
   it.each([
     { runtimeRepair: "secret", systemNodeVersion: undefined, selectedNode: "cli" },
-<<<<<<< HEAD
     { runtimeRepair: "secret", systemNodeVersion: "24.20.0", selectedNode: "cli" },
-=======
-    { runtimeRepair: "secret", systemNodeVersion: "24.15.0", selectedNode: "cli" },
->>>>>>> 97b6e87616f
     { runtimeRepair: "secret", systemNodeVersion: "26.12.1", selectedNode: "/usr/local/bin/node" },
     { runtimeRepair: "PATH", systemNodeVersion: undefined, selectedNode: undefined },
     { runtimeRepair: "launcher", systemNodeVersion: undefined, selectedNode: undefined },
@@ -622,11 +601,7 @@ describe.skipIf(process.platform === "win32")("Doctor native repair authority or
         expect(observations.nativeActions).toEqual([]);
         expect(diagnostics).toContain("operator-owned");
       } else {
-<<<<<<< HEAD
         expect(observations.unit).toContain(
-=======
-        expect(observations.unit, diagnostics).toContain(
->>>>>>> 97b6e87616f
           `ExecStart=${selectedNode === "cli" ? process.execPath : selectedNode} `,
         );
         expect(observations.backup).toBe(observations.originalUnit);

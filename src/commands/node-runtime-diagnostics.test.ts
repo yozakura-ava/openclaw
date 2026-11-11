@@ -151,8 +151,18 @@ describe("Node runtime diagnostics command surfaces", () => {
     ]);
   });
 
+  it("warns about a stale service Node without mixing text into status JSON", async () => {
+    await statusCommand({ json: true }, runtime);
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("Gateway service Node 22.23.2"),
+    );
+    expect(runtime.error).toHaveBeenCalledWith(
+      expect.stringContaining("https://openclaw.ai/install.sh"),
+    );
+    expect(runtime.log).not.toHaveBeenCalled();
+  });
+
   it("renders a below-floor service runtime as unsupported without an informational note", async () => {
-    mocks.readCommand.mockResolvedValue({ programArguments: ["/fixture/node", "gateway"] });
     mocks.resolveNodeRuntimeInfo.mockResolvedValue({ status: "unsupported", version: "24.22.0" });
     await statusCommand({ json: true }, runtime);
     expect(runtime.error).toHaveBeenCalledWith(
@@ -162,19 +172,6 @@ describe("Node runtime diagnostics command surfaces", () => {
     expect(runtime.error).not.toHaveBeenCalledWith(expect.stringContaining("undefined"));
   });
 
-<<<<<<< HEAD
-  it("renders a below-floor service runtime as unsupported without an informational note", async () => {
-    mocks.resolveNodeRuntimeInfo.mockResolvedValue({ status: "unsupported", version: "24.22.0" });
-    await statusCommand({ json: true }, runtime);
-    expect(runtime.error).toHaveBeenCalledWith(
-      expect.stringContaining("Gateway service Node 24.22.0 is unsupported."),
-    );
-    expect(runtime.error).not.toHaveBeenCalledWith(expect.stringContaining("[info]"));
-    expect(runtime.error).not.toHaveBeenCalledWith(expect.stringContaining("undefined"));
-  });
-
-=======
->>>>>>> 97b6e87616f
   it("reports an uninspectable service without claiming its Node is unsupported", async () => {
     mocks.resolveNodeRuntimeInfo.mockResolvedValue({
       status: "probe-failed",

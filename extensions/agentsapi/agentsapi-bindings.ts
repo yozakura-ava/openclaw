@@ -3,7 +3,7 @@ import type {
   AgentHarnessSessionDeletionParams,
 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import {
-  createNativeSessionBindingLifecycleV2,
+  createNativeSessionBindingLifecycle,
   isNativeSessionDeletionUnresolved,
   wrapNativeSessionDeletionMutation,
 } from "openclaw/plugin-sdk/agent-harness-session-runtime";
@@ -45,12 +45,18 @@ export function createAgentsApiBindings(
     maxEntries: 100_000,
     overflowPolicy: "reject-new" as const,
   };
-  const state = runtime.state.openKeyedStoreV2<StoredBinding>(stateOptions);
-  const lifecycle = createNativeSessionBindingLifecycleV2(
+  const state = runtime.state.openSyncKeyedStore<StoredBinding>(stateOptions);
+  const mutationState = runtime.state.openKeyedStore<StoredBinding>(stateOptions);
+  const lifecycle = createNativeSessionBindingLifecycle(
     {
       lookup: state.lookup.bind(state),
+      deleteIf: state.deleteIf?.bind(state),
+      registerIfAbsent: state.registerIfAbsent.bind(state),
       withCurrent(authority) {
-        return runtime.state.openKeyedStoreV2<StoredBinding>(stateOptions, authority);
+        if (!mutationState.withCurrent) {
+          throw new Error("Agents API bindings require action-bound plugin-state mutations");
+        }
+        return mutationState.withCurrent(authority);
       },
     },
     {
@@ -141,13 +147,7 @@ export function createAgentsApiBindings(
               assertCurrent();
             };
             try {
-<<<<<<< HEAD
               const stored = readRecord(state.lookup(localSessionId));
-=======
-              const stored = readRecord(await state.lookup(localSessionId));
-              assertCurrent();
-              assertLeaseCurrent();
->>>>>>> 97b6e87616f
               let binding: AgentsApiBinding | undefined;
               if (stored?.sessionId && stored.authFingerprint) {
                 const assertMigrationCurrent = () => {
@@ -166,10 +166,6 @@ export function createAgentsApiBindings(
                   sessionId: stored.sessionId,
                   authFingerprint: stored.authFingerprint,
                 });
-<<<<<<< HEAD
-=======
-                assertMigrationCurrent();
->>>>>>> 97b6e87616f
               } else if (stored?.sessionId && stored.configFingerprint) {
                 binding = bindingSchema.parse(stored);
               }
@@ -196,8 +192,7 @@ export function createAgentsApiBindings(
               assertCurrent();
               assertLeaseCurrent();
             };
-            const binding = nativeBinding(readRecord(await state.lookup(localSessionId)));
-            assertResetCurrent();
+            const binding = nativeBinding(readRecord(state.lookup(localSessionId)));
             if (binding) {
               if (!nativeCleanup) {
                 throw new Error("Agents API native session cleanup is unavailable");
@@ -223,12 +218,9 @@ export function createAgentsApiBindings(
         ),
       );
     },
-    async resolveContextResetSessionId(
-      sessionId: string,
-      previousSessionId?: string,
-    ): Promise<string> {
+    resolveContextResetSessionId(sessionId: string, previousSessionId?: string): string {
       // Only the host-recorded predecessor can retain a binding across a history cut.
-      const raw = await state.lookup(sessionId);
+      const raw = state.lookup(sessionId);
       const current = readRecord(raw);
       if (raw !== undefined && !current) {
         throw invalidRow(sessionId);

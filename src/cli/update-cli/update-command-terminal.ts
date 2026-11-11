@@ -297,6 +297,8 @@ async function settleUpdateCommandTerminalResult<T>(
         formatErrorMessage(failure),
         {
           cause: failure,
+          automaticTriage:
+            failure instanceof UpdateCommandFailure ? failure.automaticTriage : undefined,
         },
       );
     }
@@ -434,14 +436,10 @@ export async function resolveSettledUpdateCommandResult(
           }
         }
       },
-<<<<<<< HEAD
       // This branch has no whole-run deadline; bound contention waits by the update step budget.
       parseUpdateTimeoutMs(params.opts.timeout) ??
         params.opts.run?.defaultStepTimeoutMs ??
         DEFAULT_UPDATE_STEP_TIMEOUT_MS,
-=======
-      params.opts.run?.deadline?.remainingMs() ?? params.opts.run?.defaultStepTimeoutMs ?? 0,
->>>>>>> 97b6e87616f
     );
   } catch (cause) {
     throw new UpdateCommandPendingRecoveryFailure(result, formatErrorMessage(cause), { cause });

@@ -39,14 +39,7 @@ import {
   revalidateOriginalManagedServiceRuntime,
 } from "./update-command-original-service.js";
 import { POST_PLUGIN_DOCTOR_EXECUTION_FAILED_REASON } from "./update-command-post-plugin-validation.js";
-<<<<<<< HEAD
 import { verifyPreviousGatewayForUpdate } from "./update-command-readiness.js";
-=======
-import {
-  observeUpdateGatewayReadiness,
-  verifyPreviousGatewayForUpdate,
-} from "./update-command-readiness.js";
->>>>>>> 97b6e87616f
 import { UpdateCommandRecoveryPendingError } from "./update-command-recovery-error.js";
 import {
   isPackageManagerUpdateMode,
@@ -75,7 +68,6 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
   service: GatewayService;
   port: number;
   timeoutMs?: number;
-  onProgress?: (stage: string, reason: string) => void;
   expectedVersion?: string;
   expectedBuildId?: string;
   env?: NodeJS.ProcessEnv;
@@ -85,7 +77,6 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
 }> {
   const executor = params.updateRun?.executorFence;
   const assertCurrent = () => {
-    params.updateRun?.deadline?.signal.throwIfAborted();
     executor?.assertCurrent();
     params.assertCurrent?.();
   };
@@ -106,7 +97,6 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
       const recovery = await recoverInstalledLaunchAgentAfterUpdate({
         onGatewayStartAttempted: params.onGatewayStartAttempted,
         service: params.service,
-        deadline: params.updateRun?.deadline,
         env: params.env,
         assertCurrent: assertRecovery,
       });
@@ -116,7 +106,7 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
   );
   assertCurrent();
   // Native repair can succeed while readiness still fails; retain both observed outcomes.
-  if (launchAgentRecovery.status !== "not-needed" && params.updateRun) {
+  if (launchAgentRecovery.attempted && params.updateRun) {
     const endedAtMs = Date.now();
     const { runId, env } = params.updateRun;
     const repair = getUpdateRun(runId, { env })?.repair ?? [];
@@ -124,35 +114,29 @@ export async function recoverLaunchAgentAndRecheckGatewayHealth(params: {
       runId,
       {
         attempt: Math.max(0, ...repair.map((entry) => entry.attempt)) + 1,
-        status: launchAgentRecovery.status === "recovered" ? "succeeded" : "failed",
+        status: launchAgentRecovery.recovered ? "succeeded" : "failed",
         startedAtMs,
         endedAtMs,
-        summary:
-          launchAgentRecovery.status === "recovered"
-            ? launchAgentRecovery.message
-            : launchAgentRecovery.detail,
+        summary: launchAgentRecovery.recovered
+          ? launchAgentRecovery.message
+          : launchAgentRecovery.detail,
       },
       { env },
     );
   }
-  if (launchAgentRecovery.status !== "recovered") {
+  if (!launchAgentRecovery.recovered) {
     return { health: params.health, launchAgentRecovery };
   }
 
   const health = await waitForGatewayHealthyRestart({
     service: params.service,
     port: params.port,
-    timeoutMs: params.updateRun?.deadline?.remainingMs() ?? params.timeoutMs,
-    deadline: params.updateRun?.deadline,
-    signal: params.updateRun?.deadline?.signal,
+    timeoutMs: params.timeoutMs,
     expectedVersion: params.expectedVersion,
     ...(params.expectedBuildId ? { expectedBuildId: params.expectedBuildId } : {}),
     requirePluginHealth: false,
     requireChannelHealth: false,
     env: params.env,
-    onObservation: params.onProgress
-      ? (snapshot) => params.onProgress?.("recovery", renderRestartDiagnostics(snapshot).join("; "))
-      : undefined,
     supervisorKeepsAlive: true,
     settle: { probes: 12 },
   });
@@ -391,7 +375,6 @@ export async function maybeRestartServiceAfterFailedMutableUpdate(params: {
         "Service recovery lost its original update executor.",
       );
     }
-    params.updateRun?.deadline?.signal.throwIfAborted();
     executor?.assertCurrent();
   };
   const before = params.preManagedServiceStop;
@@ -501,14 +484,6 @@ export async function maybeRestartServiceAfterFailedMutableUpdate(params: {
       await before.windowsTaskAutoStartRecovery?.restore(true, checkOriginal, assertOriginal);
       await checkOriginal();
     } else {
-      await before.windowsTaskAutoStartRecovery?.restore(
-        true,
-        async () => {
-          await readCurrentService();
-        },
-        assertCurrent,
-      );
-      assertCurrent();
       await runUpdatedInstallGatewayCommand(
         {
           onGatewayStartAttempted: params.onGatewayStartAttempted,
@@ -525,18 +500,14 @@ export async function maybeRestartServiceAfterFailedMutableUpdate(params: {
       );
     }
     assertCurrent();
-    const { health } = await observeUpdateGatewayReadiness({
-      serviceEnv: current.env,
-      gatewayPort: port,
+    const health = await waitForGatewayHealthyRestart({
+      service,
+      port,
+      env: current.env,
       timeoutMs: params.timeoutMs,
-      deadline: run?.deadline,
       expectedVersion: original?.version ?? packageRecovery?.version,
       expectedBuildId: original?.buildId ?? packageRecovery?.buildId,
       requireRunningService: true,
-      healthOnly: true,
-      assertCurrent,
-      onProgress: (stage, reason) =>
-        defaultRuntime[params.jsonMode ? "error" : "log"](`Gateway recovery (${stage}): ${reason}`),
       settle: { probes: 12 },
     });
     assertCurrent();
@@ -629,9 +600,14 @@ export async function compensateOriginalManagedService(
       invocationCwd: params.invocationCwd,
     })) === "healthy";
   assertCurrent();
-  const summary = healthy
-    ? `Original managed service ${original.version} is healthy. Requested package activation was not verified; package and state were retained.`
-    : "Original managed service compensation was not verified; package and current state were retained.";
+  const summary = [
+    healthy
+      ? `Original managed service ${original.version} is healthy. Requested package activation was not verified; package and state were retained.`
+      : "Original managed service compensation was not verified; package and current state were retained.",
+    original.packageFingerprintWarning,
+  ]
+    .filter(Boolean)
+    .join("\n");
   return {
     result: {
       ...result,

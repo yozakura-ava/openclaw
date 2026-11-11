@@ -28,10 +28,6 @@ API calls, not exported OpenClaw functions.
   details in core.
 </Tip>
 
-Auth methods can return `agentRuntimeId` with `defaultModel` when sign-in belongs
-to a native harness. Model Setup applies that runtime to the selected agent's
-model entry, not to global model defaults.
-
 ## Import an existing credential during sign-in
 
 An auth method can declare `credentialImport` with a `migrationProviderId`,
@@ -334,17 +330,6 @@ a saved policy is not proof that the running Gateway applied it.
     timeline](/plugins/sdk-migration/removal-timeline) for the dates and gates
     that govern deprecated surfaces named on this page and its child pages.
 
-    To read runtime auth profiles, await `loadAuthProfileStoreForRuntimeAsync`
-    from `openclaw/plugin-sdk/agent-runtime`. It reads persisted profiles in a
-    database worker and preserves the optional third `env` argument for
-    service-owned state directories. The synchronous `loadAuthProfileStoreForRuntime`
-    is deprecated through 2026-12-31 and will be removed in the first January 2027 stable release.
-
-    `createProviderApiKeyAuthMethod` accepts an optional `validateApiKey` callback.
-    Return an error message to reject a resolved key before any auth profile is
-    returned or saved. The check runs for interactive input, resolved SecretRefs,
-    and non-interactive flag, environment, or saved-profile credentials.
-
     Bundled custom API-key methods can use `captureProviderApiKey` and
     `persistProviderApiKey` from `openclaw/plugin-sdk/provider-auth-api-key`
     when vendor prompts or validation need to stay between auth steps.
@@ -554,7 +539,6 @@ MiMo reasoning replay and final-answer handling. Without the flag, a replacement
 stream keeps the existing behavior of taking ownership of those compatibility
 policies. Returning the original stream or no wrapper also preserves them.
 
-<<<<<<< HEAD
 Bundled adapters share `wrapProviderPayloadHook` and `mapAssistantMessageStream`
 through the existing private `provider-stream-shared` seam. Payload composition
 runs defaults before the caller hook and wire constraints after its result settles;
@@ -562,13 +546,10 @@ each adapter keeps its own replacement/null policy. The stream mapper preserves
 synchronous returns without importing the embedded runner. These are bundled
 implementation helpers, not new third-party SDK contracts.
 
-=======
->>>>>>> 97b6e87616f
 `applyOpenAICompletionsToolReasoning` shares the native tools/reasoning wire
 policy with pass-through adapters through that private seam. Callers qualify
 the endpoint and normalize vendor-prefixed model IDs before applying it.
 
-<<<<<<< HEAD
 Injected-client adapters also reuse the Anthropic thinking and output-cap owners
 through the private `provider-transport-runtime` seam. Client creation and
 provider-specific defaults stay with the adapter; the shared request builder
@@ -588,8 +569,6 @@ the generic response wait after one second and clears it on cancellation or
 with request-correlated evidence can call `report("slot")`. Any backend probes
 must be bounded by that request's lifetime; do not add an always-on polling loop.
 
-=======
->>>>>>> 97b6e87616f
 ## Next steps
 
 - [Channel Plugins](/plugins/sdk-channel-plugins) - if your plugin also provides a channel
@@ -611,9 +590,9 @@ resolve here.
 
 ### Provider hook families
 
-[Provider hook families](/plugins/sdk-provider-plugins/hook-families) — Shared replay, stream, and tool-compat family builders and the SDK interfaces behind them.
+[Provider hook families](/plugins/sdk-provider-plugins/hook-families) — Shared replay, stream, and tool-compat family builders and the SDK seams behind them.
 
-- <a id="sdk-seams-powering-the-family-builders"></a>[SDK interfaces behind the family builders](/plugins/sdk-provider-plugins/hook-families#sdk-seams-powering-the-family-builders)
+- <a id="sdk-seams-powering-the-family-builders"></a>[SDK seams powering the family builders](/plugins/sdk-provider-plugins/hook-families#sdk-seams-powering-the-family-builders)
 
 ### Provider hook wiring
 

@@ -313,10 +313,6 @@ describe("automatic compaction summary failure", () => {
           );
         }
 
-<<<<<<< HEAD
-=======
-        expect(summaryRequests, JSON.stringify(result)).not.toHaveLength(0);
->>>>>>> 97b6e87616f
         expect(JSON.parse(summaryRequests[0]!).model).toBe("model");
         const compactions = () =>
           openSession(fixture)

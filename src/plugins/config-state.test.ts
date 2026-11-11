@@ -356,17 +356,7 @@ describe("resolveEffectivePluginActivationState", () => {
         acp: { enabled: true },
         plugins: { entries: { acpx: { enabled: true } } },
       },
-<<<<<<< HEAD
       expected: activation(true, false, "default", "bundled default enablement"),
-=======
-      expected: {
-        enabled: true,
-        activated: true,
-        explicitlyEnabled: false,
-        source: "default",
-        reason: "bundled default enablement",
-      },
->>>>>>> 97b6e87616f
     },
     {
       name: "keeps bundled default activation when auto-enable supplies a reason",
@@ -377,17 +367,7 @@ describe("resolveEffectivePluginActivationState", () => {
         autoEnabledReason: "ACP runtime configured",
       },
       rawConfig: {},
-<<<<<<< HEAD
       expected: activation(true, false, "default", "bundled default enablement"),
-=======
-      expected: {
-        enabled: true,
-        activated: true,
-        explicitlyEnabled: false,
-        source: "default",
-        reason: "bundled default enablement",
-      },
->>>>>>> 97b6e87616f
     },
     {
       name: "keeps allowlists authoritative over explicit bundled plugin enablement",

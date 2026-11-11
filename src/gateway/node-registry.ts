@@ -995,6 +995,8 @@ export class NodeRegistry {
         sessionCapsCeiling.has(capability),
       );
     }
+    this.refreshSessionPolicy(node);
+
     if ("permissions" in surface) {
       node.permissions =
         surface.permissions === undefined
@@ -1012,14 +1014,9 @@ export class NodeRegistry {
       }
     }
 
-    const previousPairingGeneration = node.pairingGeneration;
     if (generationTransition) {
-      // Policy refresh can synchronously notify readers of this committed surface.
+      const previousPairingGeneration = node.pairingGeneration;
       node.pairingGeneration = generationTransition.nextPairingGeneration;
-    }
-    this.refreshSessionPolicy(node);
-
-    if (generationTransition) {
       // Runner declarations are pairing-generation facts. Retire the old
       // declaration so the live process must publish for its promoted generation.
       settleNodeRegistryPairingGenerationChange({
@@ -1097,15 +1094,7 @@ export class NodeRegistry {
     runId?: string;
     sessionKey: string;
     terminal: boolean;
-<<<<<<< HEAD
   }): AuthorizedSystemRunEventState | null {
-=======
-  }):
-    | (Pick<PendingSystemRunEvent, "invocationDeliveryContext"> & {
-        holdNotice?: (notify: () => void) => void;
-      })
-    | null {
->>>>>>> 97b6e87616f
     if (!params.connId || !params.sessionKey) {
       return null;
     }
@@ -1129,7 +1118,6 @@ export class NodeRegistry {
     if (match === null) {
       return null;
     }
-<<<<<<< HEAD
     return finalizeAuthorizedSystemRunEvent({
       event: this.authorizedSystemRunEvents.get(match),
       terminal: params.terminal,
@@ -1138,37 +1126,6 @@ export class NodeRegistry {
       nodeId: params.nodeId,
       connId,
     });
-=======
-    const event = this.authorizedSystemRunEvents.get(match);
-    const source = event?.invocationDeliveryContext;
-    let waiting: PendingInvoke | undefined;
-    if (params.terminal) {
-      this.authorizedSystemRunEvents.delete(match);
-      // The node reports completion before its result; a still-waiting caller receives that output.
-      waiting = [...this.pendingInvokes.values()].find(
-        (pending) =>
-          pending.nodeId === params.nodeId &&
-          pending.connId === connId &&
-          pending.systemRunEvent?.runId === event?.runId,
-      );
-    }
-    return {
-      ...(source ? { invocationDeliveryContext: { ...source } } : {}),
-      ...(waiting
-        ? {
-            holdNotice: (notify: () => void) => {
-              const resolve = waiting.resolve;
-              waiting.resolve = (value) => {
-                resolve(value);
-                if (!value.ok) {
-                  notify();
-                }
-              };
-            },
-          }
-        : {}),
-    };
->>>>>>> 97b6e87616f
   }
 
   private rememberAuthorizedSystemRunEvent(

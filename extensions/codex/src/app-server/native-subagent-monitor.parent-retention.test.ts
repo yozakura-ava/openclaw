@@ -99,11 +99,7 @@ it("keeps an interrupted assignment resumable without pinning its restored paren
       lifecycleTiming: createCodexThreadLifecycleTimingTracker({ enabled: false }),
     });
   await expect(releaseForResume()).resolves.toBe(true);
-<<<<<<< HEAD
   expect(store.readNativeSubagentAssignments?.(identity, historyOwner)).toEqual([assignment]);
-=======
-  expect(await store.readNativeSubagentAssignments?.(identity, historyOwner)).toEqual([assignment]);
->>>>>>> 97b6e87616f
   expect(runtime.deliverAgentHarnessCompletion).not.toHaveBeenCalled();
 
   await retainCodexAppServerLiveThread(client.client, binding.threadId);
@@ -114,11 +110,7 @@ it("keeps an interrupted assignment resumable without pinning its restored paren
     childTurnCompletedNotification({ turnId: "continued-turn", status: "interrupted" }),
   );
   await expect(releaseForResume()).resolves.toBe(true);
-<<<<<<< HEAD
   expect(store.readNativeSubagentAssignments?.(identity, historyOwner)).toHaveLength(1);
-=======
-  expect(await store.readNativeSubagentAssignments?.(identity, historyOwner)).toHaveLength(1);
->>>>>>> 97b6e87616f
   await continued.unregister();
 });
 
@@ -172,22 +164,11 @@ it("permits parent cold resume once every child is terminal, while preserving un
     expect.anything(),
   );
   const continued = await registerParent(monitor);
-<<<<<<< HEAD
-=======
-  expect(continued.listPendingChildren().map(({ state }) => state)).toEqual([
-    "completing",
-    "completing",
-  ]);
->>>>>>> 97b6e87616f
 
   runtime.deliverAgentHarnessCompletion.mockResolvedValue({ delivered: true, path: "direct" });
   await continued.unregister();
   await vi.advanceTimersByTimeAsync(100);
   const settled = await registerParent(monitor);
-<<<<<<< HEAD
-=======
-  expect(settled.listPendingChildren()).toEqual([]);
->>>>>>> 97b6e87616f
   await settled.unregister();
   expect(
     runtime.deliverAgentHarnessCompletion.mock.calls.map(([request]) => request.result),

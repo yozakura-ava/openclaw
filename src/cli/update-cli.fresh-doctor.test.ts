@@ -28,7 +28,6 @@ import {
   serviceReadCommand,
   serviceReadRuntime,
   serviceStop,
-  serviceRestart,
 } from "./update-cli-mocks.test-support.js";
 import {
   defaultRuntime,
@@ -353,40 +352,29 @@ describe("update-cli", () => {
     expect(getLogOutput()).toContain("Gateway: restarted and verified");
   });
 
-  it.each([
-    { capability: "writable", existing: true, restart: true },
-    { capability: "writable", existing: false, restart: true },
-    { capability: "sealed", existing: true, restart: true },
-    { capability: "writable", existing: true, restart: false },
-  ] as const)(
-    "preserves target compatibility for an unchanged service launcher ($capability, existing=$existing, restart=$restart)",
-    async ({ capability, existing, restart }) => {
+  it.each([{ capability: "sealed" }, { capability: "writable" }] as const)(
+    "preserves target compatibility for an unchanged service launcher ($capability)",
+    async ({ capability }) => {
       const fixture = await setupServicePackageAtPrefix({
         prefix: tempDirs.make("preserved-runtime-"),
       });
       const serviceNode = fixture.serviceNode;
-      // Real PATH discovery must probe a real Node, not assume the host is Node 26.
-      const replacementRuntime = runtimeRecovery.getNodeRuntimeFixture();
       const replacementNode = path.join(tempDirs.make("replacement-runtime-"), "bin", "node");
       await fs.mkdir(path.dirname(replacementNode), { recursive: true });
       // Preserve the host runtime's dynamic-library paths when metadata probes execute it.
       if (process.platform === "win32") {
-        await fs.copyFile(replacementRuntime.execPath, replacementNode);
+        await fs.copyFile(process.execPath, replacementNode);
       } else {
         await fs.writeFile(
           replacementNode,
-          `#!/bin/sh\nexec ${quoteCliArg(replacementRuntime.execPath)} "$@"\n`,
+          `#!/bin/sh\nexec ${quoteCliArg(process.execPath)} "$@"\n`,
           {
             mode: 0o755,
           },
         );
       }
       mockPackageInstallStatus(fixture.root);
-      const discoveryEnv = {
-        PATH: existing ? path.dirname(replacementNode) : tempDirs.make("empty-path-"),
-        HOME: process.env.HOME,
-      };
-      primeServiceCommand([serviceNode, fixture.entrypoint, "gateway"], discoveryEnv);
+      primeServiceCommand([serviceNode, fixture.entrypoint, "gateway"]);
       serviceLoaded.mockResolvedValue(true);
       serviceReadRuntime.mockResolvedValue({
         status: "running",
@@ -399,43 +387,22 @@ describe("update-cli", () => {
       });
       primeNpmChannelTag("latest", "2026.7.1");
       vi.mocked(fetchNpmPackageTargetStatus).mockResolvedValue(
-<<<<<<< HEAD
         packageTargetStatus({ version: "2026.7.1", nodeEngine: ">=26.12.1" }),
       );
       nodeVersionSatisfiesEngine.mockImplementation(
         (version: string | null) => version === "26.12.1",
-=======
-        packageTargetStatus({ version: "2026.7.1", nodeEngine: ">=24.22.1" }),
       );
-      const actualGuard = await vi.importActual<typeof import("../infra/runtime-guard.js")>(
-        "../infra/runtime-guard.js",
->>>>>>> 97b6e87616f
-      );
-      nodeVersionSatisfiesEngine.mockImplementation(actualGuard.nodeVersionSatisfiesEngine);
       resolveNodeRuntimeInfo.mockImplementation(async (nodePath) => ({
         status: "supported",
-<<<<<<< HEAD
         version: nodePath === replacementNode ? "26.12.1" : "24.20.0",
-=======
-        version: nodePath === replacementNode ? replacementRuntime.versions.node : "24.20.0",
->>>>>>> 97b6e87616f
         sqliteVersion: "3.51.3",
         nodeSharedSqlite: false,
         sqliteProbe: { available: true, version: "3.51.3", text: true, blob: true, json: true },
       }));
       const recovery = await import("./update-cli/update-command-node-runtime-resolution.js");
-      const recoverNode = vi.spyOn(recovery, "resolveTargetNodeRuntime");
-      const network = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("No network"));
-      // Real resolver and real PATH discovery, not a mocked return path.
-      if (existing) {
-        expect(
-          await recovery.resolveTargetNodeRuntime({
-            engine: ">=24.22.1",
-            recovery: { env: discoveryEnv },
-          }),
-        ).toBe(replacementNode);
-        recoverNode.mockClear();
-      }
+      const recoverNode = vi
+        .spyOn(recovery, "resolveTargetNodeRuntime")
+        .mockResolvedValue(replacementNode);
       mockFileBackedPathExists();
       mockServicePackageCommands({
         nodeModules: fixture.nodeModules,
@@ -444,35 +411,12 @@ describe("update-cli", () => {
         npmCommands: ["npm", fixture.serviceNpm, requireValue(fixture.serviceNpmReal, "npm")],
         nodeVersions: {
           [serviceNode]: "v24.20.0",
-<<<<<<< HEAD
           [replacementNode]: "v26.12.1",
-=======
-          [replacementNode]: "v" + replacementRuntime.versions.node,
->>>>>>> 97b6e87616f
         },
         onGatewayInstall: (argv) =>
           primeServiceCommand([requireValue(argv[0], "Node"), fixture.entrypoint, "gateway"]),
       });
-<<<<<<< HEAD
       await expect(updateCommand({ yes: true, json: true, restart: true })).rejects.toEqual(
-=======
-      if (capability === "writable" && existing && restart) {
-        await expect(updateCommand({ yes: true, json: true, restart })).resolves.toBeUndefined();
-        expect(commandCalls().find(([argv]) => argv[1] === "i" && argv[2] === "-g")).toBeDefined();
-        expect(lastWriteJsonCall()).toMatchObject({ status: "ok" });
-        expect((await serviceReadCommand(process.env)).programArguments[0]).toBe(replacementNode);
-        expect(recoverNode).toHaveBeenCalledOnce();
-        expect(recoverNode).toHaveBeenCalledWith(
-          expect.objectContaining({
-            engine: ">=24.22.1",
-            recovery: { env: expect.any(Object) },
-          }),
-        );
-        expect(network).not.toHaveBeenCalled();
-        return;
-      }
-      await expect(updateCommand({ yes: true, json: true, restart })).rejects.toEqual(
->>>>>>> 97b6e87616f
         new ExitError(1),
       );
       expect(lastWriteJsonCall()).toMatchObject({
@@ -480,23 +424,8 @@ describe("update-cli", () => {
         reason: "preflight-node-runtime-incompatible",
       });
       expect(commandCalls().find(([argv]) => argv[1] === "i" && argv[2] === "-g")).toBeUndefined();
-<<<<<<< HEAD
       expect(recoverNode).not.toHaveBeenCalled();
       expect(serviceStop).not.toHaveBeenCalled();
-=======
-      if (capability === "writable" && restart) {
-        expect(recoverNode).toHaveBeenCalledOnce();
-        expect(recoverNode.mock.calls[0]?.[0].recovery.installCommand).toBeUndefined();
-      } else {
-        expect(recoverNode).not.toHaveBeenCalled();
-      }
-      expect(network).not.toHaveBeenCalled();
-      expect(serviceStop).not.toHaveBeenCalled();
-      expect(serviceRestart).not.toHaveBeenCalled();
-      expect(
-        commandCalls().filter(([argv]) => argv[2] === "gateway" && argv[3] === "install"),
-      ).toEqual([]);
->>>>>>> 97b6e87616f
       expect((await serviceReadCommand(process.env)).programArguments[0]).toBe(serviceNode);
       expect(
         JSON.parse(await fs.readFile(path.join(fixture.root, "package.json"), "utf8")).version,

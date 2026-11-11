@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { readAssistantThinkingAppend } from "@openclaw/ai/internal/shared";
 import { truncateUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
 import type { InlineCodeState } from "../../packages/markdown-core/src/code-spans.js";
@@ -15,10 +14,7 @@ import {
 } from "../auto-reply/reply-payload.js";
 import type { ReplyDirectiveParseResult } from "../auto-reply/reply/reply-directives.js";
 import { createStreamingDirectiveAccumulator } from "../auto-reply/reply/streaming-directives.js";
-import {
-  emitAgentEventWithAssistantSourceIfCurrent,
-  readAgentAssistantSource,
-} from "../infra/agent-events.js";
+import { emitAgentEvent } from "../infra/agent-events.js";
 import { findFinalTagMatches } from "../shared/text/final-tags.js";
 import { hasOrphanReasoningCloseBoundary } from "../shared/text/reasoning-tags.js";
 import {
@@ -33,7 +29,7 @@ import {
 } from "./embedded-agent-helpers.js";
 import { runBestEffortCallback } from "./embedded-agent-subscribe.callback.js";
 import {
-  shouldSuppressSourceReplyOutput,
+  hasMessageToolOnlySourceDelivery,
   shouldSuppressDeterministicApprovalOutput,
 } from "./embedded-agent-subscribe.handlers.messages.stream.js";
 import type {
@@ -41,14 +37,7 @@ import type {
   StreamBlockState,
 } from "./embedded-agent-subscribe.handlers.types.js";
 import type { SubscribeEmbeddedAgentSessionParams } from "./embedded-agent-subscribe.types.js";
-<<<<<<< HEAD
 import { createThinkingTagStreamState } from "./embedded-agent-utils.js";
-=======
-import {
-  createAssistantStreamBlockState,
-  createThinkingTagStreamState,
-} from "./embedded-agent-utils.js";
->>>>>>> 97b6e87616f
 
 function isPotentialTrailingFinalTagFragment(fragment: string): boolean {
   if (!fragment.startsWith("<") || fragment.includes(">")) {
@@ -389,7 +378,7 @@ export function createStreamRendering({
       }
       state.toolExecutionSinceLastBlockReply = false;
     };
-    if (shouldSuppressSourceReplyOutput({ params, state })) {
+    if (hasMessageToolOnlySourceDelivery({ params, state })) {
       markBlockReplyTextHandled();
       return;
     }
@@ -675,9 +664,6 @@ export function createStreamRendering({
     if (!trimmed || trimmed === state.lastStreamedReasoning) {
       return;
     }
-    // Transcript persistence completes this same occurrence receipt after message_end.
-    const source = readAgentAssistantSource(state.lastAssistant);
-    const itemId = source ? (source.itemId ??= randomUUID()) : undefined;
     flushAssistantStream();
     // Partial callbacks can advance reasoning while the assistant scope flushes.
     const prior = state.lastStreamedReasoning ?? "";
@@ -690,20 +676,20 @@ export function createStreamRendering({
     state.lastStreamedReasoning = trimmed;
 
     // Archive thinking regardless of /reasoning; that setting gates the rendering hook.
-    emitAgentEventWithAssistantSourceIfCurrent(
-      {
-        runId: params.runId,
-        stream: "thinking",
-        data: { text: trimmed, delta, ...(itemId ? { itemId } : {}) },
+    emitAgentEvent({
+      runId: params.runId,
+      stream: "thinking",
+      data: {
+        text: trimmed,
+        delta,
       },
-      source,
-    );
+    });
 
-    // A completed source reply suppresses later reasoning from channel rendering,
+    // A message-tool-only reply suppresses later reasoning from channel rendering,
     // including reasoning attached to tool calls. The archive above still receives it.
     if (
       state.streamReasoning &&
-      !shouldSuppressSourceReplyOutput({ params, state }) &&
+      !hasMessageToolOnlySourceDelivery({ params, state }) &&
       params.onReasoningStream
     ) {
       runBestEffortCallback({
@@ -729,15 +715,11 @@ export function createStreamRendering({
     state.hasFlushedPartialText = false;
     blockChunker.reset();
     resetPartialReplyDirectives();
-<<<<<<< HEAD
     state.partialBlockState = {
       reasoningDepth: 0,
       final: false,
       inlineCode: createInlineCodeState(),
     };
-=======
-    state.partialBlockState = createAssistantStreamBlockState();
->>>>>>> 97b6e87616f
     state.assistantStream = undefined;
     state.currentSourceMessagingToolHeldPartial = undefined;
     state.lastBlockReplyText = undefined;

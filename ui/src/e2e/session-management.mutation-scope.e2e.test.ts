@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { SIDEBAR_SESSION_ROSTER_LIMIT } from "../../../src/shared/session-list-limits.ts";
+import type { SessionDataController } from "../components/session-data-controller.ts";
 import { createControlUiE2eArtifactDir } from "../test-helpers/control-ui-e2e-artifacts.ts";
 import { pauseVirtualClock } from "../test-helpers/control-ui-e2e.ts";
 import { createControlUiSessionRow as sessionRow } from "../test-helpers/control-ui-session-fixtures.ts";
@@ -34,6 +35,7 @@ suite.define(() => {
       const context = await suite.browser.newContext(createControlUiE2eContextOptions());
       const page = await context.newPage();
       await page.clock.install();
+      await installMutationScopeDiagnostics(page, { operation, filter });
       const original = sessionRow("agent:main:rename-cross-agent", "Original name", 3);
       const batch = [original, sessionRow("agent:main:batch-sibling", "Batch sibling", 2)];
       const mainRows = [sessionRow("agent:main:main", "Main", 1), ...batch];
@@ -111,40 +113,9 @@ suite.define(() => {
         sidebar.locator(`.sidebar-recent-session[data-session-key="${key}"]`);
       const capture = (stage: string) =>
         page.screenshot({ path: path.join(artifactDir, `${stage}.png`) });
-      const selectResearchAgent = async () => {
-        await sidebar.getByRole("button", { name: /Switch agent/ }).click();
-        await sidebar
-          .locator(".sidebar-agent-menu")
-          .getByRole("menuitem", { name: "Research", exact: true })
-          .click();
-      };
-      let researchHistory: { url: string; connections: number } | null = null;
       try {
         await page.goto(controlUiSessionUrl(suite.server.baseUrl, original.key));
         await rowFor(original.key).waitFor({ state: "visible" });
-        await installMutationScopeDiagnostics(page, { operation, filter });
-        if (operation === "rename" && filter === "All") {
-          // A submitted sidebar rename owns its modal until the response settles.
-          // Prepare real same-document history so browser navigation can change
-          // agents during that request without clicking through the modal.
-          const originalUrl = page.url();
-          const connections = (await gateway.getRequests("connect")).length;
-          await selectResearchAgent();
-          const researchPath = new URL(
-            controlUiSessionUrl(suite.server.baseUrl, researchRows[0]!.key),
-          ).pathname;
-          // Save the settled route after its loader consumes the navigation hints.
-          await page.waitForURL(
-            (url) =>
-              (url.pathname === researchPath || url.pathname.startsWith(`${researchPath}/`)) &&
-              url.search === "",
-          );
-          await rowFor(researchRows[1]!.key).waitFor({ state: "visible" });
-          researchHistory = { url: page.url(), connections };
-          await page.goBack();
-          await page.waitForURL(originalUrl);
-          await rowFor(original.key).waitFor({ state: "visible" });
-        }
         if (filter === "All") {
           await chooseSidebarMenuOption(page, "Status", filter);
           await closeSidebarMenu(page);
@@ -155,26 +126,10 @@ suite.define(() => {
         const method = operation === "rename" ? "sessions.patch" : "sessions.patchMany";
         await gateway.deferNext(method);
         if (operation === "rename") {
-<<<<<<< HEAD
           // The inline editor permits navigation while the mutation is pending;
           // the sidebar rename dialog intentionally holds focus until it settles.
           await page.locator(".chat-pane__session-title-button").click();
           const input = page.locator(".chat-pane__session-title-input");
-=======
-          if (filter === "All") {
-            await rowFor(original.key).click({ button: "right" });
-            await page.getByRole("menuitem", { name: "Rename…", exact: true }).click();
-          } else {
-            await page
-              .getByRole("button", { name: "Rename session Original name", exact: true })
-              .click();
-          }
-          const input = page.locator(
-            filter === "All"
-              ? 'openclaw-modal-dialog[label="Rename session"] input'
-              : ".chat-pane__session-title-input",
-          );
->>>>>>> 97b6e87616f
           await input.fill("Renamed original");
           await input.press("Enter");
           const request = await waitForPatch(
@@ -205,13 +160,11 @@ suite.define(() => {
             })),
           });
         }
-        if (researchHistory) {
-          await page.goForward();
-          await page.waitForURL(researchHistory.url);
-          expect(await gateway.getRequests("connect")).toHaveLength(researchHistory.connections);
-        } else {
-          await selectResearchAgent();
-        }
+        await sidebar.getByRole("button", { name: /Switch agent/ }).click();
+        await sidebar
+          .locator("wa-dropdown.sidebar-agent-menu")
+          .getByRole("menuitem", { name: "Research", exact: true })
+          .click();
         await rowFor(researchRows[1]!.key).waitFor({ state: "visible" });
         await sidebar
           .getByRole("button", { name: "Load more sessions", exact: true })
@@ -235,12 +188,6 @@ suite.define(() => {
           match: { agentId: "main", includeGlobal: true },
         });
         await gateway.resolveDeferred("sessions.list");
-        if (researchHistory) {
-          await page
-            .locator('openclaw-modal-dialog[label="Rename session"]')
-            .waitFor({ state: "hidden" });
-          expect(await gateway.getRequests("connect")).toHaveLength(researchHistory.connections);
-        }
         if (operation === "batch archive") {
           await expect
             .poll(() => page.locator(".app-toast").textContent())
@@ -289,7 +236,7 @@ suite.define(() => {
         await capture("after-pagination");
         await sidebar.getByRole("button", { name: /Switch agent/ }).click();
         await sidebar
-          .locator(".sidebar-agent-menu")
+          .locator("wa-dropdown.sidebar-agent-menu")
           .getByRole("menuitem", { name: "Main", exact: true })
           .click();
         if (operation === "rename") {
@@ -312,7 +259,7 @@ suite.define(() => {
           .length;
         await sidebar.getByRole("button", { name: /Switch agent/ }).click();
         await sidebar
-          .locator(".sidebar-agent-menu")
+          .locator("wa-dropdown.sidebar-agent-menu")
           .getByRole("menuitem", { name: "Research", exact: true })
           .click();
         const returnedList = await gateway.waitForRequest("sessions.list", {
@@ -347,11 +294,13 @@ suite.define(() => {
           expect(refresh.params).toMatchObject({ limit: retainedLimit + 1 });
           await expect
             .poll(() =>
-              sidebar
-                .locator('.sidebar-session-pagination--roster > button[aria-busy="true"]')
-                .count(),
+              sidebar.evaluate(
+                (element) =>
+                  (element as HTMLElement & { sessionData: SessionDataController }).sessionData
+                    .sessionsLoading,
+              ),
             )
-            .toBe(0);
+            .toBe(false);
           await capture("retained-after-invalidation");
         }
         await rowFor(researchRows[2]!.key).waitFor({ state: "visible" });

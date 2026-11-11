@@ -60,22 +60,6 @@ export function isMainRestartRecoveryCandidate(
   );
 }
 
-/** A final intent can acknowledge only its admitted source on the same captured route. */
-export function getRestartRecoveryPendingFinalSourceRunId(
-  entry: SessionEntry,
-  context: DeliveryContext | undefined,
-): string | undefined {
-  const sourceRunId = normalizeRunId(entry.restartRecoveryDeliverySourceRunId);
-  const original = normalizeDeliveryContext(entry.restartRecoveryDeliveryContext);
-  return normalizeRunId(entry.restartRecoveryDeliveryRunId) &&
-    sourceRunId &&
-    original?.channel &&
-    original.to &&
-    isDeepStrictEqual(original, normalizeDeliveryContext(context))
-    ? sourceRunId
-    : undefined;
-}
-
 type RestartRecoveryChannelAuthority = {
   deliveryContext: DeliveryContext & { channel: string; to: string };
   sourceTurnId: string;
@@ -168,22 +152,9 @@ function normalizeTerminalDeliveryEvidenceResult(
   const captured = record.captured === true ? (true as const) : undefined;
   const rawMeta = asOptionalObjectRecord(record.meta);
   const meta: RestartRecoveryTerminalDeliveryEvidenceResult["meta"] = {
-<<<<<<< HEAD
     ...(rawMeta?.aborted === true ? { aborted: true as const } : {}),
     ...(rawMeta?.error === true ? { error: true as const } : {}),
   };
-=======
-    ...(asOptionalObjectRecord(rawMeta?.terminalReply)?.disposition === "silent"
-      ? { terminalReply: { disposition: "silent" as const } }
-      : {}),
-    ...(rawMeta?.yielded === true ? { yielded: true as const } : {}),
-    ...(rawMeta?.continuationPending === true ? { continuationPending: true as const } : {}),
-    ...(rawMeta?.aborted === true ? { aborted: true as const } : {}),
-    ...(rawMeta?.error === true ? { error: true as const } : {}),
-  };
-  const requesterContinuationSettled =
-    record.requesterContinuationSettled === true ? (true as const) : undefined;
->>>>>>> 97b6e87616f
   const rawPayloads = Array.isArray(record.payloads) ? record.payloads : undefined;
   const payloads: RestartRecoveryTerminalDeliveryEvidenceResult["payloads"] = rawPayloads
     ? rawPayloads.slice(0, 64).map((payload) => {
@@ -235,12 +206,10 @@ function normalizeTerminalDeliveryEvidenceResult(
         ) {
           return [];
         }
-        const reason = normalizeRunId(outcome.reason)?.slice(0, 256);
         return [
           {
             index: outcome.index,
             status: outcomeStatus,
-            ...(reason ? { reason } : {}),
             ...(typeof outcome.sentBeforeError === "boolean"
               ? { sentBeforeError: outcome.sentBeforeError }
               : {}),
@@ -249,7 +218,6 @@ function normalizeTerminalDeliveryEvidenceResult(
       })
     : undefined;
   const errorMessage = normalizeRunId(rawStatus?.errorMessage);
-  const reason = normalizeRunId(rawStatus?.reason)?.slice(0, 256);
   const deliveryStatus: RestartRecoveryTerminalDeliveryEvidenceResult["deliveryStatus"] = status
     ? {
         status,
@@ -259,7 +227,6 @@ function normalizeTerminalDeliveryEvidenceResult(
           ? { resultCount: rawStatus.resultCount }
           : {}),
         ...(errorMessage ? { errorMessage } : {}),
-        ...(reason ? { reason } : {}),
         ...(payloadOutcomes?.length ? { payloadOutcomes } : {}),
       }
     : undefined;
@@ -310,10 +277,6 @@ function normalizeTerminalDeliveryEvidenceResult(
   if (
     !captured &&
     Object.keys(meta).length === 0 &&
-<<<<<<< HEAD
-=======
-    !requesterContinuationSettled &&
->>>>>>> 97b6e87616f
     !payloads?.length &&
     !payloadsTruncated &&
     !deliveryStatus &&
@@ -327,10 +290,6 @@ function normalizeTerminalDeliveryEvidenceResult(
   return {
     ...(captured ? { captured } : {}),
     ...(Object.keys(meta).length ? { meta } : {}),
-<<<<<<< HEAD
-=======
-    ...(requesterContinuationSettled ? { requesterContinuationSettled } : {}),
->>>>>>> 97b6e87616f
     ...(payloads?.length ? { payloads } : {}),
     ...(payloadsTruncated ? { payloadsTruncated } : {}),
     ...(deliveryStatus ? { deliveryStatus } : {}),
@@ -360,12 +319,7 @@ function normalizeRestartRecoveryTerminalDeliveryEvidence(
       continue;
     }
     const previousIndex = evidence.findIndex((entry) => entry.runId === runId);
-    // Queue receipts are immutable facts. Later terminal cleanup can carry an
-    // older capture, but cannot erase a send or reassign it to another route.
     if (previousIndex >= 0) {
-      if (evidence[previousIndex]?.durableFinalReceipt) {
-        continue;
-      }
       evidence.splice(previousIndex, 1);
     }
     const transcriptRunId = normalizeRunId(item.transcriptRunId);
@@ -390,14 +344,8 @@ function normalizeRestartRecoveryTerminalDeliveryEvidence(
       runId,
       ...result,
       ...(transcriptRunId ? { transcriptRunId } : {}),
-      ...(harnessCompletion?.sourceRunId === runId ? { harnessCompletion } : {}),
-      ...(deliveryContext ? { deliveryContext } : {}),
-      ...((item.harnessCompletion === undefined || harnessCompletion?.sourceRunId === runId) &&
-      deliveryContext?.channel &&
-      deliveryContext.to &&
-      intentId &&
-      deliveryId &&
-      platformMessageId
+      ...(harnessCompletion?.sourceRunId === runId ? { harnessCompletion, deliveryContext } : {}),
+      ...(harnessCompletion?.sourceRunId === runId && intentId && deliveryId && platformMessageId
         ? { durableFinalReceipt: { intentId, deliveryId, platformMessageId } }
         : {}),
     });

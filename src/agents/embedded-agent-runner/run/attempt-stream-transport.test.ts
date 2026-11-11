@@ -215,6 +215,27 @@ describe("prepareEmbeddedAttemptTransport", () => {
       compaction: true,
       apiKey: "test-api-key",
       replayEnabled: true,
+      pruning: false,
+      clearing: false,
+    },
+    {
+      compaction: true,
+      apiKey: "test-sk-ant-oat-oauth",
+      replayEnabled: false,
+      pruning: true,
+      clearing: false,
+    },
+    {
+      compaction: false,
+      apiKey: "test-api-key",
+      replayEnabled: false,
+      pruning: true,
+      clearing: true,
+    },
+    {
+      compaction: true,
+      apiKey: "test-api-key",
+      replayEnabled: true,
       pruning: true,
       clearing: true,
     },
@@ -237,7 +258,6 @@ describe("prepareEmbeddedAttemptTransport", () => {
     expect(result.serverToolClearingEnabled).toBe(testCase.clearing);
   });
 
-<<<<<<< HEAD
   it.each([undefined, true])(
     "disables server compaction overrides only for memory flushes (configured=%s)",
     async (compaction) => {
@@ -267,8 +287,6 @@ describe("prepareEmbeddedAttemptTransport", () => {
     },
   );
 
-=======
->>>>>>> 97b6e87616f
   it("disables OpenAI inline compaction only for memory flushes", async () => {
     const payloads: Record<string, unknown>[] = [];
     for (const trigger of [undefined, "memory"] as const) {
@@ -309,14 +327,10 @@ describe("prepareEmbeddedAttemptTransport", () => {
     expect(payloads[1]).not.toHaveProperty("context_management");
   });
 
-<<<<<<< HEAD
   it.each([
     { source: "stored profile", resolvedApiKey: undefined },
     { source: "resolved run", resolvedApiKey: "sk-ant-oat01-synthetic-run" },
   ])(
-=======
-  it.each([{ source: "resolved run", resolvedApiKey: "sk-ant-oat01-synthetic-run" }])(
->>>>>>> 97b6e87616f
     "gives provider wrappers the $source credential the Anthropic transport sends",
     async ({ resolvedApiKey }) => {
       await import("../../ai-transport-runtime-host.js");
@@ -409,6 +423,13 @@ describe("prepareEmbeddedAttemptTransport", () => {
   });
 
   it.each([
+    { label: "foreground", toolExecutionAllow: undefined, expectedSearch: true, codeMode: false },
+    {
+      label: "skill review",
+      toolExecutionAllow: ["skill_workshop"],
+      expectedSearch: false,
+      codeMode: false,
+    },
     {
       label: "explicit search",
       toolExecutionAllow: ["web_search"],

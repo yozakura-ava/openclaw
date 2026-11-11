@@ -209,11 +209,7 @@ export function registerNativeReservationCases({
             await expect(revokedRun).rejects.toBe(admitted.operation.abortSignal.reason);
           } else {
             await expect(revokedRun).rejects.toThrow(
-<<<<<<< HEAD
               "Session reader operation is no longer current",
-=======
-              "Agent database execution reference is released",
->>>>>>> 97b6e87616f
             );
           }
           return;

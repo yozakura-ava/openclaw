@@ -1,30 +1,22 @@
 {
   "name": "@openclaw/browser-plugin",
-<<<<<<< HEAD
   "version": "2026.10.8",
-=======
-  "version": "2026.11.1",
->>>>>>> 97b6e87616f
   "private": true,
   "description": "OpenClaw browser tool plugin",
   "type": "module",
   "dependencies": {
-<<<<<<< HEAD
     "@modelcontextprotocol/sdk": "1.32.0",
-=======
-    "@modelcontextprotocol/sdk": "1.32.1",
->>>>>>> 97b6e87616f
     "chrome-devtools-mcp": "1.10.1",
     "express": "5.2.1",
     "playwright-core": "1.63.0",
-    "typebox": "1.3.35",
+    "typebox": "1.3.34",
     "yargs-parser": "22.0.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",
     "@types/yargs-parser": "21.0.3",
-    "undici": "8.12.2"
+    "undici": "8.11.2"
   },
   "openclaw": {
     "extensions": [

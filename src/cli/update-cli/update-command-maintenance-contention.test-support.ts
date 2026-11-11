@@ -24,11 +24,7 @@ import {
 } from "./update-command-post-update.test-support.js";
 import { resolveMutableUpdateFailure } from "./update-command-result.js";
 import * as service from "./update-command-service.js";
-<<<<<<< HEAD
 import { createPostUpdateFailureResult } from "./update-command-terminal-publication.js";
-=======
-import { createPostUpdateExceptionResult } from "./update-command-terminal-publication.js";
->>>>>>> 97b6e87616f
 import { resolveSettledUpdateCommandResult } from "./update-command-terminal.js";
 
 export function registerMaintenanceContentionTests(
@@ -207,11 +203,7 @@ export function registerMaintenanceContentionTests(
         steps: [],
         durationMs: 1,
       };
-<<<<<<< HEAD
       const postUpdate = createPostUpdateFailureResult(
-=======
-      const postUpdate = createPostUpdateExceptionResult(
->>>>>>> 97b6e87616f
         { result: original, root: "/synthetic", startedAt: Date.now() },
         error,
       ).result;

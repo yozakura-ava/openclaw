@@ -110,12 +110,6 @@ export function captureCliRunToolAuthority(
   const assertSourceCurrent = params.assertCurrent;
   const sourcePolicy = captureCliSessionEventSourcePolicy(params);
   return {
-<<<<<<< HEAD
-=======
-    [Symbol.dispose]() {
-      snapshot?.close();
-    },
->>>>>>> 97b6e87616f
     finalizeSessionEventSourcePolicy(run: RunCliAgentParams, promptToolsAllow?: readonly string[]) {
       return Object.freeze({
         ...sourcePolicy,

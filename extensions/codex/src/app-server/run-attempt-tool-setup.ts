@@ -12,7 +12,6 @@ import {
   formatMcpCodexApprovalRemedy,
   materializeStaticMcpToolsForHarnessRun,
 } from "openclaw/plugin-sdk/codex-mcp-projection";
-import { isIncognitoSessionKey } from "openclaw/plugin-sdk/session-key-runtime";
 import { formatStageTimings } from "openclaw/plugin-sdk/time-runtime";
 import type { CodexComputerContextEpoch } from "./computer-context.js";
 import { resolveCodexPluginsPolicy, shouldAutoApproveCodexAppServerApprovals } from "./config.js";
@@ -34,18 +33,11 @@ import {
   selectInactiveCodexHeartbeatResponseTool,
 } from "./heartbeat-tool-fallback.js";
 import { buildCodexHookRequester } from "./hook-requester.js";
-import type { NativePendingChild } from "./native-subagent-monitor-types.js";
-import {
-  hasCodexNativeToolCatalog,
-  loadCodexAttemptNativeToolCatalog,
-} from "./native-tool-catalog.js";
+import { hasCodexNativeToolCatalog, loadCodexNativeToolCatalog } from "./native-tool-catalog.js";
 import { CodexCompactionPlanState } from "./plan-compaction-state.js";
 import { requestPluginApprovalOutcome } from "./plugin-approval-roundtrip.js";
-<<<<<<< HEAD
 import { releaseCodexProbeClient } from "./probe-client.js";
 import type { CodexDynamicToolSpec } from "./protocol.js";
-=======
->>>>>>> 97b6e87616f
 import { isCodexResponsesOAuth } from "./responses-oauth.js";
 import { emitCodexAppServerEvent, runCodexCleanupStep } from "./run-attempt-lifecycle.js";
 import type { CodexAttemptRuntime } from "./run-attempt-runtime.js";
@@ -55,10 +47,6 @@ import {
   captureScheduledCodexAppAuthority,
   resolveScheduledCodexAppCreatorCaptureDecision,
 } from "./scheduled-app-authority.js";
-<<<<<<< HEAD
-=======
-import { releaseCodexProbeClient } from "./shared-client.js";
->>>>>>> 97b6e87616f
 
 export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
   const {
@@ -211,11 +199,8 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
   >;
   let creatorAuthorityPromise: ReturnType<CreatorAuthorityResolver> | undefined;
   let resolveCreatorAuthorityImpl: CreatorAuthorityResolver | undefined;
-  const runtimeYieldCompletionClaim: {
-    current?: () => boolean | { pendingChildren: NativePendingChild[] };
-  } = {};
+  const runtimeYieldCompletionClaim: { current?: () => boolean } = {};
   const commonToolParams = {
-    nativeExecutionPolicy: runtime.nativeExecutionPolicy,
     // Both catalogs describe one attempt; a later attempt discovers fresh connections.
     nodeExecAvailability: {},
     params: dynamicToolParams,
@@ -276,20 +261,25 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
         }
       : {}),
   };
-  const nativeSpecs = await loadCodexAttemptNativeToolCatalog({
-    binding: mutable.startupBinding,
-    ephemeral: isIncognitoSessionKey(params.sessionKey),
-    authority: connection.authority,
-    appServer: connection.appServer,
-    agentDir,
-    signal: runAbortController.signal,
-    acquireClient: () =>
-      connection.attemptClientFactory({
-        assertCurrent: connection.assertLegacyCurrent,
-        startOptions: connection.appServer.start,
-        authProfileId: connection.startupClientAuthProfileId,
+  let nativeSpecs: CodexDynamicToolSpec[] | undefined;
+  if (hasCodexNativeToolCatalog(mutable.startupBinding)) {
+    runAbortController.signal.throwIfAborted();
+    connection.assertCurrent();
+    const client = await connection.attemptClientFactory({
+      assertCurrent: connection.assertLegacyCurrent,
+      startOptions: connection.appServer.start,
+      authProfileId: connection.startupClientAuthProfileId,
+      agentDir,
+      config: params.config,
+      timeoutMs: connection.appServer.requestTimeoutMs,
+    });
+    try {
+      nativeSpecs = await loadCodexNativeToolCatalog({
+        client,
+        authority: connection.authority,
+        binding: mutable.startupBinding,
+        appServer: connection.appServer,
         agentDir,
-<<<<<<< HEAD
         assertCurrent: () => {
           runAbortController.signal.throwIfAborted();
           connection.assertCurrent();
@@ -299,17 +289,6 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
       await releaseCodexProbeClient(client, connection.attemptClientFactory);
     }
   }
-=======
-        config: params.config,
-        timeoutMs: connection.appServer.requestTimeoutMs,
-      }),
-    releaseClient: (client) => releaseCodexProbeClient(client, connection.attemptClientFactory),
-    assertCurrent: () => {
-      runAbortController.signal.throwIfAborted();
-      connection.assertCurrent();
-    },
-  });
->>>>>>> 97b6e87616f
   let requireExplicitMessageTarget: boolean | undefined;
   let configuredMcp: Awaited<ReturnType<typeof materializeStaticMcpToolsForHarnessRun>> | undefined;
   let scopedMcpTools: Awaited<ReturnType<typeof materializeRequesterScopedMcpToolsForHarnessRun>>;
@@ -559,13 +538,10 @@ export async function prepareCodexAttemptTools(runtime: CodexAttemptRuntime) {
             cwd: effectiveCwd ?? effectiveWorkspace,
           });
     const toolBridge = createCodexDynamicToolBridge({
-      assertCurrentAsync: runtime.nativeExecutionPolicy.assertCurrent,
       tools: toolsWithScopedMcp,
       registeredTools: registeredWithScopedMcp,
       registeredFallbackTools,
       registeredSpecs: nativeSpecs,
-      requireExactRegisteredDefinitions:
-        nativeSpecs !== undefined && !hasCodexNativeToolCatalog(mutable.startupBinding),
       signal: runAbortController.signal,
       computerContextEpoch,
       functionToolsOnly: isCodexResponsesOAuth(connection.startupPreparedAuth),

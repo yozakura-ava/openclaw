@@ -1,7 +1,6 @@
 import { channel } from "node:diagnostics_channel";
 import fs from "node:fs";
 import path from "node:path";
-import { finished } from "node:stream/promises";
 import { setImmediate as checkpoint } from "node:timers/promises";
 import { Worker } from "node:worker_threads";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
@@ -26,8 +25,10 @@ import { createDeferredCore } from "../shared/deferred.js";
 import { applySkillEnvOverridesFromSnapshot } from "../skills/runtime/env-overrides.js";
 import * as agentAuthDiscovery from "./agent-auth-discovery.js";
 import { saveAuthProfileStore } from "./auth-profiles/store-runtime.js";
-import { PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS } from "./model-catalog-timeouts.js";
-import { getPreparedModelCatalogWorkerPoolSnapshot } from "./prepared-model-catalog-worker.js";
+import {
+  getPreparedModelCatalogWorkerPoolSnapshot,
+  PREPARED_MODEL_CATALOG_WORKER_TIMEOUT_MS,
+} from "./prepared-model-catalog-worker.js";
 import { writeFixturePlugin, PROVIDER_ID } from "./prepared-model-catalog-worker.test-support.js";
 import {
   getPreparedModelFullCatalogAuth,
@@ -88,14 +89,13 @@ function observeCatalogEntry(marker: string, agentDir: string) {
   return observeEntry(receipts, { marker, agentDir });
 }
 
-function observeWorkers(onWorker?: (worker: Worker) => void) {
+function observeWorkers() {
   const spawned: Worker[] = [];
   let peakWorkers = 0;
   const workerChannel = channel("worker_threads");
   const recordWorker = (message: unknown) => {
     if (isRecord(message) && message.worker instanceof Worker) {
       spawned.push(message.worker);
-      onWorker?.(message.worker);
       peakWorkers = Math.max(
         peakWorkers,
         spawned.filter((worker) => worker.threadId !== -1).length,
@@ -119,7 +119,6 @@ describe("Gateway catalog worker pool", () => {
     vi.stubEnv("CODEX_HOME", makeTempDir("openclaw-worker-empty-codex-"));
   });
   it("keeps Gateway catalogs available across temporary skill environments", async () => {
-<<<<<<< HEAD
     const observed = observeWorkers();
     try {
       const fixture = await createFleetFixture(observed.subscribe, true, { agentCount: 2 });
@@ -183,94 +182,7 @@ describe("Gateway catalog worker pool", () => {
     }
   });
   it("republishes failed catalog borrowers before replacing their source worker", async () => {
-=======
->>>>>>> 97b6e87616f
     const observed = observeWorkers();
-    const baselineEnvKey = "OPENCLAW_CATALOG_BASELINE_FIXTURE";
-    vi.stubEnv(baselineEnvKey, "gateway-baseline");
-    try {
-      const fixture = await createFleetFixture(observed.subscribe, true, { agentCount: 2 });
-      await Promise.all(
-        fixture.snapshots.map((snapshot) =>
-          loadPreparedModelRuntimeAuth(snapshot, { providerIds: [PROVIDER_ID] }),
-        ),
-      );
-      const agentId = fixture.agentIds[0]!;
-      const sibling = fixture.snapshots[1]!;
-      const metadata = fixture.snapshots[0]!.metadataSnapshot;
-      const skillKey = "catalog-env-fixture";
-      const envKey = "OPENCLAW_CATALOG_SKILL_FIXTURE";
-      vi.stubEnv(envKey, undefined);
-      const refresh = async () => {
-        await refreshPreparedModelRuntimeSnapshots(fixture.config, {
-          catalogMode: "static",
-          allowGatewaySubagentBinding: true,
-          agentIds: new Set([agentId]),
-          pluginMetadataSnapshot: metadata,
-        });
-        const current = getPreparedModelRuntimeSnapshot({
-          agentId,
-          agentDir: fixture.entries[agentId]!.agentDir,
-          config: fixture.config,
-        })!;
-        await expect(
-          loadPreparedModelRuntimeAuth(current, { providerIds: [PROVIDER_ID] }),
-        ).resolves.toMatchObject({ authStore: { version: 1 } });
-        await loadCompletedFullCatalog(current);
-        const catalog = await loadGatewayModelCatalogSnapshot({
-          agentId,
-          agentDir: current.agentDir,
-          workspaceDir: fixture.entries[agentId]!.workspace,
-          getConfig: () => fixture.config,
-          readOnly: false,
-          refreshFullCatalog: true,
-        });
-        expect(catalog.entries).toContainEqual(
-          expect.objectContaining({ provider: PROVIDER_ID, id: "plugin-generation-v1" }),
-        );
-        expect(sibling.isCurrent()).toBe(true);
-      };
-      for (const value of ["first-turn", "second-turn"]) {
-        const restore = applySkillEnvOverridesFromSnapshot({
-          snapshot: { prompt: "", skills: [{ name: skillKey }] },
-          config: {
-            skills: {
-              entries: {
-                [skillKey]: {
-                  env: { [envKey]: value, [baselineEnvKey]: "turn-must-not-replace-baseline" },
-                },
-              },
-            },
-          },
-        });
-        try {
-          expect(process.env[envKey]).toBe(value);
-          expect(process.env[baselineEnvKey]).toBe("gateway-baseline");
-          await refresh();
-          expect(process.env[envKey]).toBe(value);
-        } finally {
-          restore();
-        }
-        expect(process.env[baselineEnvKey]).toBe("gateway-baseline");
-        await refresh();
-      }
-      expect(observed.spawned).toHaveLength(1);
-    } finally {
-      observed.close();
-    }
-  });
-  it("republishes failed catalog borrowers before replacing their source worker", async () => {
-    let firstWorkerStderr = "";
-    let firstWorkerStderrFinished: Promise<void> | undefined;
-    const observed = observeWorkers((worker) => {
-      if (firstWorkerStderrFinished) {
-        return;
-      }
-      worker.stderr.on("data", (chunk: Buffer) => {
-        firstWorkerStderr += chunk.toString();
-      });
-      firstWorkerStderrFinished = finished(worker.stderr);
-    });
     try {
       const fixture = await createFleetFixture(observed.subscribe);
       await Promise.all(fixture.snapshots.map((snapshot) => loadCompletedFullCatalog(snapshot)));
@@ -283,10 +195,6 @@ describe("Gateway catalog worker pool", () => {
         pendingTasks: 0,
       });
       await observed.spawned[0]!.terminate();
-      await firstWorkerStderrFinished;
-      expect(firstWorkerStderr).not.toContain(
-        "loadAuthProfileStoreWithoutExternalProfiles is deprecated",
-      );
       expect(getPreparedModelCatalogWorkerPoolSnapshot()).toMatchObject({
         workers: 0,
         workerFailures: workerFailures + 1,
@@ -409,11 +317,7 @@ describe("Gateway catalog worker pool", () => {
       expect(originalError).toBe(catalogFailures[0]!.error);
       expect(catalogFailures[0]).toMatchObject({ modelFactsChanged: false });
       expect(originalError).toBe(await queuedAuth.catch((error: unknown) => error));
-      expect(originalError).toMatchObject({
-        message: expect.stringMatching(
-          /^worker exited with code 1 \[task=preparedModelCatalog\.task /,
-        ),
-      });
+      expect(originalError).toMatchObject({ message: "worker exited with code 1" });
       taskChannel.unsubscribe(recordFailure);
       expect(failedTasks).toEqual([
         { activeTasks: 1, pendingTasks: 1 },

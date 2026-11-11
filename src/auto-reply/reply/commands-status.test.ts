@@ -1,8 +1,9 @@
 // Tests status command rendering for sessions, agents, diagnostics, and model defaults.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { withTempHome } from "openclaw/plugin-sdk/test-env";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeTestText } from "../../../test/helpers/normalize-text.js";
 import { saveAuthProfileStore } from "../../agents/auth-profiles/store-runtime.js";
 import { testing as cliBackendsTesting } from "../../agents/cli-backends.test-support.js";
@@ -14,14 +15,16 @@ import {
 } from "../../agents/subagents/registry/subagent-registry.test-helpers.js";
 import type { OpenClawConfig } from "../../config/config.js";
 import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "../../config/runtime-snapshot.js";
+  persistSessionTranscriptTurn,
+  replaceSessionEntry,
+} from "../../config/sessions/session-accessor.js";
 import type { ModelDefinitionConfig } from "../../config/types.models.js";
 import * as logger from "../../logger.js";
 import type { ProviderThinkingProfile } from "../../plugins/provider-thinking.types.js";
 import * as statusText from "../../status/status-text.js";
-import { buildStatusPluginsReply, buildStatusText } from "./commands-status.js";
+import { withEnvAsync } from "../../test-utils/env.js";
+import { useSessionStoreTempDirs } from "../../test-utils/session-state-cleanup.js";
+import { buildStatusPluginsReply, buildStatusReply, buildStatusText } from "./commands-status.js";
 import { buildKiraStatusReply, buildStatusReplyForTest } from "./commands-status.test-support.js";
 import { baseCommandTestConfig, buildCommandTestParams } from "./commands.test-harness.js";
 
@@ -90,6 +93,7 @@ vi.mock("../../agents/harness/builtin-openclaw.js", () => ({
   }),
 }));
 
+const sessionDirs = useSessionStoreTempDirs(afterAll, "openclaw-status-auth-label-");
 const baseCfg = baseCommandTestConfig;
 const expectedCodexRuntimeUsageAuth = [
   {
@@ -197,7 +201,6 @@ function saveStatusTestAuthProfiles(params: {
 }
 
 afterEach(() => {
-  clearRuntimeConfigSnapshot();
   cliBackendsTesting.resetDepsForTest();
   clearAgentHarnesses();
   providerUsageMock.loadProviderUsageSummary.mockReset();
@@ -225,9 +228,51 @@ afterEach(() => {
   });
 });
 
+async function writeTranscriptUsageLog(params: {
+  dir: string;
+  agentId: string;
+  sessionId: string;
+  usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    totalTokens: number;
+  };
+  model?: string;
+}) {
+  const storePath = path.join(
+    params.dir,
+    ".openclaw",
+    "agents",
+    params.agentId,
+    "sessions",
+    "sessions.json",
+  );
+  const sessionKey = `agent:${params.agentId}:main`;
+  await replaceSessionEntry(
+    { agentId: params.agentId, sessionKey, storePath },
+    { sessionId: params.sessionId, updatedAt: Date.now() },
+  );
+  await persistSessionTranscriptTurn(
+    { agentId: params.agentId, sessionId: params.sessionId, sessionKey, storePath },
+    {
+      messages: [
+        {
+          message: {
+            role: "assistant",
+            model: params.model ?? "claude-opus-4-5",
+            usage: params.usage,
+          },
+        },
+      ],
+      touchSessionEntry: false,
+    },
+  );
+}
+
 describe("buildStatusReply subagent summary", () => {
   beforeEach(async () => {
-    setRuntimeConfigSnapshot(baseCfg);
     cliBackendsTesting.setDepsForTest({
       resolvePluginSetupRegistry: () => ({
         providers: [],
@@ -314,7 +359,6 @@ describe("buildStatusReply subagent summary", () => {
     expect(reply?.text).not.toContain("· 1 done");
   });
 
-<<<<<<< HEAD
   it("does not count a child session that moved to a newer parent in the old parent's status", async () => {
     const oldParentKey = "agent:main:subagent:status-old-parent";
     const newParentKey = "agent:main:subagent:status-new-parent";
@@ -684,8 +728,6 @@ describe("buildStatusReply subagent summary", () => {
     expect(normalizeTestText(text)).toContain("Plugins: 1 channel plugin failure");
   });
 
-=======
->>>>>>> 97b6e87616f
   it("gates /status plugins behind the plugin command flag", async () => {
     const commandParams = buildCommandTestParams("/status plugins", {
       ...baseCfg,
@@ -702,6 +744,148 @@ describe("buildStatusReply subagent summary", () => {
       "⚠️ /status plugins is disabled. Set commands.plugins=true to enable.",
     );
     expect(pluginHealthRuntimeMock.collectInstalledPluginHealthSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("shows the effective non-OpenClaw embedded harness in /status", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.4": { agentRuntime: { id: "codex" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-codex",
+        updatedAt: 0,
+        fastMode: true,
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.4",
+      contextTokens: 32_000,
+      ...createStatusDisplayParams(true),
+      modelAuthOverride: "api-key",
+      activeModelAuthOverride: "api-key",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("Runtime: OpenAI Codex");
+    expect(normalized).toContain("fast");
+    expect(normalized).not.toContain("Fast · codex");
+    expect(
+      providerUsageMock.loadProviderUsageSummary.mock.calls.some(([params]) =>
+        params?.providers?.includes("openai"),
+      ),
+    ).toBe(false);
+  });
+
+  it("uses Codex OAuth auth labels for openai models running on the Codex harness", async () => {
+    registerStatusCodexHarness();
+
+    await withTempHome(
+      async (dir) => {
+        const agentDir = path.join(dir, ".openclaw", "agents", "main", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        saveAuthProfileStore(
+          {
+            version: 1,
+            profiles: {
+              "openai:status": {
+                type: "oauth",
+                provider: "openai",
+                access: "access-token",
+                refresh: "refresh-token",
+                expires: Date.now() + 60 * 60_000,
+              },
+            },
+          },
+          agentDir,
+          { filterExternalAuthProfiles: false, syncExternalCli: false },
+        );
+        const usageResetBase = Math.floor(Date.now() / 1000);
+        providerUsageMock.loadProviderUsageSummary.mockResolvedValue({
+          updatedAt: Date.now(),
+          providers: [
+            {
+              provider: "openai",
+              displayName: "Codex",
+              windows: [
+                {
+                  label: "5h",
+                  usedPercent: 9,
+                  resetAt: (usageResetBase + 60 * 60) * 1000,
+                },
+                {
+                  label: "Week",
+                  usedPercent: 30,
+                  resetAt: (usageResetBase + 3 * 24 * 60 * 60) * 1000,
+                },
+              ],
+            },
+          ],
+        });
+
+        const commonParams = {
+          sessionEntry: {
+            sessionId: "sess-status-codex-oauth",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          provider: "openai",
+          model: "gpt-5.5",
+          contextTokens: 32_000,
+          ...createStatusDisplayParams(),
+        };
+
+        const codexText = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            agents: {
+              defaults: {
+                models: { "openai/gpt-5.5": { agentRuntime: { id: "codex" } } },
+              },
+            },
+          },
+          ...commonParams,
+        });
+        const implicitCodexText = await buildStatusText({
+          cfg: baseCfg,
+          ...commonParams,
+        });
+
+        const normalizedCodex = normalizeTestText(codexText);
+        const normalizedImplicitCodex = normalizeTestText(implicitCodexText);
+        expect(normalizedCodex).toContain("Model: openai/gpt-5.5");
+        expect(normalizedCodex).toContain("oauth (openai:status)");
+        expect(normalizedCodex).toContain("openai:status");
+        expect(normalizedCodex).toContain("Usage: 5h 91% left");
+        expect(normalizedCodex).toContain("Week 70% left");
+        expect(normalizedImplicitCodex).toContain("Model: openai/gpt-5.5");
+        expect(normalizedImplicitCodex).toContain("oauth (openai:status)");
+        expect(normalizedImplicitCodex).toContain("Runtime: OpenAI Codex");
+        expect(normalizedImplicitCodex).toContain("Usage: 5h 91% left");
+        const providerUsageCall = providerUsageMock.loadProviderUsageSummary.mock.calls.find(
+          ([params]) => params?.providers?.includes("openai"),
+        );
+        if (!providerUsageCall) {
+          throw new Error("expected provider usage summary call for openai");
+        }
+        expect(providerUsageCall[0]?.providers).toEqual(["openai"]);
+        expect(providerUsageCall[0]?.auth).toEqual(expectedCodexRuntimeUsageAuth);
+      },
+      {
+        env: {
+          OPENAI_API_KEY: undefined,
+          OPENAI_OAUTH_TOKEN: undefined,
+        },
+        skipSessionCleanup: true,
+        skipHomeCleanup: true,
+      },
+    );
   });
 
   it("does not read a legacy native credential file from an SDK status render", async () => {
@@ -759,6 +943,205 @@ describe("buildStatusReply subagent summary", () => {
     );
   });
 
+  it("uses Codex usage for bare codex models running on the Codex harness", async () => {
+    registerStatusCodexHarness();
+
+    await withTempHome(
+      async (dir) => {
+        const agentDir = path.join(dir, ".openclaw", "agents", "main", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        saveAuthProfileStore(
+          {
+            version: 1,
+            profiles: {
+              "openai:status": {
+                type: "oauth",
+                provider: "openai",
+                access: "access-token",
+                refresh: "refresh-token",
+                expires: Date.now() + 60 * 60_000,
+              },
+            },
+          },
+          agentDir,
+          { filterExternalAuthProfiles: false, syncExternalCli: false },
+        );
+        const usageResetBase = Math.floor(Date.now() / 1000);
+        providerUsageMock.loadProviderUsageSummary.mockResolvedValue({
+          updatedAt: Date.now(),
+          providers: [
+            {
+              provider: "openai",
+              displayName: "Codex",
+              windows: [
+                {
+                  label: "5h",
+                  usedPercent: 8,
+                  resetAt: (usageResetBase + 60 * 60) * 1000,
+                },
+              ],
+            },
+          ],
+        });
+
+        const text = await buildStatusText({
+          cfg: baseCfg,
+          sessionEntry: {
+            sessionId: "sess-status-bare-codex-oauth",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          provider: "codex",
+          model: "gpt-5.5",
+          contextTokens: 32_000,
+          ...createStatusDisplayParams(),
+        });
+
+        const normalized = normalizeTestText(text);
+        expect(normalized).toContain("Model: codex/gpt-5.5");
+        expect(normalized).toContain("oauth (openai:status)");
+        expect(normalized).toContain("Runtime: OpenAI Codex");
+        expect(normalized).toContain("Usage: 5h 92% left");
+        const providerUsageCall = providerUsageMock.loadProviderUsageSummary.mock.calls.find(
+          ([params]) => params?.providers?.includes("openai"),
+        );
+        if (!providerUsageCall) {
+          throw new Error("expected provider usage summary call for openai");
+        }
+        expect(providerUsageCall[0]?.providers).toEqual(["openai"]);
+        expect(providerUsageCall[0]?.auth).toEqual(expectedCodexRuntimeUsageAuth);
+      },
+      {
+        env: {
+          OPENAI_API_KEY: undefined,
+          OPENAI_OAUTH_TOKEN: undefined,
+        },
+        skipSessionCleanup: true,
+        skipHomeCleanup: true,
+      },
+    );
+  });
+
+  it("forwards a selected OpenAI profile to Codex synthetic usage", async () => {
+    registerStatusCodexHarness();
+    const usageResetBase = Math.floor(Date.now() / 1000);
+    providerUsageMock.loadProviderUsageSummary.mockResolvedValue({
+      updatedAt: Date.now(),
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          windows: [
+            {
+              label: "5h",
+              usedPercent: 9,
+              resetAt: (usageResetBase + 60 * 60) * 1000,
+            },
+          ],
+        },
+      ],
+    });
+
+    await withTempHome(
+      async (dir) => {
+        saveStatusTestAuthProfile({ dir, profileId: "work", provider: "openai" });
+
+        const text = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            agents: {
+              defaults: {
+                models: { "openai/gpt-5.5": { agentRuntime: { id: "codex" } } },
+              },
+            },
+          },
+          sessionEntry: {
+            sessionId: "sess-status-codex-synthetic-usage",
+            updatedAt: 0,
+            authProfileOverride: "work",
+          },
+          ...createStatusSessionParams(),
+          provider: "openai",
+          model: "gpt-5.5",
+          contextTokens: 32_000,
+          ...createStatusDisplayParams(),
+          modelAuthOverride: "oauth",
+          activeModelAuthOverride: "oauth",
+        });
+
+        const normalized = normalizeTestText(text);
+        expect(normalized).toContain("Model: openai/gpt-5.5");
+        expect(normalized).toContain("Runtime: OpenAI Codex");
+        expect(normalized).toContain("Usage: 5h 91% left");
+        const providerUsageCall = providerUsageMock.loadProviderUsageSummary.mock.calls.find(
+          ([params]) => params?.providers?.includes("openai"),
+        );
+        if (!providerUsageCall) {
+          throw new Error("expected provider usage summary call for synthetic Codex auth");
+        }
+        expect(providerUsageCall[0]).toMatchObject({
+          timeoutMs: 8000,
+          providers: ["openai"],
+          auth: [
+            {
+              ...expectedCodexRuntimeUsageAuth[0],
+              authProfileId: "work",
+            },
+          ],
+        });
+        expect(providerUsageCall[0]?.config?.agents?.defaults?.models).toEqual({
+          "openai/gpt-5.5": { agentRuntime: { id: "codex" } },
+        });
+      },
+      { skipSessionCleanup: true, skipHomeCleanup: true },
+    );
+  });
+
+  it("loads Codex synthetic usage when no local OpenAI profile label exists", async () => {
+    registerStatusCodexHarness();
+    providerUsageMock.loadProviderUsageSummary.mockResolvedValue({
+      updatedAt: Date.now(),
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          windows: [{ label: "5h", usedPercent: 16 }],
+        },
+      ],
+    });
+
+    await withTempHome(
+      async () => {
+        const text = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            agents: {
+              defaults: {
+                models: { "openai/gpt-5.5": { agentRuntime: { id: "codex" } } },
+              },
+            },
+          },
+          sessionEntry: {
+            sessionId: "sess-status-codex-no-profile",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          provider: "openai",
+          model: "gpt-5.5",
+          contextTokens: 32_000,
+          ...createStatusDisplayParams(),
+        });
+
+        expect(normalizeTestText(text)).toContain("Usage: 5h 84% left");
+        const providerUsageCall = providerUsageMock.loadProviderUsageSummary.mock.calls.find(
+          ([params]) => params?.providers?.includes("openai"),
+        );
+        expect(providerUsageCall?.[0]?.auth).toEqual(expectedCodexRuntimeUsageAuth);
+      },
+      { env: { OPENAI_API_KEY: undefined, OPENAI_OAUTH_TOKEN: undefined } },
+    );
+  });
+
   it("does not forward stale non-OpenAI profile overrides to Codex usage", async () => {
     registerStatusCodexHarness();
     providerUsageMock.loadProviderUsageSummary.mockResolvedValue({
@@ -812,7 +1195,6 @@ describe("buildStatusReply subagent summary", () => {
     );
   });
 
-<<<<<<< HEAD
   it("uses active fallback provider usage for legacy fallback notices", async () => {
     const fallbackModel: ModelDefinitionConfig = {
       id: "MiniMax-M2.7",
@@ -1027,8 +1409,6 @@ describe("buildStatusReply subagent summary", () => {
     expect(normalizeTestText(text)).toContain("Usage: Account balance: $12.50");
   });
 
-=======
->>>>>>> 97b6e87616f
   it("uses the session-selected provider for /status usage when runtime state is stale", async () => {
     const usageResetBase = Math.floor(Date.now() / 1000);
     providerUsageMock.loadProviderUsageSummary.mockImplementation(
@@ -1177,6 +1557,355 @@ describe("buildStatusReply subagent summary", () => {
     );
   });
 
+  it("uses Codex OAuth auth labels for explicit OpenAI OpenClaw auth order", async () => {
+    await withTempHome(
+      async (dir) => {
+        const agentDir = path.join(dir, ".openclaw", "agents", "main", "agent");
+        fs.mkdirSync(agentDir, { recursive: true });
+        saveAuthProfileStore(
+          {
+            version: 1,
+            profiles: {
+              "openai:status": {
+                type: "oauth",
+                provider: "openai",
+                access: "access-token",
+                refresh: "refresh-token",
+                expires: Date.now() + 60 * 60_000,
+              },
+              "openai:backup": {
+                type: "api_key",
+                provider: "openai",
+                key: "sk-test",
+              },
+            },
+          },
+          agentDir,
+          { filterExternalAuthProfiles: false, syncExternalCli: false },
+        );
+
+        const text = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            agents: {
+              defaults: {
+                models: {
+                  "openai/gpt-5.5": {
+                    agentRuntime: { id: "openclaw" },
+                  },
+                },
+              },
+            },
+            auth: {
+              order: {
+                openai: ["openai:status", "openai:backup"],
+              },
+            },
+          },
+          sessionEntry: {
+            sessionId: "sess-status-openai-agent-codex-oauth",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          provider: "openai",
+          model: "gpt-5.5",
+          contextTokens: 32_000,
+          resolvedHarness: "openclaw",
+          ...createStatusDisplayParams(),
+        });
+
+        const normalized = normalizeTestText(text);
+        expect(normalized).toContain("Model: openai/gpt-5.5");
+        expect(normalized).toContain("oauth (openai:status)");
+        expect(normalized).not.toContain("api-key (openai:backup)");
+      },
+      { env: { OPENAI_API_KEY: undefined }, skipSessionCleanup: true, skipHomeCleanup: true },
+    );
+  });
+
+  it("uses native Claude CLI auth labels for anthropic models running on the Claude CLI runtime", async () => {
+    await withTempHome(
+      async () => {
+        const text = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            agents: {
+              defaults: {
+                models: { "anthropic/claude-opus-4-7": { agentRuntime: { id: "claude-cli" } } },
+              },
+            },
+          },
+          sessionEntry: {
+            sessionId: "sess-status-claude-cli-oauth",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          contextTokens: 32_000,
+          resolvedHarness: "claude-cli",
+          ...createStatusDisplayParams(),
+        });
+
+        const normalized = normalizeTestText(text);
+        expect(normalized).toContain("Model: anthropic/claude-opus-4-7");
+        expect(normalized).toContain("native (claude-cli)");
+      },
+      {
+        env: {
+          ANTHROPIC_API_KEY: undefined,
+          ANTHROPIC_OAUTH_TOKEN: undefined,
+        },
+      },
+    );
+  });
+
+  it("prefers active native Claude CLI auth over selected env API-key labels for runtime aliases", async () => {
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        agents: {
+          defaults: {
+            models: { "anthropic/claude-opus-4-7": { agentRuntime: { id: "claude-cli" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-claude-cli-env-key-shadow",
+        updatedAt: 0,
+        providerOverride: "anthropic",
+        modelOverride: "claude-opus-4-7",
+        modelProvider: "claude-cli",
+        model: "claude-opus-4-7",
+        fallbackNotice: {
+          kind: "active",
+          selectedModel: "anthropic/claude-opus-4-7",
+          activeModel: "claude-cli/claude-opus-4-7",
+          reason: "selected model unavailable",
+        },
+      },
+      ...createStatusSessionParams(),
+      provider: "anthropic",
+      model: "claude-opus-4-7",
+      contextTokens: 32_000,
+      resolvedHarness: "claude-cli",
+      ...createStatusDisplayParams(),
+      modelAuthOverride: "api-key (env: ANTHROPIC_API_KEY)",
+      activeModelAuthOverride: "native (claude-cli)",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("Model: anthropic/claude-opus-4-7");
+    expect(normalized).toContain("native (claude-cli)");
+    expect(normalized).not.toContain("api-key (env: ANTHROPIC_API_KEY)");
+    expect(normalized).not.toContain("Usage:");
+  });
+
+  it("uses Codex OAuth context overrides for openai models running on the Codex harness", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://chatgpt.com/backend-api/codex",
+              models: [codexStatusModel],
+            },
+          },
+        },
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.5": { agentRuntime: { id: "codex" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-codex-context",
+        updatedAt: 0,
+        totalTokens: 25_000,
+        totalTokensFresh: true,
+        totalTokensVersion: 1,
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.5",
+      ...createStatusDisplayParams(),
+      modelAuthOverride: "oauth",
+      activeModelAuthOverride: "oauth",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("Model: openai/gpt-5.5");
+    expect(normalized).toContain("Context: 25k/1.0m");
+  });
+
+  it("caps stale persisted /status context limits with the active Codex runtime window", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        models: {
+          providers: {
+            openai: {
+              baseUrl: "https://chatgpt.com/backend-api/codex",
+              models: [{ ...codexStatusModel, contextWindow: 258_000, contextTokens: 258_000 }],
+            },
+          },
+        },
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.5": { agentRuntime: { id: "codex" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-codex-stale-context",
+        updatedAt: 0,
+        totalTokens: 181_000,
+        totalTokensFresh: true,
+        totalTokensVersion: 1,
+        contextTokens: 400_000,
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.5",
+      ...createStatusDisplayParams(),
+      modelAuthOverride: "oauth",
+      activeModelAuthOverride: "oauth",
+    });
+
+    expect(normalizeTestText(text)).toContain("Context: 181k/258k");
+  });
+
+  it("uses workspace-scoped auth evidence in /status auth labels", async () => {
+    const tempRoot = sessionDirs.make();
+    const workspaceDir = path.join(tempRoot, "workspace");
+    const pluginDir = path.join(workspaceDir, ".openclaw", "extensions", "workspace-auth-label");
+    const bundledDir = path.join(tempRoot, "bundled");
+    const stateDir = path.join(tempRoot, "state");
+    const credentialPath = path.join(tempRoot, "credentials.json");
+    fs.mkdirSync(pluginDir, { recursive: true });
+    fs.mkdirSync(bundledDir, { recursive: true });
+    fs.mkdirSync(stateDir, { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, "index.ts"), "export default {}\n", "utf8");
+    fs.writeFileSync(credentialPath, "{}", "utf8");
+    fs.writeFileSync(
+      path.join(pluginDir, "openclaw.plugin.json"),
+      JSON.stringify({
+        id: "workspace-auth-label",
+        configSchema: { type: "object" },
+        setup: {
+          providers: [
+            {
+              id: "anthropic",
+              authEvidence: [
+                {
+                  type: "local-file-with-env",
+                  fileEnvVar: "WORKSPACE_STATUS_CREDENTIALS",
+                  credentialMarker: "workspace-status-local-credentials",
+                  source: "workspace status credentials",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      "utf8",
+    );
+
+    await withEnvAsync(
+      {
+        OPENCLAW_BUNDLED_PLUGINS_DIR: bundledDir,
+        OPENCLAW_STATE_DIR: stateDir,
+        ANTHROPIC_API_KEY: undefined,
+        ANTHROPIC_OAUTH_TOKEN: undefined,
+        WORKSPACE_STATUS_CREDENTIALS: credentialPath,
+      },
+      async () => {
+        const text = await buildStatusText({
+          cfg: {
+            ...baseCfg,
+            plugins: { allow: ["workspace-auth-label"] },
+          },
+          sessionEntry: {
+            sessionId: "sess-status-workspace-auth",
+            updatedAt: 0,
+          },
+          ...createStatusSessionParams(),
+          workspaceDir,
+          provider: "anthropic",
+          model: "claude-opus-4-5",
+          contextTokens: 32_000,
+          ...createStatusDisplayParams(),
+        });
+
+        expect(normalizeTestText(text)).toContain("workspace status credentials");
+      },
+    );
+  });
+
+  it("keeps /status on an explicit OpenClaw runtime override after config changes", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.4": { agentRuntime: { id: "codex" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-pinned-agent",
+        updatedAt: 0,
+        fastMode: true,
+        agentRuntimeOverride: "openclaw",
+        agentHarnessId: "codex",
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.4",
+      contextTokens: 32_000,
+      ...createStatusDisplayParams(true),
+      modelAuthOverride: "api-key",
+      activeModelAuthOverride: "api-key",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("fast");
+    expect(normalized).not.toContain("codex");
+  });
+
+  it("shows the effective Luna thinking level for a pinned Codex runtime", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: baseCfg,
+      sessionEntry: {
+        sessionId: "sess-status-luna-codex",
+        updatedAt: 0,
+        thinkingLevel: "ultra",
+        agentRuntimeOverride: "codex",
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.6-luna",
+      contextTokens: 32_000,
+      resolvedThinkLevel: "ultra",
+      ...createStatusDisplayParams(false, async () => "ultra"),
+      modelAuthOverride: "api-key",
+      activeModelAuthOverride: "api-key",
+    });
+
+    const normalized = normalizeTestText(text);
+    expect(normalized).toContain("think ultra");
+    expect(normalized).not.toContain("think max");
+  });
+
   it("clamps off to the active provider's always-thinking level", async () => {
     activeProviderThinkingMock.resolveThinkingProfile.mockReturnValue({
       levels: [{ id: "max", label: "max" }],
@@ -1208,6 +1937,62 @@ describe("buildStatusReply subagent summary", () => {
       }),
     );
   });
+
+  it("treats the persisted harness id as observational in /status", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: {
+        ...baseCfg,
+        agents: {
+          defaults: {
+            models: { "openai/gpt-5.4": { agentRuntime: { id: "codex" } } },
+          },
+        },
+      },
+      sessionEntry: {
+        sessionId: "sess-status-observed-agent",
+        updatedAt: 0,
+        agentHarnessId: "openclaw",
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.4",
+      contextTokens: 32_000,
+      ...createStatusDisplayParams(),
+      modelAuthOverride: "oauth",
+      activeModelAuthOverride: "oauth",
+    });
+
+    expect(normalizeTestText(text)).toContain("Runtime: OpenAI Codex");
+    expect(normalizeTestText(text)).toContain("previous runtime: OpenClaw Default");
+  });
+
+  it("labels a divergent locked harness as an active session pin in /status", async () => {
+    registerStatusCodexHarness();
+
+    const text = await buildStatusText({
+      cfg: baseCfg,
+      sessionEntry: {
+        sessionId: "sess-status-locked-agent",
+        updatedAt: 0,
+        agentHarnessId: "openclaw",
+        modelSelectionLocked: true,
+      },
+      ...createStatusSessionParams(),
+      provider: "openai",
+      model: "gpt-5.4",
+      contextTokens: 32_000,
+      ...createStatusDisplayParams(),
+      modelAuthOverride: "oauth",
+      activeModelAuthOverride: "oauth",
+      resolvedHarness: "codex",
+    });
+
+    expect(normalizeTestText(text)).toContain(
+      "Runtime: OpenAI Codex (session pin: OpenClaw Default)",
+    );
+  });
 });
 
 describe("buildStatusReply error handling", () => {
@@ -1226,6 +2011,25 @@ describe("buildStatusReply error handling", () => {
     // error text reaches the channel; diagnostics belong to the log sink only.
     expect(reply).toEqual({ text: "⚠️ Status: error rendering response" });
     expect(logError).toHaveBeenCalledWith(expect.stringContaining("Unexpected rendering error"));
+  });
+
+  it("keeps the structured rich payload on the success path", async () => {
+    const presentation = {
+      title: "Status",
+      tone: "info" as const,
+      blocks: [{ type: "text" as const, text: "plain status" }, { type: "divider" as const }],
+    };
+    vi.spyOn(statusText, "buildStatusReplyParts").mockResolvedValue({
+      text: "plain status",
+      presentation,
+    });
+    const reply = await buildStatusReplyForTest({});
+
+    expect(reply).toMatchObject({
+      text: "plain status",
+      presentation,
+      presentationTextMode: "fallback",
+    });
   });
 
   it("returns a generic reply and logs details when plugin health collection fails", async () => {
@@ -1250,6 +2054,8 @@ describe("buildStatusReply error handling", () => {
     );
   });
 });
+/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */
+
 describe("buildStatusReply", () => {
   beforeAll(async () => {
     await buildKiraStatusReply({
@@ -1287,5 +2093,114 @@ describe("buildStatusReply", () => {
     const reply = await buildKiraStatusReply(cfg);
 
     expect(reply?.text).toContain("think xhigh");
+  });
+
+  it("shows per-agent fallback overrides in the status card", async () => {
+    const cfg = {
+      session: { mainKey: "main", scope: "per-sender" },
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-5.4",
+            fallbacks: ["anthropic/claude-sonnet-4-6"],
+          },
+        },
+        entries: {
+          kira: {
+            model: {
+              primary: "openai/gpt-5.4",
+              fallbacks: ["google/gemini-2.5-flash"],
+            },
+          },
+        },
+      },
+      channels: {
+        whatsapp: { allowFrom: ["*"] },
+      },
+    } as OpenClawConfig;
+
+    const reply = await buildKiraStatusReply(cfg);
+
+    expect(reply?.text).toContain("Fallbacks: google/gemini-2.5-flash");
+    expect(reply?.text).not.toContain("Fallbacks: anthropic/claude-sonnet-4-6");
+  });
+
+  it("keeps default fallback config when the agent has no explicit model", async () => {
+    const cfg = {
+      session: { mainKey: "main", scope: "per-sender" },
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-5.4",
+            fallbacks: ["anthropic/claude-sonnet-4-6"],
+          },
+        },
+        entries: { kira: {} },
+      },
+      channels: {
+        whatsapp: { allowFrom: ["*"] },
+      },
+    } as OpenClawConfig;
+
+    const reply = await buildKiraStatusReply(cfg);
+
+    expect(reply?.text).toContain("Fallbacks: anthropic/claude-sonnet-4-6");
+  });
+
+  it("keeps agent primary strict when the agent has no explicit fallback override", async () => {
+    const cfg = {
+      session: { mainKey: "main", scope: "per-sender" },
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-5.4",
+            fallbacks: ["anthropic/claude-sonnet-4-6"],
+          },
+        },
+        entries: {
+          kira: {
+            model: {
+              primary: "openai/gpt-5.4",
+            },
+          },
+        },
+      },
+      channels: {
+        whatsapp: { allowFrom: ["*"] },
+      },
+    } as OpenClawConfig;
+
+    const reply = await buildKiraStatusReply(cfg);
+
+    expect(reply?.text).not.toContain("Fallbacks:");
+  });
+
+  it("treats an explicit empty per-agent fallback override as disabling inherited fallbacks", async () => {
+    const cfg = {
+      session: { mainKey: "main", scope: "per-sender" },
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-5.4",
+            fallbacks: ["anthropic/claude-sonnet-4-6"],
+          },
+        },
+        entries: {
+          kira: {
+            model: {
+              primary: "openai/gpt-5.4",
+              fallbacks: [],
+            },
+          },
+        },
+      },
+      channels: {
+        whatsapp: { allowFrom: ["*"] },
+      },
+    } as OpenClawConfig;
+
+    const reply = await buildKiraStatusReply(cfg);
+
+    expect(reply?.text).not.toContain("Fallbacks:");
   });
 });

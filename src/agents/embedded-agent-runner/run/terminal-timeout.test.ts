@@ -153,20 +153,13 @@ describe("tool timeout terminal bookkeeping", () => {
       expect(result.payloads?.[0]?.mediaUrls).toEqual(attempt.toolMediaUrls);
     }
     expect(result.payloads?.at(-1)).toEqual({
-<<<<<<< HEAD
       text: expect.stringContaining("Request timed out"),
-=======
-      text: "Tool execution timed out with an unknown outcome. Check the current state before repeating the operation.",
->>>>>>> 97b6e87616f
       isError: true,
     });
     expect(result.meta).toMatchObject({
       modelFallbackStopReason: "agent_run_terminal_timeout",
       livenessState: "blocked",
-<<<<<<< HEAD
       timeoutPhase: "tool_execution",
-=======
->>>>>>> 97b6e87616f
       error: { kind: "incomplete_turn", fallbackSafe: false },
     });
     expect(result.meta.executionTrace?.attempts ?? []).not.toContainEqual(

@@ -5,11 +5,7 @@ import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../../test/helpers/temp-dir.js";
 import type { OpenClawConfig } from "../../../config/config.js";
-<<<<<<< HEAD
 import { replaceTranscriptEvents } from "../../../config/sessions/session-accessor.js";
-=======
-import { replaceTranscriptEvents } from "../../../config/sessions/session-accessor.sqlite-transcript-write.test-support.js";
->>>>>>> 97b6e87616f
 import { readMemoryArtifactProvenance } from "../../../memory/memory-artifact-provenance.js";
 import { createInternalHookEvent } from "../../internal-hooks.js";
 import handler, { flushSessionMemoryWritesForTest } from "./handler.js";

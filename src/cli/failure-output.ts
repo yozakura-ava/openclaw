@@ -1,5 +1,4 @@
 // Shared root CLI failure formatting with debug stack gating and recovery hints.
-import { isForegroundGatewayRunArgv } from "../../gateway-run-argv.mjs";
 import { isInvalidConfigError } from "../config/io.invalid-config.js";
 import { isGatewayTransportError } from "../gateway/transport-error.js";
 import { getRootOptionAwareCommandPath } from "../infra/cli-root-options.js";
@@ -67,9 +66,8 @@ export class ExpectedCliError extends Error {
     humanOutputWritten?: boolean;
     machineOutput: string;
     matches?: readonly CronCliJobMatch[];
-    cause?: unknown;
   }) {
-    super(params.message, params.cause === undefined ? undefined : { cause: params.cause });
+    super(params.message);
     this.name = "ExpectedCliError";
     this.humanOutput = params.humanOutput;
     this.humanOutputWritten = params.humanOutputWritten ?? false;
@@ -116,35 +114,6 @@ export function isExpectedCliError(error: unknown): error is Error {
     (error instanceof Error && EXPECTED_CLI_ERROR_NAMES.has(error.name)) ||
     isGatewayTransportError(error)
   );
-}
-
-/**
- * Plugin actions and command hooks report their failure message like core command
- * boundaries; the root renderer still owns JSON envelopes and exit codes.
- */
-export function toPluginCommandFailure(error: unknown): unknown {
-  if (
-    isExpectedCliError(error) ||
-    (error instanceof Error && (error.name === "CommanderError" || error.name === "ExitError"))
-  ) {
-    return error;
-  }
-  const commanderCode =
-    error !== null &&
-    typeof error === "object" &&
-    "code" in error &&
-    typeof error.code === "string" &&
-    error.code.startsWith("commander.");
-  if (shouldShowDebugDetails() && !commanderCode) {
-    return error;
-  }
-  const message = formatCliOperatorError(error);
-  return new ExpectedCliError({
-    message,
-    humanOutput: message,
-    machineOutput: message,
-    cause: error,
-  });
 }
 
 export function rethrowExpectedCliError(error: unknown): void {
@@ -263,16 +232,10 @@ export function formatCliFailureLines(options: FormatCliFailureOptions): string[
     return output.humanOutputWritten ? [] : output.humanOutput.trimEnd().split("\n");
   }
 
-  const errors = collectNestedErrorCandidates(options.error);
-  const stateBusy = errors.some(
+  // Default output stays terse; causes and stack traces require explicit debug intent.
+  const stateBusy = collectNestedErrorCandidates(options.error).some(
     (error) => error instanceof Error && error.name === "GatewayStateOwnerContentionError",
   );
-  // Names survive worker transport without loading the state owner's runtime here.
-  const stateRefusal = errors.find(
-    (error): error is Error => error instanceof Error && error.name === "StateDatabaseAccessError",
-  );
-  const reason = (error: unknown) =>
-    `[openclaw] Reason: ${formatCliOperatorError(error, { argv, env })}`;
   if (!showDebugDetails && !showUpdateDiagnostics) {
     if (
       options.error instanceof UpdateSchemaRefusalError ||
@@ -281,22 +244,23 @@ export function formatCliFailureLines(options: FormatCliFailureOptions): string[
           options.error.name === "OpenClawDatabaseSchemaPreflightError"))
     ) {
       // Doctor cannot repair these refusals; their producers own the required recovery steps.
-      return ["[openclaw] OpenClaw needs a manual recovery step.", reason(options.error)];
-    }
-    if (stateRefusal) {
-      return [`[openclaw] ${options.title}`, reason(stateRefusal)];
+      const lines = ["[openclaw] OpenClaw needs a manual recovery step."];
+      lines.push(
+        `[openclaw] Reason: ${formatCliOperatorError(options.error, { argv: options.argv, env })}`,
+      );
+      return lines;
     }
     // Config validation owns actionable file/field details; some startup paths have not printed them.
     const showReason = isInvalidConfigError(options.error)
       ? !options.error.diagnosticEmitted
-<<<<<<< HEAD
       : isUpdateCommand || isPluginUpdateCommand;
-=======
-      : isUpdateCommand || isPluginUpdateCommand || isForegroundGatewayRunArgv(argv);
->>>>>>> 97b6e87616f
     return [
       `[openclaw] ${options.title}`,
-      ...(showReason ? [reason(options.error)] : []),
+      ...(showReason
+        ? [
+            `[openclaw] Reason: ${formatCliOperatorError(options.error, { argv: options.argv, env })}`,
+          ]
+        : []),
       stateBusy
         ? "[openclaw] Another OpenClaw process is using your data. Wait for it to finish before trying again."
         : options.includeDoctorHint === false
@@ -304,7 +268,13 @@ export function formatCliFailureLines(options: FormatCliFailureOptions): string[
           : `[openclaw] For help, run \`${formatCliCommand("openclaw doctor", env)}\`.`,
     ];
   }
-  const lines = [`[openclaw] ${options.title}`, reason(options.error)];
+  const lines = [
+    `[openclaw] ${options.title}`,
+    `[openclaw] Reason: ${formatCliOperatorError(options.error, {
+      argv: options.argv,
+      env,
+    })}`,
+  ];
 
   if (showDebugDetails) {
     lines.push("[openclaw] Stack:");

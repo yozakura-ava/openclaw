@@ -12,11 +12,7 @@ import {
   filterNativeModelCatalogScopes,
   selectPreparedModelCatalogInventory,
 } from "./prepared-model-runtime.catalog-publication.js";
-<<<<<<< HEAD
 import { fingerprintPreparedRuntimeFacts } from "./prepared-model-runtime.facts.js";
-=======
-import { fingerprintPreparedRuntimeFacts } from "./prepared-model-runtime.fingerprint.js";
->>>>>>> 97b6e87616f
 import type {
   PreparedModelCatalogInventory,
   PreparedModelRuntimePluginGeneration,

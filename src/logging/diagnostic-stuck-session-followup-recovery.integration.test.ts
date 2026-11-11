@@ -36,17 +36,10 @@ import {
   markDiagnosticOwnedToolActivity,
   startDiagnosticRunActivityTracking,
 } from "./diagnostic-run-activity.js";
+import type { StuckSessionRecoveryOutcome } from "./diagnostic-session-recovery.js";
 import { recoverStuckDiagnosticSession } from "./diagnostic-stuck-session-recovery.runtime.js";
 import { startGatewayDiagnosticHeartbeat, stopGatewayDiagnosticHeartbeat } from "./diagnostic.js";
 import { resetDiagnosticStateForTest } from "./diagnostic.test-support.js";
-
-// These queue-only fixtures have no persisted session; force-clear persistence has its own suite.
-vi.mock("../agents/embedded-agent-runner/force-clear-session-state.js", async (importOriginal) => ({
-  ...(await importOriginal<
-    typeof import("../agents/embedded-agent-runner/force-clear-session-state.js")
-  >()),
-  tryLoadForceClearSessionSnapshot: async () => undefined,
-}));
 
 describe("stuck session follow-up recovery", () => {
   const queueKeys = new Set<string>();
@@ -72,7 +65,7 @@ describe("stuck session follow-up recovery", () => {
     { allowance: "deadline-less tool", requestTimeoutMs: undefined, progress: "tool-no-deadline" },
     { allowance: "overlapping tools", requestTimeoutMs: undefined, progress: "overlapping-tools" },
     { allowance: "mixed tool deadlines", requestTimeoutMs: undefined, progress: "mixed-tools" },
-  ])("keeps repeated requests observational with $allowance", async (testCase) => {
+  ])("rechecks repeated requests before releasing a lane with $allowance", async (testCase) => {
     vi.useFakeTimers({
       toFake: ["Date", "performance", "setTimeout", "clearTimeout", "setInterval", "clearInterval"],
     });
@@ -88,6 +81,8 @@ describe("stuck session follow-up recovery", () => {
     const owner = createDiagnosticEmbeddedRunOwner(ref);
     const activeEntered = createDeferred();
     const releaseActive = createDeferred();
+    const dispatchRecovery = createDeferred();
+    const outcomes: StuckSessionRecoveryOutcome[] = [];
     const abort = vi.fn(() => {
       clearActiveEmbeddedRun(ref.sessionId, handle, ref.sessionKey);
       releaseActive.resolve();
@@ -144,7 +139,14 @@ describe("stuck session follow-up recovery", () => {
         warnAfterMs: 0,
         onWait: (waitedMs) => waits.push(waitedMs),
       });
-      const recover = vi.fn(recoverStuckDiagnosticSession);
+      const recover = vi.fn(
+        async (request: Parameters<typeof recoverStuckDiagnosticSession>[0]) => {
+          await dispatchRecovery.promise;
+          const outcome = await recoverStuckDiagnosticSession(request);
+          outcomes.push(outcome);
+          return outcome;
+        },
+      );
       startGatewayDiagnosticHeartbeat(
         createTestGatewayScheduler("fake-timers"),
         { diagnostics: { enabled: true } },
@@ -157,11 +159,7 @@ describe("stuck session follow-up recovery", () => {
         expect(abort).not.toHaveBeenCalled();
         await vi.advanceTimersByTimeAsync(recoveryWaitMs - 30_000);
       }
-<<<<<<< HEAD
       expect(recover).toHaveBeenCalledOnce();
-=======
-      expect(recover).not.toHaveBeenCalled();
->>>>>>> 97b6e87616f
       if (testCase.progress === "semantic") {
         emitCoreSemanticRunProgressDiagnosticEvent({ ...ref, reason: "assistant:progress" });
         await waitForDiagnosticEventsDrained();
@@ -190,7 +188,6 @@ describe("stuck session follow-up recovery", () => {
         });
         vi.setSystemTime(Date.now() + 2 * 60_000);
       }
-<<<<<<< HEAD
       dispatchRecovery.resolve();
       await vi.advanceTimersByTimeAsync(0);
       if (testCase.progress !== "none") {
@@ -203,15 +200,9 @@ describe("stuck session follow-up recovery", () => {
         expect(ranQueued).toHaveBeenCalledOnce();
         expect(waits).toEqual([recoveryWaitMs]);
       }
-=======
-      await vi.advanceTimersByTimeAsync(30_000);
-      expect(recover).not.toHaveBeenCalled();
-      expect(abort).not.toHaveBeenCalled();
-      expect(ranQueued).not.toHaveBeenCalled();
-      expect(waits).toEqual([]);
->>>>>>> 97b6e87616f
     } finally {
       stopGatewayDiagnosticHeartbeat();
+      dispatchRecovery.resolve();
       releaseActive.resolve();
       backend.close();
       clearActiveEmbeddedRun(ref.sessionId, handle, ref.sessionKey);

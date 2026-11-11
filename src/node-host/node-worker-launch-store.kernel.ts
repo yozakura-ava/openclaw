@@ -1,12 +1,12 @@
+import type { DatabaseSync } from "node:sqlite";
 import { isGatewayExternallySupervised } from "../infra/gateway-supervision.js";
 import {
   executeSqliteQuerySync,
   executeSqliteQueryTakeFirstSync,
   getNodeSqliteKysely,
 } from "../infra/kysely-sync.js";
-import type { EngineConnection } from "../infra/sql-connection.js";
-import { createSqliteSchemaEnsurer } from "../infra/sqlite-schema-ensure.js";
 import { getAdmittedSqliteSchemaFacts } from "../infra/sqlite-schema-facts.js";
+import { extractSqliteTableSchema } from "../infra/sqlite-schema-sql.js";
 import { requestSqliteWorkerOperationAdmission } from "../infra/sqlite-worker-operation-admission.js";
 import { tableExists } from "../state/openclaw-state-db-schema-helpers.js";
 import type { DB as OpenClawStateDatabase } from "../state/openclaw-state-db.generated.js";
@@ -14,7 +14,7 @@ import {
   runOpenClawStateWriteTransaction,
   type OpenClawStateDatabaseOptions,
 } from "../state/openclaw-state-db.js";
-import { getOpenClawStateFeatureSchemaSql } from "../state/openclaw-state-feature-schema.js";
+import { OPENCLAW_STATE_SCHEMA_SQL } from "../state/openclaw-state-schema.js";
 import type { NodeWorkerSupervisorIdentity } from "../worker/node-supervisor-protocol.js";
 import type {
   NodeWorkerLaunchClaim,
@@ -53,53 +53,31 @@ type LaunchTable = keyof NodeWorkerLaunchDatabase;
 type LaunchIdentity = Pick<NodeWorkerLaunchReceipt, "launchId" | "planHash">;
 
 const NODE_WORKER_LAUNCH_SCHEMA_END = "\n  WHERE completed_at_ms IS NOT NULL;";
+const initializedDatabases = new WeakSet<DatabaseSync>();
 const TERMINAL_RECEIPT_RETENTION_MS = 24 * 60 * 60 * 1_000;
 const TERMINAL_PRUNE_BATCH_LIMIT = 256;
 
-const launchSchemaEnsurers = new Map(
-  (
-    [
-      "node_worker_launches",
-      "node_worker_launch_boots",
-      "node_worker_launch_containers",
-      "node_worker_launch_cleanup",
-      "node_worker_launch_process_scopes",
-    ] as const
-  ).map((table) => [
-    table,
-    createSqliteSchemaEnsurer(
-      () =>
-        getOpenClawStateFeatureSchemaSql(table, {
-          endMarker: table === "node_worker_launches" ? NODE_WORKER_LAUNCH_SCHEMA_END : undefined,
-        }),
-      {
-        tables: [table],
-        indexes:
-          table === "node_worker_launches" ? ["idx_node_worker_launches_terminal_completed"] : [],
-      },
-    ),
-  ]),
-);
-
-const ensureNodeWorkerLaunchSchema = (
-  database: EngineConnection,
+function ensureNodeWorkerLaunchSchema(
+  database: DatabaseSync,
   table: Exclude<keyof NodeWorkerLaunchDatabase, "node_worker_turns">,
-): void => launchSchemaEnsurers.get(table)!(database);
+): void {
+  // sqlite-allow-raw -- Canonical feature-local additive DDL only.
+  database.exec(
+    extractSqliteTableSchema(OPENCLAW_STATE_SCHEMA_SQL, table, {
+      endMarker: table === "node_worker_launches" ? NODE_WORKER_LAUNCH_SCHEMA_END : undefined,
+    }),
+  );
+}
 
-function query(database: EngineConnection) {
+function query(database: DatabaseSync) {
   return getNodeSqliteKysely<NodeWorkerLaunchDatabase>(database);
 }
 
-<<<<<<< HEAD
 function hasLaunchTable(database: DatabaseSync, schema: LaunchSchema, table: LaunchTable): boolean {
   return schema ? schema.tables.has(table) : tableExists(database, table);
-=======
-function hasLaunchTable(db: EngineConnection, schema: LaunchSchema, table: LaunchTable): boolean {
-  return schema ? schema.tables.has(table) : tableExists(db, table);
->>>>>>> 97b6e87616f
 }
 
-function selectLaunchRows(database: EngineConnection, schema: LaunchSchema) {
+function selectLaunchRows(database: DatabaseSync, schema: LaunchSchema) {
   return query(database)
     .selectFrom("node_worker_launches")
     .selectAll("node_worker_launches")
@@ -147,14 +125,14 @@ function selectLaunchRows(database: EngineConnection, schema: LaunchSchema) {
     );
 }
 
-function readRow(database: EngineConnection, launchId: string, schema: LaunchSchema) {
+function readRow(database: DatabaseSync, launchId: string, schema: LaunchSchema) {
   return executeSqliteQueryTakeFirstSync(
     database,
     selectLaunchRows(database, schema).where("node_worker_launches.launch_id", "=", launchId),
   );
 }
 
-function readNonterminalCount(database: EngineConnection): number {
+function readNonterminalCount(database: DatabaseSync): number {
   return (
     executeSqliteQueryTakeFirstSync(
       database,
@@ -166,7 +144,7 @@ function readNonterminalCount(database: EngineConnection): number {
   );
 }
 
-function readNonterminalRows(database: EngineConnection, schema: LaunchSchema) {
+function readNonterminalRows(database: DatabaseSync, schema: LaunchSchema) {
   return executeSqliteQuerySync(
     database,
     selectLaunchRows(database, schema)
@@ -176,7 +154,7 @@ function readNonterminalRows(database: EngineConnection, schema: LaunchSchema) {
 }
 
 function pruneTerminalRows(params: {
-  database: EngineConnection;
+  database: DatabaseSync;
   schema: LaunchSchema;
   cutoffMs: number;
   limit: number;
@@ -220,7 +198,7 @@ function pruneTerminalRows(params: {
 
 /** Read the authoritative physical owner within an already-open journal transaction. */
 export function readNodeWorkerLaunchReceipt(
-  database: EngineConnection,
+  database: DatabaseSync,
   launchId: string,
 ): NodeWorkerLaunchReceipt | undefined {
   const schema = getAdmittedSqliteSchemaFacts(database);
@@ -250,7 +228,7 @@ function validatePruneLimit(limit: number): void {
 }
 
 function requireMatchingRow(
-  database: EngineConnection,
+  database: DatabaseSync,
   identity: LaunchIdentity,
   schema: LaunchSchema,
 ): NodeWorkerLaunchRow {
@@ -307,7 +285,7 @@ function rowMatchesImmutableIdentity(
 }
 
 function finishOwnedRow(
-  database: EngineConnection,
+  database: DatabaseSync,
   current: NodeWorkerLaunchRow,
   params: Omit<Parameters<NodeWorkerLaunchKernel["finish"]>[0], "launchId" | "planHash" | "nowMs">,
   nowMs: number,
@@ -367,27 +345,28 @@ export class NodeWorkerLaunchKernel {
 
   private write<T>(
     operationLabel: string,
-    operation: (database: EngineConnection, schema: LaunchSchema, path: string) => T,
+    operation: (database: DatabaseSync, schema: LaunchSchema, path: string) => T,
   ): T {
-    return runOpenClawStateWriteTransaction(
+    let initializedDatabase: DatabaseSync | undefined;
+    const result = runOpenClawStateWriteTransaction(
       ({ db, path }) => {
         requestSqliteWorkerOperationAdmission({
           stage: "transaction",
           facts: { kind: "node-worker-journal" },
         });
-<<<<<<< HEAD
         if (!initializedDatabases.has(db)) {
           ensureNodeWorkerLaunchSchema(db, "node_worker_launches");
           initializedDatabase = db;
         }
-=======
-        ensureNodeWorkerLaunchSchema(db, "node_worker_launches");
->>>>>>> 97b6e87616f
         return operation(db, getAdmittedSqliteSchemaFacts(db), path);
       },
       this.databaseOptions,
       { operationLabel },
     );
+    if (initializedDatabase) {
+      initializedDatabases.add(initializedDatabase);
+    }
+    return result;
   }
 
   claimObservation(

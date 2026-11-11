@@ -1,5 +1,16 @@
+import type { DatabaseSync } from "node:sqlite";
+import { serialize } from "node:v8";
+import { MessageChannel, receiveMessageOnPort } from "node:worker_threads";
+import {
+  deferSqliteWorkerCommitReceipt,
+  requestSqliteWorkerOperationAdmission,
+} from "../../infra/sqlite-worker-operation-admission.js";
+import { ownedWorkerBytes } from "../../infra/worker-transfer-bytes.js";
 import type { Logger } from "../service/state.js";
+import { prepareCronReceiptAuthorityPublication } from "./receipt-authority-publication.js";
 import type { CronRunRecoveryOutcome } from "./run-recovery.types.js";
+import type { CronRuntimeMutationContracts } from "./runtime-mutation.types.js";
+import type { CronRuntimeMutationType } from "./runtime-worker.types.js";
 
 // Two handshakes leave 3s of competing writers' 5s busy budget for SQL and rollback.
 const CRON_MUTATION_ADMISSION_DEADLINE_MS = 1_000;
@@ -15,7 +26,6 @@ export function createCronMutationLogger(logs: CronRunRecoveryOutcome["logs"]): 
     error: record("error"),
   };
 }
-<<<<<<< HEAD
 
 /** Host policy is prepared only after this worker has read authoritative transaction rows. */
 export function prepareCronRuntimeMutation<Type extends CronRuntimeMutationType>(
@@ -65,5 +75,3 @@ export function retainCronRuntimeMutationOutcome<Type extends CronRuntimeMutatio
   );
   return { nonce };
 }
-=======
->>>>>>> 97b6e87616f

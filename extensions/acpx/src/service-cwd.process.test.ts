@@ -69,13 +69,7 @@ await import(${JSON.stringify(pathToFileURL(ownerAgentScript).href)});
           throw new Error("ACPX backend was not published");
         }
         const handle = await backend.runtime.ensureSession({
-<<<<<<< HEAD
           ...fixtureSession("agent:main:acp:cwd"),
-=======
-          sessionKey: "agent:main:acp:cwd",
-          agent: "fixture",
-          mode: "persistent",
->>>>>>> 97b6e87616f
           cwd: workspace,
         });
         try {

@@ -60,7 +60,6 @@ type PluginRegistrySnapshotReportParams = {
 export function projectPluginInstallHealth<T extends PluginDependencyHealthRegistry>(
   registry: T,
   params: { metadata: PluginMetadataSnapshot; config?: OpenClawConfig; env?: NodeJS.ProcessEnv },
-  ownership = createInstalledPluginOwnershipResolver(params.metadata.index, params.env),
 ): T {
   const cache = getPluginMetadataSnapshotCache(params.metadata);
   return withPluginCache(cache, () => {
@@ -71,10 +70,7 @@ export function projectPluginInstallHealth<T extends PluginDependencyHealthRegis
       config: params.config,
       env: params.env,
     });
-<<<<<<< HEAD
     const ownership = createInstalledPluginOwnershipResolver(index, params.env);
-=======
->>>>>>> 97b6e87616f
     const records = new Map(index.plugins.map((record) => [record.pluginId, record]));
     const installSelectors = new Map(
       Object.entries(index.installRecords).map(([owner, record]) => [

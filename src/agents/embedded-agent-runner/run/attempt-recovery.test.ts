@@ -257,11 +257,7 @@ describe("recoverEmbeddedRunAttempt", () => {
       });
 
       expect(await recover()).toEqual({ action: "proceed" });
-<<<<<<< HEAD
       expect(failoverRetryController.transientRetryCount).toBe(1);
-=======
-      expect(failoverRetryController.transientRetryCount).toBe(0);
->>>>>>> 97b6e87616f
       expect(continueFromCurrentTranscript).toHaveBeenCalledOnce();
       expect(failoverRetryController.advanceAuthProfile).not.toHaveBeenCalled();
       expect(failoverRetryController.maybeMarkAuthProfileFailure).not.toHaveBeenCalled();
@@ -483,7 +479,6 @@ describe("recoverEmbeddedRunAttempt", () => {
     { headers: { "retry-after": "7", "retry-after-ms": "8500" }, delayMs: 8500 },
     { headers: { "retry-after": "7", "retry-after-ms": "invalid" }, delayMs: 7000 },
   ])("continues after respecting the provider floor of $delayMs ms", async (scenario) => {
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_000);
     vi.mocked(sleepWithAbort).mockClear();
     const { recovery, onAgentEvent, continueFromCurrentTranscript } =
       await recoverAfterTransportDrop({
@@ -502,11 +497,9 @@ describe("recoverEmbeddedRunAttempt", () => {
           attempt: 2,
           maxAttempts: 10,
           reason: "rate_limit",
-          retryAt: 1_800_000_000_000 + scenario.delayMs,
         }),
       }),
     );
-    now.mockRestore();
   });
 
   it.each([
@@ -767,11 +760,6 @@ describe("recoverEmbeddedRunAttempt", () => {
         ...unsettledBatches,
         ["the attempt yielded", { yieldDetected: true }],
         ["the retry budget is disabled", { retryAvailable: false }],
-<<<<<<< HEAD
-=======
-        ["raw model runs cannot carry the continuation transcript", { modelRun: true }],
-        ["prompt-free runs cannot carry the continuation transcript", { promptMode: "none" }],
->>>>>>> 97b6e87616f
         ["the run was cancelled", { terminal: { kind: "aborted", source: "external" } }],
         [
           "the run deadline expired",

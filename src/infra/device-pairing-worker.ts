@@ -2,7 +2,6 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { reserveWorkerEnvironmentNativePublication } from "../gateway/worker-environments/store-native-publication.js";
 import { sessionChanges } from "../sessions/session-row-changes.js";
 import { resolveGlobalSingleton } from "../shared/global-singleton.js";
-import { notifyListeners, registerListener } from "../shared/listeners.js";
 import { captureOpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.js";
 import type { OpenClawStateWorkerContext } from "../state/openclaw-state-worker-context.types.js";
 import { runOpenClawStateWorkerOperation } from "../state/openclaw-state-worker-store.js";
@@ -28,14 +27,6 @@ export const DevicePairingAuthorityRefusedError = resolveGlobalSingleton(
       }
     },
 );
-
-const setupChanges = resolveGlobalSingleton(
-  Symbol.for("openclaw.devicePairSetupChanges"),
-  () => new Set<(databasePath: string) => void>(),
-);
-
-export const onDevicePairSetupChange = (listener: (databasePath: string) => void) =>
-  registerListener(setupChanges, listener);
 
 // The broker owns this private channel; domain kernels supply the discriminated facts.
 function admissionFacts(value: unknown): DevicePairingAdmissionFacts[] {
@@ -64,7 +55,6 @@ function admissionFacts(value: unknown): DevicePairingAdmissionFacts[] {
 }
 
 function commitReceipt(value: unknown): DevicePairingCommitReceipt {
-<<<<<<< HEAD
   if (
     !isRecord(value) ||
     value.kind !== "devicePairing" ||
@@ -133,13 +123,6 @@ function commitReceipt(value: unknown): DevicePairingCommitReceipt {
             },
     })),
   };
-=======
-  if (!isRecord(value) || value.kind !== "devicePairing") {
-    throw new Error("Invalid pairing commit receipt");
-  }
-  // SAFETY: The private mutation worker builds this typed receipt after native COMMIT.
-  return value as DevicePairingCommitReceipt;
->>>>>>> 97b6e87616f
 }
 
 export function executeDevicePairingMutation<Key extends keyof DevicePairingWorkerOperations>(
@@ -150,7 +133,6 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
     assertCurrent?: () => void;
     admit?: (facts: DevicePairingAdmissionFacts) => void;
     onTokensReplaced?: (deviceId: string, roles: readonly string[]) => void;
-    onNodeApproved?: (approval: NonNullable<DevicePairingCommitReceipt["nodeApproval"]>) => void;
     /** Map a refused operation only after its admission and publication have settled. */
     onAuthorityRefused?: () => DevicePairingWorkerOperations[Key]["output"];
   } = {},
@@ -194,9 +176,6 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
         // A callback can throw or read publication recursively; the commit is already installed.
         published = true;
         mutation.publish(receipt);
-        if (receipt.nodeApproval) {
-          options.onNodeApproved?.(receipt.nodeApproval);
-        }
         invalidatePairedCardRendererCache();
         if (environmentPublished) {
           sessionChanges.emit({ all: true, scope: "worker-environments" });
@@ -212,7 +191,12 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
         context,
         async (scope) => {
           try {
-            return await scope.execute(captured);
+            const result = await scope.execute(captured);
+            if (captured.type === "bootstrap.prune" && result === 0) {
+              context.admission.assertCurrent();
+              options.assertCurrent?.();
+            }
+            return result;
           } finally {
             install();
           }
@@ -250,15 +234,6 @@ export function executeDevicePairingMutation<Key extends keyof DevicePairingWork
       } finally {
         mutation?.finish(!admission || admission.settlement?.kind === "completed");
         removeService?.();
-        // Unknown outcomes can have committed; retry discovery without reviving authority.
-        if (
-          captured.type === "bootstrap.consume" ||
-          captured.type === "bootstrap.confirm" ||
-          captured.type === "bootstrap.ensure" ||
-          captured.type === "bootstrap.readCompletion"
-        ) {
-          notifyListeners(setupChanges, context.admission.databasePath);
-        }
       }
     }
   });

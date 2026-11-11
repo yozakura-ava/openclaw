@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { resolveTestNodeExecPath } from "../src/test-utils/node-process.js";
 import { useAutoCleanupTempDirTracker } from "./helpers/temp-dir.js";
-import { testRunnerFixtureEnv } from "./scripts/prepared-script-wrapper.test-support.js";
 import { createPreparedVitestCliFixture } from "./scripts/run-vitest-bounded-fixture.test-support.js";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -72,11 +71,7 @@ it("synthetic ${kind} failure", async ({ annotate }) => {
 });
 `,
     );
-<<<<<<< HEAD
     const env = { ...process.env };
-=======
-    const env = testRunnerFixtureEnv();
->>>>>>> 97b6e87616f
     for (const key of Object.keys(env)) {
       if (key.startsWith("VITEST") || key.startsWith("OPENCLAW_")) {
         delete env[key];

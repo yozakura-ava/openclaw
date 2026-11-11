@@ -1,24 +1,13 @@
 import { hostname } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getSelfAndAncestorPidsSync } from "./restart-stale-pids.js";
-import {
-  isBorrowedLegacyHandoffParentCurrent,
-  readBorrowedLegacyHandoffParent,
-} from "./update-managed-service-handoff-legacy-parent.js";
-import { createManagedHandoffProcessIdentityReader } from "./update-managed-service-handoff-process.js";
 import { inspectUpdateRepairDriverAdmission } from "./update-run-activity.js";
 import type { UpdateRunRecord } from "./update-run-record.js";
 
-const readProcessAncestry = vi.hoisted(() =>
-  vi.fn<typeof import("@openclaw/proc-safe/identity").readProcessAncestry>(),
-);
-const readProcessIdentity = vi.hoisted(() =>
-  vi.fn<typeof import("@openclaw/proc-safe/identity").readProcessIdentity>(),
-);
-vi.mock("@openclaw/proc-safe/identity", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@openclaw/proc-safe/identity")>()),
-  readProcessAncestry,
-  readProcessIdentity,
+const spawnSync = vi.hoisted(() => vi.fn());
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:child_process")>()),
+  spawnSync,
 }));
 
 const repairPid = process.pid + 7001;
@@ -27,13 +16,8 @@ const runId = "8e926353-5041-468b-b0af-de4174620349";
 const originalStart = Date.parse("2026-09-03T00:00:00Z");
 const repairStart = originalStart + 1000;
 const doctorStart = repairStart + 1000;
-const identity = (pid: number, parentPid: number, startedAt: number) => ({
-  pid,
-  parentPid,
-  startTimeMicros: startedAt * 1000,
-  startTimeResolutionMicros: 1,
-  exited: false,
-});
+const ticks = (milliseconds: number) =>
+  String(BigInt(milliseconds) * 10_000n + 621355968000000000n);
 
 function updateRun(updaterStart = originalStart): UpdateRunRecord {
   return {
@@ -73,16 +57,7 @@ function unverifiedDriverRun(): UpdateRunRecord {
 
 describe("Windows update repair continuation", () => {
   beforeEach(() => {
-    readProcessAncestry.mockReset().mockReturnValue(null);
-    readProcessIdentity
-      .mockReset()
-      .mockImplementation((pid) =>
-        pid === repairPid
-          ? identity(repairPid, updaterPid, repairStart)
-          : pid === updaterPid
-            ? identity(updaterPid, 0, originalStart)
-            : null,
-      );
+    spawnSync.mockReset();
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     vi.spyOn(process, "ppid", "get").mockReturnValue(repairPid);
     vi.spyOn(process, "kill").mockReturnValue(true);
@@ -94,21 +69,23 @@ describe("Windows update repair continuation", () => {
     { name: "original updater", updaterStart: originalStart, expected: true },
     { name: "reused updater PID", updaterStart: repairStart + 1, expected: false },
   ])("admits Doctor only beneath the live $name", ({ updaterStart, expected }) => {
-    readProcessIdentity.mockImplementation((pid) =>
-      pid === repairPid
-        ? identity(repairPid, updaterPid, repairStart)
-        : pid === updaterPid
-          ? identity(updaterPid, 0, updaterStart)
-          : null,
-    );
-    readProcessAncestry.mockReturnValue({
-      chain: [
-        identity(process.pid, repairPid, doctorStart),
-        identity(repairPid, updaterPid, repairStart),
-        ...(updaterStart > repairStart ? [] : [identity(updaterPid, 0, updaterStart)]),
-      ],
-      complete: true,
-      stoppedBy: updaterStart > repairStart ? "recycled-parent" : "root",
+    spawnSync.mockImplementation((_command: string, args: string[]) => {
+      const script = args.at(-1) ?? "";
+      if (script.includes("Get-CimInstance")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            { pid: process.pid, parentPid: repairPid, startedAt: ticks(doctorStart) },
+            { pid: repairPid, parentPid: updaterPid, startedAt: ticks(repairStart) },
+            { pid: updaterPid, parentPid: 0, startedAt: ticks(updaterStart) },
+          ]),
+        };
+      }
+      const pid = Number(/GetProcessById\((\d+)\)/.exec(script)?.[1]);
+      return {
+        status: 0,
+        stdout: new Date(pid === repairPid ? repairStart : updaterStart).toISOString(),
+      };
     });
 
     expect(inspectUpdateRepairDriverAdmission([updateRun(updaterStart)], runId).kind).toBe(
@@ -117,17 +94,21 @@ describe("Windows update repair continuation", () => {
   });
 
   it("keeps self and direct parent when transitive ancestry cannot be inspected", () => {
+    spawnSync.mockReturnValue({ status: 1, stdout: "" });
     expect(getSelfAndAncestorPidsSync()).toEqual(new Set([process.pid, repairPid]));
   });
 
   it("does not authorize a reused direct parent protected by cleanup", () => {
     const replacementStart = doctorStart + 1000;
-    readProcessAncestry.mockReturnValue({
-      chain: [identity(process.pid, repairPid, doctorStart)],
-      complete: true,
-      stoppedBy: "recycled-parent",
-    });
-    readProcessIdentity.mockReturnValue(identity(repairPid, 0, replacementStart));
+    spawnSync.mockImplementation((_command: string, args: string[]) => ({
+      status: 0,
+      stdout: (args.at(-1) ?? "").includes("Get-CimInstance")
+        ? JSON.stringify([
+            { pid: process.pid, parentPid: repairPid, startedAt: ticks(doctorStart) },
+            { pid: repairPid, parentPid: 0, startedAt: ticks(replacementStart) },
+          ])
+        : new Date(replacementStart).toISOString(),
+    }));
     const run = updateRun();
     run.origin = {
       driver: { host: hostname(), pid: repairPid, startIdentity: String(replacementStart) },
@@ -136,7 +117,6 @@ describe("Windows update repair continuation", () => {
     expect(getSelfAndAncestorPidsSync().has(repairPid)).toBe(true);
     expect(inspectUpdateRepairDriverAdmission([run], runId).kind).toBe("conflict");
   });
-<<<<<<< HEAD
   function mockWindowsProcesses(
     ancestry: () => { status: number; stdout: string },
     driverStart: () => number,
@@ -168,22 +148,6 @@ describe("Windows update repair continuation", () => {
     );
     expect(getSelfAndAncestorPidsSync().has(chainPid)).toBe(true);
     expect(inspectUpdateRepairDriverAdmission([run], runId).kind).toBe("continuation");
-=======
-  it("does not grant continuation from an incomplete chain containing the live driver", () => {
-    readProcessAncestry.mockReturnValue({
-      chain: [
-        identity(process.pid, unverifiedPid, doctorStart),
-        identity(unverifiedPid, updaterPid, repairStart),
-      ],
-      complete: false,
-      stoppedBy: "unreadable-parent",
-    });
-    readProcessIdentity.mockImplementation((pid) => identity(pid, 0, repairStart));
-    expect(getSelfAndAncestorPidsSync().has(unverifiedPid)).toBe(true);
-    expect(inspectUpdateRepairDriverAdmission([unverifiedDriverRun()], runId).kind).toBe(
-      "conflict",
-    );
->>>>>>> 97b6e87616f
   });
 
   it("keeps a verified continuation when a later ancestry read fails", () => {
@@ -194,7 +158,6 @@ describe("Windows update repair continuation", () => {
         driver: { host: hostname(), pid: retainedPid, startIdentity: String(startIdentity) },
       },
     });
-<<<<<<< HEAD
     let ancestryReads = 0;
     let driverStart = repairStart;
     mockWindowsProcesses(
@@ -213,40 +176,17 @@ describe("Windows update repair continuation", () => {
 
     expect(inspectUpdateRepairDriverAdmission([run(repairStart)], runId).kind).toBe("continuation");
     expect(ancestryReads).toBe(1);
-=======
-    readProcessAncestry
-      .mockReturnValueOnce({
-        chain: [
-          identity(process.pid, retainedPid, doctorStart),
-          identity(retainedPid, 0, repairStart),
-        ],
-        complete: true,
-        stoppedBy: "root",
-      })
-      .mockImplementation(() => {
-        throw new Error("process snapshot timed out");
-      });
-    readProcessIdentity.mockImplementation((pid) => identity(pid, 0, repairStart));
-
-    expect(inspectUpdateRepairDriverAdmission([run(repairStart)], runId).kind).toBe("continuation");
-    expect(readProcessAncestry).toHaveBeenCalledTimes(1);
->>>>>>> 97b6e87616f
     expect(inspectUpdateRepairDriverAdmission([run(repairStart)], runId).kind).toBe("continuation");
 
     // Retained proof is bound to the verified identity, never to a reused PID.
     const reusedStart = doctorStart + 1000;
-<<<<<<< HEAD
     driverStart = reusedStart;
-=======
-    readProcessIdentity.mockImplementation((pid) => identity(pid, 0, reusedStart));
->>>>>>> 97b6e87616f
     expect(inspectUpdateRepairDriverAdmission([run(reusedStart)], runId)).toMatchObject({
       kind: "conflict",
       message: expect.stringContaining("could not read this process's ancestry"),
     });
   });
 
-<<<<<<< HEAD
   it("reports unreadable ancestry instead of a conflicting live update", () => {
     mockWindowsProcesses(
       () => ({ status: 1, stdout: "" }),
@@ -260,82 +200,4 @@ describe("Windows update repair continuation", () => {
     });
     expect(admission).not.toMatchObject({ message: expect.stringContaining("liveness: alive") });
   });
-=======
-  it.each([{ requiredUpdater: true, expected: "conflict" }])(
-    "requires readable ancestry through every live driver (updater required=$requiredUpdater)",
-    ({ requiredUpdater, expected }) => {
-      const currentPid = repairPid + 300 + Number(requiredUpdater);
-      const previousPid = updaterPid + 500;
-      readProcessAncestry.mockImplementation((_pid, options) => ({
-        chain: [
-          identity(process.pid, currentPid, doctorStart),
-          identity(currentPid, previousPid, repairStart),
-        ],
-        complete: options?.throughPid === currentPid,
-        stoppedBy: options?.throughPid === currentPid ? "through-pid" : "unreadable-parent",
-      }));
-      const run = updateRun();
-      run.origin.driver = { host: hostname(), pid: currentPid, startIdentity: String(repairStart) };
-      run.origin.previousDrivers = requiredUpdater
-        ? [{ host: hostname(), pid: previousPid, startIdentity: String(originalStart) }]
-        : [];
-      readProcessIdentity.mockImplementation((pid) =>
-        identity(pid, 0, pid === currentPid ? repairStart : originalStart),
-      );
-      expect(getSelfAndAncestorPidsSync().has(currentPid)).toBe(true);
-      expect(inspectUpdateRepairDriverAdmission([run], runId).kind).toBe(expected);
-    },
-  );
-
-  it.each(["current", "unreadable-helper", "reused-helper", "replaced-row"] as const)(
-    "validates borrowed helper custody through its recorded ancestor: %s",
-    (fault) => {
-      const row = {
-        owner: "original-helper",
-        payload_json: JSON.stringify({
-          version: 1,
-          pid: updaterPid,
-          startIdentity: String(originalStart),
-        }),
-        updated_at: originalStart,
-      };
-      const parent = readBorrowedLegacyHandoffParent("/synthetic-install", row, {
-        pid: repairPid,
-        startIdentity: String(repairStart),
-      });
-      if (!parent) {
-        throw new Error("The fixture requires its recorded helper custody");
-      }
-      readProcessAncestry.mockImplementation((_pid, options) => ({
-        chain: [
-          identity(process.pid, repairPid, doctorStart),
-          identity(repairPid, updaterPid, repairStart),
-          ...(fault === "unreadable-helper"
-            ? []
-            : [identity(updaterPid, updaterPid + 1, originalStart)]),
-        ],
-        complete: fault !== "unreadable-helper" && options?.throughPid === updaterPid,
-        stoppedBy:
-          fault !== "unreadable-helper" && options?.throughPid === updaterPid
-            ? "through-pid"
-            : "unreadable-parent",
-      }));
-      if (fault === "reused-helper") {
-        readProcessIdentity.mockImplementation((pid) =>
-          pid === repairPid
-            ? identity(repairPid, updaterPid, repairStart)
-            : identity(updaterPid, 0, originalStart + 1),
-        );
-      }
-      const current = fault === "replaced-row" ? { ...row, owner: "replacement" } : row;
-      expect(
-        isBorrowedLegacyHandoffParentCurrent(
-          parent,
-          () => current,
-          createManagedHandoffProcessIdentityReader({ env: {} }),
-        ),
-      ).toBe(fault === "current");
-    },
-  );
->>>>>>> 97b6e87616f
 });

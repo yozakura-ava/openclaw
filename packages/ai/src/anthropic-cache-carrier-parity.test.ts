@@ -42,7 +42,7 @@ function appendToolRound(messages: Context["messages"], model: Model, round: num
 describe("Anthropic runtime-context cache lifecycle", () => {
   registerParityHostLifecycle();
 
-  it.each(["provider"] as const)(
+  it.each(["provider", "transport"] as const)(
     "preserves shipped carrier bytes before signed thinking through %s replay",
     async (implementation) => {
       const legacyText = [
@@ -88,8 +88,13 @@ describe("Anthropic runtime-context cache lifecycle", () => {
     },
   );
 
-  it.each([{ implementation: "transport", marker: "canonical" }] as const)(
-    "keeps mixed-media $marker carriers before steering out of the cache through $implementation replay",
+  it.each([
+    { implementation: "provider", marker: "legacy" },
+    { implementation: "provider", marker: "canonical" },
+    { implementation: "transport", marker: "legacy" },
+    { implementation: "transport", marker: "canonical" },
+  ] as const)(
+    "keeps mixed-media $marker carriers out of the prompt cache through $implementation replay",
     async ({ implementation, marker }) => {
       const carrier: Message = {
         role: "user",
@@ -107,11 +112,7 @@ describe("Anthropic runtime-context cache lifecycle", () => {
         cacheRetention: "short",
         context: {
           ...context,
-          messages: [
-            { role: "user", content: "Original question", timestamp: 1 },
-            carrier,
-            { role: "user", content: "Steering correction", timestamp: 3 },
-          ],
+          messages: [{ role: "user", content: "Original question", timestamp: 1 }, carrier],
         },
       });
       const wire = payload.messages as Array<{ content: unknown }>;
@@ -130,7 +131,6 @@ describe("Anthropic runtime-context cache lifecycle", () => {
           source: { type: "base64", media_type: "image/png", data: "aW1n" },
         },
       ]);
-      expect(wire[2]?.content).toBe("Steering correction");
     },
   );
 
@@ -218,11 +218,7 @@ describe("Anthropic runtime-context cache lifecycle", () => {
     },
   );
 
-<<<<<<< HEAD
   it.each([false, true])(
-=======
-  it.each([true])(
->>>>>>> 97b6e87616f
     "sends operator context with system authority (turn-scoped=%s)",
     async (turnScoped) => {
       const messages: Context["messages"] = [
@@ -318,9 +314,9 @@ describe("Anthropic runtime-context cache lifecycle", () => {
     }
   });
 
-  it.each(["aborted"] as const)(
+  it.each(["missing", "error", "aborted", "stop"] as const)(
     "preserves historical operator positions before the next user with a %s assistant",
-    async () => {
+    async (ending) => {
       const model = { ...anthropicModel, id: "claude-opus-5" };
       const messages: Context["messages"] = [
         { role: "user", content: "First question", timestamp: 1 },
@@ -332,7 +328,18 @@ describe("Anthropic runtime-context cache lifecycle", () => {
         },
       ];
       const nextMessages: Context["messages"] = [...messages];
-      nextMessages.push(createFailureMessage(model, new Error("Interrupted"), true));
+      if (ending !== "missing") {
+        const assistant = createFailureMessage(
+          model,
+          new Error("Interrupted"),
+          ending === "aborted",
+        );
+        if (ending === "stop") {
+          assistant.stopReason = "stop";
+          assistant.content = [{ type: "text", text: "First answer" }];
+        }
+        nextMessages.push(assistant);
+      }
       nextMessages.push(
         { role: "user", content: "Second question", timestamp: 4 },
         {
@@ -364,7 +371,7 @@ describe("Anthropic runtime-context cache lifecycle", () => {
             content: [
               {
                 type: "text",
-                text: STREAM_ERROR_FALLBACK_TEXT,
+                text: ending === "stop" ? "First answer" : STREAM_ERROR_FALLBACK_TEXT,
               },
             ],
           },
@@ -379,44 +386,73 @@ describe("Anthropic runtime-context cache lifecycle", () => {
     },
   );
 
-  it.each([{ model: { id: "claude-opus-5" }, apiKey: "test-sk-ant-oat-fixture" }])(
-    "preserves ordinary user context on an ineligible route: %j",
-    async (route) => {
-      for (const implementation of ["provider", "transport"] as const) {
-        const { payload, headers } = await captureAnthropicRequest(implementation, {
-          ...route,
-          cacheRetention: "none",
-          context: {
-            ...context,
-            messages: [
-              { role: "user", content: "Question", timestamp: 1 },
-              {
-                role: "user",
-                content: "Runtime facts",
-                timestamp: 2,
-                operatorMessage: { turnScoped: true },
-              },
-              { role: "user", content: "Next question", timestamp: 3 },
-            ],
-          },
-        });
-        expect(payload.messages).toEqual([
-          { role: "user", content: "Question" },
-          { role: "user", content: "Runtime facts" },
-          { role: "user", content: "Next question" },
-        ]);
-        expect(headers.get("anthropic-beta")?.split(",") ?? []).not.toContain(
-          "mid-conversation-system-clear-at-2026-08-21",
-        );
-      }
-    },
-  );
+  it.each([
+    { model: { id: "claude-opus-5" }, apiKey: "test-sk-ant-oat-fixture" },
+    { model: { id: "claude-opus-5", baseUrl: "https://proxy.example.test" } },
+    { model: { id: "claude-sonnet-4-6" } },
+  ])("preserves ordinary user context on an ineligible route: %j", async (route) => {
+    for (const implementation of ["provider", "transport"] as const) {
+      const { payload, headers } = await captureAnthropicRequest(implementation, {
+        ...route,
+        cacheRetention: "none",
+        context: {
+          ...context,
+          messages: [
+            { role: "user", content: "Question", timestamp: 1 },
+            {
+              role: "user",
+              content: "Runtime facts",
+              timestamp: 2,
+              operatorMessage: { turnScoped: true },
+            },
+            { role: "user", content: "Next question", timestamp: 3 },
+          ],
+        },
+      });
+      expect(payload.messages).toEqual([
+        { role: "user", content: "Question" },
+        { role: "user", content: "Runtime facts" },
+        { role: "user", content: "Next question" },
+      ]);
+      expect(headers.get("anthropic-beta")?.split(",") ?? []).not.toContain(
+        "mid-conversation-system-clear-at-2026-08-21",
+      );
+    }
+  });
 
   it.each([
     {
       id: "claude-fable-5-1",
       retained: false,
       carrierRetained: false,
+      blocks: false,
+      cacheRetention: "short",
+    },
+    {
+      id: "claude-opus-5-5",
+      retained: false,
+      carrierRetained: false,
+      blocks: true,
+      cacheRetention: "long",
+    },
+    {
+      id: "claude-sonnet-4-6",
+      retained: true,
+      carrierRetained: true,
+      blocks: false,
+      cacheRetention: "short",
+    },
+    {
+      id: "claude-sonnet-4-6",
+      retained: true,
+      carrierRetained: true,
+      blocks: true,
+      cacheRetention: "long",
+    },
+    {
+      id: "claude-fable-5-1",
+      retained: true,
+      carrierRetained: undefined,
       blocks: false,
       cacheRetention: "short",
     },
@@ -470,16 +506,11 @@ describe("Anthropic runtime-context cache lifecycle", () => {
                 : "OpenClaw runtime context:\nRuntime context",
             });
           } else {
-            const retainedContent = wire[1]?.content;
-            expect(
-              typeof retainedContent === "string"
-                ? [{ type: "text", text: retainedContent }]
-                : retainedContent,
-            ).toEqual([
+            expect(wire[1]?.content).toEqual([
               {
                 type: "text",
                 text: "OpenClaw runtime context:\nRuntime context",
-                ...(round < 2 ? { cache_control: cacheControl } : {}),
+                cache_control: cacheControl,
               },
             ]);
           }
@@ -501,16 +532,9 @@ describe("Anthropic runtime-context cache lifecycle", () => {
                   }),
                 ],
           );
-          // String content is Anthropic's shorthand for one text block; markers may move.
+          // Checkpoint metadata advances; the content preceding it must remain reusable.
           const prefix = JSON.parse(
-            JSON.stringify(stable, (key, value) => {
-              if (key === "cache_control") {
-                return undefined;
-              }
-              return key === "content" && typeof value === "string"
-                ? [{ type: "text", text: value }]
-                : value;
-            }),
+            JSON.stringify(stable, (key, value) => (key === "cache_control" ? undefined : value)),
           );
           expect(prefix.slice(0, previousPrefix.length)).toEqual(previousPrefix);
           previousPrefix = prefix;

@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { containsAsciiControlCharacter } from "@openclaw/normalization-core/string-normalization";
-import { readProcessCoalition } from "@openclaw/proc-safe/darwin";
 import { resolveDiagnosticProcessEnv } from "../infra/process-env.js";
 import { spawnPsSync } from "../infra/spawn-ps.js";
 import { parseKeyValueOutput } from "./runtime-parse.js";
@@ -9,6 +9,8 @@ import { parseKeyValueOutput } from "./runtime-parse.js";
 type ServiceProcessMembership = "inside" | "outside" | "unknown" | "absent";
 type ResourceCoalition = { id: number; name?: string };
 const PROBE_TIMEOUT_MS = 2_000;
+// Node startup plus two native library loads; sized for old Intel Macs.
+const NATIVE_PROBE_TIMEOUT_MS = 10_000;
 declare const SEALED_RUNTIME_BUILD: boolean;
 
 export function resolveServiceProcessMembershipBlock(
@@ -18,7 +20,6 @@ export function resolveServiceProcessMembershipBlock(
 ) {
   if (membership === "inside") {
     return "inside-gateway-service";
-<<<<<<< HEAD
   }
   if (membership === "unknown") {
     return "service-membership-unverified";
@@ -62,36 +63,46 @@ try {
     } finally {
       release(reply);
     }
-=======
->>>>>>> 97b6e87616f
   }
-  if (membership === "unknown") {
-    return "service-membership-unverified";
-  }
-  // Darwin containment proves an external terminal even when a root-owned login is unreadable.
-  return !ancestryComplete && (platform !== "darwin" || membership !== "outside")
-    ? "service-ancestry-unverified"
-    : undefined;
-}
+} catch {}
+process.stdout.write(JSON.stringify({ id: String(id), name }));
+`;
 
-function readNativeResourceCoalition(pid: number): ResourceCoalition | null | undefined {
+function readNativeResourceCoalition(pid: number): ResourceCoalition | undefined {
   if (typeof SEALED_RUNTIME_BUILD === "boolean" && SEALED_RUNTIME_BUILD) {
     return undefined;
   }
-  try {
-    const coalition = readProcessCoalition(pid);
-    if (!coalition) {
-      return null;
-    }
-    const id = Number(coalition.id);
-    if (!Number.isSafeInteger(id) || id <= 0) {
-      return undefined;
-    }
-    const name = coalition.name?.trim();
-    return name && !containsAsciiControlCharacter(name) ? { id, name } : { id };
-  } catch {
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--input-type=commonjs",
+      "-e",
+      NATIVE_COALITION_SCRIPT,
+      createRequire(import.meta.url).resolve("koffi"),
+      String(pid),
+    ],
+    {
+      encoding: "utf8",
+      env: resolveDiagnosticProcessEnv(),
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: NATIVE_PROBE_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      maxBuffer: 4096,
+    },
+  );
+  if (result.error || result.status !== 0) {
     return undefined;
   }
+  const info: unknown = JSON.parse(result.stdout);
+  if (!info || typeof info !== "object" || !("id" in info) || typeof info.id !== "string") {
+    return undefined;
+  }
+  const id = Number(info.id);
+  if (!/^[1-9]\d*$/.test(info.id) || !Number.isSafeInteger(id)) {
+    return undefined;
+  }
+  const name = "name" in info && typeof info.name === "string" ? info.name.trim() : "";
+  return name && !containsAsciiControlCharacter(name) ? { id, name } : { id };
 }
 
 function readResourceCoalition(pid: number): ResourceCoalition | null | undefined {

@@ -10,11 +10,7 @@ import "./logger.js";
 import { getResolvedLoggerFileTarget } from "./logger-settings-internal.js";
 import { parseLogLine, type ParsedLogLine } from "./parse-log-line.js";
 import type { ResolvedRedactPattern } from "./redact-pattern-runtime.js";
-<<<<<<< HEAD
 import { redactSensitiveLines, resolveRedactOptions } from "./redact.js";
-=======
-import { redactSensitiveLines, resolveLogTailRedactOptions } from "./redact.js";
->>>>>>> 97b6e87616f
 
 const DEFAULT_LIMIT = 500;
 const DEFAULT_MAX_BYTES = 250_000;
@@ -108,7 +104,7 @@ export async function readConfiguredLogTail(
   const requestedCursor = params?.cursor;
   const requestedLimit = params?.limit ?? DEFAULT_LIMIT;
   const requestedMaxBytes = params?.maxBytes ?? DEFAULT_MAX_BYTES;
-  const redaction = resolveLogTailRedactOptions();
+  const redaction = resolveRedactOptions();
   if (stat && !stat.isFile()) {
     throw new Error(`Log path is not a regular file: ${file}`);
   }

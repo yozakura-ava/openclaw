@@ -7,8 +7,6 @@ import { pipeline, type Readable } from "node:stream";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { createDeferredCore } from "../../shared/deferred.js";
 import { spawnWithInheritedOomScore } from "../linux-oom-score.js";
-import { releaseProcessStdin } from "../release-stdin.js";
-import { serializeBrokerError } from "../spawn-broker/protocol.js";
 import type { SpawnStdioEntry } from "../spawn-secret-input.js";
 import { GRACEFUL_CANCEL_TIMEOUT_MS } from "./cancellation-policy.js";
 import {
@@ -82,7 +80,6 @@ export function runServiceChildGroupAnchor(): void {
   let lineageObservationFailed = false;
   let markHostLineageClosed: (() => void) | undefined;
   let forceCleanup = false;
-  let parentLost = false;
   const forceCleanupRequested = createDeferredCore();
   const lineageDone = createDeferredCore();
   const rootExited = createDeferredCore();
@@ -90,8 +87,6 @@ export function runServiceChildGroupAnchor(): void {
   const startupErrorAcknowledged = createDeferredCore();
   const retirementReady = createDeferredCore<boolean>();
   let closingSequence: number | undefined;
-  let inputEndRequested = false;
-  let finishInput: (() => void) | undefined;
 
   const send = async (message: ServiceChildAnchorPayload) => {
     if (!start || !control || control.destroyed) {
@@ -104,25 +99,6 @@ export function runServiceChildGroupAnchor(): void {
         () => resolve(),
       );
     });
-  };
-
-  const finish = (code: number) => {
-    process.exitCode = code;
-    releaseProcessStdin();
-    const disconnect = () => {
-      // end() flushes the receipt; destroy() also releases the readable socket.
-      control?.off("close", disconnect);
-      control?.destroy();
-      if (process.connected) {
-        process.disconnect?.();
-      }
-    };
-    if (control && !control.destroyed) {
-      control.once("close", disconnect);
-      control.end(disconnect);
-    } else {
-      disconnect();
-    }
   };
 
   const closeAuthority = async (
@@ -153,7 +129,7 @@ export function runServiceChildGroupAnchor(): void {
         retirementReady.promise,
         delay(Math.max(0, deadline - Date.now())).then(() => false),
       ]);
-      finish(acknowledged ? 0 : 1);
+      control?.end(() => process.exit(acknowledged ? 0 : 1));
       return;
     }
     state = "closed";
@@ -189,7 +165,7 @@ export function runServiceChildGroupAnchor(): void {
       process.kill(0, "SIGKILL");
       return;
     }
-    finish(0);
+    control?.end(() => process.exit(0));
   };
 
   const closeInheritedLineage = () => {
@@ -199,18 +175,9 @@ export function runServiceChildGroupAnchor(): void {
     }
   };
 
-  const reportStartupFailure = async (error: string | Error, hardKill = false) => {
+  const reportStartupFailure = async (error: string, hardKill = false) => {
     closeInheritedLineage();
-<<<<<<< HEAD
     await send({ type: "startup-error", anchorPid: process.pid, error });
-=======
-    await send({
-      type: "startup-error",
-      anchorPid: process.pid,
-      error: error instanceof Error ? error.message : error,
-      ...(error instanceof Error ? { errorDetails: serializeBrokerError(error) } : {}),
-    });
->>>>>>> 97b6e87616f
     // A write callback only proves kernel acceptance. Keep the exact anchor alive until the
     // host records the authoritative spawn failure and acknowledges it on this same channel.
     await Promise.race([startupErrorAcknowledged.promise, retirementReady.promise]);
@@ -229,31 +196,20 @@ export function runServiceChildGroupAnchor(): void {
     if (!start || state === "closed") {
       return;
     }
-    parentLost ||= reason === "parent-lost";
-    const force = signal === "SIGKILL" || (parentLost && start.terminateOnHostLoss === true);
-    if (parentLost && start.terminateOnHostLoss && descendantsReaped) {
-      lineageClosed = true;
-      lineageDone.resolve();
-    }
     if (state === "closing") {
-      forceCleanup ||= force;
+      forceCleanup ||= signal === "SIGKILL";
       if (forceCleanup) {
         forceCleanupRequested.resolve();
       }
       return;
     }
     state = "closing";
-    forceCleanup = force;
+    forceCleanup = signal === "SIGKILL";
     if (!command) {
       await reportStartupFailure("command startup cancelled before spawn", true);
       return;
     }
     const cleanupDeadline = Date.now() + GRACEFUL_CANCEL_TIMEOUT_MS;
-    const termGraceDone = delay(GRACEFUL_CANCEL_TIMEOUT_MS);
-    if (!start.ownedWorker && !forceCleanup && rootExit && pendingOutput.size > 0) {
-      // Preserve inherited diagnostics after root exit within the same cleanup budget.
-      await Promise.race([rootSettledDone.promise, termGraceDone, forceCleanupRequested.promise]);
-    }
     if (subreaper) {
       try {
         while (
@@ -267,12 +223,6 @@ export function runServiceChildGroupAnchor(): void {
         await rootExited.promise;
         await rootResultDelivery;
         await rootSettledDone.promise;
-        if (parentLost && start.terminateOnHostLoss) {
-          // The vanished host cannot report lineage EOF. Native adoption has
-          // already joined every descendant, so no host receipt is needed here.
-          lineageClosed = true;
-          lineageDone.resolve();
-        }
         await lineageDone.promise;
         if (!lineageClosed) {
           throw new Error("native owner lost lineage observation before EOF");
@@ -305,6 +255,7 @@ export function runServiceChildGroupAnchor(): void {
       }
       return;
     }
+    const termGraceDone = delay(GRACEFUL_CANCEL_TIMEOUT_MS);
     if (start.ownedWorker) {
       if (!forceCleanup) {
         process.kill(0, "SIGTERM");
@@ -431,11 +382,6 @@ export function runServiceChildGroupAnchor(): void {
       markHostLineageClosed?.();
       return;
     }
-    if (message.type === "stdin-end") {
-      inputEndRequested = true;
-      finishInput?.();
-      return;
-    }
     if (message.type === "worker-close") {
       if (start.ownedWorker && !command) {
         void requestCleanup("cancel");
@@ -473,8 +419,7 @@ export function runServiceChildGroupAnchor(): void {
   const startCommand = async (next: ServiceChildStart) => {
     const controlFd = next.controlFd;
     if (controlFd === undefined) {
-      state = "closed";
-      finish(1);
+      process.exitCode = 1;
       return;
     }
     start = next;
@@ -533,7 +478,7 @@ export function runServiceChildGroupAnchor(): void {
         }
         subreaper = nativeOwner.acquireLinuxChildSubreaper();
       } catch (error) {
-        await reportStartupFailure(error instanceof Error ? error : String(error));
+        await reportStartupFailure(error instanceof Error ? error.message : String(error));
         return;
       }
     }
@@ -586,7 +531,7 @@ export function runServiceChildGroupAnchor(): void {
       // Failed Bun spawns have no stdio. Preserve the spawn error before checking lineage.
       await once(command, "spawn");
     } catch (error) {
-      await reportStartupFailure(error instanceof Error ? error : String(error));
+      await reportStartupFailure(error instanceof Error ? error.message : String(error));
       return;
     }
     const markLineageClosed = () => {
@@ -669,29 +614,19 @@ export function runServiceChildGroupAnchor(): void {
     if (start.stdinMode !== "inherit" && command.stdin) {
       const input = process.stdin;
       const destination = command.stdin;
-      // EOF and control use independent pipes. Hold EOF until the host explicitly
-      // ends input; a dead host must be killed without becoming a protocol reply.
-      const endInput = () => {
-        if (!start?.terminateOnHostLoss || inputEndRequested) {
-          destination.end();
-        }
-      };
-      finishInput = () => {
-        if (input.readableEnded) {
-          endInput();
-        }
-      };
+      const endInput = () => destination.end();
       let inputClosed = false;
       const stopInput = () => {
         input.unpipe(destination);
         input.off("end", endInput);
-        releaseProcessStdin();
+        input.destroy();
         if (!inputClosed) {
           inputClosed = true;
           void send({ type: "stdin-closed" });
         }
       };
-      destination.once("error", stopInput).once("close", stopInput);
+      destination.once("error", stopInput);
+      destination.once("close", stopInput);
       // Own EOF explicitly: pipe's default end check initializes global Bun output writers.
       input.pipe(destination, { end: false });
       if (input.readableEnded) {
@@ -762,9 +697,7 @@ export function runServiceChildGroupAnchor(): void {
         raw.acknowledgeClosing !== undefined &&
         raw.acknowledgeClosing !== true
       ) {
-        state = "closed";
-        finish(1);
-        return;
+        process.exit(1);
       }
       void startCommand(message);
     } else if (message.type === "parent-loss" && message.generation === start?.generation) {

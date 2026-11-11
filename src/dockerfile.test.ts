@@ -1,17 +1,34 @@
 // Tests Dockerfile metadata and expected install commands.
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import {
+  access,
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BUNDLED_PLUGIN_ROOT_DIR } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it } from "vitest";
 import { isMap, parseAllDocuments } from "yaml";
+import { collectPackageDistImportErrors } from "../scripts/lib/package-dist-imports.mjs";
 import { useAutoCleanupTempDirTracker } from "../test/helpers/temp-dir.js";
 import { resolveTestNodeExecPath } from "./test-utils/node-process.js";
 
 const repoRoot = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const dockerfilePath = join(repoRoot, "Dockerfile");
+const dockerComposePath = join(repoRoot, "docker-compose.yml");
+const dockerInstallDocsPath = join(repoRoot, "docs/install/docker.md");
+const composeSetupScriptPath = join(repoRoot, "scripts/e2e/compose-setup.sh");
+const dockerSetupDockerfilePaths = ["Dockerfile", "scripts/docker/sandbox/Dockerfile"] as const;
 const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 function collapseDockerContinuations(dockerfile: string): string {
@@ -63,8 +80,21 @@ async function stageDockerManifestCopies(params: { body: string; fixture: string
   return stageRoot;
 }
 
+function resolveOptionalAptPackages(dockerfile: string, env: NodeJS.ProcessEnv): string {
+  const assignment = collapseDockerContinuations(dockerfile).match(
+    /\bpackages="(\$\{OPENCLAW_IMAGE_APT_PACKAGES:-\$OPENCLAW_DOCKER_APT_PACKAGES\})";/u,
+  )?.[1];
+  if (!assignment) {
+    throw new Error("Dockerfile optional apt package assignment is missing");
+  }
+  const script = `packages="${assignment}"; printf '%s' "$packages"`;
+  return execFileSync("/bin/sh", ["-c", script], {
+    encoding: "utf8",
+    env,
+  });
+}
+
 describe("Dockerfile", () => {
-<<<<<<< HEAD
   it("runs the built port-aware Gateway liveness probe", async () => {
     const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
     const compose = await readFile(dockerComposePath, "utf8");
@@ -295,8 +325,6 @@ describe("Dockerfile", () => {
     expect(exampleManifestIndex).toBeLessThan(installIndex);
   });
 
-=======
->>>>>>> 97b6e87616f
   it.runIf(process.platform !== "win32").each(["", "matrix"])(
     "stages every locked workspace manifest while retaining optional plugin selection: %j",
     async (selection) => {
@@ -453,6 +481,298 @@ describe("Dockerfile", () => {
     },
   );
 
+  it("does not let pnpm resync the full source workspace during Docker build scripts", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    const collapsed = collapseDockerContinuations(dockerfile);
+    const qaLabExtensionCheckIndex = collapsed.indexOf("grep -qx 'qa-lab'");
+    const privateQaExportIndex = collapsed.indexOf(
+      "export OPENCLAW_BUILD_PRIVATE_QA=1 OPENCLAW_ENABLE_PRIVATE_QA_CLI=1",
+    );
+    const buildDockerIndex = collapsed.indexOf(
+      'OPENCLAW_INTERNAL_DOCKER_BUILD_PLUGIN_IDS="$selected_plugin_dirs" OPENCLAW_RUN_NODE_SKIP_DTS_BUILD="$OPENCLAW_DOCKER_BUILD_SKIP_DTS" OPENCLAW_TSDOWN_MAX_OLD_SPACE_MB="$OPENCLAW_DOCKER_BUILD_TSDOWN_MAX_OLD_SPACE_MB" NODE_OPTIONS="$OPENCLAW_DOCKER_BUILD_NODE_OPTIONS" pnpm_config_verify_deps_before_run=false pnpm build:docker',
+    );
+    const qaLabBuildIndex = collapsed.indexOf(
+      "pnpm_config_verify_deps_before_run=false pnpm qa:lab:build",
+    );
+    const qaLabDistCopyIndex = collapsed.indexOf(
+      "cp -R extensions/qa-lab/web/dist dist/extensions/qa-lab/web/dist",
+    );
+    const runtimeAssetsIndex = collapsed.indexOf("FROM production-deps AS runtime-assets");
+
+    expect(qaLabExtensionCheckIndex).toBeGreaterThan(-1);
+    expect(buildDockerIndex).toBeGreaterThan(-1);
+    expect(collapsed).not.toContain(
+      'OPENCLAW_DOCKER_BUILD_EXTENSIONS="$OPENCLAW_EXTENSIONS" OPENCLAW_RUN_NODE_SKIP_DTS_BUILD=',
+    );
+    expect(qaLabBuildIndex).toBeGreaterThan(-1);
+    expect(qaLabDistCopyIndex).toBeGreaterThan(-1);
+    expect(runtimeAssetsIndex).toBeGreaterThan(-1);
+    expect(privateQaExportIndex).toBeGreaterThan(qaLabExtensionCheckIndex);
+    expect(privateQaExportIndex).toBeLessThan(buildDockerIndex);
+    expect(qaLabBuildIndex).toBeGreaterThan(buildDockerIndex);
+    expect(qaLabDistCopyIndex).toBeGreaterThan(qaLabBuildIndex);
+    expect(qaLabDistCopyIndex).toBeLessThan(runtimeAssetsIndex);
+    expect(dockerfile).toContain(
+      "pnpm_config_verify_deps_before_run=false pnpm canvas:a2ui:bundle",
+    );
+    expect(dockerfile).toContain("pnpm_config_verify_deps_before_run=false pnpm ui:build");
+    expect(dockerfile).toContain("pnpm_config_verify_deps_before_run=false pnpm qa:lab:build");
+  });
+
+  it("shares public source provenance across backend and Control UI builds", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    const installIndex = dockerfile.indexOf("pnpm install --frozen-lockfile");
+    const commitArgIndex = dockerfile.indexOf('ARG GIT_COMMIT=""');
+    const timestampArgIndex = dockerfile.indexOf('ARG OPENCLAW_BUILD_TIMESTAMP=""');
+    const provenanceEnvIndex = dockerfile.indexOf("ENV GIT_COMMIT=${GIT_COMMIT}");
+    const backendBuildIndex = dockerfile.indexOf("pnpm build:docker");
+    const uiBuildIndex = dockerfile.indexOf("pnpm ui:build");
+
+    expect(commitArgIndex).toBeGreaterThan(installIndex);
+    expect(timestampArgIndex).toBeGreaterThan(commitArgIndex);
+    expect(provenanceEnvIndex).toBeGreaterThan(timestampArgIndex);
+    expect(dockerfile).toContain("OPENCLAW_BUILD_TIMESTAMP=${OPENCLAW_BUILD_TIMESTAMP}");
+    expect(dockerfile).toContain('OPENCLAW_BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"');
+    expect(backendBuildIndex).toBeGreaterThan(provenanceEnvIndex);
+    expect(uiBuildIndex).toBeGreaterThan(backendBuildIndex);
+  });
+
+  it("documents provenance arguments for manual source builds", async () => {
+    const docs = await readFile(dockerInstallDocsPath, "utf8");
+    const selectedPluginStart = docs.indexOf("### Source-built images with selected plugins");
+    const selectedPluginEnd = docs.indexOf("### Observability", selectedPluginStart);
+    const selectedPluginDocs = docs.slice(selectedPluginStart, selectedPluginEnd);
+
+    expect(docs).toContain('BUILD_GIT_COMMIT="$(git rev-parse HEAD)"');
+    expect(docs).toContain('BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"');
+    expect(docs).toContain('--build-arg "GIT_COMMIT=${BUILD_GIT_COMMIT}"');
+    expect(docs).toContain('--build-arg "OPENCLAW_BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"');
+    expect(docs).toContain("The Docker context excludes `.git`.");
+    expect(selectedPluginStart).toBeGreaterThan(-1);
+    expect(selectedPluginEnd).toBeGreaterThan(selectedPluginStart);
+    expect(selectedPluginDocs).toContain('SOURCE_SHA="$(git rev-parse HEAD)"');
+    expect(selectedPluginDocs).toContain('BUILD_TIMESTAMP="$(date -u +%Y-%m-%dT%H:%M:%SZ)"');
+    expect(selectedPluginDocs).toContain('--build-arg "GIT_COMMIT=${SOURCE_SHA}"');
+    expect(selectedPluginDocs).toContain(
+      '--build-arg "OPENCLAW_BUILD_TIMESTAMP=${BUILD_TIMESTAMP}"',
+    );
+  });
+
+  it.runIf(process.platform !== "win32").each(["extensions", "bundled-plugins"])(
+    "assembles built assets onto production dependencies with %s",
+    async (bundledPluginDir) => {
+      const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+      const stages = new Map(
+        [...dockerfile.matchAll(/^FROM (\S+) AS (\S+)\n([\s\S]*?)(?=^FROM |(?![\s\S]))/gm)].map(
+          ([, parent, name, body]) => [name, { parent, body }],
+        ),
+      );
+      const production = stages.get("production-deps");
+      expect(production?.parent).toBe("dependency-inputs");
+      expect(stages.get("build")?.parent).toBe(production?.parent);
+      const inputs = stages.get("dependency-inputs");
+      expect(inputs?.parent).toBe("${OPENCLAW_NODE_BOOKWORM_IMAGE}");
+      expect(inputs?.body).not.toMatch(/pnpm install|COPY \. \./);
+      expect(production?.body).toContain("pnpm install --frozen-lockfile --prod");
+      expect(production?.body).not.toMatch(/--ignore-scripts|COPY .*node_modules/);
+      expect(dockerfile).not.toContain("pnpm prune");
+
+      const runtimeStage = stages.get("runtime-assets");
+      expect(runtimeStage?.parent).toBe("production-deps");
+      const runtime = runtimeStage?.body ?? "";
+      const buildCopy = runtime.match(/^COPY --from=(\S+) \/app\/ \.\/$/m);
+      const buildOutput = stages.get(buildCopy?.[1]);
+      expect(buildOutput?.parent).toBe("build");
+      const cleanCommand = buildOutput?.body?.match(/^RUN (rm -rf node_modules[^\n]+)/m)?.[1];
+      if (!cleanCommand) {
+        throw new Error(
+          "Runtime assembly must remove development dependencies before copying build output",
+        );
+      }
+      expect(runtime.indexOf("node scripts/prune-docker-plugin-dist.mjs")).toBeGreaterThan(
+        runtime.indexOf(buildCopy?.[0] ?? ""),
+      );
+
+      const fixture = await mkdtemp(join(tmpdir(), "openclaw-docker-deps-"));
+      try {
+        const app = join(fixture, "app");
+        const build = join(fixture, "build");
+        const oldFiles = [
+          "node_modules/dev-only/index.js",
+          "ui/node_modules/dev-only/index.js",
+          "packages/ai/node_modules/dev-only/index.js",
+          `${bundledPluginDir}/selected/node_modules/dev-only/index.js`,
+        ];
+        const builtFiles = [
+          "packages/ai/dist/index.mjs",
+          "dist/index.js",
+          "dist/extensions/node_modules/openclaw/package.json",
+          `${bundledPluginDir}/selected/index.js`,
+        ];
+        const prodFiles = [
+          "node_modules/native-addon/addon.node",
+          "node_modules/.modules.yaml",
+          "packages/ai/node_modules/runtime-dep/index.js",
+          `${bundledPluginDir}/selected/node_modules/runtime-dep/index.js`,
+          "pnpm-lock.yaml",
+        ];
+        for (const [root, files] of [
+          [build, [...oldFiles, ...builtFiles]],
+          [app, prodFiles],
+        ] as const) {
+          for (const file of files) {
+            await mkdir(dirname(join(root, file)), { recursive: true });
+            await writeFile(join(root, file), file);
+          }
+        }
+        await writeFile(join(app, "package.json"), JSON.stringify({ version: "2026.8.1" }));
+        await writeFile(join(build, "package.json"), JSON.stringify({ version: "2026.8.1-1" }));
+        execFileSync("/bin/sh", ["-eu", "-c", cleanCommand], {
+          cwd: build,
+          env: { ...process.env, OPENCLAW_BUNDLED_PLUGIN_DIR: bundledPluginDir },
+        });
+        await mkdir(join(app, "node_modules/@openclaw"), { recursive: true });
+        await symlink("../../packages/ai", join(app, "node_modules/@openclaw/ai"));
+        await cp(build, app, { recursive: true, verbatimSymlinks: true });
+        for (const file of oldFiles) {
+          await expect(access(join(app, file))).rejects.toThrow();
+        }
+        for (const file of [...builtFiles, ...prodFiles]) {
+          expect(await readFile(join(app, file), "utf8")).toBe(file);
+        }
+        expect(await readFile(join(app, "node_modules/@openclaw/ai/dist/index.mjs"), "utf8")).toBe(
+          "packages/ai/dist/index.mjs",
+        );
+        expect(JSON.parse(await readFile(join(app, "package.json"), "utf8"))).toEqual({
+          version: "2026.8.1-1",
+        });
+      } finally {
+        await rm(fixture, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("keeps build-stage workspace packages readable by non-root live tests", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    const sourceCopyIndex = dockerfile.indexOf("COPY . .");
+    const readabilityIndex = dockerfile.indexOf(
+      "RUN find /app -path /app/node_modules -prune -o -exec chmod a+rX {} +",
+    );
+    const buildIndex = dockerfile.indexOf("pnpm build:docker");
+
+    expect(sourceCopyIndex).toBeGreaterThan(-1);
+    expect(readabilityIndex).toBeGreaterThan(sourceCopyIndex);
+    expect(readabilityIndex).toBeLessThan(buildIndex);
+  });
+
+  it("keeps runtime workspace templates in final images", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    const runtimeStageIndex = dockerfile.lastIndexOf("FROM base-runtime");
+    const templatesCopyIndex = dockerfile.indexOf(
+      "COPY --from=runtime-assets --chown=node:node /app/docs ./docs",
+      runtimeStageIndex,
+    );
+    const userIndex = dockerfile.indexOf("USER node", runtimeStageIndex);
+
+    expect(runtimeStageIndex).toBeGreaterThan(-1);
+    expect(templatesCopyIndex).toBeGreaterThan(runtimeStageIndex);
+    expect(templatesCopyIndex).toBeLessThan(userIndex);
+  });
+
+  it("ships the declared bootstrap scripts and their relative import closure", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+    const runtime = dockerfile.split(/^FROM /m).at(-1)!;
+    const copiedFiles = new Map<string, string>();
+    for (const [, sources, destination] of runtime.matchAll(
+      /^COPY (?:--\S+\s+)*([^\n]+) (\S+)$/gm,
+    )) {
+      if (!sources || !destination) {
+        continue;
+      }
+      for (const source of sources.split(/\s+/)) {
+        if (source.startsWith("/app/") && !source.includes("${")) {
+          copiedFiles.set(
+            posix.join(destination, posix.basename(source)),
+            source.slice("/app/".length),
+          );
+        }
+      }
+    }
+    const manifest = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
+      files: string[];
+    };
+    const scripts = manifest.files.filter(
+      (file) => file.startsWith("scripts/") && !file.includes("*") && !file.endsWith("/"),
+    );
+    expect(dockerfile).toContain(
+      "node scripts/docker/copy-bootstrap-scripts.mjs /app/.runtime-bootstrap",
+    );
+    expect(runtime).toContain(
+      "COPY --from=runtime-assets --chown=node:node /app/.runtime-bootstrap/scripts ./scripts",
+    );
+    const output = await mkdtemp(join(tmpdir(), "docker-bootstrap-"));
+    try {
+      execFileSync(resolveTestNodeExecPath(), [
+        join(repoRoot, "scripts/docker/copy-bootstrap-scripts.mjs"),
+        output,
+      ]);
+      for (const file of scripts) {
+        expect(await readFile(join(output, file))).toEqual(await readFile(join(repoRoot, file)));
+        copiedFiles.set(file, file);
+      }
+      expect(
+        collectPackageDistImportErrors({
+          files: [...copiedFiles.keys()],
+          readText: (file: string) =>
+            scripts.includes(file) ? readFileSync(join(output, file), "utf8") : "",
+        }),
+      ).toEqual([]);
+    } finally {
+      await rm(output, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps package manager metadata in runtime images", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+    const installProd = "pnpm install --frozen-lockfile --prod";
+    const finalWorkspaceCopy =
+      "COPY --from=runtime-assets --chown=node:node /app/pnpm-workspace.yaml .";
+
+    expect(dockerfile).not.toContain("pnpm-workspace.runtime.yaml");
+    expect(dockerfile).not.toContain("write-runtime-pnpm-workspace");
+    expect(dockerfile).not.toContain("pnpm_config_frozen_lockfile=false");
+    expect(dockerfile).toContain(finalWorkspaceCopy);
+    expect(dockerfile.indexOf(installProd)).toBeGreaterThan(-1);
+    expect(dockerfile.indexOf(installProd)).toBeLessThan(dockerfile.indexOf(finalWorkspaceCopy));
+    expect(dockerfile).toContain(
+      "COPY --from=runtime-assets --chown=node:node /app/patches ./patches",
+    );
+  });
+
+  it("keeps the release version consistent through build and runtime assembly", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+
+    const stampIndex = dockerfile.indexOf('pnpm pkg set "version=$OPENCLAW_DOCKER_BUILD_VERSION"');
+    const buildIndex = dockerfile.indexOf("pnpm build:docker");
+    expect(stampIndex).toBeGreaterThan(dockerfile.indexOf("COPY . ."));
+    expect(stampIndex).toBeLessThan(buildIndex);
+    expect(dockerfile).toContain(
+      'test "$(node -p "require(\\"/app/package.json\\").version")" = "$OPENCLAW_DOCKER_BUILD_VERSION"',
+    );
+    expect(dockerfile).toContain(
+      'test "$(node -p "require(\\"/app/dist/build-info.json\\").version")" = "$OPENCLAW_DOCKER_BUILD_VERSION"',
+    );
+    expect(dockerfile).toContain(
+      'test "$(node /app/openclaw.mjs --version | cut -d \' \' -f 2)" = "$OPENCLAW_DOCKER_BUILD_VERSION"',
+    );
+  });
+
+  it("does not override bundled plugin discovery in runtime images", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+    expect(dockerfile).toContain(`ARG OPENCLAW_BUNDLED_PLUGIN_DIR=${BUNDLED_PLUGIN_ROOT_DIR}`);
+    expect(dockerfile).not.toMatch(/^\s*ENV\b[^\n]*\bOPENCLAW_BUNDLED_PLUGINS_DIR\b/m);
+  });
+
   it("normalizes plugin and agent paths permissions in image layers", async () => {
     const dockerfile = await readFile(dockerfilePath, "utf8");
     expect(dockerfile).toContain(
@@ -462,10 +782,14 @@ describe("Dockerfile", () => {
     expect(dockerfile).toContain('find "$dir" -type f -exec chmod 644 {} +');
   });
 
-  it("counts primary pub keys before Docker apt fingerprint compare and dearmor", async () => {
-    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
+  it("Docker GPG fingerprint awk uses correct quoting for OPENCLAW_SANDBOX=1 build", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
     expect(dockerfile).toContain('== "fpr" {');
     expect(dockerfile).not.toContain('\\"fpr\\"');
+  });
+
+  it("counts primary pub keys before Docker apt fingerprint compare and dearmor", async () => {
+    const dockerfile = collapseDockerContinuations(await readFile(dockerfilePath, "utf8"));
     expect(dockerfile).toMatch(
       /curl -fsSL --connect-timeout 10 --max-time 120\s+https:\/\/download\.docker\.com\/linux\/debian\/gpg -o \/tmp\/docker\.gpg\.asc/u,
     );
@@ -483,6 +807,15 @@ describe("Dockerfile", () => {
     expect(pubCountIdx).toBeLessThan(fpIdx);
     expect(fpIdx).toBeLessThan(dearmorIdx);
     expect(slice).toContain('[ "$docker_gpg_pub_count" != "1" ]');
+  });
+
+  it("keeps runtime pnpm available", async () => {
+    const dockerfile = await readFile(dockerfilePath, "utf8");
+    expect(dockerfile).toContain("ENV COREPACK_HOME=/usr/local/share/corepack");
+    expect(dockerfile).toContain('corepack prepare "$pnpm_spec" --activate');
+    expect(dockerfile).toContain('corepack "$pnpm_spec" --version &&');
+    expect(dockerfile).toContain("chmod a+r /app/pnpm-lock.yaml");
+    expect(dockerfile).not.toContain("(cd /tmp && corepack");
   });
 
   it("pre-creates named-volume mount points before switching to the node user", async () => {

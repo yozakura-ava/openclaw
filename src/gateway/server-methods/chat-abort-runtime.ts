@@ -1,12 +1,15 @@
 import type { Result } from "@openclaw/normalization-core/result";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
 import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import {
   ErrorCodes,
   errorShape,
   type ErrorShape,
 } from "../../../packages/gateway-protocol/src/index.js";
+import { captureExecRequestCancellation } from "../../agents/bash-process-control.js";
 import { killSubagentRunAdmin } from "../../agents/subagents/registry/subagent-control-kill.js";
 import { ensureSubagentControllerOwnsRun } from "../../agents/subagents/registry/subagent-control-scope.js";
+import type { SubagentRequestSessionOrigin } from "../../agents/subagents/registry/subagent-exec-request-ownership.js";
 import {
   getCurrentSubagentRunOwner,
   subagentRuns,
@@ -17,32 +20,50 @@ import {
 } from "../../agents/subagents/registry/subagent-registry-read.js";
 import { isAgentEventLifecycleGenerationCurrent } from "../../infra/agent-events.js";
 import { captureWorkerInferenceForSession, createChatAbortOps } from "../chat-abort-ops.js";
-import { isChatAbortControllerEntryAbortable } from "../chat-abort.js";
+import {
+  abortChatRunById,
+  isChatAbortControllerEntryAbortable,
+  type ChatAbortControllerEntry,
+  type ChatAbortOps,
+} from "../chat-abort.js";
+import { abortQueuedChatTurnById } from "../chat-queued-turns.js";
 import { resolveChatRunOwnerAgentId } from "../chat-run-owner.js";
 import { errorShapeFromError } from "../error-shape.js";
+import { PENDING_CHAT_SEND_DEDUPE_PREFIX } from "../server-shared.js";
 import { getSessionRowProjection } from "../session-row-projection-access.js";
 import { resolveSessionStoreKey } from "../session-utils.js";
-import { canRequesterAbortChatRun } from "./chat-abort-authorization.js";
+import type { WorkerInferenceCancellation } from "../worker-environments/inference-control-internal.js";
+import {
+  canRequesterAbortChatRun,
+  resolveAuthorizedPreRegisteredRunsForSessionKeys,
+  resolveAuthorizedRunsForSessionKeys,
+  resolveAuthorizedQueuedTurnsForSession,
+  writePreRegisteredAgentAbort,
+  writePreRegisteredChatAbort,
+  type ChatAbortRequester,
+} from "./chat-abort-authorization.js";
 import { abortControlledSubagents } from "./chat-abort-descendants.js";
 import {
   createQueuedCollectorPublication,
   getQueuedCollectorCancellationRunId,
 } from "./chat-abort-queued-collector-publication.js";
-import type { ChatSessionAbortParams, ChatSessionAbortResult } from "./chat-abort-runtime.types.js";
-import { prepareChatSessionAbort } from "./chat-abort-session-plan.js";
 import {
-  settleChatAbortPersistence,
+  abortedPartialPersistenceError,
+  captureAbortedPartial,
+  deferAbortedPartialPersistence,
   withQueuedCollectorWarning,
   type QueuedCollectorAbortOutcome,
+  type AbortedPartialSnapshot,
+  type ChatAbortOrigin,
   type ChatAbortSessionSnapshot,
 } from "./chat-aborted-partial.js";
+import { persistAbortedPartials } from "./chat-transcript-persistence.js";
+import type { GatewayRequestContext } from "./types.js";
 
 /** Queued collectors retain scheduler ownership while Gateway admission is still pending. */
 export function abortQueuedCollectorSession(
-  initialParams: Omit<ChatSessionAbortParams, "ops">,
-  prepareSession?: () => Promise<ChatAbortSessionSnapshot>,
+  params: Omit<ChatSessionAbortParams, "ops"> & { runId?: string },
 ): Promise<QueuedCollectorAbortOutcome> | undefined {
-  let params = initialParams;
   const entry = getLatestLiveSubagentRunByChildSessionKey(
     params.sessionKey,
     undefined,
@@ -51,7 +72,7 @@ export function abortQueuedCollectorSession(
   if (!entry || !isSubagentRunQueued(entry) || (params.runId && entry.runId !== params.runId)) {
     return undefined;
   }
-  let workerCancellation = captureWorkerInferenceForSession({
+  const workerCancellation = captureWorkerInferenceForSession({
     context: params.context,
     sessionId: params.sessionId,
   });
@@ -128,9 +149,7 @@ export function abortQueuedCollectorSession(
         context: params.context,
         sessionKey: params.sessionKey,
         agentId: params.agentId,
-        get sessionId() {
-          return params.sessionId;
-        },
+        sessionId: params.sessionId,
         defaultAgentId: params.defaultAgentId,
         projection,
         canPublish: () =>
@@ -139,8 +158,6 @@ export function abortQueuedCollectorSession(
             !sessionAbort.value.result.unauthorized &&
             sessionAbort.value.canCascade),
       });
-      let prepared = prepareSession === undefined;
-      let preparation: Promise<void> | undefined;
       await killSubagentRunAdmin(
         {
           cfg,
@@ -194,24 +211,8 @@ export function abortQueuedCollectorSession(
         },
         {
           assertCurrent,
-          prepareRead: () => {
-            if (prepared || !prepareSession) {
-              return undefined;
-            }
-            return (preparation ??= prepareSession().then((session) => {
-              params = {
-                ...params,
-                session,
-                sessionId: session.ok ? session.value.entry?.sessionId : params.sessionId,
-              };
-              workerCancellation = captureWorkerInferenceForSession(params);
-              prepared = true;
-            }));
-          },
           preparePublication: publication,
-          beforeSessionKill: async () => {
-            await params.beforeAbort?.();
-            assertCurrent();
+          beforeSessionKill: () => {
             // Resolve Gateway owners under the kill runtime's session fence.
             // Signal them only after this collector's FIFO reservation is held.
             const plan = prepareChatSessionAbort(
@@ -273,7 +274,6 @@ export function abortQueuedCollectorSession(
   })();
 }
 
-<<<<<<< HEAD
 type ChatSessionAbortParams = {
   context: GatewayRequestContext;
   ops: ChatAbortOps;
@@ -609,15 +609,11 @@ function prepareChatSessionAbort(
   };
 }
 
-=======
->>>>>>> 97b6e87616f
 export async function abortChatRunsForSessionKeyWithPartials(
-  initialParams: ChatSessionAbortParams,
-  prepareSession?: () => Promise<ChatAbortSessionSnapshot>,
+  params: ChatSessionAbortParams,
 ): Promise<ChatSessionAbortResult> {
-  let params = initialParams;
   if (params.cascadeDescendants) {
-    const queuedAbort = abortQueuedCollectorSession(params, prepareSession);
+    const queuedAbort = abortQueuedCollectorSession(params);
     if (queuedAbort) {
       const result = await queuedAbort;
       return result.ok
@@ -625,21 +621,8 @@ export async function abortChatRunsForSessionKeyWithPartials(
         : { aborted: false, runIds: [], unauthorized: false, error: result.error };
     }
   }
-  let plan = prepareChatSessionAbort(params, captureWorkerInferenceForSession(params));
-  let result = plan.result;
-  const prepare = prepareSession
-    ? async () => {
-        const session = await prepareSession();
-        params = {
-          ...params,
-          session,
-          sessionId: session.ok ? session.value.entry?.sessionId : params.sessionId,
-        };
-        plan = prepareChatSessionAbort(params, captureWorkerInferenceForSession(params));
-        result = plan.result;
-        return { execCancellation: plan.commands, sessionOrigin: plan.sessionOrigin };
-      }
-    : undefined;
+  const plan = prepareChatSessionAbort(params, captureWorkerInferenceForSession(params));
+  const result = plan.result;
   let descendants: Awaited<ReturnType<typeof abortControlledSubagents>>;
   let failure: { error: unknown } | undefined;
   try {
@@ -649,24 +632,15 @@ export async function abortChatRunsForSessionKeyWithPartials(
         sessionKey: params.sessionKey,
         agentId: params.agentId,
         sessionId: params.sessionId,
-        lifecycleRevision: params.session?.ok
-          ? params.session.value.entry?.lifecycleRevision
-          : undefined,
         execCancellation: plan.commands,
         sessionOrigin: plan.sessionOrigin,
-        prepareSelection: prepare ? { acceptsRequest: plan.acceptsRequest, prepare } : undefined,
         assertCurrent: params.assertCurrent,
-        beforeKill: async () => {
-          await params.beforeAbort?.();
+        beforeKill: () => {
           plan.abort();
-          return plan.canCascade;
+          return true;
         },
       });
     } else {
-      if (prepare) {
-        await prepare();
-      }
-      await params.beforeAbort?.();
       plan.abort();
     }
     if (!result.unauthorized && !result.error) {
@@ -677,18 +651,27 @@ export async function abortChatRunsForSessionKeyWithPartials(
     failure = { error };
   }
   // Cancellation consumed these buffers before awaited descendant work could fail.
-  const warning = await settleChatAbortPersistence(() => plan.finish(), failure);
+  let warning: string | undefined;
+  try {
+    warning = await plan.finish();
+  } catch (error) {
+    if (!failure) {
+      throw error;
+    }
+    throw new AggregateError([failure.error, error], "Chat cancellation and persistence failed", {
+      cause: error,
+    });
+  }
+  if (failure) {
+    throw abortedPartialPersistenceError(failure.error, warning);
+  }
   return {
     ...result,
     aborted:
       result.aborted ||
-<<<<<<< HEAD
       Boolean(descendants?.killed) ||
       Boolean(descendants?.continuationRetired) ||
       Boolean(descendants?.execAborted),
-=======
-      Boolean(descendants?.killed || descendants?.continuationRetired || descendants?.execAborted),
->>>>>>> 97b6e87616f
     descendants,
     ...(warning ? { warning } : {}),
   };

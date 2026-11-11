@@ -97,14 +97,10 @@ if (endpoint === "repos/openclaw/openclaw/actions/runs/101") {
   }
   const jobs = fixture.attempts[attempt - 1];
   const page = Number(new URL("https://example.invalid/" + endpoint).searchParams.get("page") ?? 1);
-<<<<<<< HEAD
   process.stdout.write(JSON.stringify({
     total_count: jobs.length,
     jobs: jobs.slice((page - 1) * perPage, page * perPage),
   }));
-=======
-  process.stdout.write(JSON.stringify({total_count: jobs.length, jobs: jobs.slice((page - 1) * 100, page * 100)}));
->>>>>>> 97b6e87616f
 } else {
   throw new Error("Unexpected evidence read: " + endpoint);
 }

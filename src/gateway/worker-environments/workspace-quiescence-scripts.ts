@@ -1,9 +1,14 @@
 import type { NodeWorkerWorkspaceQuiescenceInput } from "../../worker/node-workspace-protocol.js";
-import {
-  REMOTE_QUIESCENCE_CONTEXT_JS,
-  REMOTE_QUIESCENCE_LEASE_JS,
-  REMOTE_WINDOWS_ACQUIRE_WORKSPACE_LEASE_JS,
-} from "./workspace-quiescence-lease-scripts.js";
+
+const REMOTE_QUIESCENCE_CONTEXT_JS = String.raw`const childProcess = require("node:child_process");
+const crypto = require("node:crypto");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const root = fs.realpathSync(process.argv[1]);
+const workspaceKey = crypto.createHash("sha256").update(root).digest("hex");
+const leaseDirectory = path.join(os.homedir(), ".openclaw-worker", "quiescence");
+const windowsLeaseDatabasePath = path.join(leaseDirectory, "windows-shared-host.sqlite");`;
 
 const REMOTE_QUIESCENCE_PS_JS = String.raw`function createProcessProbe() {
   // Share 30s across probes: tolerate multi-second stalls on slow hosts while leaving
@@ -112,7 +117,6 @@ function quiescenceCandidates(rows, expectedUid, excludedPids, frozen) {
   );
 }`;
 
-<<<<<<< HEAD
 const REMOTE_QUIESCENCE_LEASE_JS = String.raw`function validProcessReference(value) {
   return value && Number.isSafeInteger(value.pid) && value.pid > 0 && typeof value.start === "string" && value.start.length > 0 && value.start.length <= 128;
 }
@@ -212,8 +216,6 @@ const REMOTE_WINDOWS_ACQUIRE_WORKSPACE_LEASE_JS = String.raw`function acquireWin
   process.stderr.write("workspace quiescence: Windows shared host declared; using manifest fences without process freezing\n");
 }`;
 
-=======
->>>>>>> 97b6e87616f
 const REMOTE_QUIESCENCE_CONTROL_JS = String.raw`function freezeWorkspaceProcesses(input, frozen, refreshLease, initial = false) {
   let quietScans = 0;
   const sleeper = new Int32Array(new SharedArrayBuffer(4));
@@ -379,8 +381,7 @@ return "";
 // unsignalable, e.g. macOS SIP-protected same-uid processes on shared static-ssh dev hosts)
 // must not crash cleanup/resume paths, but a freeze target that returns EPERM stays counted
 // as live so quiescence fails closed instead of reporting a still-running process as frozen.
-const REMOTE_WORKSPACE_QUIESCE_JS = String.raw`(() => {
-${REMOTE_QUIESCENCE_CONTEXT_JS}
+const REMOTE_WORKSPACE_QUIESCE_JS = String.raw`${REMOTE_QUIESCENCE_CONTEXT_JS}
 const sleeper = new Int32Array(new SharedArrayBuffer(4));
 fs.mkdirSync(leaseDirectory, { recursive: true, ...(process.platform === "win32" ? {} : { mode: 0o700 }) });
 if (process.platform !== "win32") fs.chmodSync(leaseDirectory, 0o700);
@@ -599,37 +600,17 @@ function watchdogMain(watchedLeasePath, watchedNonce) {
 }
 if (ownedWatchdog) {
   let active = true;
-  let retired = false;
   let expiry;
-  const retire = () => {
-    if (retired) return;
-    retired = true;
-    process.exitCode = 0;
-    clearTimeout(expiry);
-    process.off("message", onMessage);
-    process.off("disconnect", onDisconnect);
-    process.stdin.destroy();
-    if (process.connected) process.disconnect();
-  };
-  const onDisconnect = () => {
-    // Keep the last resumer until expiry if its owner disappears during a lease.
-    if (!active) retire();
-  };
   const scheduleExpiry = () => {
     clearTimeout(expiry);
     expiry = setTimeout(() => {
       resumeWorkspaceLease(true, watchdogReference);
       active = false;
       if (process.connected) process.send({ type: "workspace-quiescence-retired", nonce });
-      else retire();
     }, watchdogTimeoutMs);
   };
-  const onMessage = (message) => {
-    if (retired) return;
-    if (message?.type === "workspace-quiescence-retire" && message.nonce === nonce && !active) {
-      retire();
-      return;
-    }
+  process.on("message", (message) => {
+    if (message?.type === "workspace-quiescence-retire" && message.nonce === nonce && !active) process.exit(0);
     if (message?.type !== "workspace-quiescence-control") return;
     const { action } = message;
     let failure;
@@ -658,15 +639,12 @@ if (ownedWatchdog) {
       failure = error instanceof Error ? error.message : String(error);
     }
     process.send({ type: "workspace-quiescence-result", id: message.id, nonce: message.nonce, action, ...(failure !== undefined ? { error: failure } : {}) });
-  };
-  process.on("message", onMessage);
-  process.once("disconnect", onDisconnect);
+  });
   process.send({ type: "workspace-quiescence-result", nonce, action: "acquire" });
   scheduleExpiry();
 } else {
   process.stdout.write("quiesced " + nonce + "\n");
 }
-})();
 `;
 
 const REMOTE_WINDOWS_WORKSPACE_QUIESCE_JS = String.raw`(() => {

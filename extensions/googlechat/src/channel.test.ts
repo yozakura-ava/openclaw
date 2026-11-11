@@ -163,7 +163,6 @@ describe("googlechatPlugin outbound", () => {
     ]);
   });
 
-<<<<<<< HEAD
   it("keeps remote links and captions while rejecting local and non-web media", () => {
     const normalize = googlechatOutboundAdapter.base.normalizePayload;
     expect(
@@ -235,8 +234,6 @@ describe("googlechatPlugin outbound", () => {
     expect(topLevel.receipt.threadId).toBeUndefined();
   });
 
-=======
->>>>>>> 97b6e87616f
   it("renders and chunks outbound text without requiring Google Chat runtime initialization", () => {
     const chunker = googlechatOutboundAdapter.base.chunker;
 
@@ -413,6 +410,49 @@ describe("googlechatPlugin outbound cfg threading", () => {
     expect(request.space).toBe("spaces/WORK");
     expect(request.text).toBe(googlechatPairingTextAdapter.message);
   });
+
+  it("threads resolved cfg into sendText account resolution", async () => {
+    const cfg = {
+      channels: {
+        googlechat: {
+          serviceAccount: {
+            type: "service_account",
+          },
+        },
+      },
+    };
+    const account = {
+      accountId: "default",
+      enabled: true,
+      config: {},
+      credentialSource: "inline" as const,
+    };
+    resolveGoogleChatAccountMock.mockReturnValue(account);
+    resolveGoogleChatOutboundSpaceMock.mockResolvedValue("spaces/AAA");
+    sendGoogleChatMessageMock.mockResolvedValue({
+      messageName: "spaces/AAA/messages/msg-1",
+    });
+
+    await googlechatOutboundAdapter.attachedResults.sendText({
+      cfg: cfg as never,
+      to: "users/123",
+      text: "hello",
+      accountId: "default",
+    });
+
+    expect(resolveGoogleChatAccountMock).toHaveBeenCalledWith({
+      cfg,
+      accountId: "default",
+    });
+    const request = requireMockArg(sendGoogleChatMessageMock) as {
+      account?: unknown;
+      space?: string;
+      text?: string;
+    };
+    expect(request.account).toBe(account);
+    expect(request.space).toBe("spaces/AAA");
+    expect(request.text).toBe("hello");
+  });
 });
 
 describe("googlechat directory", () => {
@@ -423,7 +463,7 @@ describe("googlechat directory", () => {
       channels: {
         googlechat: {
           serviceAccount: { client_email: "bot@example.com" },
-          allowFrom: [" users/alice ", " googlechat:user:Bob@Example.com "],
+          allowFrom: ["users/alice", "googlechat:bob"],
           groups: {
             "spaces/AAA": {},
             "spaces/BBB": {},
@@ -443,7 +483,7 @@ describe("googlechat directory", () => {
     });
     expect(peers).toStrictEqual([
       { kind: "user", id: "users/alice" },
-      { kind: "user", id: "users/bob@example.com" },
+      { kind: "user", id: "bob" },
     ]);
 
     const groups = await directory.listGroups({
@@ -456,6 +496,31 @@ describe("googlechat directory", () => {
     expect(groups).toStrictEqual([
       { kind: "group", id: "spaces/AAA" },
       { kind: "group", id: "spaces/BBB" },
+    ]);
+  });
+
+  it("normalizes spaced provider-prefixed dm allowlist entries", async () => {
+    const cfg = {
+      channels: {
+        googlechat: {
+          serviceAccount: { client_email: "bot@example.com" },
+          allowFrom: [" users/alice ", " googlechat:user:Bob@Example.com "],
+        },
+      },
+    } as unknown as OpenClawConfig;
+
+    const directory = expectDirectorySurface(googlechatDirectoryAdapter);
+
+    const peers = await directory.listPeers({
+      cfg,
+      accountId: undefined,
+      query: undefined,
+      limit: undefined,
+      runtime: runtimeEnv,
+    });
+    expect(peers).toStrictEqual([
+      { kind: "user", id: "users/alice" },
+      { kind: "user", id: "users/bob@example.com" },
     ]);
   });
 });
@@ -498,34 +563,13 @@ describe("googlechatPlugin outbound sanitizeText", () => {
     expect(out).not.toContain("failed");
     expect(out).not.toContain("🛠️");
   });
-});
 
-describe("googlechat remote media", () => {
-  it("keeps remote links and captions while rejecting local and non-web media", () => {
-    const normalize = googlechatOutboundAdapter.base.normalizePayload;
-    expect(
-      normalize({
-        payload: {
-          text: "caption",
-          mediaUrls: ["https://example.invalid/image.png"],
-        },
-      }),
-    ).toEqual({ text: "caption\n\nAttachment: https://example.invalid/image.png" });
-    for (const mediaUrl of [
-      "/tmp/local.png",
-      "file:///tmp/local.png",
-      "data:image/png;base64,aA==",
-    ]) {
-      expect(() => normalize({ payload: { text: "caption", mediaUrl } })).toThrow(
-        "require remote HTTP(S) URLs",
-      );
-    }
-    for (const code of [...Array.from({ length: 0x21 }, (_, index) => index), 0x7f]) {
-      expect(() =>
-        normalize({
-          payload: { mediaUrl: `https://example.invalid/a${String.fromCharCode(code)}forged` },
-        }),
-      ).toThrow("require remote HTTP(S) URLs");
-    }
+  it("preserves ordinary assistant prose untouched", () => {
+    const text = "El pipeline tiene 3 deals abiertos por USD 12.000.";
+    expect(sanitizeText({ text })).toBe(text);
+  });
+
+  it("keeps CommonMark intact until chunks reach the send boundary", () => {
+    expect(sanitizeText({ text: "**bold** and ~~gone~~" })).toBe("**bold** and ~~gone~~");
   });
 });

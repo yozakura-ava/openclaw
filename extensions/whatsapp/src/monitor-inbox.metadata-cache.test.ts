@@ -267,38 +267,70 @@ describe("web monitor inbox metadata cache", () => {
     }
   });
 
-  it.each(["lookup", "identity mapping"])(
-    "does not republish sender-key recipients invalidated during %s",
-    async (stage) => {
+  it.each([
+    {
+      name: "participant updates",
+      publishUpdate: (sock: ReturnType<typeof getSock>) =>
+        sock.ev.emit("group-participants.update", { id: "123@g.us" }),
+      expectedMetadataRequests: 2,
+    },
+    {
+      name: "partial group updates",
+      publishUpdate: (sock: ReturnType<typeof getSock>) =>
+        sock.ev.emit("groups.update", [{ id: "123@g.us" }]),
+      expectedMetadataRequests: 2,
+    },
+    {
+      name: "complete group updates",
+      publishUpdate: (sock: ReturnType<typeof getSock>) =>
+        sock.ev.emit("groups.update", [
+          groupMetadata({
+            subject: "Current Group",
+            participants: ["15559876543@s.whatsapp.net"],
+          }),
+        ]),
+      expectedMetadataRequests: 1,
+    },
+  ])(
+    "group metadata cache never restores stale members after $name during a live fetch",
+    async ({ publishUpdate, expectedMetadataRequests }) => {
+      const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
       const sock = getSock();
-      const entered = Promise.withResolvers<void>();
-      const resume = Promise.withResolvers<void>();
-      const former = groupMetadata({
-        subject: "Former Group",
-        participants: ["277038292303944@lid"],
+      let resolveStaleMetadata!: (metadata: GroupMetadata) => void;
+      sock.groupMetadata
+        .mockImplementationOnce(
+          async () =>
+            await new Promise<GroupMetadata>((resolve) => {
+              resolveStaleMetadata = resolve;
+            }),
+        )
+        .mockResolvedValueOnce(
+          groupMetadata({
+            subject: "Current Group",
+            participants: ["15559876543@s.whatsapp.net"],
+          }),
+        );
+
+      const { listener, baileysCache } = await startInboxMonitorWithBaileysCache({
+        groupMetadataCache,
       });
-      sock.groupMetadata.mockImplementationOnce(async () => {
-        if (stage === "lookup") {
-          entered.resolve();
-          await resume.promise;
-        }
-        return former;
-      });
-      sock.signalRepository.lidMapping.getPNForLID.mockImplementationOnce(async () => {
-        if (stage === "identity mapping") {
-          entered.resolve();
-          await resume.promise;
-        }
-        return "15551234567@s.whatsapp.net";
-      });
-      const { listener, baileysCache } = await startInboxMonitorWithBaileysCache();
       try {
-        const sending = listener.sendMessage("123@g.us", "hello @15551234567");
-        await entered.promise;
-        sock.ev.emit("group-participants.update", { id: "123@g.us" });
-        resume.resolve();
+        const sending = listener.sendMessage(
+          "123@g.us",
+          "removed @15551234567 current @15559876543",
+        );
+        await vi.waitFor(() => {
+          expect(sock.groupMetadata).toHaveBeenCalledOnce();
+        });
+
+        publishUpdate(sock);
+        resolveStaleMetadata(
+          groupMetadata({
+            subject: "Former Group",
+            participants: ["15551234567@s.whatsapp.net"],
+          }),
+        );
         await sending;
-<<<<<<< HEAD
 
         expect(sock.sendMessage).toHaveBeenCalledWith(
           "123@g.us",
@@ -315,22 +347,15 @@ describe("web monitor inbox metadata cache", () => {
           participants: [{ id: "15559876543@s.whatsapp.net" }],
         });
         expect(groupMetadataCache.get("123@g.us")?.subject).toBe("Current Group");
-=======
-        // Baileys must miss the invalidated cache and fetch current recipients itself.
-        await expect(
-          baileysCache.socketOptions.cachedGroupMetadata("123@g.us"),
-        ).resolves.toBeUndefined();
->>>>>>> 97b6e87616f
       } finally {
-        resume.resolve();
         await listener.close();
       }
     },
   );
 
-  it("does not republish sender-key recipients from invalidated startup hydration", async () => {
+  it("group metadata cache discards participants invalidated during identity normalization", async () => {
+    const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
     const sock = getSock();
-<<<<<<< HEAD
     let resolveFormerParticipant!: (jid: string) => void;
     sock.signalRepository.lidMapping.getPNForLID.mockImplementationOnce(
       async () =>
@@ -410,14 +435,16 @@ describe("web monitor inbox metadata cache", () => {
         }),
       );
 
-=======
-    const hydration = Promise.withResolvers<Record<string, GroupMetadata>>();
-    sock.groupFetchAllParticipating.mockReturnValueOnce(hydration.promise);
->>>>>>> 97b6e87616f
     const { listener, baileysCache } = await startInboxMonitorWithBaileysCache();
     try {
+      const affectedSend = listener.sendMessage("123@g.us", "current @15559876543");
+      await vi.waitFor(() => {
+        expect(sock.groupMetadata).toHaveBeenCalledOnce();
+      });
+      const unrelatedSend = listener.sendMessage("456@g.us", "unrelated @15551111111");
+      await unrelatedSend;
+
       sock.ev.emit("group-participants.update", { id: "123@g.us" });
-<<<<<<< HEAD
       resolveStaleMetadata(
         groupMetadata({
           subject: "Former Group",
@@ -439,15 +466,7 @@ describe("web monitor inbox metadata cache", () => {
         id: "456@g.us",
         subject: "Unrelated Group",
         participants: [{ id: "15551111111@s.whatsapp.net" }],
-=======
-      hydration.resolve({
-        "123@g.us": groupMetadata({ subject: "Former Group" }),
->>>>>>> 97b6e87616f
       });
-      await settleInboundWork();
-      await expect(
-        baileysCache.socketOptions.cachedGroupMetadata("123@g.us"),
-      ).resolves.toBeUndefined();
     } finally {
       await listener.close();
     }
@@ -581,6 +600,40 @@ describe("web monitor inbox metadata cache", () => {
     }
   });
 
+  it("group metadata cache does not republish invalidated pending hydration", async () => {
+    const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
+    const baileysCache = createBaileysCacheSupport();
+    const sock = getSock();
+    let resolveHydration!: (groups: Record<string, GroupMetadata>) => void;
+    sock.groupFetchAllParticipating.mockImplementationOnce(
+      async () =>
+        await new Promise<Record<string, GroupMetadata>>((resolve) => {
+          resolveHydration = resolve;
+        }),
+    );
+
+    const { listener } = await startInboxMonitor(vi.fn(async () => {}) as InboxOnMessage, {
+      groupMetadataCache,
+      recentMessageKeys: baileysCache.recentMessageKeys,
+      baileysGroupMetaCache: baileysCache.baileysGroupMetaCache,
+    });
+    sock.ev.emit("groups.update", [{ id: "123@g.us" }]);
+
+    resolveHydration({
+      "123@g.us": groupMetadata({
+        subject: "Stale Hydration Group",
+      }),
+    });
+    await settleInboundWork();
+
+    expect(groupMetadataCache.has("123@g.us")).toBe(false);
+    await expect(
+      baileysCache.socketOptions.cachedGroupMetadata("123@g.us"),
+    ).resolves.toBeUndefined();
+
+    await listener.close();
+  });
+
   it("group metadata cache detaches Baileys listeners on close", async () => {
     const baileysCache = createBaileysCacheSupport();
     const { listener, sock } = await startInboxMonitor(vi.fn(async () => {}) as InboxOnMessage, {
@@ -628,6 +681,35 @@ describe("web monitor inbox metadata cache", () => {
     ).toBe(true);
 
     await listener.close();
+  });
+
+  it("group metadata cache rejects reconnect expiry beyond a valid Date", async () => {
+    const groupMetadataCache: NonNullable<InboxMonitorOptions["groupMetadataCache"]> = new Map();
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(8_640_000_000_000_000);
+    try {
+      const sock = getSock();
+      sock.groupFetchAllParticipating.mockResolvedValueOnce({
+        "123@g.us": {
+          id: "123@g.us",
+          subject: "Boundary Group",
+          owner: undefined,
+          participants: [],
+        },
+      });
+
+      const { listener } = await startInboxMonitor(vi.fn(async () => {}) as InboxOnMessage, {
+        groupMetadataCache,
+      });
+
+      await vi.waitFor(() => {
+        expect(sock.groupFetchAllParticipating).toHaveBeenCalledTimes(1);
+      });
+      expect(groupMetadataCache.has("123@g.us")).toBe(false);
+
+      await listener.close();
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("group metadata cache does not block inbound listeners during hydration", async () => {

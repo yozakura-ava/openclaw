@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { expectDefined } from "@openclaw/normalization-core";
 import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
@@ -11,11 +10,11 @@ import {
 } from "../../config/sessions/main-session.js";
 import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
 import { loadSessionEntryReadOnlyResultInScope } from "../../config/sessions/session-accessor.sqlite-entry.js";
-import { resolveSqliteSessionKey } from "../../config/sessions/session-accessor.sqlite-scope-helpers.js";
 import {
-  captureSessionActorStorageOwner,
-  readCapturedSessionActorEntry,
-} from "../../config/sessions/session-actor-storage-binding.js";
+  loadExactSessionEntryCandidatesReadOnlyBatch,
+  resolveSessionEntry,
+} from "../../config/sessions/session-accessor.sqlite-exact-read.js";
+import { resolveSqliteSessionKey } from "../../config/sessions/session-accessor.sqlite-scope-helpers.js";
 import { assertSessionEntryCohortScope } from "../../config/sessions/session-entry-cohort-scope.js";
 import { captureNativeSessionEntryCurrentRead } from "../../config/sessions/session-entry-current-runtime.js";
 import {
@@ -28,7 +27,6 @@ import {
   isNativeSessionEntryRead,
 } from "../../config/sessions/session-entry-read-request.js";
 import {
-  readSessionEntriesFromStoreInWorker,
   withSessionEntryReadOnlyInWorker,
   withSessionEntriesFromStoreInWorker,
   withSessionEntriesFromStoresInWorker,
@@ -80,7 +78,7 @@ type SandboxRuntimeIsolation =
       workspaceAccess: SandboxWorkspaceAccess;
     };
 
-export type SandboxRuntimeStatusParams = {
+type SandboxRuntimeStatusParams = {
   cfg?: OpenClawConfig;
   sessionKey?: string;
   agentId?: string;
@@ -91,40 +89,8 @@ export type SandboxRuntimeStatusParams = {
   preparedSessionEntry?: Pick<SessionEntry, "sandbox" | "sandboxMode" | "createdActor"> | null;
 };
 
-type SandboxSessionEntry = NonNullable<SandboxRuntimeStatusParams["preparedSessionEntry"]>;
-type SandboxSessionRead = { agentId: string; sessionKey: string; storePath: string };
-const legacySandboxReader = new AsyncLocalStorage<
-  (scope: SandboxSessionRead) => SandboxSessionEntry | undefined
->();
-
-/** Only deprecated synchronous SDK entry points install the compatibility reader. */
-export function withLegacySandboxRuntimeStatusReader<T>(
-  reader: (scope: SandboxSessionRead) => SandboxSessionEntry | undefined,
-  read: () => T,
-): T {
-  return legacySandboxReader.run(reader, read);
-}
-
 export function resolveSandboxRuntimeStatus(params: SandboxRuntimeStatusParams) {
   return resolveSandboxRuntimeStatusForClassification(params);
-}
-
-/** Classify an already selected session without reading storage. */
-export function resolvePreparedSandboxRuntimeStatus(
-  params: SandboxRuntimeStatusParams & { preparedSessionEntry: SandboxSessionEntry | null },
-) {
-  return resolveSandboxRuntimeStatusForClassification(params);
-}
-
-export function resolveSandboxRuntimeStatusAsync(params: SandboxRuntimeStatusParams) {
-  if (params.preparedSessionEntry !== undefined) {
-    return Promise.resolve(resolveSandboxRuntimeStatus(params));
-  }
-  return withSandboxRuntimeStatusInWorker(
-    params,
-    { env: process.env, cwd: process.cwd(), assertCurrent() {} },
-    async (status) => status,
-  );
 }
 
 /** Keep the classification read's captured owner alive through one asynchronous policy preparation. */
@@ -188,32 +154,6 @@ export async function withSandboxRuntimeStatusInWorker<T>(
           })),
     env: source.env,
   };
-  const memory = captureSessionActorStorageOwner(scope, {
-    assertCurrent,
-    authorize() {},
-  });
-  if (memory) {
-    const entry = readCapturedSessionActorEntry(memory, sessionKey);
-    source.assertEntryCurrent?.(entry);
-    const sandbox = resolveSandboxRuntimeStatusForClassification(
-      { ...params, preparedSessionEntry: entry ?? null },
-      classification,
-    );
-    const result = await consume(sandbox);
-    assertCurrent();
-    const currentEntry = readCapturedSessionActorEntry(memory, sessionKey);
-    source.assertEntryCurrent?.(currentEntry);
-    const current = resolveSandboxRuntimeStatusForClassification(
-      { ...params, preparedSessionEntry: currentEntry ?? null },
-      classification,
-    );
-    // Policy preparation can await approval; apply its result only under the current policy.
-    if (!isDeepStrictEqual(current, sandbox)) {
-      throw new SessionEntryChangedDuringReadError();
-    }
-    source.prepareEntryConsumer?.(result)?.(currentEntry);
-    return result;
-  }
   if (reader) {
     const key = assertSessionEntryCohortScope(reader, scope);
     const withClassification = <R>(
@@ -262,6 +202,8 @@ export async function withSandboxRuntimeStatusInWorker<T>(
       return prepare(read.value);
     });
   }
+  const candidates = captureSessionStoreReadCandidates(scope.storePath);
+  const identities = captureSessionStoreCandidateIdentities(candidates);
   // Exact reads validate selected foreign row bytes without requiring a listing's writer proof.
   return withSessionEntriesFromStoreInWorker(
     {
@@ -285,10 +227,17 @@ export async function withSandboxRuntimeStatusInWorker<T>(
       read.assertCurrent();
       return result;
     },
+    false,
+    (database, identity) => {
+      const expected = identities.get(assertSessionStoreReadCandidate(database.path, candidates));
+      if (!expected || expected.key !== identity.key || expected.birthtime !== identity.birthtime) {
+        throw new Error("Sandbox classification source changed during preparation");
+      }
+    },
   );
 }
 
-/** Read current memory policy when the durable sources reach their ordered publication. */
+/** Compare policies only after every original source has entered the same ordered read. */
 export function withSandboxRuntimeStatusesInWorker<T>(
   requests: readonly Omit<SandboxRuntimeStatusParams, "preparedSessionEntry">[],
   source: { env: NodeJS.ProcessEnv; cwd: string; assertCurrent: () => void },
@@ -310,25 +259,6 @@ export function withSandboxRuntimeStatusesInWorker<T>(
       agentId: classification.classificationAgentId,
       env: source.env,
     });
-<<<<<<< HEAD
-=======
-    const target = {
-      agentId: classification.classificationAgentId,
-      sessionKey: resolveSqliteSessionKey(
-        classification.comparableSessionKey,
-        classification.classificationAgentId,
-      ),
-      storePath,
-      env: source.env,
-    };
-    const privateSource = captureSessionActorStorageOwner(target, {
-      assertCurrent: source.assertCurrent,
-      authorize() {},
-    });
-    if (privateSource) {
-      return () => project(readCapturedSessionActorEntry(privateSource, target.sessionKey));
-    }
->>>>>>> 97b6e87616f
     const { scope } = captureSessionEntryReadScope({
       agentId: classification.classificationAgentId,
       sessionKey: resolveSqliteSessionKey(
@@ -414,7 +344,7 @@ export function withSandboxRuntimeStatusesInWorker<T>(
 }
 
 /** Classifies durable canonical keys without admitting the same store once per session. */
-export async function resolveSandboxRuntimeStatusesForPersistedSessions(
+export function resolveSandboxRuntimeStatusesForPersistedSessions(
   requests: readonly {
     cfg: OpenClawConfig;
     agentId: string;
@@ -422,27 +352,26 @@ export async function resolveSandboxRuntimeStatusesForPersistedSessions(
     env: NodeJS.ProcessEnv;
   }[],
 ) {
-  const results = await Promise.all(
-    requests.map(async (params) =>
-      params.sessionKeys.length === 0
-        ? { entries: [] }
-        : readSessionEntriesFromStoreInWorker({
-            agentId: params.agentId,
-            env: params.env,
-            storePath: resolveSessionStorePathCore(params.cfg.session?.store, {
-              agentId: params.agentId,
-              env: params.env,
-            }),
-            projection: "list" as const,
-            sessionKeys: params.sessionKeys.map((sessionKey) =>
-              canonicalizeMainSessionAlias({ ...params, sessionKey }),
-            ),
-          }),
-    ),
+  const results = loadExactSessionEntryCandidatesReadOnlyBatch(
+    requests.map((params) => ({
+      agentId: params.agentId,
+      env: params.env,
+      storePath: resolveSessionStorePathCore(params.cfg.session?.store, {
+        agentId: params.agentId,
+        env: params.env,
+      }),
+      projection: "list" as const,
+      sessionKeys: params.sessionKeys.map((sessionKey) =>
+        canonicalizeMainSessionAlias({ ...params, sessionKey }),
+      ),
+    })),
   );
   return requests.map((params, index) => {
     const result = expectDefined(results[index], "sandbox session read result");
-    const byKey = new Map(result.entries.map(({ sessionKey, entry }) => [sessionKey, entry]));
+    if (!result.ok) {
+      throw result.error;
+    }
+    const byKey = new Map(result.value.map(({ sessionKey, entry }) => [sessionKey, entry]));
     // Retained or removed entries still need the configured mode classification.
     return params.sessionKeys.map((sessionKey) => {
       const classification = resolveSandboxClassification({ ...params, sessionKey });
@@ -482,7 +411,7 @@ function resolveSandboxClassification(params: SandboxRuntimeStatusParams) {
   const comparableSessionKey = canonicalizeMainSessionAlias({
     cfg,
     agentId: classificationAgentId,
-    sessionKey: resolveSqliteSessionKey(classificationSessionKey, classificationAgentId),
+    sessionKey: classificationSessionKey,
   });
   return {
     sessionKey,
@@ -494,14 +423,6 @@ function resolveSandboxClassification(params: SandboxRuntimeStatusParams) {
     mainSessionKey,
     comparableSessionKey,
   };
-}
-
-function readLegacySandboxSession(scope: SandboxSessionRead) {
-  const reader = legacySandboxReader.getStore();
-  if (!reader) {
-    throw new Error("Sandbox session policy requires asynchronous preparation");
-  }
-  return reader(scope);
 }
 
 function resolveSandboxRuntimeStatusForClassification(
@@ -527,39 +448,22 @@ function resolveSandboxRuntimeStatusForClassification(
     mainSessionKey,
     comparableSessionKey,
   } = classification;
-  const privateSource =
-    params.preparedSessionEntry === undefined && classificationSessionKey
-      ? captureSessionActorStorageOwner(
-          {
-            agentId: classificationAgentId,
-            sessionKey: comparableSessionKey,
-            storePath: cfg?.session?.store
-              ? resolveSessionStorePathCore(cfg.session.store, { agentId: classificationAgentId })
-              : undefined,
-          },
-          { assertCurrent() {}, authorize() {} },
-        )
-      : undefined;
-  // Memory policy comes from the selected owner, including acknowledged absence.
   // Creation owns this immutable requirement; current callers and agent mode cannot relax it.
-  const session = privateSource
-    ? {
-        existing: readCapturedSessionActorEntry(privateSource, comparableSessionKey),
-        normalizedKey: comparableSessionKey,
-      }
-    : params.preparedSessionEntry !== undefined
+  const session =
+    params.preparedSessionEntry !== undefined
       ? { existing: params.preparedSessionEntry ?? undefined, normalizedKey: comparableSessionKey }
       : classificationSessionKey
-        ? {
-            existing: readLegacySandboxSession({
+        ? resolveSessionEntry(
+            {
               agentId: classificationAgentId,
+              clone: false,
               sessionKey: comparableSessionKey,
               storePath: resolveSessionStorePathCore(cfg?.session?.store, {
                 agentId: classificationAgentId,
               }),
-            }),
-            normalizedKey: comparableSessionKey,
-          }
+            },
+            { readOnly: true },
+          )
         : undefined;
   const sandboxRequired = session?.existing?.sandbox === "required";
   const profileId = sessionCreatorProfileId(session?.existing?.createdActor)?.trim();
@@ -613,14 +517,17 @@ export function formatSandboxToolPolicyBlockedMessage(params: {
   agentId?: string;
   toolName: string;
   audit?: boolean;
-  preparedRuntimeStatus: ReturnType<typeof resolveSandboxRuntimeStatus>;
 }): string | undefined {
   const tool = normalizeOptionalLowercaseString(params.toolName);
   if (!tool) {
     return undefined;
   }
 
-  const runtime = params.preparedRuntimeStatus;
+  const runtime = resolveSandboxRuntimeStatus({
+    cfg: params.cfg,
+    sessionKey: params.sessionKey,
+    agentId: params.agentId,
+  });
   if (!runtime.sandboxed) {
     return undefined;
   }

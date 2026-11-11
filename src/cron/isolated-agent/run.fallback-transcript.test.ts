@@ -2,26 +2,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { expectDefined } from "@openclaw/normalization-core";
 import { afterEach, expect, it, vi } from "vitest";
-<<<<<<< HEAD
 import { createEmbeddedAgentRunnerOpenAiConfig } from "../../agents/test-helpers/embedded-agent-runner-e2e-fixtures.js";
 import { toErrorObject } from "../../infra/errors.js";
 import { readTranscriptMessages } from "../../sessions/user-turn-transcript.test-support.js";
 import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
 import { runCronIsolatedAgentTurn } from "./run.js";
-=======
-import { persistAuthProfileBatch } from "../../agents/auth-profiles/upsert-with-lock.js";
-import { createEmbeddedAgentRunnerOpenAiConfig } from "../../agents/test-helpers/embedded-agent-runner-e2e-fixtures.js";
-import { setRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
-import { toErrorObject } from "../../infra/errors.js";
-import { readTranscriptMessages } from "../../sessions/user-turn-transcript.test-support.js";
-import { readModelFallbackNotice } from "../../shared/model-fallback-notice.js";
-import { withOpenClawTestState } from "../../test-utils/openclaw-test-state.js";
-import { captureCronInferenceBinding } from "../inference-binding.runtime.js";
-import { runCronIsolatedAgentTurn } from "./run.js";
-// Keep lazy runner imports outside the turn's timeout budget.
-import "./run-executor.runtime.js";
-import "./run-embedded.runtime.js";
->>>>>>> 97b6e87616f
 
 afterEach(() => {
   vi.useRealTimers();
@@ -88,23 +73,12 @@ it("continues one cron user turn when the primary times out after provider dispa
     models.providers = {
       "mock-openai": {
         ...expectDefined(models.providers?.openai, "provider fixture"),
-<<<<<<< HEAD
-=======
-        apiKey: undefined,
->>>>>>> 97b6e87616f
         baseUrl: "http://127.0.0.1:44080/v1",
         timeoutSeconds: 2,
         request: { allowPrivateNetwork: true },
       },
     };
     models.catalogRefresh = { enabled: false };
-<<<<<<< HEAD
-=======
-    config.auth = {
-      profiles: { "mock-openai:cron-fixture": { provider: "mock-openai", mode: "api_key" } },
-      order: { "mock-openai": ["mock-openai:cron-fixture"] },
-    };
->>>>>>> 97b6e87616f
     config.agents = {
       entries: { main: { agentDir: state.agentDir(), workspace: state.workspaceDir } },
       defaults: {
@@ -122,31 +96,10 @@ it("continues one cron user turn when the primary times out after provider dispa
         },
       },
     };
-<<<<<<< HEAD
-=======
-    setRuntimeConfigSnapshot(config);
-    await persistAuthProfileBatch({
-      stateDir: state.stateDir,
-      profiles: [
-        {
-          profileId: "mock-openai:cron-fixture",
-          credential: { type: "api_key", provider: "mock-openai", key: "synthetic-cron-key" },
-        },
-      ],
-    });
-    const inferenceBinding = expectDefined(
-      await captureCronInferenceBinding({ cfg: config, agentId: "main" }),
-      "stored inference account",
-    );
->>>>>>> 97b6e87616f
     const requests: string[] = [];
     const timeoutAdvances: ReturnType<typeof vi.advanceTimersByTimeAsync>[] = [];
     const fetchProvider = vi.fn<typeof fetch>(async (_url, options) => {
       const request = new Request(_url, options);
-<<<<<<< HEAD
-=======
-      expect(request.headers.get("authorization")).toBe("Bearer synthetic-cron-key");
->>>>>>> 97b6e87616f
       const body = JSON.parse(await request.text()) as { model: string };
       requests.push(body.model);
       if (body.model !== "primary") {
@@ -183,10 +136,6 @@ it("continues one cron user turn when the primary times out after provider dispa
       message: "Reply exactly Fallback report",
       job: {
         id: "fallback-transcript",
-<<<<<<< HEAD
-=======
-        inferenceBinding,
->>>>>>> 97b6e87616f
         name: "Fallback transcript proof",
         enabled: false,
         createdAtMs: 1,
@@ -219,32 +168,9 @@ it("continues one cron user turn when the primary times out after provider dispa
       sessionKey: result.sessionKey!,
       storePath: path.join(state.agentDir(), "openclaw-agent.sqlite"),
     });
-<<<<<<< HEAD
     expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(
       messages.filter((message) => message.role === "assistant" && message.stopReason === "stop"),
-=======
-    const userMessages = messages.filter((message) => message.role === "user");
-    expect(userMessages.filter((message) => message.display !== false)).toHaveLength(1);
-    expect(userMessages.filter((message) => message.display === false)).toEqual([
-      expect.objectContaining({ display: false, provenance: { kind: "internal_system" } }),
-    ]);
-    expect(messages.map(readModelFallbackNotice).filter(Boolean)).toMatchObject([
-      {
-        kind: "model-fallback",
-        fromModel: "mock-openai/primary",
-        toModel: "mock-openai/backup",
-        reason: "timeout",
-      },
-    ]);
-    expect(
-      messages.filter(
-        (message) =>
-          message.role === "assistant" &&
-          message.stopReason === "stop" &&
-          !readModelFallbackNotice(message),
-      ),
->>>>>>> 97b6e87616f
     ).toHaveLength(1);
   });
 });

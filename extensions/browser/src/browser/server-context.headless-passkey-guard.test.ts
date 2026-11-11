@@ -49,14 +49,7 @@ describe("managed headless tab creation", () => {
     const controller = new AbortController();
 
     await expect(
-<<<<<<< HEAD
       openclawProfile(true).openTab("https://example.com", { signal: controller.signal }),
-=======
-      openclawProfile(true).openTab("https://example.com", {
-        signal: controller.signal,
-        timeoutMs: 9000,
-      }),
->>>>>>> 97b6e87616f
     ).resolves.toMatchObject({ targetId: "NEW", url: "https://example.com" });
 
     expect(createPageViaPlaywright).toHaveBeenCalledExactlyOnceWith(
@@ -65,10 +58,6 @@ describe("managed headless tab creation", () => {
         url: "https://example.com",
         headless: true,
         signal: controller.signal,
-<<<<<<< HEAD
-=======
-        timeoutMs: 9000,
->>>>>>> 97b6e87616f
       }),
     );
     expect(create).not.toHaveBeenCalled();

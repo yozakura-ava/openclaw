@@ -8,7 +8,6 @@ import {
 } from "./github-publication.test-support.js";
 import fs from "node:fs/promises";
 import path from "node:path";
-<<<<<<< HEAD
 import { describe, expect, it, vi } from "vitest";
 import { setRuntimeConfigSnapshot } from "../config/config.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -17,18 +16,6 @@ import { captureGatewayAuthPolicy } from "./auth-policy.js";
 import {
   createRequesterPublicationFixture,
   guestScopes,
-=======
-import { describe, expect, it, onTestFinished, vi } from "vitest";
-import { getRuntimeConfig, setRuntimeConfigSnapshot } from "../config/config.js";
-import type { OpenClawConfig } from "../config/types.openclaw.js";
-import { ensureCanonicalUserProfileForEmail } from "../state/user-profile-writes.js";
-import { captureGatewayAuthPolicy } from "./auth-policy.js";
-import { prepareGitHubPublicationRequesterV2 } from "./github-publication-requester.js";
-import {
-  createRequesterPublicationFixture,
-  guestScopes,
-  holdWorkerTurn,
->>>>>>> 97b6e87616f
 } from "./github-publication-requester.test-support.js";
 import { prepareGatewayLocalUserIngress } from "./local-user-ingress.js";
 import { WEBSOCKET_OPEN_READY_STATE } from "./server-constants.js";
@@ -113,23 +100,9 @@ describe("GitHub publication after a deferred profile attachment", () => {
           ? f.guestProfile
           : (await ensureCanonicalUserProfileForEmail("publication-foreign@example.test")).id;
       const client = await connectWithDeferredProfile(config, profileId, guestScopes);
-<<<<<<< HEAD
       const { loadGatewaySessionEntryReadOnly } =
         await vi.importActual<typeof import("./session-utils.js")>("./session-utils.js");
       mocks.loadSession.mockImplementation(loadGatewaySessionEntryReadOnly);
-=======
-      const { loadGatewaySessionEntryReadOnlyInWorker } = await vi.importActual<
-        typeof import("./session-utils-store-worker.js")
-      >("./session-utils-store-worker.js");
-      mocks.loadSession.mockImplementation((key: string, options?: { agentId?: string }) =>
-        loadGatewaySessionEntryReadOnlyInWorker({
-          cfg: getRuntimeConfig(),
-          key,
-          ...options,
-          readOnly: true,
-        }),
-      );
->>>>>>> 97b6e87616f
       const head = await workspace.git("rev-parse", "HEAD");
       const index = await fs.readFile(path.join(workspace.cwd, ".git/index"));
       const respond = vi.fn();
@@ -162,48 +135,4 @@ describe("GitHub publication after a deferred profile attachment", () => {
       }
     },
   );
-<<<<<<< HEAD
-=======
-
-  it.each(["kept", "revoked"] as const)(
-    "rechecks a queued deferred-profile publication when access is %s before GitHub writes",
-    async (access) => {
-      const f = await createRequesterPublicationFixture(vi.fn(), "local");
-      const config = withoutRoles(f.config);
-      const client = await connectWithDeferredProfile(config, f.guestProfile, guestScopes);
-      const captured = await prepareGitHubPublicationRequesterV2(
-        { client, context: f.guestSource.context },
-        { sessionKey: f.session.sessionKey, agentId: "main" },
-      );
-      onTestFinished(captured.release);
-      const claim = await holdWorkerTurn(f);
-      const queued = await f.coordinator.requestForSessionV2(
-        f.request("deferred-queued", captured.requester),
-      );
-      expect(queued.status).toBe("requested");
-      expect(f.externalWrites).toEqual([]);
-
-      captured.release();
-      await f.placements.releaseTurn(claim);
-      if (access === "revoked") {
-        // The operator adds roles after connect and moves this person to a role without access.
-        setRuntimeConfigSnapshot(f.config);
-        await f.revoke();
-      }
-      const restarted = f.restart();
-      await restarted.resumeSessionRequests();
-
-      if (access === "kept") {
-        expect(await restarted.readAsync(queued.requestId)).toMatchObject({ status: "published" });
-        expect(f.publishedTitles).toEqual(["deferred-queued"]);
-      } else {
-        expect(await restarted.readAsync(queued.requestId)).toMatchObject({
-          status: "failed",
-          code: "identity_changed",
-        });
-        expect(f.externalWrites).toEqual([]);
-      }
-    },
-  );
->>>>>>> 97b6e87616f
 });

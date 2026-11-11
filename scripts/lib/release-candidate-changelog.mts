@@ -93,31 +93,14 @@ export function candidateCumulativeShippedPullRequests(changelog: string, label:
   return pullRequests;
 }
 
-<<<<<<< HEAD
 export function loadCandidateShippedBaseline(ref: string, rootDir = process.cwd()) {
   const tagRef = `refs/tags/${ref}`;
   execFileSync("git", ["rev-parse", "--verify", `${tagRef}^{commit}`], {
-=======
-function requireString(value: unknown, label: string) {
-  if (typeof value !== "string") {
-    throw new TypeError(`${label} must be a string`);
-  }
-  return value;
-}
-
-export function loadCandidateShippedBaseline(ref: string, rootDir = process.cwd()) {
-  const tagRef = `refs/tags/${ref}`;
-  execFileSync("git", ["rev-parse", "--verify", tagRef + "^{commit}"], {
->>>>>>> 97b6e87616f
     cwd: rootDir,
     stdio: ["ignore", "ignore", "pipe"],
   });
   const changelog = loadChangelogCollection({ rootDir, ref: tagRef, recordsOnly: true });
-<<<<<<< HEAD
   const version = releaseNotesVersionForTag(ref);
-=======
-  const version = requireString(releaseNotesVersionForTag(ref), "release notes version");
->>>>>>> 97b6e87616f
   const source = loadReleaseNotesForTag({ rootDir, ref: tagRef, tag: ref, version });
   candidateContributionRecordPullRequests(
     source.record ?? source.section,
@@ -173,25 +156,14 @@ export function validateCandidateChangelogProvenance({
   const dedicatedVersion = dedicatedSectionVersionForTag(tag);
   if (typeof dedicatedVersion === "string" && dedicatedVersion !== version) {
     try {
-<<<<<<< HEAD
       section = extractChangelogSection(changelog, dedicatedVersion);
-=======
-      section = requireString(
-        extractChangelogSection(changelog, dedicatedVersion),
-        "changelog section",
-      );
->>>>>>> 97b6e87616f
       sectionVersion = dedicatedVersion;
     } catch {
       // No dedicated section; validate the base section.
     }
   }
   if (section === undefined) {
-<<<<<<< HEAD
     section = extractChangelogSection(changelog, version);
-=======
-    section = requireString(extractChangelogSection(changelog, version), "changelog section");
->>>>>>> 97b6e87616f
   }
   const recordStart = section.search(/\n### Complete contribution record\r?$/m);
   if (recordStart < 0) {
@@ -300,16 +272,9 @@ export function validateCandidateChangelog({
   targetSha,
 }: StringFields<"rootDir" | "repository" | "tag" | "targetSha">) {
   validateCandidateChangelogLints({ rootDir, targetSha });
-<<<<<<< HEAD
   const version = releaseNotesVersionForTag(tag);
   const releaseChangelog = loadReleaseNotesForTag({ rootDir, ref: targetSha, tag, version });
   return {
-=======
-  const version = requireString(releaseNotesVersionForTag(tag), "release notes version");
-  const releaseChangelog = loadReleaseNotesForTag({ rootDir, ref: targetSha, tag, version });
-  return {
-    releaseNotes: releaseChangelog.section,
->>>>>>> 97b6e87616f
     releaseNotesCheck: validateCandidateReleaseNotes({
       changelog: releaseChangelog.section,
       repository,

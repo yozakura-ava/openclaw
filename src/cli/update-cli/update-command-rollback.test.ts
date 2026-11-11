@@ -247,7 +247,12 @@ describe("verified package rollback", () => {
       );
     },
   );
-  it.each([{ activated: true, healthy: false }])(
+  it.each([
+    { activated: false, healthy: true },
+    { activated: false, healthy: false },
+    { activated: true, healthy: true },
+    { activated: true, healthy: false },
+  ])(
     "retains Windows suspension through rollback (activated=$activated, healthy=$healthy)",
     async ({ activated, healthy }) => {
       const stateDir = serviceStateDir;
@@ -862,9 +867,6 @@ describe("verified package rollback", () => {
     const config = configSnapshot.sourceConfigBeforeMigrations ?? configSnapshot.sourceConfig;
     const schemaVersions = await readRollbackFixtureSchemaVersions({ stateDir, config, env });
     fs.writeFileSync(configPath, candidate);
-    if (process.platform !== "win32") {
-      fs.chmodSync(stateDir, 0o2770);
-    }
     const lockOptions = {
       retries: { retries: 0, factor: 1, minTimeout: 1, maxTimeout: 1 },
       stale: 60_000,
@@ -933,10 +935,6 @@ describe("verified package rollback", () => {
     });
     expect(foreignWrite).toBe(false);
     expect(fs.readFileSync(configPath, "utf8")).toBe(original);
-    if (process.platform !== "win32") {
-      expect(fs.statSync(stateDir).mode & 0o7777).toBe(0o2770);
-      expect(fs.statSync(configPath).mode & 0o777).toBe(0o600);
-    }
     expect(outcome.result).toMatchObject({
       root: previousRoot,
       recovery: { packageRollbackVerified: true },
@@ -995,7 +993,6 @@ describe("verified package rollback", () => {
     expect(mocks.restart).not.toHaveBeenCalled();
   });
 
-<<<<<<< HEAD
   it.each(ACTIVE_ROLLBACK_IDENTITY_FAILURES)(
     "retains active installation identity after %s",
     async (failure) => {
@@ -1008,22 +1005,4 @@ describe("verified package rollback", () => {
       });
     },
   );
-=======
-  it.each([
-    "partial-restore",
-    "restart-unhealthy",
-    "restart-refused",
-    "restart-threw",
-    "restart-cleanup",
-    "restart-timeout",
-  ] as const)("retains active installation identity after %s", async (failure) => {
-    await expectActiveRollbackIdentity({
-      failure,
-      candidateRoot,
-      previousRoot,
-      stateDir: serviceStateDir,
-      restart: mocks.restart,
-    });
-  });
->>>>>>> 97b6e87616f
 });

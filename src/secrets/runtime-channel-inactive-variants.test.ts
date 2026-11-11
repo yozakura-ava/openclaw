@@ -290,14 +290,10 @@ describe("secrets runtime snapshot channel inactive variants", () => {
         agentDirs: ["/tmp/openclaw-agent-main"],
         loadAuthStore: () => loadAuthStoreWithProfiles({}),
       });
-<<<<<<< HEAD
 
       expect((snapshot.config.channels as Record<string, unknown>)[channel]).toMatchObject(
         resolved,
       );
-=======
-      expect(snapshot.config.channels?.[channel]).toMatchObject(resolved);
->>>>>>> 97b6e87616f
       expect(snapshot.warnings).toEqual([]);
     },
   );

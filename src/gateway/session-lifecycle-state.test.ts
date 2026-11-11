@@ -1,11 +1,7 @@
 /**
  * Session lifecycle state derivation tests.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "../config/runtime-snapshot.js";
+import { describe, expect, it, vi } from "vitest";
 import type { InternalSessionEntry as SessionEntry } from "../config/sessions.js";
 import { getAgentEventLifecycleGeneration } from "../infra/agent-events.js";
 
@@ -82,9 +78,6 @@ function persistLifecycle(
 }
 
 describe("session lifecycle state", () => {
-  beforeEach(() => setRuntimeConfigSnapshot({}));
-  afterEach(clearRuntimeConfigSnapshot);
-
   const goalEntry: SessionEntry = {
     sessionId: "goal-session",
     updatedAt: 1_000,
@@ -497,7 +490,6 @@ describe("session lifecycle state", () => {
       ],
     });
 
-<<<<<<< HEAD
     const repeated = await persistLifecycle(
       {
         ...started,
@@ -528,8 +520,6 @@ describe("session lifecycle state", () => {
       safeToolsRequired: true,
     });
 
-=======
->>>>>>> 97b6e87616f
     const settled: SessionEntry = {
       ...interrupted,
       status: "done",
@@ -554,40 +544,6 @@ describe("session lifecycle state", () => {
     expect(replayed).toEqual(settled);
   });
 
-<<<<<<< HEAD
-=======
-  it("requires safe tools when a tool timeout joins an existing recovery cycle", async () => {
-    const interrupted = await persistLifecycle(
-      {
-        sessionId: "session-id",
-        updatedAt: 1_000,
-        lifecycleRunId: "tool-run",
-        mainRestartRecovery: { cycleId: "existing-cycle", revision: 3, chargedAttempts: 2 },
-      },
-      {
-        ts: 2_000,
-        sessionId: "session-id",
-        runId: "tool-run",
-        data: {
-          phase: "error",
-          startedAt: 1_000,
-          endedAt: 2_000,
-          status: "timed_out",
-          timeoutPhase: "tool_execution",
-          providerStarted: true,
-        },
-      },
-    );
-
-    expect(interrupted.mainRestartRecovery).toEqual({
-      cycleId: "existing-cycle",
-      revision: 3,
-      chargedAttempts: 2,
-      safeToolsRequired: true,
-    });
-  });
-
->>>>>>> 97b6e87616f
   it.each([
     { name: "visible run", controlUiVisible: true, isHeartbeat: false, lastActivityAt: 1_800 },
     { name: "heartbeat", controlUiVisible: true, isHeartbeat: true, lastActivityAt: 1_000 },

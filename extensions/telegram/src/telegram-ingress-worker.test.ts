@@ -1,4 +1,3 @@
-import { AsyncLocalStorage } from "node:async_hooks";
 import type { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import type { WorkerOptions } from "node:worker_threads";
@@ -57,57 +56,12 @@ describe("stopTelegramIngressWorker", () => {
     workerHarness.entries.length = 0;
   });
 
-<<<<<<< HEAD
   it("starts from an existing source entry with a TypeScript preload", () => {
-=======
-  it("starts from an existing source entry with runtime-appropriate TypeScript support", () => {
->>>>>>> 97b6e87616f
     createWorker();
 
     const entry = workerHarness.entries.at(-1)!;
     expect(existsSync(entry.url)).toBe(true);
-<<<<<<< HEAD
     expect(entry.options.execArgv).toEqual(["--import", expect.stringContaining("tsx")]);
-=======
-    expect(entry.options.execArgv).toEqual(
-      process.versions.bun ? ["--no-install"] : ["--import", expect.stringContaining("tsx")],
-    );
-  });
-
-  it("keeps late subscriptions in the construction owner and preserves unsubscribe/ACK", () => {
-    const scope = new AsyncLocalStorage<string>();
-    const { handle, worker } = scope.run("construction-owner", createWorker);
-    const owners: Array<string | undefined> = [];
-    const unsubscribe = scope.run("registration-owner", () =>
-      handle.onMessage(() => owners.push(scope.getStore())),
-    );
-    const message = { type: "spooled", updateId: 7, queued: 1 };
-    scope.run("emission-owner", () => worker.emit("message", message));
-    expect(owners).toEqual(["construction-owner"]);
-    unsubscribe();
-    scope.run("emission-owner", () => worker.emit("message", message));
-    expect(owners).toEqual(["construction-owner"]);
-    handle.ackSpooledUpdate?.("request-7", { ok: true, updateId: 7 });
-    expect(worker.postMessage).toHaveBeenCalledWith(
-      { type: "spool-ack", requestId: "request-7", result: { ok: true, updateId: 7 } },
-      [],
-    );
-    worker.postMessage.mockImplementationOnce(() => {
-      throw new Error("already exited");
-    });
-    expect(() =>
-      handle.ackSpooledUpdate?.("request-8", { ok: false, message: "retry" }),
-    ).not.toThrow();
-  });
-
-  it("reports a worker error and permits cooperative cleanup afterwards", async () => {
-    const { handle, worker } = createWorker();
-    const failed = expect(handle.task()).rejects.toThrow("worker fixture failure");
-    worker.emit("error", new Error("worker fixture failure"));
-    await failed;
-    await handle.stop();
-    expect(worker.terminate).not.toHaveBeenCalled();
->>>>>>> 97b6e87616f
   });
 
   it("preserves cooperative worker shutdown", async () => {

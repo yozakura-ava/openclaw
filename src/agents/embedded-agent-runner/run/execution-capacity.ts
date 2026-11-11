@@ -54,16 +54,10 @@ export async function withReleasableExecutionCapacity<T>(
         suspended = createDeferredCore<CapacityWait>();
         owner.active = true;
         running ??= capacityOwner.run(owner, async () => task());
-<<<<<<< HEAD
         if (pending) {
           pending.resume();
           pending = undefined;
         }
-=======
-        const resuming = pending;
-        pending = undefined;
-        resuming?.resume();
->>>>>>> 97b6e87616f
         return await Promise.race([
           running.then((value) => ({ kind: "complete" as const, value })),
           suspended.promise.then((wait) => ({ kind: "suspended" as const, wait })),
@@ -78,7 +72,6 @@ export async function withReleasableExecutionCapacity<T>(
     }
   } catch (error) {
     owner.active = false;
-<<<<<<< HEAD
     if (!pending) {
       // The queue released an admitted ticket (task timeout); the caller aborts that raw work.
       void running?.catch(() => {});
@@ -87,16 +80,6 @@ export async function withReleasableExecutionCapacity<T>(
     // A suspended task never regained capacity; settle its continuation and join cleanup.
     pending.reject(error);
     await running?.catch(() => {});
-=======
-    if (pending) {
-      pending.reject(error);
-      await running?.catch(() => {});
-    } else {
-      // An active queue timeout already revoked the task; an uncooperative
-      // operation must not prevent its queue failure from reaching the caller.
-      void running?.catch(() => {});
-    }
->>>>>>> 97b6e87616f
     throw error;
   } finally {
     owner.active = false;

@@ -2,8 +2,7 @@ import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { SsrFPolicy } from "openclaw/plugin-sdk/security-runtime";
 import { normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { racePromiseWithAbortSignal } from "openclaw/plugin-sdk/time-runtime";
-import { errors, type Browser, type Page, type Response } from "playwright-core";
-import { resolveBrowserNavigationTimeoutMs } from "./act-policy.js";
+import type { Browser, Page, Response } from "playwright-core";
 import { isSelectableCdpBrowserTarget } from "./cdp-target-filter.js";
 import {
   appendCdpPath,
@@ -43,6 +42,7 @@ import {
   cachedByCdpUrl,
   connectingByCdpUrl,
   pageStates,
+  retainedClosingByCdpUrl,
   type BrowserObservedState,
 } from "./pw-session-contracts.js";
 import {
@@ -63,9 +63,6 @@ import {
   readDocumentIdentitiesForPage,
 } from "./pw-session.page-cdp.js";
 import { dispatchBrowserTabClose, readBrowserDashboardTabs } from "./session-tab-store.js";
-
-/** Opening navigation budget when the caller does not request one. */
-const DEFAULT_OPEN_NAVIGATION_TIMEOUT_MS = 30_000;
 
 export async function getObservedBrowserStateViaPlaywright(opts: {
   cdpUrl: string;
@@ -131,7 +128,11 @@ export async function closePlaywrightBrowserConnection(opts?: { cdpUrl?: string 
     return;
   }
 
-  const cdpUrls = new Set([...cachedByCdpUrl.keys(), ...connectingByCdpUrl.keys()]);
+  const cdpUrls = new Set([
+    ...cachedByCdpUrl.keys(),
+    ...connectingByCdpUrl.keys(),
+    ...retainedClosingByCdpUrl.keys(),
+  ]);
   clearBlockedTargetsForCdpUrl();
   clearBlockedPageRefsForCdpUrl();
   const results = await Promise.allSettled(
@@ -513,10 +514,6 @@ export async function createPageViaPlaywright(
     isolatedContext?: true;
     /** Launch-owner fact for managed headless Chromium. */
     headless?: true;
-<<<<<<< HEAD
-=======
-    timeoutMs?: number;
->>>>>>> 97b6e87616f
   } & BrowserNavigationPolicyOptions,
 ): Promise<PlaywrightOwnedPage> {
   const assertCurrent = () => {
@@ -566,11 +563,6 @@ export async function createPageViaPlaywright(
       await page?.close();
     }
   };
-  let abortCleanup: Promise<void> | undefined;
-  const onAbort = () => {
-    // This owner may interrupt its new page, never the shared browser context.
-    abortCleanup = close().catch(() => {});
-  };
   let navigationClosedBlockedTarget = false;
   try {
     assertCurrent();
@@ -580,8 +572,6 @@ export async function createPageViaPlaywright(
       assertCurrent();
     }
     page = await context.newPage();
-    opts.signal?.addEventListener("abort", onAbort, { once: true });
-    // Cancellation during allocation still owns the page that just arrived.
     assertCurrent();
     ensurePageState(page);
     clearBlockedPageRef(opts.cdpUrl, page);
@@ -590,15 +580,13 @@ export async function createPageViaPlaywright(
     clearBlockedTarget(opts.cdpUrl, createdTargetId ?? undefined);
 
     if (targetUrl !== "about:blank") {
-      let response: Response | null = null;
+      let response: Response | null;
       try {
         response = await gotoPageWithNavigationGuard({
           cdpUrl: opts.cdpUrl,
           page,
           url: targetUrl,
-          timeoutMs: resolveBrowserNavigationTimeoutMs(
-            opts.timeoutMs ?? DEFAULT_OPEN_NAVIGATION_TIMEOUT_MS,
-          ),
+          timeoutMs: 30_000,
           ...navigationPolicy,
           targetId: createdTargetId ?? undefined,
           assertPageCurrent: assertCurrent,
@@ -606,15 +594,7 @@ export async function createPageViaPlaywright(
       } catch (error) {
         // Guarded navigation already owns close/quarantine for a policy denial.
         navigationClosedBlockedTarget = isPolicyDenyNavigationError(error);
-        // A committed page can be usable while subresources still delay load.
-        // Return it through normal adoption after the same safety checks.
-        if (
-          !(error instanceof errors.TimeoutError) ||
-          page.isClosed() ||
-          page.url() === "about:blank"
-        ) {
-          throw error;
-        }
+        throw error;
       }
       assertCurrent();
       await assertPageNavigationCompletedSafely({
@@ -645,12 +625,9 @@ export async function createPageViaPlaywright(
     };
   } catch (error) {
     if (opts.isolatedContext || !navigationClosedBlockedTarget) {
-      await (abortCleanup ?? close().catch(() => {}));
+      await close().catch(() => {});
     }
-    opts.signal?.throwIfAborted();
     throw error;
-  } finally {
-    opts.signal?.removeEventListener("abort", onAbort);
   }
 }
 

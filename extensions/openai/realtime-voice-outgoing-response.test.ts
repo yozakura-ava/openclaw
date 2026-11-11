@@ -10,13 +10,8 @@ vi.mock("openclaw/plugin-sdk/websocket-runtime", async (importOriginal) => ({
   ...(await importOriginal<typeof import("openclaw/plugin-sdk/websocket-runtime")>()),
   WebSocket: mocks.FakeWebSocket,
 }));
-<<<<<<< HEAD
-=======
-// mock-isolation: Outgoing-response ordering uses synthetic credentials, independent of host auth storage.
->>>>>>> 97b6e87616f
 vi.mock("openclaw/plugin-sdk/provider-auth", () => ({
   isProviderAuthProfileConfigured: mocks.isProviderAuthProfileConfiguredMock,
-  isProviderAuthProfileConfiguredAsync: mocks.isProviderAuthProfileConfiguredMock,
   resolveProviderAuthProfileApiKey: mocks.resolveProviderAuthProfileApiKeyMock,
 }));
 import { createOpenAIRealtimeTestSupport } from "./realtime-voice-test-support.js";

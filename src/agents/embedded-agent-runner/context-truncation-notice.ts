@@ -8,12 +8,6 @@ export function formatContextLimitTruncationNotice(truncatedChars: number): stri
 export function forMessage(message: AgentMessage): (truncatedChars: number) => string {
   return message.role === "toolResult" && message.toolName === "sessions_send"
     ? (chars) =>
-<<<<<<< HEAD
         `[... ${chars} more characters truncated; ask the target session for the missing section or a file containing the full reply; do not repeat the original task]`
-=======
-        "[... " +
-        chars +
-        " more characters truncated; ask the target session for the missing section or a file containing the full reply; do not repeat the original task]"
->>>>>>> 97b6e87616f
     : formatContextLimitTruncationNotice;
 }

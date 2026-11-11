@@ -8,6 +8,7 @@ import {
   parseConfigJson5,
 } from "../../config/io.read-helpers.js";
 import {
+  assertConfigFileWritePathSnapshot,
   captureConfigFileWritePathProof,
   type ConfigFileWritePathSnapshot,
 } from "../../config/io.write-safety.js";
@@ -60,12 +61,9 @@ export async function captureUpdateConfigSnapshot(
       // Capture authored files only; candidate Doctor owns state verification.
       pluginValidation: "core-only",
     }).readConfigFileSnapshotForWrite();
-<<<<<<< HEAD
     if (selected.snapshot.raw !== root.raw) {
       throw new ConfigMutationConflictError("config changed while preparing update capture");
     }
-=======
->>>>>>> 97b6e87616f
     // Doctor can repair an unresolved include; incomplete preimages cannot authorize rollback.
     if (selected.snapshot.includeProvenance === undefined) {
       return { ...root, doctorOwned: false };
@@ -87,12 +85,9 @@ export async function captureUpdateConfigSnapshot(
       proof.assertCurrent();
       const existing = files.get(file.canonicalPath);
       if (existing) {
-<<<<<<< HEAD
         if (existing.raw !== raw) {
           throw new ConfigMutationConflictError("config include changed during update capture");
         }
-=======
->>>>>>> 97b6e87616f
         existing.pathSnapshot.entries.push(...proof.snapshot.entries);
       } else {
         files.set(file.canonicalPath, {
@@ -103,13 +98,10 @@ export async function captureUpdateConfigSnapshot(
         });
       }
     }
-<<<<<<< HEAD
     // Full include revalidation reopens state; path identity and raw checks stay file-only.
     for (const file of files.values()) {
       assertConfigFileWritePathSnapshot(file.pathSnapshot, fsNode);
     }
-=======
->>>>>>> 97b6e87616f
     const capturedRoot = files.get(rootTarget);
     if (!capturedRoot) {
       throw new Error("Update config capture is missing its root file.");

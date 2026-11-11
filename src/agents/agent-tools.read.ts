@@ -19,6 +19,7 @@ import {
   FsSafeError,
 } from "../infra/fs-safe.js";
 import { decodeWindowsTextFileBuffer } from "../infra/windows-encoding.js";
+import { redactSecrets } from "../logging/redact.js";
 import {
   classifyMediaReferenceSource,
   normalizeMediaReferenceSource,
@@ -26,10 +27,7 @@ import {
 } from "../media/media-reference.js";
 import { sniffMimeFromBase64 } from "../media/sniff-mime-from-base64.js";
 import { clampNumber } from "../utils.js";
-import {
-  captureAgentToolSourceExecutionGuard,
-  runWithAgentToolSourceExecutionScope,
-} from "./agent-tool-source-execution-guard.js";
+import { captureAgentToolSourceExecutionGuard } from "./agent-tool-source-execution-guard.js";
 import {
   REQUIRED_PARAM_GROUPS,
   assertRequiredParams,
@@ -88,6 +86,8 @@ const MAX_ADAPTIVE_READ_MAX_BYTES = 128 * 1024;
 const ADAPTIVE_READ_CONTEXT_SHARE = 0.1;
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 const MAX_ADAPTIVE_READ_PAGES = 4;
+// `.env` files are credential stores; `.envrc` and general config files remain source-shaped.
+const ENV_FILE_PATH_RE = /(?:^|[/\\])(?:\.env(?:\.[^/\\]+)?|[^/\\]+\.env)$/i;
 
 type OpenClawReadToolOptions = {
   modelContextWindowTokens?: number;
@@ -643,35 +643,28 @@ async function appendMemoryFlushContent(params: {
   content: string;
   sandbox?: MemoryFlushAppendOnlyWriteOptions["sandbox"];
   signal?: AbortSignal;
-  assertCurrent: ReturnType<typeof captureAgentToolSourceExecutionGuard>;
+  assertCurrent: () => void;
 }) {
   if (!params.sandbox) {
     const root = await fsRoot(params.root);
-    await runWithAgentToolSourceExecutionScope(params.assertCurrent, async () => {
-      params.assertCurrent();
-      await root.append(params.relativePath, params.content, {
-        mkdir: true,
-        prependNewlineIfNeeded: true,
-        assertBeforeMutation: params.assertCurrent,
-      });
+    params.assertCurrent();
+    await root.append(params.relativePath, params.content, {
+      mkdir: true,
+      prependNewlineIfNeeded: true,
+      assertBeforeMutation: params.assertCurrent,
     });
     return;
   }
 
-  const existing = await runWithAgentToolSourceExecutionScope(params.assertCurrent, async () => {
-    const content = await readOptionalUtf8File({
-      absolutePath: params.absolutePath,
-      relativePath: params.relativePath,
-      sandbox: params.sandbox,
-      signal: params.signal,
-    });
-    params.assertCurrent();
-    return content;
+  const existing = await readOptionalUtf8File({
+    absolutePath: params.absolutePath,
+    relativePath: params.relativePath,
+    sandbox: params.sandbox,
+    signal: params.signal,
   });
   const separator =
     existing.length > 0 && !existing.endsWith("\n") && !params.content.startsWith("\n") ? "\n" : "";
   const next = `${existing}${separator}${params.content}`;
-<<<<<<< HEAD
   params.assertCurrent();
   await params.sandbox.bridge.writeFile({
     filePath: params.relativePath,
@@ -679,18 +672,6 @@ async function appendMemoryFlushContent(params: {
     data: next,
     mkdir: true,
     signal: params.signal,
-=======
-  const sandbox = params.sandbox;
-  await runWithAgentToolSourceExecutionScope(params.assertCurrent, async () => {
-    params.assertCurrent();
-    await sandbox.bridge.writeFile({
-      filePath: params.relativePath,
-      cwd: sandbox.root,
-      data: next,
-      mkdir: true,
-      signal: params.signal,
-    });
->>>>>>> 97b6e87616f
   });
 }
 
@@ -735,15 +716,11 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
         );
       }
 
-      const contentBefore = await runWithAgentToolSourceExecutionScope(assertCurrent, async () => {
-        const previousContent = await readOptionalUtf8File({
-          absolutePath: allowedAbsolutePath,
-          relativePath: options.relativePath,
-          sandbox: options.sandbox,
-          signal,
-        });
-        assertCurrent();
-        return previousContent;
+      const contentBefore = await readOptionalUtf8File({
+        absolutePath: allowedAbsolutePath,
+        relativePath: options.relativePath,
+        sandbox: options.sandbox,
+        signal,
       });
       assertNewMemoryFlushContent(contentBefore, content);
       const separator =
@@ -771,6 +748,7 @@ export function wrapToolMemoryFlushAppendOnlyWrite(
       } else {
         await commit();
       }
+      assertCurrent();
       // This wrapper inherits the write tool's output schema, so report only
       // the authoritative `changed`; deriving `created` before append is racy.
       return {
@@ -1008,32 +986,38 @@ export function createSandboxedEditTool(params: SandboxToolParams) {
   return wrapToolParamValidation(wrapSandboxFileToolPath(base, params), REQUIRED_PARAM_GROUPS.edit);
 }
 
-type HostWorkspaceMutationOptions = {
-  containmentRoot?: string;
-  workspaceOnly?: boolean;
-  abortSignal?: AbortSignal;
-  memoryWriteProvenance?: MemoryWriteProvenanceObserver;
-};
-
-function createHostWorkspaceMutationTool(
-  kind: "write" | "edit",
+export function createHostWorkspaceWriteTool(
   root: string,
-  options?: HostWorkspaceMutationOptions,
+  options?: {
+    containmentRoot?: string;
+    workspaceOnly?: boolean;
+    abortSignal?: AbortSignal;
+    memoryWriteProvenance?: MemoryWriteProvenanceObserver;
+  },
 ) {
-  const operations = createHostMutationOperations(options?.containmentRoot ?? root, options);
-  const base =
-    kind === "write"
-      ? eraseSessionFileTool(createWriteTool(root, { operations }))
-      : eraseSessionFileTool(createEditTool(root, { operations }));
-  return wrapToolParamValidation(base, REQUIRED_PARAM_GROUPS[kind], root);
+  const base = eraseSessionFileTool(
+    createWriteTool(root, {
+      operations: createHostMutationOperations(options?.containmentRoot ?? root, options),
+    }),
+  );
+  return wrapToolParamValidation(base, REQUIRED_PARAM_GROUPS.write, root);
 }
 
-export function createHostWorkspaceWriteTool(root: string, options?: HostWorkspaceMutationOptions) {
-  return createHostWorkspaceMutationTool("write", root, options);
-}
-
-export function createHostWorkspaceEditTool(root: string, options?: HostWorkspaceMutationOptions) {
-  return createHostWorkspaceMutationTool("edit", root, options);
+export function createHostWorkspaceEditTool(
+  root: string,
+  options?: {
+    containmentRoot?: string;
+    workspaceOnly?: boolean;
+    abortSignal?: AbortSignal;
+    memoryWriteProvenance?: MemoryWriteProvenanceObserver;
+  },
+) {
+  const base = eraseSessionFileTool(
+    createEditTool(root, {
+      operations: createHostMutationOperations(options?.containmentRoot ?? root, options),
+    }),
+  );
+  return wrapToolParamValidation(base, REQUIRED_PARAM_GROUPS.edit, root);
 }
 
 export function createOpenClawReadTool(
@@ -1074,7 +1058,10 @@ export function createOpenClawReadTool(
         `read:${filePath}`,
         options?.imageSanitization,
       );
-      return normalizeReadResultDetails(sanitizedResult);
+      const modelVisibleResult = ENV_FILE_PATH_RE.test(filePath)
+        ? redactSecrets(sanitizedResult)
+        : sanitizedResult;
+      return normalizeReadResultDetails(modelVisibleResult);
     },
   };
 }
@@ -1345,12 +1332,10 @@ async function writeWorkspaceFile(
   const relative = toRelativeWorkspacePath(root, absolutePath);
   const rootHandle = await getRoot();
   // Absolute admitted paths preserve literal "~" workspace directories.
-  await runWithAgentToolSourceExecutionScope(assertCurrent, async () => {
-    await rootHandle.write(path.resolve(rootHandle.rootReal, relative), content, {
-      mkdir: true,
-      mutationSymlinks: "follow-parents-within-root",
-      assertBeforeMutation: assertCurrent,
-    });
+  await rootHandle.write(path.resolve(rootHandle.rootReal, relative), content, {
+    mkdir: true,
+    mutationSymlinks: "follow-parents-within-root",
+    assertBeforeMutation: assertCurrent,
   });
 }
 
@@ -1370,11 +1355,8 @@ function createHostMutationOperations(
       {
         mkdir: async (dir: string) => {
           const resolved = resolveHostPath(dir);
-          const assertCurrent = captureAgentToolSourceExecutionGuard(options?.abortSignal);
-          await runWithAgentToolSourceExecutionScope(assertCurrent, async () => {
-            assertCurrent();
-            await fs.mkdir(resolved, { recursive: true });
-          });
+          captureAgentToolSourceExecutionGuard(options?.abortSignal)();
+          await fs.mkdir(resolved, { recursive: true });
         },
         writeFile: (filePath: string, content: string) =>
           writeHostFile(filePath, content, options?.abortSignal),
@@ -1409,10 +1391,8 @@ function createHostMutationOperations(
         if (ancestor && ancestor !== resolved.rootCanonicalPath) {
           const ancestorRoot = await fsRoot(ancestor);
           // mkdir requires a relative path; the prefix preserves literal tilde names.
-          await runWithAgentToolSourceExecutionScope(assertCurrent, async () => {
-            await ancestorRoot.mkdir(`./${path.relative(ancestor, resolved.rootCanonicalPath)}`, {
-              assertBeforeMutation: assertCurrent,
-            });
+          await ancestorRoot.mkdir(`./${path.relative(ancestor, resolved.rootCanonicalPath)}`, {
+            assertBeforeMutation: assertCurrent,
           });
         }
         const rootHandle = await getRoot();
@@ -1421,17 +1401,16 @@ function createHostMutationOperations(
           resolved.canonicalPath,
           { allowRoot: true },
         );
+        assertCurrent();
         const mutationOptions = {
           mutationSymlinks: "reject" as const,
           assertBeforeMutation: assertCurrent,
         };
-        await runWithAgentToolSourceExecutionScope(assertCurrent, async () => {
-          if (canonicalRelative) {
-            await rootHandle.mkdir(`./${canonicalRelative}`, mutationOptions);
-          } else {
-            await rootHandle.ensureRoot(mutationOptions);
-          }
-        });
+        if (canonicalRelative) {
+          await rootHandle.mkdir(`./${canonicalRelative}`, mutationOptions);
+        } else {
+          await rootHandle.ensureRoot(mutationOptions);
+        }
       },
       writeFile: (absolutePath: string, content: string) =>
         writeWorkspaceFile(root, getRoot, absolutePath, content, options?.abortSignal),

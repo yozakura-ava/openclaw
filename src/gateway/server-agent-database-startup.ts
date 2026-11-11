@@ -1,4 +1,4 @@
-import { listAgentIds, resolveAgentDir } from "../agents/agent-scope-config.js";
+import { resolveAgentDir } from "../agents/agent-scope-config.js";
 import { resolveAuthProfileDatabasePath } from "../agents/auth-profiles/sqlite.js";
 import { getRuntimeConfigSourceSnapshot } from "../config/runtime-snapshot.js";
 import {
@@ -10,10 +10,8 @@ import type { PluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot
 import type { PluginRegistry } from "../plugins/registry-types.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { getSpawnBroker, runWithSpawnBroker } from "../process/spawn-broker/context.js";
-import {
-  AgentDatabaseStartupSupersededError,
-  type getAgentDatabaseStartupAdmission,
-} from "../state/agent-database-startup.js";
+import { withAgentDatabasePreparationGuard } from "../state/agent-database-admission.js";
+import type { getAgentDatabaseStartupAdmission } from "../state/agent-database-startup.js";
 import { isSameOpenClawAgentDatabasePath } from "../state/openclaw-agent-db.paths.js";
 
 function assertAgentDatabaseConfiguration(
@@ -22,11 +20,7 @@ function assertAgentDatabaseConfiguration(
   paths: readonly string[],
   env: NodeJS.ProcessEnv,
 ) {
-<<<<<<< HEAD
   const targets = resolveConfiguredAgentDatabaseTargets(cfg, { env });
-=======
-  const targets = resolveConfiguredAgentDatabaseTargets(cfg, { env, agentId });
->>>>>>> 97b6e87616f
   if (paths.some((pathname) => !isConfiguredAgentDatabaseTarget(targets, agentId, pathname))) {
     throw new Error(`Agent ${agentId} database configuration changed during startup inspection`);
   }
@@ -36,7 +30,6 @@ function assertAgentDatabaseConfiguration(
 export function activateGatewayAgentDatabaseStartup(params: {
   admission: ReturnType<typeof getAgentDatabaseStartupAdmission>;
   preparationReady: Promise<void>;
-  waitForPostReadyWork: () => Promise<void>;
   getConfig: () => OpenClawConfig;
   getPluginRegistry: () => PluginRegistry;
   getPluginMetadataSnapshot: () => PluginMetadataSnapshot | undefined;
@@ -70,8 +63,15 @@ export function activateGatewayAgentDatabaseStartup(params: {
     preparationReady: params.preparationReady,
     openAgent: ({ agentId, paths, env, signal, assertCurrent }) =>
       runWithSpawnBroker(broker, async () => {
-        const { prepareOpenClawAgentDatabaseExecution } =
-          await import("../state/openclaw-agent-execution.js");
+        const [
+          { captureOpenClawAgentDatabaseExecution },
+          { runOpenClawAgentWorkerWrite },
+          { createSqliteWorkerOperationAdmission },
+        ] = await Promise.all([
+          import("../state/openclaw-agent-execution.js"),
+          import("../state/openclaw-agent-write-admission.js"),
+          import("../infra/sqlite-worker-operation-admission.js"),
+        ]);
         const assertOpenCurrent = createPreparationGuard(
           agentId,
           paths,
@@ -81,16 +81,39 @@ export function activateGatewayAgentDatabaseStartup(params: {
         );
         assertOpenCurrent();
         for (const pathname of paths) {
-          await prepareOpenClawAgentDatabaseExecution(
-            { agentId, path: pathname, env },
-            assertOpenCurrent,
-            signal,
-          );
+          const options = { agentId, path: pathname, env };
+          const execution = captureOpenClawAgentDatabaseExecution(options);
+          try {
+            await runOpenClawAgentWorkerWrite(
+              options,
+              () =>
+                execution.prepare(
+                  {
+                    assertCurrent: assertOpenCurrent,
+                    createAdmission: (binding) => () => ({
+                      nativeLocations: binding.nativeLocations,
+                      admission: createSqliteWorkerOperationAdmission((request, grant) => {
+                        binding.authorize(request);
+                        assertOpenCurrent();
+                        if (!grant()) {
+                          throw new Error(`Agent ${agentId} startup admission expired`);
+                        }
+                      }, binding.attachment),
+                    }),
+                  },
+                  signal,
+                ),
+              undefined,
+              signal,
+            );
+          } finally {
+            await execution.release();
+          }
         }
       }),
     migrateAgent: ({ agentId, paths, env, signal, assertCurrent }) =>
       runWithSpawnBroker(broker, async () => {
-        const { prepareGatewayStartupSessions } =
+        const { prepareGatewayStartupSessions, runGatewaySessionStartupMaintenance } =
           await import("./server-startup-session-migration.js");
         const assertMigrationCurrent = createPreparationGuard(
           agentId,
@@ -99,30 +122,22 @@ export function activateGatewayAgentDatabaseStartup(params: {
           signal,
           assertCurrent,
         );
-        const databases = await prepareGatewayStartupSessions({
-          cfg: params.getConfig(),
-          env,
-          agentIds: new Set([agentId]),
-          assertCurrent: assertMigrationCurrent,
-          log: params.log,
+        await withAgentDatabasePreparationGuard(assertMigrationCurrent, async () => {
+          const databases = await prepareGatewayStartupSessions({
+            cfg: params.getConfig(),
+            env,
+            agentIds: new Set([agentId]),
+            assertCurrent: assertMigrationCurrent,
+            log: params.log,
+          });
+          await runGatewaySessionStartupMaintenance({
+            databases,
+            assertCurrent: assertMigrationCurrent,
+            signal,
+            log: params.log,
+          });
+          assertMigrationCurrent();
         });
-        assertMigrationCurrent();
-        return {
-          maintain: () =>
-            runWithSpawnBroker(broker, async () => {
-              await params.waitForPostReadyWork();
-              const { runGatewaySessionStartupMaintenance } =
-                await import("./server-startup-session-migration.js");
-              await runGatewaySessionStartupMaintenance({
-                databases,
-                signal,
-                assertCurrent: createPreparationGuard(agentId, paths, env, signal, () =>
-                  signal.throwIfAborted(),
-                ),
-                log: params.log,
-              });
-            }),
-        };
       }),
     publishAgent: ({ agentId, paths, env, signal, assertCurrent, phase }) =>
       runWithSpawnBroker(broker, async () => {
@@ -142,13 +157,9 @@ export function activateGatewayAgentDatabaseStartup(params: {
         ]);
         assertCurrent();
         const beforeConfig = params.getConfig();
-        assertAgentDatabaseConfiguration(beforeConfig, agentId, paths, env);
-        // ACP-only stores need database/session preparation, not native auth/model publication.
-        if (!listAgentIds(beforeConfig).includes(agentId)) {
-          return;
-        }
         const previousSecretsRevision = getActiveSecretsRuntimeSnapshotRevision();
         const previousSecrets = getActiveSecretsRuntimeSnapshot();
+        assertAgentDatabaseConfiguration(beforeConfig, agentId, paths, env);
         if (
           !previousSecrets ||
           !(await refreshActiveSecretsRuntimeSnapshotForConfig({
@@ -163,7 +174,7 @@ export function activateGatewayAgentDatabaseStartup(params: {
                 params.getConfig() !== beforeConfig ||
                 getActiveSecretsRuntimeSnapshotRevision() !== previousSecretsRevision
               ) {
-                throw new AgentDatabaseStartupSupersededError(agentId, "secrets");
+                throw new Error(`Agent ${agentId} secrets preparation was superseded`);
               }
             },
           }))
@@ -182,8 +193,7 @@ export function activateGatewayAgentDatabaseStartup(params: {
         ) {
           throw new Error(`Agent ${agentId} secrets preparation has not published its auth store`);
         }
-        let preparedInput: ReturnType<typeof listConfiguredOwnerInputs>[number] | undefined =
-          undefined;
+        let preparedInput: ReturnType<typeof listConfiguredOwnerInputs>[number] | undefined;
         const assertPreparationCurrent = () => {
           signal.throwIfAborted();
           assertCurrent();
@@ -192,7 +202,7 @@ export function activateGatewayAgentDatabaseStartup(params: {
             params.getConfig() !== cfg ||
             getActiveSecretsRuntimeSnapshotRevision() !== secretsRevision
           ) {
-            throw new AgentDatabaseStartupSupersededError(agentId, "startup");
+            throw new Error(`Agent ${agentId} startup preparation was superseded`);
           }
           if (preparedInput && !getPreparedModelRuntimeSnapshot(preparedInput)) {
             throw new Error(`Agent ${agentId} model preparation has not published`);
@@ -200,31 +210,33 @@ export function activateGatewayAgentDatabaseStartup(params: {
         };
         const agentIds = new Set([agentId]);
         assertPreparationCurrent();
-        phase("models");
-        const pluginMetadataSnapshot = params.getPluginMetadataSnapshot();
-        await withPluginRuntimeRegistryScope(params.getPluginRegistry(), () =>
-          refreshPreparedModelRuntimeSnapshots(cfg, {
-            agentIds,
-            catalogMode: "static",
-            allowGatewaySubagentBinding: true,
-            ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
-            isPublicationCurrent: () => {
-              try {
-                assertPreparationCurrent();
-                return true;
-              } catch {
-                return false;
-              }
-            },
-          }),
-        );
-        preparedInput = listConfiguredOwnerInputs(cfg, undefined, true).find(
-          (input) => input.agentId === agentId,
-        );
-        if (!preparedInput) {
-          throw new Error(`Agent ${agentId} model preparation is no longer configured`);
-        }
-        assertPreparationCurrent();
+        await withAgentDatabasePreparationGuard(assertPreparationCurrent, async () => {
+          phase("models");
+          const pluginMetadataSnapshot = params.getPluginMetadataSnapshot();
+          await withPluginRuntimeRegistryScope(params.getPluginRegistry(), () =>
+            refreshPreparedModelRuntimeSnapshots(cfg, {
+              agentIds,
+              catalogMode: "static",
+              allowGatewaySubagentBinding: true,
+              ...(pluginMetadataSnapshot ? { pluginMetadataSnapshot } : {}),
+              isPublicationCurrent: () => {
+                try {
+                  assertPreparationCurrent();
+                  return true;
+                } catch {
+                  return false;
+                }
+              },
+            }),
+          );
+          preparedInput = listConfiguredOwnerInputs(cfg, undefined, true).find(
+            (input) => input.agentId === agentId,
+          );
+          if (!preparedInput) {
+            throw new Error(`Agent ${agentId} model preparation is no longer configured`);
+          }
+          assertPreparationCurrent();
+        });
       }),
   });
 }

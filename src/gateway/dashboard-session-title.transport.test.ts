@@ -1,29 +1,18 @@
-import assert from "node:assert/strict";
 import { text as readText } from "node:stream/consumers";
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { runIsolatedCompletion } from "../agents/isolated-completion.js";
 import { slugifyWorktreeTitle, validateName } from "../agents/worktrees/name.js";
 import { generateConversationLabel } from "../auto-reply/reply/conversation-label-generator.js";
-import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { loadSessionEntry, replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import type { ModelDefinitionConfig } from "../config/types.models.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { withServer } from "../plugin-sdk/test-helpers/http-test-server.js";
-import { tryNativeRequireModule } from "../plugins/native-module-require.js";
-import { preparePluginLoaderAliases } from "../plugins/sdk-alias.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
 import {
   maybeGenerateDashboardSessionTitle,
   prepareDashboardSessionTitle,
 } from "./dashboard-session-title.js";
 import { deriveSessionTitle } from "./session-utils-core.js";
-
-let clearNativeRuntimeConfigSnapshot: (() => void) | undefined;
-afterEach(() => {
-  clearNativeRuntimeConfigSnapshot?.();
-  clearNativeRuntimeConfigSnapshot = undefined;
-});
 
 const provider = "title-proof";
 const model = "title-model";
@@ -45,7 +34,6 @@ async function withTitleProvider(
   }) => Promise<void>,
   params?: Record<string, unknown>,
   defaultParams?: Record<string, unknown>,
-  api: "openai-completions" | "ollama" = "openai-completions",
 ) {
   await withOpenClawTestState({ label: "title-transport" }, async (state) => {
     const requests: TitleRequest[] = [];
@@ -57,18 +45,6 @@ async function withTitleProvider(
             url: request.url,
             body: JSON.parse(body),
           });
-          if (api === "ollama") {
-            response.writeHead(200, { "content-type": "application/x-ndjson" });
-            response.end(
-              JSON.stringify({
-                model: "qwen3.6:35b",
-                message: { role: "assistant", content: raw },
-                done: true,
-                done_reason: "stop",
-              }) + "\n",
-            );
-            return;
-          }
           response.writeHead(200, { "content-type": "text/event-stream" });
           response.end(
             `data: ${JSON.stringify({
@@ -85,34 +61,31 @@ async function withTitleProvider(
         });
       },
       async (baseUrl) => {
-        const fixtureProvider = api === "ollama" ? "ollama" : provider;
-        const fixtureModel = api === "ollama" ? "qwen3.6:35b" : model;
-        const fixtureModelRef = fixtureProvider + "/" + fixtureModel;
         const cfg: OpenClawConfig = {
-          plugins: api === "ollama" ? { allow: ["ollama"] } : { enabled: false },
+          plugins: { enabled: false },
           agents: {
             defaults: {
               workspace: state.workspaceDir,
               skipBootstrap: true,
-              model: { primary: fixtureProvider + "/" + primaryModel },
-              utilityModel: fixtureModelRef,
-              ...(params ? { models: { [fixtureModelRef]: { params } } } : {}),
+              model: { primary: `${provider}/${primaryModel}` },
+              utilityModel: modelRef,
+              ...(params ? { models: { [modelRef]: { params } } } : {}),
               ...(defaultParams ? { params: defaultParams } : {}),
             },
           },
           models: {
             mode: "replace",
             providers: {
-              [fixtureProvider]: {
-                baseUrl: api === "ollama" ? baseUrl : baseUrl + "/v1",
+              [provider]: {
+                baseUrl: `${baseUrl}/v1`,
                 apiKey: "test-key",
-                api,
+                api: "openai-completions",
                 agentRuntime: { id: "openclaw" },
                 request: { allowPrivateNetwork: true },
-                models: [primaryModel, fixtureModel].map((id): ModelDefinitionConfig => ({
+                models: [primaryModel, model].map((id): ModelDefinitionConfig => ({
                   id,
                   name: id,
-                  api,
+                  api: "openai-completions",
                   reasoning: false,
                   input: ["text"],
                   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -123,27 +96,6 @@ async function withTitleProvider(
             },
           },
         };
-        setRuntimeConfigSnapshot(cfg);
-        if (api === "ollama") {
-          // Native plugin runtimes read a separate snapshot from the transformed fixture graph.
-          const nativeConfig = tryNativeRequireModule(
-            fileURLToPath(new URL("../config/runtime-snapshot.ts", import.meta.url)),
-            {
-              aliasMap: preparePluginLoaderAliases({
-                modulePath: fileURLToPath(
-                  new URL("../../extensions/ollama/index.ts", import.meta.url),
-                ),
-                devSourceRoot: fileURLToPath(new URL("../..", import.meta.url)),
-                pluginSdkResolution: "src",
-              }).resolveAlias,
-            },
-          );
-          assert(nativeConfig.ok, "Expected the native config runtime fixture");
-          const runtime =
-            nativeConfig.moduleExport as typeof import("../config/runtime-snapshot.js");
-          runtime.setRuntimeConfigSnapshot(cfg);
-          clearNativeRuntimeConfigSnapshot = runtime.clearRuntimeConfigSnapshot;
-        }
         await run({
           cfg,
           agentDir: state.agentDir(),
@@ -156,46 +108,6 @@ async function withTitleProvider(
 }
 
 describe("generated titles over the real OpenAI-compatible transport", () => {
-<<<<<<< HEAD
-=======
-  it("disables configured native Ollama thinking only for the utility request", async () => {
-    await withTitleProvider(
-      "Utility thinking disabled",
-      async ({ cfg, agentDir, requests }) => {
-        const definition = cfg.models!.providers!.ollama!.models[1]!;
-        definition.reasoning = true;
-        definition.params = { think: true, num_ctx: 8192 };
-        await runIsolatedCompletion({
-          config: cfg,
-          agentId: "main",
-          agentDir,
-          provider: "ollama",
-          model: "qwen3.6:35b",
-          thinkLevel: "high",
-          systemPrompt: "Write a title.",
-          prompt: "Debug title generation.",
-          timeoutMs: 5_000,
-        });
-        await expect(
-          prepareDashboardSessionTitle({
-            cfg,
-            agentId: "main",
-            userMessage: "Debug title generation.",
-          }),
-        ).resolves.toBe("Utility thinking disabled");
-        expect(requests.map(({ url, body }) => ({ url, think: body.think }))).toEqual([
-          { url: "/api/chat", think: true },
-          { url: "/api/chat", think: false },
-        ]);
-        expect(requests[1]!.body.options).toMatchObject({ num_predict: 4096, num_ctx: 8192 });
-      },
-      undefined,
-      undefined,
-      "ollama",
-    );
-  });
-
->>>>>>> 97b6e87616f
   it("disables reasoning without expanding the title answer budget", async () => {
     await withTitleProvider("Utility budget verified", async ({ cfg, requests }) => {
       for (const definition of cfg.models!.providers![provider]!.models) {

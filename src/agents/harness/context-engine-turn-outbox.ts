@@ -1,12 +1,39 @@
+import type { DatabaseSync } from "node:sqlite";
+import { sql } from "kysely";
 import type { AgentMessage } from "../../../packages/agent-core/src/types.js";
-import type { ClosedTranscriptTurnReadResult } from "../../config/sessions/session-accessor.transcript-range.worker.js";
+import {
+  readClosedTranscriptTurnInDatabase,
+  type ClosedTranscriptTurnReadResult,
+} from "../../config/sessions/session-accessor.transcript-range.js";
 import type {
   TranscriptTurnAdmission,
   TranscriptTurnBoundary,
 } from "../../config/sessions/transcript-entry-anchor.js";
 import type { ContextEngine } from "../../context-engine/types.js";
+import {
+  executeSqliteQuerySync,
+  executeSqliteQueryTakeFirstSync,
+  getNodeSqliteKysely,
+} from "../../infra/kysely-sync.js";
+import type { SqliteWorkerCommand } from "../../infra/sqlite-worker-contract.js";
+import { ensureContextEngineTurnOutboxSchema } from "../../state/openclaw-agent-context-engine-turn-outbox-schema.js";
+import type { OpenClawAgentDatabase } from "../../state/openclaw-agent-db-contract.js";
+import type { DB as OpenClawAgentDatabaseSchema } from "../../state/openclaw-agent-db.generated.js";
 
-export type PendingContextEngineTurn = Readonly<{
+type ContextEngineTurnOutboxDatabase = Pick<
+  OpenClawAgentDatabaseSchema,
+  "context_engine_turn_outbox"
+>;
+
+/** Outbox kernels need only the connection; workers pass their borrowed one. */
+type ContextEngineTurnOutboxConnection = Pick<OpenClawAgentDatabase, "db">;
+
+type OutboxKernelParams<Type extends keyof ContextEngineTurnOutboxWorkerOperations> =
+  ContextEngineTurnOutboxWorkerOperations[Type]["input"] & {
+    database: ContextEngineTurnOutboxConnection;
+  };
+
+type PendingContextEngineTurn = Readonly<{
   advancement_key: string;
   payload_json: string;
   session_id: string;
@@ -26,14 +53,14 @@ type AdmittedContextEngineTurnOutboxPayload = Readonly<{
   state: "admitted";
 }>;
 
-export type AcceptedContextEngineTurnOutboxPayload = Readonly<{
+type AcceptedContextEngineTurnOutboxPayload = Readonly<{
   boundary: TranscriptTurnBoundary;
   isHeartbeat: boolean;
   state: "accepted";
   runtimeContext?: ContextEngineTurnRuntimeContext;
 }>;
 
-export type ReadyContextEngineTurnOutboxPayload = Readonly<{
+type ReadyContextEngineTurnOutboxPayload = Readonly<{
   boundary: TranscriptTurnBoundary;
   isHeartbeat: boolean;
   messages: AgentMessage[];
@@ -41,23 +68,40 @@ export type ReadyContextEngineTurnOutboxPayload = Readonly<{
   runtimeContext?: ContextEngineTurnRuntimeContext;
 }>;
 
-export type ContextEngineTurnReadFailureKind = Exclude<
+type ContextEngineTurnReadFailureKind = Exclude<
   ClosedTranscriptTurnReadResult,
   { kind: "ok" }
 >["kind"];
 
-export type BlockedContextEngineTurnOutboxPayload = Readonly<{
+type BlockedContextEngineTurnOutboxPayload = Readonly<{
   boundary: TranscriptTurnBoundary;
   failure: Exclude<ContextEngineTurnReadFailureKind, "projection-unavailable">;
   isHeartbeat: boolean;
   state: "blocked";
 }>;
 
-export type ContextEngineTurnOutboxPayload =
+type ContextEngineTurnOutboxPayload =
   | AdmittedContextEngineTurnOutboxPayload
   | AcceptedContextEngineTurnOutboxPayload
   | BlockedContextEngineTurnOutboxPayload
   | ReadyContextEngineTurnOutboxPayload;
+
+const RECOVERED_TURN_MAX_EVENTS = 20_000;
+const RECOVERED_TURN_MAX_BYTES = 8 * 1024 * 1024;
+
+function outboxEnqueueSequence() {
+  return /* kysely-allow-raw: SQLite's implicit rowid is the durable enqueue sequence for this table. */ sql<number>`context_engine_turn_outbox.rowid`;
+}
+
+function oldestOutboxEnqueueSequence() {
+  return /* kysely-allow-raw: Aggregate the closed implicit-rowid expression used for enqueue order. */ sql<number>`MIN(context_engine_turn_outbox.rowid)`;
+}
+
+function outboxPayloadRequiresAdvancement() {
+  // Blocked rows are terminal audit evidence, not retryable work. Keep them
+  // inspectable without letting them hold later same-session turns behind them.
+  return /* kysely-allow-raw: Payload state is owned by the closed outbox union above. */ sql<boolean>`json_extract(context_engine_turn_outbox.payload_json, '$.state') IS NOT 'blocked'`;
+}
 
 export function isRetryableContextEngineTurnReadFailure(
   kind: ContextEngineTurnReadFailureKind,
@@ -65,7 +109,6 @@ export function isRetryableContextEngineTurnReadFailure(
   return kind === "projection-unavailable";
 }
 
-<<<<<<< HEAD
 function outboxDb(database: ContextEngineTurnOutboxConnection) {
   ensureContextEngineTurnOutboxSchema(database.db);
   return getNodeSqliteKysely<ContextEngineTurnOutboxDatabase>(database.db);
@@ -353,9 +396,6 @@ export function recoverContextEngineTurnOutbox(params: {
 }
 
 type ContextEngineTurnOutboxFilter = Readonly<{
-=======
-export type ContextEngineTurnOutboxFilter = Readonly<{
->>>>>>> 97b6e87616f
   engineId: string;
   ownerPluginId?: string;
 }>;
@@ -376,24 +416,105 @@ export type ContextEngineTurnOutboxStore = Readonly<{
   hasPending(filter: ContextEngineTurnOutboxFilter & { sessionId?: string }): Promise<boolean>;
 }>;
 
-/** The durable context-engine turn outbox of one agent database, executed in its worker. */
-export type ContextEngineTurnOutboxWorkerStore = ContextEngineTurnOutboxStore &
-  Readonly<{
-    [
-      Type in
-        | "prepareRun"
-        | "enqueueIntent"
-        | "acceptIntent"
-        | "publishClosedTurn"
-        | "discardIntent"
-    ]: (
-      input: ContextEngineTurnOutboxWorkerOperations[Type]["input"],
-    ) => Promise<
-      ContextEngineTurnOutboxWorkerOperations[Type]["output"] extends undefined
-        ? void
-        : ContextEngineTurnOutboxWorkerOperations[Type]["output"]
-    >;
-  }>;
+function listPendingContextEngineTurnSessions(
+  database: ContextEngineTurnOutboxConnection,
+  filter: ContextEngineTurnOutboxFilter & { sessionId?: string; limit: number },
+): string[] {
+  const query = pendingContextEngineTurns(database, filter, filter.sessionId || undefined)
+    .select("session_id")
+    // SQLite rowid preserves enqueue order among surviving pending rows.
+    // Use it instead of wall-clock timestamps, which can collide.
+    .select(oldestOutboxEnqueueSequence().as("oldest_enqueue_sequence"));
+  return executeSqliteQuerySync(
+    database.db,
+    query.groupBy("session_id").orderBy("oldest_enqueue_sequence", "asc").limit(filter.limit),
+  ).rows.map(({ session_id }) => session_id);
+}
+
+function readNextPendingContextEngineTurn(
+  database: ContextEngineTurnOutboxConnection,
+  filter: ContextEngineTurnOutboxFilter & { sessionId: string },
+): PendingContextEngineTurn | undefined {
+  return executeSqliteQueryTakeFirstSync(
+    database.db,
+    pendingContextEngineTurns(database, filter, filter.sessionId)
+      .select(["advancement_key", "payload_json", "session_id"])
+      .orderBy(outboxEnqueueSequence(), "asc")
+      .limit(1),
+  );
+}
+
+function completeContextEngineTurn(
+  database: ContextEngineTurnOutboxConnection,
+  advancementKey: string,
+): void {
+  executeSqliteQuerySync(
+    database.db,
+    outboxDb(database)
+      .deleteFrom("context_engine_turn_outbox")
+      .where("advancement_key", "=", advancementKey),
+  );
+}
+
+function recordContextEngineTurnFailure(
+  database: ContextEngineTurnOutboxConnection,
+  advancementKey: string,
+  message: string,
+  attemptedAt: number,
+): void {
+  executeSqliteQuerySync(
+    database.db,
+    outboxDb(database)
+      .updateTable("context_engine_turn_outbox")
+      .set((eb) => ({
+        attempt_count: eb("attempt_count", "+", 1),
+        last_attempt_at: attemptedAt,
+        last_error: message,
+      }))
+      .where("advancement_key", "=", advancementKey),
+  );
+}
+
+function pendingContextEngineTurns(
+  database: ContextEngineTurnOutboxConnection,
+  filter: ContextEngineTurnOutboxFilter,
+  sessionId: string | undefined,
+) {
+  const query = outboxDb(database)
+    .selectFrom("context_engine_turn_outbox")
+    .where("engine_id", "=", filter.engineId)
+    .where("owner_plugin_id", filter.ownerPluginId ? "=" : "is", filter.ownerPluginId ?? null)
+    .where(outboxPayloadRequiresAdvancement());
+  return sessionId === undefined ? query : query.where("session_id", "=", sessionId);
+}
+
+function hasPendingContextEngineTurn(
+  database: ContextEngineTurnOutboxConnection,
+  filter: ContextEngineTurnOutboxFilter & { sessionId?: string },
+): boolean {
+  const query = pendingContextEngineTurns(database, filter, filter.sessionId || undefined).select(
+    "advancement_key",
+  );
+  return executeSqliteQueryTakeFirstSync(database.db, query.limit(1)) !== undefined;
+}
+
+/**
+ * Recovers a session's outbox before a run and, when nothing remains to
+ * advance, records the known admission in the same transaction. The common
+ * turn start therefore needs one database round trip.
+ */
+function prepareContextEngineTurnRun(
+  params: OutboxKernelParams<"prepareRun">,
+): ContextEngineTurnOutboxWorkerOperations["prepareRun"]["output"] {
+  const warnings: string[] = [];
+  recoverContextEngineTurnOutbox({ ...params, warn: (message) => warnings.push(message) });
+  const pending = hasPendingContextEngineTurn(params.database, params);
+  if (pending || !params.admission) {
+    return { warnings, pending, admitted: false };
+  }
+  enqueueContextEngineTurnIntent({ ...params, admission: params.admission });
+  return { warnings, pending, admitted: true };
+}
 
 export async function drainContextEngineTurnOutbox(params: {
   store: ContextEngineTurnOutboxStore;
@@ -559,3 +680,47 @@ export type ContextEngineTurnOutboxWorkerOperations = {
     output: boolean;
   };
 };
+
+type OutboxCommand = SqliteWorkerCommand<ContextEngineTurnOutboxWorkerOperations>;
+type OutboxOutput =
+  ContextEngineTurnOutboxWorkerOperations[keyof ContextEngineTurnOutboxWorkerOperations]["output"];
+
+/** Runs one outbox command's kernel on the borrowed connection. */
+export function executeContextEngineTurnOutboxCommand(
+  db: DatabaseSync,
+  command: OutboxCommand,
+): OutboxOutput {
+  const database = { db };
+  switch (command.type) {
+    case "prepareRun":
+      return prepareContextEngineTurnRun({ ...command.input, database });
+    case "listPendingSessions":
+      return listPendingContextEngineTurnSessions(database, command.input);
+    case "readNextPending":
+      return readNextPendingContextEngineTurn(database, command.input);
+    case "complete":
+      completeContextEngineTurn(database, command.input.advancementKey);
+      return undefined;
+    case "recordFailure":
+      recordContextEngineTurnFailure(
+        database,
+        command.input.advancementKey,
+        command.input.message,
+        command.input.attemptedAt,
+      );
+      return undefined;
+    case "hasPending":
+      return hasPendingContextEngineTurn(database, command.input);
+    case "enqueueIntent":
+      enqueueContextEngineTurnIntent({ ...command.input, database });
+      return undefined;
+    case "acceptIntent":
+      acceptContextEngineTurnIntent({ ...command.input, database });
+      return undefined;
+    case "publishClosedTurn":
+      return publishClosedContextEngineTurn({ ...command.input, database });
+    case "discardIntent":
+      return discardContextEngineTurnIntent({ ...command.input, database });
+  }
+  throw new Error("Unknown context-engine turn outbox command");
+}

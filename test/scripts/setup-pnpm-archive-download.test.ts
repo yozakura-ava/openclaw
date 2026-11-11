@@ -199,11 +199,7 @@ describe("pinned pnpm cold bootstrap", () => {
     command,
   }) => {
     const f = createPnpmArchiveFixture(command);
-<<<<<<< HEAD
     for (const spec of [f.spec.replace("12.15.0", "12.11.2"), f.spec.replace(/.$/u, "z")]) {
-=======
-    for (const spec of [f.spec.replace("12.15.0", "12.9.1"), f.spec.replace(/.$/u, "z")]) {
->>>>>>> 97b6e87616f
       const result = await f.run({}, spec);
       expect(result.status).toBe(0);
       expect(result.stdout).toBe("");
@@ -258,11 +254,7 @@ describe("pnpm version output owns its failure", () => {
       fs.readFileSync(".github/actions/setup-pnpm-store-cache/action.yml", "utf8"),
     );
     const step = action.runs.steps.find((entry: { id?: string }) => entry.id === "pnpm-version");
-<<<<<<< HEAD
     const run = `pnpm() { if [ ${status} -eq 0 ]; then printf '12.9.0\\n'; else return ${status}; fi; }\n${step.run}`;
-=======
-    const run = `pnpm() { if [ ${status} -eq 0 ]; then printf '12.15.0\\n'; else return ${status}; fi; }\n${step.run}`;
->>>>>>> 97b6e87616f
     const result = await command.run(
       "bash",
       ["--noprofile", "--norc", "-e", "-o", "pipefail", "-c", run],
@@ -274,10 +266,6 @@ describe("pnpm version output owns its failure", () => {
     );
     expect(result.error, "pnpm version action subprocess").toBeUndefined();
     expect(result.status, result.stderr).toBe(status);
-<<<<<<< HEAD
     expect(fs.readFileSync(output, "utf8")).toBe(status === 0 ? "pnpm-version=12.9.0\n" : "");
-=======
-    expect(fs.readFileSync(output, "utf8")).toBe(status === 0 ? "pnpm-version=12.15.0\n" : "");
->>>>>>> 97b6e87616f
   });
 });

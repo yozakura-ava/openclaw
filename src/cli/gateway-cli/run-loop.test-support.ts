@@ -1,16 +1,13 @@
 import { EventEmitter } from "node:events";
-<<<<<<< HEAD
 import { performance } from "node:perf_hooks";
 import { setImmediate as nextLoopTurn } from "node:timers/promises";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { afterEach, expect, it, vi, type Mock } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
-=======
-import { expect, it, vi, type Mock } from "vitest";
->>>>>>> 97b6e87616f
 import type { GatewayServer } from "../../gateway/server-public.js";
 import type { GatewayActiveWorkSnapshot } from "../../infra/gateway-active-work.js";
 import type { GatewayRestartIntent } from "../../infra/restart-intent.js";
+import { createDeferredCore } from "../../shared/deferred.js";
 
 type ManagedUpdateOwner = NonNullable<GatewayRestartIntent["successorOwner"]>;
 
@@ -168,19 +165,6 @@ export async function withIsolatedSignals(
       removeNewSignalListeners(signal, existingListeners[signal]);
     }
   }
-}
-
-/** Existing exit-order assertions observe the joined result, never drive process exit. */
-export async function runGatewayLoop({
-  runtime,
-  ...params
-}: Parameters<typeof import("./run-loop.js").runGatewayLoop>[0] & {
-  runtime: { exit: (code: number) => void };
-}): Promise<number> {
-  const actual = await import("./run-loop.js");
-  const code = await actual.runGatewayLoop(params);
-  runtime.exit(code);
-  return code;
 }
 
 export function createRuntimeWithExitSignal(exitCallOrder?: string[]) {
@@ -346,7 +330,6 @@ export function registerUpdateRespawnProgressTests({
     },
   );
 }
-<<<<<<< HEAD
 
 export function registerGatewayRestartOwnershipTests({
   consumeGatewayRestartIntentPayload,
@@ -711,5 +694,3 @@ export function registerGatewayRestartOwnershipTests({
     },
   );
 }
-=======
->>>>>>> 97b6e87616f

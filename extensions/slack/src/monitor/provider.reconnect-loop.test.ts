@@ -173,13 +173,9 @@ describe("slack socket reconnect loop", () => {
     const run = start();
     await vi.runAllTimersAsync();
     await expect(run).rejects.toThrow("invalid_auth");
-<<<<<<< HEAD
     expect(slackTestState.appStartMock).toHaveBeenCalledTimes(
       SLACK_ISOLATED_INVALID_AUTH_TERMINAL_LIMIT,
     );
-=======
-    expect(slackTestState.appStartMock).toHaveBeenCalledTimes(3);
->>>>>>> 97b6e87616f
     expect(setStatus.mock.calls.some(([next]) => next.lifecycle === "blocked")).toBe(true);
   });
 
@@ -201,15 +197,10 @@ describe("slack socket reconnect loop", () => {
     await vi.runAllTimersAsync();
     await expect(run).rejects.toThrow("invalid_auth");
     // The pre-connect failure must not carry over: terminal only after a fresh
-<<<<<<< HEAD
     // run of SLACK_ISOLATED_INVALID_AUTH_TERMINAL_LIMIT consecutive failures.
     expect(slackTestState.appStartMock).toHaveBeenCalledTimes(
       SLACK_ISOLATED_INVALID_AUTH_TERMINAL_LIMIT + 1,
     );
-=======
-    // run of three consecutive failures.
-    expect(slackTestState.appStartMock).toHaveBeenCalledTimes(4);
->>>>>>> 97b6e87616f
     expect(setStatus.mock.calls.some(([next]) => next.lifecycle === "blocked")).toBe(true);
   });
 });

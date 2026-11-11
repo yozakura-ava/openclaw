@@ -1,11 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveUpdateRehearsalRoot } from "../infra/update-rehearsal-paths.js";
-<<<<<<< HEAD
 import { writeConfigMachineState } from "../state/config-machine-state-write.js";
-=======
-import { writeConfigMachineStateAsync } from "../state/config-machine-state-async.js";
->>>>>>> 97b6e87616f
 // Maintains config metadata fields written alongside user config.
 import { VERSION } from "../version.js";
 import { getConfigValueAtPath, unsetConfigValueAtPath } from "./config-paths.js";
@@ -99,8 +95,6 @@ export function stampConfigWriteMetadata(
 }
 
 /** Persist machine-owned metadata only after the matching config file commit succeeds. */
-export async function recordConfigWriteMetadata(
-  now: string = new Date().toISOString(),
-): Promise<void> {
-  await writeConfigMachineStateAsync("config.lastTouchedAt", now);
+export function recordConfigWriteMetadata(now: string = new Date().toISOString()): void {
+  writeConfigMachineState("config.lastTouchedAt", now);
 }

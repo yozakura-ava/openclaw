@@ -471,7 +471,7 @@ async function handleTranscriptUpdateBroadcast(
     routingAgentId
       ? { key: sessionKey, agentId: routingAgentId, storePath: publicationStorePath }
       : undefined,
-    (read, ancestors) => {
+    (read) => {
       if (params.getSessionRowProjection?.() !== projection) {
         return;
       }
@@ -511,12 +511,7 @@ async function handleTranscriptUpdateBroadcast(
       });
       const broadcastOptions =
         read && projection
-          ? {
-              prepareSessionProjection: prepareSessionEventProjection(projection, read, {
-                ancestors,
-                encodeMessage: true,
-              }),
-            }
+          ? { prepareSessionProjection: prepareSessionEventProjection(projection, read) }
           : undefined;
       const projected =
         message === undefined
@@ -532,11 +527,6 @@ async function handleTranscriptUpdateBroadcast(
               ...(update.runId ? { runId: update.runId } : {}),
               sessionSnapshot,
             });
-      // Do not invalidate history for a recoverable attempt: a refetch could
-      // publish its durable error row before the owning run settles.
-      if (projected?.deferredAssistantError) {
-        return;
-      }
       const historyReset = message === undefined || projected?.requiresHistoryReset;
       if (!historyReset && projected?.payload) {
         params.broadcastToConnIds("session.message", projected.payload, connIds, broadcastOptions);
@@ -644,11 +634,7 @@ export function createLifecycleEventBroadcastHandler(params: {
     try {
       // Committed lifecycle publications settle with the Gateway, not their producer's scope.
       await runOutsideAsyncWorkScope(() =>
-<<<<<<< HEAD
         withPreparedEventRow(projection, query, (read) => {
-=======
-        withPreparedEventRow(projection, query, (read, ancestors) => {
->>>>>>> 97b6e87616f
           const current = captured ?? projection?.capture(query);
           if (
             params.getSessionRowProjection?.() !== projection ||
@@ -692,15 +678,7 @@ export function createLifecycleEventBroadcastHandler(params: {
             {
               dropIfSlow: true,
               ...(read && projection
-<<<<<<< HEAD
                 ? { prepareSessionProjection: prepareSessionEventProjection(projection, read) }
-=======
-                ? {
-                    prepareSessionProjection: prepareSessionEventProjection(projection, read, {
-                      ancestors,
-                    }),
-                  }
->>>>>>> 97b6e87616f
                 : {}),
             },
           );

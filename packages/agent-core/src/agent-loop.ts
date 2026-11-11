@@ -30,21 +30,12 @@ import {
   createRejectedToolCallLauncher,
   toToolBatchCalls,
 } from "./tool-batch-admission.js";
-import {
-  combineExecutedToolBatches,
-  resolveToolBatchTermination,
-} from "./tool-batch-completion.js";
+import { combineExecutedToolBatches } from "./tool-batch-completion.js";
 import {
   createErrorToolResult,
-  createToolExecutionErrorResult,
   finalizeToolCallOutcome,
-<<<<<<< HEAD
-=======
-  immediateToolCallError,
->>>>>>> 97b6e87616f
   resolveToolResultContentSource,
   type FinalizedToolCallOutcome,
-  type ImmediateToolCallOutcome,
 } from "./tool-call-outcome.js";
 import {
   type AgentToolExecutionContext,
@@ -740,14 +731,7 @@ async function executeToolCallGroups(
       intervention,
       terminal: true,
     });
-    return {
-      ...tail,
-      messages: [...messages, ...tail.messages],
-      terminalToolCallIds: [
-        ...resolveToolBatchTermination(finalizedCalls).terminalToolCallIds,
-        ...tail.terminalToolCallIds,
-      ],
-    };
+    return { ...tail, messages: [...messages, ...tail.messages] };
   }
 
   // Steering accepted while tools ran must outrank the stop hook in either mode.
@@ -769,7 +753,7 @@ async function executeToolCallGroups(
   return {
     messages,
     steeringMessages,
-    ...resolveToolBatchTermination(finalizedCalls),
+    terminate: shouldTerminateToolBatch(finalizedCalls),
     terminateRun: false,
     ...(fatal ? { fatal } : {}),
   };
@@ -780,6 +764,13 @@ type PreparedToolCall = {
   toolCall: AgentToolCall;
   tool: AgentTool;
   args: unknown;
+};
+
+type ImmediateToolCallOutcome = {
+  kind: "immediate";
+  result: AgentToolResult<unknown>;
+  isError: boolean;
+  errorKind?: "argument-validation";
 };
 
 type ValidatedToolCallOutcome = PreparedToolCall | ImmediateToolCallOutcome;
@@ -924,6 +915,13 @@ async function launchParallelToolCalls(
   launchNext();
   await done;
   return result;
+}
+
+function shouldTerminateToolBatch(finalizedCalls: FinalizedToolCallOutcome[]): boolean {
+  return (
+    finalizedCalls.length > 0 &&
+    finalizedCalls.every((finalized) => finalized.result.terminate === true)
+  );
 }
 
 async function resolveToolCallTool(
@@ -1318,15 +1316,13 @@ async function completeToolLoopInterventionBatch(
     messages.push(await emitToolResultMessage(finalized, batch.emit));
     finalizedCalls.push(finalized);
   }
-  const termination = resolveToolBatchTermination(finalizedCalls);
   return {
     messages,
     steeringMessages: [],
-    ...termination,
     // A later critical loop always forces termination. During first recovery,
     // honor the outcome hooks: if every finalized outcome says terminate, the
     // batch ends without another provider turn.
-    terminate: params.terminal || termination.terminate,
+    terminate: params.terminal || shouldTerminateToolBatch(finalizedCalls),
     terminateRun: params.terminal,
     intervention: params.intervention,
   };
@@ -1369,6 +1365,17 @@ async function completeUnstartedToolCall(
   );
   await emitToolExecutionEnd(finalized, batch);
   return finalized;
+}
+
+function createToolExecutionErrorResult(error: unknown): AgentToolResult<unknown> {
+  const result = createErrorToolResult(coerceErrorMessage(error));
+  return typeof error === "object" && error !== null
+    ? copyInternalToolResultState(error, result)
+    : result;
+}
+
+function immediateToolCallError(message: string): ImmediateToolCallOutcome {
+  return { kind: "immediate", result: createErrorToolResult(message), isError: true };
 }
 
 function emitToolExecutionStart(

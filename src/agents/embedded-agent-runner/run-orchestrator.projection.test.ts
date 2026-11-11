@@ -7,10 +7,6 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { runAgentLoopContinue } from "../../../packages/agent-core/src/agent-loop.js";
 import { createDeferred } from "../../../test/helpers/promise.js";
 import { createTempDirTracker } from "../../../test/helpers/temp-dir.js";
-import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "../../config/runtime-snapshot.js";
 import { resolveSessionStorePathCore } from "../../config/sessions/paths.js";
 import {
   persistSessionTranscriptTurn,
@@ -89,7 +85,6 @@ afterEach(async () => {
   closeOpenClawAgentDatabasesForTest();
   await closeOpenClawStateDatabaseAsync();
   closeOpenClawStateDatabaseForTest();
-  clearRuntimeConfigSnapshot();
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   tempRoots.cleanup();
@@ -172,11 +167,6 @@ describe("embedded retry transcript ownership", () => {
     const agentDir = path.join(root, "agent");
     await fs.mkdir(workspaceDir, { recursive: true });
     await fs.mkdir(agentDir, { recursive: true });
-<<<<<<< HEAD
-=======
-    const config = createEmbeddedAgentRunnerOpenAiConfig(["gpt-5.4-mini"]);
-    setRuntimeConfigSnapshot(config);
->>>>>>> 97b6e87616f
     const target = {
       agentId: "main",
       sessionId: "foreground-projection",
@@ -214,11 +204,7 @@ describe("embedded retry transcript ownership", () => {
       ...target,
       agentDir,
       workspaceDir,
-<<<<<<< HEAD
       config: createEmbeddedAgentRunnerOpenAiConfig(["gpt-5.4-mini"]),
-=======
-      config,
->>>>>>> 97b6e87616f
       prompt: "Recall the fact.",
       provider: "openai",
       model: "gpt-5.4-mini",
@@ -258,7 +244,6 @@ describe("embedded retry transcript ownership", () => {
     ["detached", false, "absent", false, "output-limit"],
     ["durable", false, "active", false, "output-limit"],
     ["detached", false, "absent", false, "output-limit-repeat"],
-    ["detached", false, "absent", false, "output-limit-empty"],
   ] as const)(
     "%s metadata, caller manager=%s, projection=%s, abort=%s, failure=%s",
     async (sessionPersistence, suppliedManager, projection, abort, failure) => {
@@ -283,8 +268,6 @@ describe("embedded retry transcript ownership", () => {
         api: "openai-responses" as const,
         input: ["text" as const],
       };
-      const config = createEmbeddedAgentRunnerOpenAiConfig([model.id]);
-      setRuntimeConfigSnapshot(config);
       const fetchMock = vi
         .fn<typeof fetch>()
         .mockRejectedValue(Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }));
@@ -297,16 +280,15 @@ describe("embedded retry transcript ownership", () => {
           arguments: '{"command":',
           status: "incomplete",
         };
-        const emptyOutput = failure === "output-limit-empty";
         const events = [
-          ...(emptyOutput ? [] : [{ type: "response.output_item.added", output_index: 0, item }]),
+          { type: "response.output_item.added", output_index: 0, item },
           {
             type: "response.incomplete",
             response: {
               id: "response-output-limit",
               status: "incomplete",
               incomplete_details: { reason: "max_output_tokens" },
-              output: emptyOutput ? [] : [item],
+              output: [item],
               usage: { input_tokens: 440_445, output_tokens: 128_000 },
             },
           },
@@ -354,9 +336,7 @@ describe("embedded retry transcript ownership", () => {
       expect(fetchMock).toHaveBeenCalledOnce();
       if (failure.startsWith("output-limit")) {
         expect(erroredAssistant).toMatchObject({
-          ...(failure === "output-limit-empty"
-            ? { stopReason: "length", content: [] }
-            : { errorCode: "incomplete_tool_call" }),
+          errorCode: "incomplete_tool_call",
           usage: { output: 128_000 },
           diagnostics: [
             expect.objectContaining({
@@ -381,15 +361,10 @@ describe("embedded retry transcript ownership", () => {
           return pending;
         });
       let firstManager: EmbeddedRunAttemptParams["sessionManager"];
-      let nextRequestNumber = 0;
       const controller = new AbortController();
       runAttempt
         .mockImplementationOnce(async (attempt) => {
           expect(attempt).toMatchObject({ provider: model.provider, modelId: model.id });
-          if (!attempt.modelCallSequence) {
-            throw new Error("The run must carry its model request sequence");
-          }
-          nextRequestNumber = ++attempt.modelCallSequence.value;
           firstManager = attempt.sessionManager;
           if (callerOwned) {
             expect(firstManager).toBeDefined();
@@ -425,7 +400,6 @@ describe("embedded retry transcript ownership", () => {
         .mockImplementationOnce(async (attempt) => {
           secondAttempt.resolve();
           expect(attempt).toMatchObject({ provider: model.provider, modelId: model.id });
-          expect(attempt.modelCallSequence).toEqual({ value: nextRequestNumber });
           expect(attempt.prompt).toContain(
             "Continue the current task from the existing transcript",
           );
@@ -449,16 +423,9 @@ describe("embedded retry transcript ownership", () => {
                 role: "custom",
                 customType: "incomplete-tool-call",
                 content: expect.stringContaining(
-                  failure === "output-limit-empty"
-                    ? "The model response reached the provider's output limit (max_output_tokens) before producing an answer. Continue with a shorter response and smaller tool calls only if the original request allows continuing that work. Use recorded tool results to determine what completed, and do not repeat completed actions. Inspect state only for actions whose outcomes are unknown."
-                    : "Split the remaining work into smaller tool calls with shorter arguments only if the original request allows continuing that work. Use recorded tool results to determine what completed, and do not repeat completed actions. Inspect state only for actions whose outcomes are unknown.",
+                  "Split the remaining work into smaller tool calls",
                 ),
-                details: {
-                  reason: "max_output_tokens",
-                  ...(failure === "output-limit-empty"
-                    ? {}
-                    : { toolCallId: "unfinished|fc_unfinished" }),
-                },
+                details: { reason: "max_output_tokens", toolCallId: "unfinished|fc_unfinished" },
               }),
             ]);
             expect(JSON.stringify(resumedHistory.at(-1))).toContain("provider's output limit");
@@ -496,7 +463,7 @@ describe("embedded retry transcript ownership", () => {
           ...target,
           agentDir,
           workspaceDir,
-          config,
+          config: createEmbeddedAgentRunnerOpenAiConfig([model.id]),
           sessionPersistence,
           sessionManager: callerManager,
           prompt: "Check the results.",

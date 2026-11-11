@@ -35,7 +35,6 @@ import {
   readReleaseJobListing,
   releaseCompositeJobsSha256,
   releaseChildSpec,
-  releaseChildAdvisories,
   terminalPolicyPass,
   validateReleaseManifestAdvisoryJobs,
   validateReleaseChildDispatchBinding,
@@ -834,7 +833,6 @@ function findExactChildRun(child, repository = DEFAULT_REPO) {
 // The listing keeps the 1,000-job inventory ceiling of ten 100-job pages, whatever page size
 // readReleaseJobListing selects.
 const MAX_RUN_JOBS = 1000;
-<<<<<<< HEAD
 
 function readRunJobPages(path, baseQuery, repository, requireComplete) {
   return readReleaseJobListing(async (perPage, { smallerPageFallback }) => {
@@ -892,46 +890,6 @@ function findRunAttemptJobsAll(
     repository,
     requireComplete,
   );
-=======
-
-function findRunJobsAll(path, repository = DEFAULT_REPO, requireComplete = false) {
-  return readReleaseJobListing(async (perPage, { smallerPageFallback }) => {
-    const jobs = [];
-    let total;
-    for (let page = 1; jobs.length < MAX_RUN_JOBS; page += 1) {
-      const query = new URLSearchParams({
-        page: String(page),
-        per_page: String(perPage),
-      });
-      const response = await githubRestJsonAsync(`${path}${query.toString()}`, repository, {
-        smallerPageFallback,
-      });
-      const pageJobs = response.jobs ?? [];
-      if (
-        requireComplete &&
-        (!Array.isArray(response.jobs) ||
-          !Number.isSafeInteger(response.total_count) ||
-          response.total_count < 0 ||
-          (total !== undefined && total !== response.total_count))
-      ) {
-        throw new Error("publication original jobs enumeration is invalid");
-      }
-      total = response.total_count;
-      jobs.push(...pageJobs);
-      if (pageJobs.length < perPage) {
-        break;
-      }
-    }
-    jobs.splice(MAX_RUN_JOBS);
-    if (
-      requireComplete &&
-      (jobs.length !== total || new Set(jobs.map((job) => job.id)).size !== total)
-    ) {
-      throw new Error("publication original jobs enumeration is incomplete or duplicated");
-    }
-    return jobs;
-  });
->>>>>>> 97b6e87616f
 }
 
 function parentJobLogArgs(jobId, repository = DEFAULT_REPO, allowEscapeSequences = true) {
@@ -1946,36 +1904,49 @@ export function validateManifestArtifactIdentity(
 }
 
 export function selectManifestArtifact(artifacts, runId, runAttempt) {
-  for (const legacy of [false, true]) {
-    const name = legacy
-      ? legacyManifestArtifactName(runId)
-      : manifestArtifactName(runId, runAttempt);
-    const matches = artifacts.filter(
-      (artifact) =>
-        artifact.name === name &&
-        artifact.expired === false &&
-        String(artifact.workflow_run?.id) === String(runId),
-    );
-    if (matches.length > 1) {
-      throw new Error(
-        `multiple ${legacy ? "legacy " : ""}release validation manifest artifacts found: ${runId}`,
-      );
-    }
-    const artifact = matches[0];
-    if (!artifact) {
-      continue;
-    }
-    if (legacy && Number(runAttempt) !== 1) {
-      throw new Error(`legacy release validation manifest requires run attempt 1: ${runId}`);
-    }
-    return validateManifestArtifactIdentity(artifact, {
-      artifactDigest: artifact.digest,
-      artifactId: artifact.id,
+  const expectedName = manifestArtifactName(runId, runAttempt);
+  const canonicalMatches = artifacts.filter(
+    (artifact) =>
+      artifact.name === expectedName &&
+      artifact.expired === false &&
+      String(artifact.workflow_run?.id) === String(runId),
+  );
+  if (canonicalMatches.length > 1) {
+    throw new Error(`multiple release validation manifest artifacts found: ${runId}`);
+  }
+  const canonicalArtifact = canonicalMatches[0];
+  if (canonicalArtifact) {
+    return validateManifestArtifactIdentity(canonicalArtifact, {
+      artifactDigest: canonicalArtifact.digest,
+      artifactId: canonicalArtifact.id,
       runAttempt,
       runId,
     });
   }
-  return undefined;
+
+  const legacyName = legacyManifestArtifactName(runId);
+  const legacyMatches = artifacts.filter(
+    (artifact) =>
+      artifact.name === legacyName &&
+      artifact.expired === false &&
+      String(artifact.workflow_run?.id) === String(runId),
+  );
+  if (legacyMatches.length > 1) {
+    throw new Error(`multiple legacy release validation manifest artifacts found: ${runId}`);
+  }
+  const legacyArtifact = legacyMatches[0];
+  if (!legacyArtifact) {
+    return undefined;
+  }
+  if (Number(runAttempt) !== 1) {
+    throw new Error(`legacy release validation manifest requires run attempt 1: ${runId}`);
+  }
+  return validateManifestArtifactIdentity(legacyArtifact, {
+    artifactDigest: legacyArtifact.digest,
+    artifactId: legacyArtifact.id,
+    runAttempt,
+    runId,
+  });
 }
 
 export function validateManifestArtifactCompatibility(artifact, manifest, runId, runAttempt) {
@@ -2171,14 +2142,10 @@ export function createReleaseEvidenceClient(repository = DEFAULT_REPO) {
       return parentJobLog(jobId, normalizedRepository);
     },
     getParentJobs(runId) {
-      return findRunJobsAll(`actions/runs/${runId}/jobs?filter=all&`, normalizedRepository);
+      return findParentJobsAll(runId, normalizedRepository);
     },
     getRunAttemptJobs(runId, runAttempt, { requireComplete = false } = {}) {
-      return findRunJobsAll(
-        `actions/runs/${runId}/attempts/${runAttempt}/jobs?`,
-        normalizedRepository,
-        requireComplete,
-      );
+      return findRunAttemptJobsAll(runId, runAttempt, normalizedRepository, requireComplete);
     },
     getRunAttempt(runId, runAttempt) {
       return githubRestJson(`actions/runs/${runId}/attempts/${runAttempt}`, normalizedRepository);
@@ -2453,7 +2420,7 @@ async function validateStrictChildRun({
   }
 
   return {
-    advisoryJobs: releaseChildAdvisories(policyChild),
+    advisoryJobs: [],
     conclusion: run.conclusion,
     dispatchNonce: `full-release-validation-${reused ? childReuse.sourceParentRunId : parentEvidence.manifest.runId}-${originAttempt}${child.suffix}`,
     displayTitle: run.display_title,
@@ -3177,20 +3144,6 @@ export async function validateReleaseRunEvidence(
 }
 
 function parseReleaseCiSummaryArgs(argv) {
-  const stringFlags = {
-    "--repo": "repository",
-    "--manifest": "manifestPath",
-    "--trusted-workflow-ref": "trustedWorkflowRef",
-    "--trusted-workflow-full-ref": "trustedWorkflowFullRef",
-    "--trusted-workflow-sha": "trustedWorkflowSha",
-    "--verifier-source-sha": "verifierSourceSha",
-    "--verifier-source-file": "verifierSourceFile",
-    "--expected-target-sha": "expectedTargetSha",
-    "--expected-evidence-policy": "expectedEvidencePolicy",
-    "--expected-evidence-sha": "expectedEvidenceSha",
-    "--expected-root-run-id": "expectedRootRunId",
-    "--expected-selected-run-id": "expectedSelectedRunId",
-  };
   const options = {
     intervalMs: 30_000,
     expectedChangedPaths: undefined,
@@ -3216,11 +3169,13 @@ function parseReleaseCiSummaryArgs(argv) {
   };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
-    if (Object.hasOwn(stringFlags, argument)) {
-      options[stringFlags[argument]] = argv[++index];
-    } else if (argument === "--validate-run") {
+    if (argument === "--validate-run") {
       options.validate = true;
       options.runId = argv[++index];
+    } else if (argument === "--repo") {
+      options.repository = argv[++index];
+    } else if (argument === "--manifest") {
+      options.manifestPath = argv[++index];
     } else if (argument === "--reuse-request-json") {
       options.reuseRequest = normalizeJsonObject(JSON.parse(argv[++index]), "reuse request");
     } else if (argument === "--qualification-reuse-json") {
@@ -3228,6 +3183,24 @@ function parseReleaseCiSummaryArgs(argv) {
         JSON.parse(argv[++index]),
         "qualification reuse request",
       );
+    } else if (argument === "--trusted-workflow-ref") {
+      options.trustedWorkflowRef = argv[++index];
+    } else if (argument === "--trusted-workflow-full-ref") {
+      options.trustedWorkflowFullRef = argv[++index];
+    } else if (argument === "--trusted-workflow-sha") {
+      options.trustedWorkflowSha = argv[++index];
+    } else if (argument === "--verifier-source-sha") {
+      options.verifierSourceSha = argv[++index];
+    } else if (argument === "--verifier-source-file") {
+      options.verifierSourceFile = argv[++index];
+    } else if (argument === "--expected-target-sha") {
+      options.expectedTargetSha = argv[++index];
+    } else if (argument === "--expected-evidence-policy") {
+      options.expectedEvidencePolicy = argv[++index];
+    } else if (argument === "--expected-evidence-sha") {
+      options.expectedEvidenceSha = argv[++index];
+    } else if (argument === "--expected-root-run-id") {
+      options.expectedRootRunId = argv[++index];
     } else if (argument === "--expected-run-attempts-json") {
       const value = argv[++index];
       if (!value || Buffer.byteLength(value, "utf8") > MAX_EXPECTED_RUN_ATTEMPTS_JSON_BYTES) {
@@ -3242,6 +3215,8 @@ function parseReleaseCiSummaryArgs(argv) {
         throw new Error("--expected-run-attempts-json requires a JSON object");
       }
       normalizeExpectedRunAttempts(options.expectedRunAttempts);
+    } else if (argument === "--expected-selected-run-id") {
+      options.expectedSelectedRunId = argv[++index];
     } else if (argument === "--expected-changed-paths-json") {
       const value = argv[++index];
       try {
@@ -3601,10 +3576,7 @@ async function main() {
           selectedKeys,
           sourceManifest.version === 4 ? 3 : 2,
         );
-    const sourceParentJobs = await findRunJobsAll(
-      `actions/runs/${sourceManifest.runId}/jobs?filter=all&`,
-      repository,
-    );
+    const sourceParentJobs = await findParentJobsAll(sourceManifest.runId, repository);
     children = [];
     for (const { child, runId: childRunId } of manifestChildEntries(
       sourceManifest,
@@ -3638,7 +3610,7 @@ async function main() {
       );
       if (child.manifestKey === "productPerformance") {
         validatePerformanceArtifactOnlyJobs(
-          (await findRunJobsAll(`actions/runs/${childRunId}/jobs?filter=all&`, repository)).filter(
+          (await findParentJobsAll(childRunId, repository)).filter(
             (job) => Number(job.run_attempt) === Number(run.run_attempt),
           ),
         );

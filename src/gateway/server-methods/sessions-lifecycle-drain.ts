@@ -6,8 +6,9 @@ import {
   type SessionWorkspaceRecoveryRequiredErrorDetails,
 } from "../../../packages/gateway-protocol/src/index.js";
 import {
-  captureEmbeddedRunDrainTarget,
-  type EmbeddedRunDrainTarget,
+  abortEmbeddedAgentRun,
+  isEmbeddedAgentRunInProgress,
+  waitForEmbeddedAgentRunEnd,
 } from "../../agents/embedded-agent-runner/runs.js";
 import { createAgentRunDirectAbortError } from "../../agents/run-termination.js";
 import {
@@ -19,10 +20,8 @@ import {
   isReplyOperationForSession,
   resolveReplyOperationsForSession,
   waitForReplyOperationOwnerSettlement,
-  type ReplyOperation,
 } from "../../auto-reply/reply/reply-run-registry.js";
 import { withTimeout } from "../../infra/fs-safe.js";
-import type { AgentWorkAdmissionIdentity } from "../../sessions/session-agent-work-admission.js";
 import {
   closeSessionWorkAdmissions,
   startSessionWorkAdmissionInterruption,
@@ -32,7 +31,6 @@ import {
 } from "../../sessions/session-lifecycle-admission.js";
 import { waitForChatAbortControllerRemoval } from "../chat-abort-lifecycle-internal.js";
 import { createChatAbortOps } from "../chat-abort-ops.js";
-import type { ChatAbortControllerEntry } from "../chat-abort.types.js";
 import type { AgentTerminalSessionDrain } from "../terminal/session-manager.types.js";
 import {
   getWorkerInferenceSessionControl,
@@ -53,30 +51,25 @@ import {
 } from "../worker-environments/session-placement-lifecycle.js";
 import { hasGatewaySessionAbortOwner } from "./chat-abort-authorization.js";
 import { abortChatRunsForSessionKeyWithPartials } from "./chat-abort-runtime.js";
-import type { ChatAbortSessionSnapshot } from "./chat-aborted-partial.js";
 import type { GatewayRequestContext } from "./types.js";
 
 type LifecyclePlacementService = NonNullable<
   GatewayRequestContext["workerSessionPlacementService"]
 > &
-  Partial<Pick<WorkerSessionPlacementStore, "waitForTurnClaimRelease" | "readProjection">>;
+  Partial<Pick<WorkerSessionPlacementStore, "waitForTurnClaimRelease">>;
 
 type SessionLifecycleParams = {
   action: "archive" | "delete";
   authorize?: () => void;
-  beforeCancel?: () => void | Promise<void>;
-  onPrepared?: () => void;
+  beforeCancel?: () => void;
   context: GatewayRequestContext;
   storePath: string;
   sessionKeys: string[];
   sessionId?: string;
-  session?: ChatAbortSessionSnapshot;
-  embeddedRun?: EmbeddedRunDrainTarget | null;
   agentId: string;
   sessionKey: string;
   defaultAgentId?: string;
   lifecycleIdentities: string[];
-  admissionAgent?: AgentWorkAdmissionIdentity;
 };
 
 export type SessionLifecycleDrain = {
@@ -94,19 +87,14 @@ export class SessionLifecycleWorkspaceRecoveryError extends Error {
 function hasAuthoritativeSessionWork(
   params: SessionLifecycleParams,
   workerDrain: WorkerInferenceSessionDrain | undefined,
-  terminalDrains: readonly AgentTerminalSessionDrain[],
+  terminalDrain: AgentTerminalSessionDrain | undefined,
   queueTarget: SessionLifecycleQueueTarget,
-  embeddedRun: EmbeddedRunDrainTarget | undefined,
 ): boolean {
   const sessionId = params.sessionId;
   return (
-    isCompetingSessionWorkAdmissionActive(
-      params.storePath,
-      params.lifecycleIdentities,
-      params.admissionAgent,
-    ) ||
+    isCompetingSessionWorkAdmissionActive(params.storePath, params.lifecycleIdentities) ||
     resolveReplyOperationsForSession(params).length > 0 ||
-    embeddedRun?.isActive() === true ||
+    Boolean(sessionId && isEmbeddedAgentRunInProgress(sessionId)) ||
     hasSessionLifecycleQueueWork(queueTarget) ||
     hasGatewaySessionAbortOwner(params) ||
     Boolean(
@@ -114,7 +102,7 @@ function hasAuthoritativeSessionWork(
       params.context.workerSessionPlacementService?.getMany([sessionId]).get(sessionId)?.turnClaim,
     ) ||
     workerDrain?.hasWork() === true ||
-    terminalDrains.some((drain) => drain.hasWork())
+    terminalDrain?.hasWork() === true
   );
 }
 
@@ -130,14 +118,10 @@ export async function prepareSessionLifecycleDrain(
     sessionId: params.sessionId,
   };
   const workerService = params.context.workerEnvironmentService;
-  let embeddedRun = params.embeddedRun ?? undefined;
   let workerDrain: AcceptedWorkerInferenceSessionDrain | undefined;
   let workerDrained: Promise<void> | undefined;
-  const terminalDrains: AgentTerminalSessionDrain[] = [];
+  let terminalDrain: AgentTerminalSessionDrain | undefined;
   let reclaimed: Promise<void> | undefined;
-  let admittedWork: Promise<void> | undefined;
-  let replyRuns: ReplyOperation[] = [];
-  let controllerTargets: Array<{ runId: string; entry: ChatAbortControllerEntry }> = [];
   let releaseAdmissions = () => {};
   let released = false;
   const release = () => {
@@ -146,17 +130,12 @@ export async function prepareSessionLifecycleDrain(
     }
     released = true;
     try {
-      for (const drain of terminalDrains) {
-        drain.release();
-      }
+      terminalDrain?.release();
     } finally {
       try {
         workerDrain?.release();
       } finally {
         releaseAdmissions();
-        if (params.embeddedRun === undefined) {
-          embeddedRun?.release();
-        }
       }
     }
   };
@@ -168,21 +147,13 @@ export async function prepareSessionLifecycleDrain(
         // Settle preceding mutations before selecting owners, but never await their
         // cancellation completion here: it may need placement and lifecycle recovery.
         params.authorize?.();
-        if (params.beforeCancel) {
-          await params.beforeCancel();
-          params.authorize?.();
-        }
-        const workerStop = await prepareSessionWorkerPlacementStop(params);
-        params.authorize?.();
-        params.onPrepared?.();
+        params.beforeCancel?.();
+        const workerStop = prepareSessionWorkerPlacementStop(params);
         releaseAdmissions = closeSessionWorkAdmissions({
           scope: params.storePath,
           identities: params.lifecycleIdentities,
-          agent: params.admissionAgent,
           reason: createAgentRunDirectAbortError(),
-          assertCurrent: params.authorize,
         });
-        params.authorize?.();
         if (params.sessionId) {
           const reservation = getWorkerInferenceSessionControl(workerService)?.reserveSessionDrain(
             params.sessionId,
@@ -204,24 +175,14 @@ export async function prepareSessionLifecycleDrain(
           if (workerDrain) {
             workerDrained = workerDrain.drained;
             void workerDrained.catch(() => {});
-            workerDrain.start(params.authorize);
+            workerDrain.start();
           }
-          params.authorize?.();
-          if (params.context.terminalSessions) {
-            for (const sessionKey of new Set([params.sessionKey, ...params.sessionKeys])) {
-              const drain = params.context.terminalSessions.beginAgentSessionDrain(
-                {
-                  kind: "agent",
-                  agentSessionKey: sessionKey,
-                  agentSessionId: params.sessionId,
-                  agentId: params.agentId,
-                },
-                params.authorize,
-              );
-              terminalDrains.push(drain);
-              void drain.drained.catch(() => {});
-            }
-          }
+          terminalDrain = params.context.terminalSessions?.beginAgentSessionDrain({
+            kind: "agent",
+            agentSessionKey: params.sessionKey,
+            agentSessionId: params.sessionId,
+            agentId: params.agentId,
+          });
         }
 
         // Capture dispatch custody before cancellation can settle its placement.
@@ -229,29 +190,28 @@ export async function prepareSessionLifecycleDrain(
           reclaimed = workerStop.stop();
           void reclaimed.catch(() => {});
         }
-        replyRuns = resolveReplyOperationsForSession(params);
-        if (params.embeddedRun === undefined && params.sessionId) {
-          embeddedRun = captureEmbeddedRunDrainTarget(params.sessionId, params);
-        }
+        let controllerDrain = Promise.resolve(true);
+        const replyRuns = resolveReplyOperationsForSession(params);
         const cancellation = abortChatRunsForSessionKeyWithPartials({
           context: params.context,
           ops: createChatAbortOps(params.context),
           sessionKey: params.sessionKeys[0]!,
           sessionKeyAliases: params.sessionKeys.slice(1),
           sessionId: params.sessionId,
-          session: params.session,
           agentId: params.agentId,
           defaultAgentId: params.defaultAgentId,
           abortOrigin: "rpc",
           stopReason: params.action,
           requester: { isAdmin: true },
-          stopEmbeddedRun: params.embeddedRun === undefined ? true : undefined,
           includeProtectedRuns: true,
-          assertCurrent: params.authorize,
           onControllerTargets: (targets) => {
-            controllerTargets = targets;
+            controllerDrain = waitForChatAbortControllerRemoval({
+              entries: params.context.chatAbortControllers,
+              targets,
+              timeoutMs,
+            });
           },
-          onAuthorizedBeforeEmbeddedAbort: () => {
+          onAuthorizedAfterQueuedAbort: () => {
             const cleared = clearSessionLifecycleQueues({
               ...queueTarget,
               assertCurrent: () => params.authorize?.(),
@@ -259,17 +219,9 @@ export async function prepareSessionLifecycleDrain(
             return cleared.followupCleared > 0 || cleared.laneCleared > 0;
           },
           onCancellationStarted: () => {
-<<<<<<< HEAD
             if (params.sessionId) {
               params.authorize?.();
               abortEmbeddedAgentRun(params.sessionId);
-=======
-            // Agent deletion captured its exact owner before asynchronous inventory.
-            // Ordinary session Stop owns embedded cancellation and its persistence.
-            if (params.embeddedRun !== undefined || params.sessionKey === "global") {
-              params.authorize?.();
-              embeddedRun?.abort();
->>>>>>> 97b6e87616f
             }
             // Let chat controllers publish cancellation before their reply becomes non-abortable.
             for (const operation of replyRuns) {
@@ -282,7 +234,7 @@ export async function prepareSessionLifecycleDrain(
         });
         // Observe failures immediately while the short mutation releases its queues.
         void cancellation.catch(() => {});
-        return { workerStop, cancellation };
+        return { workerStop, cancellation, controllerDrain, replyRuns };
       },
     });
     const abortResult = await prepared.cancellation;
@@ -290,34 +242,20 @@ export async function prepareSessionLifecycleDrain(
       throw new Error("Session cancellation lost ownership");
     }
 
-    // Early reclaim owns dispatch cancellation and settlement. Join its writes before
-    // capturing runtime authority, or our own cleanup can invalidate that snapshot.
-    await reclaimed;
     params.authorize?.();
     const placementService: LifecyclePlacementService | undefined =
       params.context.workerSessionPlacementService;
     let placement: WorkerSessionPlacementRecord | undefined;
     if (params.sessionId) {
-      // Cleanup can advance placement while this consistent snapshot is in flight.
-      const projection = await placementService?.readProjection?.([params.sessionId], {
-        current: true,
-      });
-      // Released custom readers may expose only the prepared-read contract.
-      const preparedPlacement = projection
-        ? undefined
-        : await placementService?.prepareRuntimeRefresh?.(params.sessionId);
+      const preparedPlacement = await placementService?.prepareRuntimeRefresh?.(params.sessionId);
       let pending: WorkerWorkspacePendingResult | undefined;
       try {
-        pending = projection
-          ? projection.pendingResults.get(params.sessionId)
-          : preparedPlacement
-            ? preparedPlacement.pendingResult
-            : (await placementService?.listPendingWorkspaceResultsAsync?.(params.sessionId))?.[0];
-        placement = projection
-          ? projection.placements.get(params.sessionId)
-          : preparedPlacement
-            ? preparedPlacement.placement
-            : await readSessionWorkerPlacementAsync(params);
+        pending = preparedPlacement
+          ? preparedPlacement.pendingResult
+          : (await placementService?.listPendingWorkspaceResultsAsync?.(params.sessionId))?.[0];
+        placement = preparedPlacement
+          ? preparedPlacement.placement
+          : await readSessionWorkerPlacementAsync(params);
         params.authorize?.();
         preparedPlacement?.assertCurrent();
       } finally {
@@ -350,18 +288,18 @@ export async function prepareSessionLifecycleDrain(
         );
       }
     }
-    params.authorize?.();
-    admittedWork = startSessionWorkAdmissionInterruption({
+    const { released: admittedWork } = startSessionWorkAdmissionInterruption({
       scope: params.storePath,
       identities: params.lifecycleIdentities,
-      agent: params.admissionAgent,
-      assertCurrent: params.authorize,
-    }).released;
-    void admittedWork.catch(() => {});
+    });
     const replyWork = Promise.all(
-      replyRuns.map((operation) => waitForReplyOperationOwnerSettlement(operation, timeoutMs)),
+      prepared.replyRuns.map((operation) =>
+        waitForReplyOperationOwnerSettlement(operation, timeoutMs),
+      ),
     ).then((results) => results.every(Boolean));
-    const embeddedWork = embeddedRun?.waitForEnd(timeoutMs) ?? Promise.resolve(true);
+    const embeddedWork = params.sessionId
+      ? waitForEmbeddedAgentRunEnd(params.sessionId, timeoutMs)
+      : Promise.resolve(true);
     const placementWork = placement?.turnClaim
       ? placementService?.waitForTurnClaimRelease
         ? placementService
@@ -372,15 +310,9 @@ export async function prepareSessionLifecycleDrain(
     const waitForDrain = (work: Promise<void> | undefined, label: string) =>
       work ? withTimeout(work, timeoutMs, label).then(() => true) : Promise.resolve(true);
     const workerWork = waitForDrain(workerDrained, "worker inference lifecycle drain");
-    const terminalWork = Promise.all(
-      terminalDrains.map((drain) => waitForDrain(drain.drained, "agent terminal lifecycle drain")),
-    ).then((results) => results.every(Boolean));
+    const terminalWork = waitForDrain(terminalDrain?.drained, "agent terminal lifecycle drain");
     const drains = await Promise.all([
-      waitForChatAbortControllerRemoval({
-        entries: params.context.chatAbortControllers,
-        targets: controllerTargets,
-        timeoutMs,
-      }),
+      prepared.controllerDrain,
       replyWork,
       embeddedWork,
       placementWork,
@@ -393,9 +325,9 @@ export async function prepareSessionLifecycleDrain(
     // Failed placements keep cleanup custody without delaying archive visibility.
     // Other placements and destructive deletion still require safe reclaim.
     await (reclaimed ?? prepared.workerStop.stop());
-    // Provider settlement keeps its placement custody. Admission settlement follows
-    // reclaim, including for local sessions.
-    await waitForDrain(admittedWork, "session work admission lifecycle drain");
+    // Provider settlement keeps its placement custody and deadline. Only after reclaim
+    // finishes does the ordinary admission bound apply, including for local sessions.
+    await withTimeout(admittedWork, timeoutMs, "session work admission lifecycle drain");
     const placementTarget = { context: params.context, sessionId: params.sessionId };
     const assertPlacementCurrent =
       params.action === "archive"
@@ -411,32 +343,32 @@ export async function prepareSessionLifecycleDrain(
         } catch {
           return true;
         }
-        return hasAuthoritativeSessionWork(
-          params,
-          workerDrain,
-          terminalDrains,
-          queueTarget,
-          embeddedRun,
-        );
+        return hasAuthoritativeSessionWork(params, workerDrain, terminalDrain, queueTarget);
       },
     };
   } catch (error) {
-    // Accepted worker writes retain cleanup custody even after a caller timeout.
-    const settled = await Promise.allSettled([reclaimed, workerDrained]);
-    const failures = new Set([
-      error,
-      ...settled.flatMap((result) => (result.status === "rejected" ? [result.reason] : [])),
-    ]);
-    try {
-      release();
-    } catch (releaseError) {
-      failures.add(releaseError);
+    await reclaimed?.catch(() => {});
+    if (workerDrained) {
+      // Every failure after acceptance retains raw settlement outside the mutex,
+      // including a timeout of the caller's wait or a later authority refusal.
+      const failures = new Set([error]);
+      const [settled] = await Promise.allSettled([workerDrained]);
+      if (settled.status === "rejected") {
+        failures.add(settled.reason);
+      }
+      try {
+        release();
+      } catch (releaseError) {
+        failures.add(releaseError);
+      }
+      if (failures.size > 1) {
+        throw new AggregateError([...failures], "Session lifecycle and worker settlement failed", {
+          cause: error,
+        });
+      }
+      throw error;
     }
-    if (failures.size > 1) {
-      throw new AggregateError([...failures], "Session lifecycle and settlement failed", {
-        cause: error,
-      });
-    }
+    release();
     throw error;
   }
 }

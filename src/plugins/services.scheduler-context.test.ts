@@ -9,15 +9,8 @@ import {
 import { createSyntheticPluginRuntimeClient } from "../gateway/server-plugin-runtime-client.js";
 import { createGatewayRequestContext } from "../gateway/server-request-context.js";
 import { makeContextParams } from "../gateway/server-request-context.test-support.js";
-<<<<<<< HEAD
 import { readOnlyWorkerScope } from "../infra/sqlite-readonly-worker-context.js";
 import { createSqliteReadOnlyWorkerScope } from "../infra/sqlite-readonly-worker.js";
-=======
-import {
-  createSqliteReadOnlyWorkerScope,
-  readOnlyWorkerScope,
-} from "../infra/sqlite-readonly-worker-context.js";
->>>>>>> 97b6e87616f
 import { createAuthRateLimiter } from "../plugin-sdk/webhook-ingress.js";
 import { createDeferredCore } from "../shared/deferred.js";
 import {

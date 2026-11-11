@@ -1,7 +1,6 @@
 import { once } from "node:events";
 import http from "node:http";
 import { promisify } from "node:util";
-<<<<<<< HEAD
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
 import type { TestContext } from "vitest";
 import type { CodexAppServerClient } from "./client.js";
@@ -52,14 +51,6 @@ export async function runNativeTurn(
 
 export async function listenForNativeResponses(
   context: TestContext,
-=======
-import type { TestContext } from "vitest";
-import type { createCodexNativeTestState } from "./native-app-server.test-support.js";
-import { createAppServerOptions } from "./thread-lifecycle.test-fixtures.js";
-
-export async function listenForNativeResponses(
-  context: Pick<TestContext, "onTestFinished">,
->>>>>>> 97b6e87616f
   listener: http.RequestListener,
 ) {
   const server = http.createServer(listener);
@@ -79,7 +70,6 @@ export async function listenForNativeResponses(
   return address.port;
 }
 
-<<<<<<< HEAD
 export function sendNativeResponse(response: http.ServerResponse, id: string, item: unknown) {
   const events = [
     { type: "response.created", response: { id } },
@@ -95,8 +85,6 @@ export function sendNativeResponse(response: http.ServerResponse, id: string, it
   );
 }
 
-=======
->>>>>>> 97b6e87616f
 export function nativeProviderConfig(
   provider: string,
   port: number,
@@ -136,7 +124,6 @@ export function nativeAppServerOptions(
     ),
     ...extraEnv,
   };
-<<<<<<< HEAD
   return {
     ...createAppServerOptions(),
     start: {
@@ -146,16 +133,6 @@ export function nativeAppServerOptions(
       args: ["app-server"],
       cwd: native.cwd,
       headers: {},
-=======
-  const options = createAppServerOptions();
-  return {
-    ...options,
-    start: {
-      ...options.start,
-      command: native.command,
-      commandSource: "config" as const,
-      cwd: native.cwd,
->>>>>>> 97b6e87616f
       env,
       clearEnv: Object.keys(process.env).filter((key) => !(key in env)),
     },

@@ -1,42 +1,21 @@
 # Changelog
 
-<<<<<<< HEAD
 ## 2026.10.8
-=======
-## 2026.11.1
->>>>>>> 97b6e87616f
 
 ### Changes
 - Version alignment with core OpenClaw release numbers.
 
-<<<<<<< HEAD
 ## 2026.10.7
-=======
-## 2026.10.10
->>>>>>> 97b6e87616f
 
 ### Changes
 - Version alignment with core OpenClaw release numbers.
 
-<<<<<<< HEAD
 ## 2026.10.6
-=======
-## 2026.10.3
->>>>>>> 97b6e87616f
 
 ### Changes
 - Version alignment with core OpenClaw release numbers.
 
-<<<<<<< HEAD
 ## 2026.10.5
-=======
-## 2026.10.2
-
-### Changes
-- Version alignment with core OpenClaw release numbers.
-
-## 2026.10.1
->>>>>>> 97b6e87616f
 
 ### Changes
 - Version alignment with core OpenClaw release numbers.

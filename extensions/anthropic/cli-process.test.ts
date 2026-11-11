@@ -1,9 +1,5 @@
-<<<<<<< HEAD
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { access, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-=======
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
->>>>>>> 97b6e87616f
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as waitForProcessTick } from "node:timers/promises";
@@ -14,11 +10,9 @@ import type {
 } from "openclaw/plugin-sdk/cli-backend";
 import { formatErrorMessageForDisplay } from "openclaw/plugin-sdk/error-runtime";
 import { createDeferred } from "openclaw/plugin-sdk/extension-shared";
-import type { OwnedStdioProcess } from "openclaw/plugin-sdk/process-runtime";
 import { withinTest } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildAnthropicCliBackend } from "./cli-backend.js";
-import { discoverClaudeCliModels } from "./cli-model-discovery.js";
 import * as cliProcess from "./cli-process.js";
 import type { ClaudeCliSecretInput } from "./cli-process.js";
 import { createClaudeCliTransport } from "./cli-transport.js";
@@ -132,17 +126,17 @@ async function collect(
 
 function observeChild(
   observe: (
-    child: OwnedStdioProcess,
+    child: ChildProcessWithoutNullStreams,
     owner: ReturnType<typeof cliProcess.createClaudeCliProcessOwner>,
-  ) => void | Promise<void>,
+  ) => void,
 ) {
   const createOwner = cliProcess.createClaudeCliProcessOwner;
   vi.spyOn(cliProcess, "createClaudeCliProcessOwner").mockImplementation((...args) => {
     const owner = createOwner(...args);
     const spawn = owner.spawn;
-    vi.spyOn(owner, "spawn").mockImplementation(async (options) => {
-      const child = await spawn(options);
-      await observe(child, owner);
+    vi.spyOn(owner, "spawn").mockImplementation((options) => {
+      const child = spawn(options);
+      observe(child, owner);
       return child;
     });
     return owner;
@@ -192,7 +186,6 @@ async function waitForDescendantExit(pid: number, signal: AbortSignal): Promise<
 }
 
 describe("Claude subprocess diagnostics through the direct CLI transport", () => {
-<<<<<<< HEAD
   it("delivers startup hook bursts in order and completes the first and warm turns", async ({
     signal,
   }) => {
@@ -243,97 +236,6 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
       expect(current()).toBeUndefined();
       await expect(access(path.join(context.cwd, "user.received"))).rejects.toThrow();
       expect(() => process.kill(Number(first.value?.pid), 0)).toThrow();
-=======
-  it("waits for startup and child extinction when a session closes during spawn", async ({
-    signal,
-  }) => {
-    const context = await contextForChild(PROTOCOL_CHILD);
-    const current = attachLiveSession(context);
-    const spawned = createDeferred<void>();
-    const release = createDeferred<void>();
-    let extinct = false;
-    observeChild(async (child) => {
-      void child.waitForExtinction?.().then(
-        () => {
-          extinct = true;
-        },
-        () => {},
-      );
-      spawned.resolve();
-      await release.promise;
-    });
-    const running = collect(context);
-    void running.catch(() => {});
-    let waiting: Promise<void> | undefined;
-    try {
-      await withinTest(spawned.promise, signal);
-      const session = current();
-      if (!session) {
-        throw new Error("Expected the starting session to be registered.");
-      }
-      session.close("restart");
-      let finished = false;
-      waiting = session.waitForExit().then(() => {
-        finished = true;
-      });
-      void waiting.catch(() => {});
-      // Let a prematurely resolved exit promise run before releasing startup.
-      await Promise.resolve();
-      expect(finished).toBe(false);
-      release.resolve();
-      await withinTest(waiting, signal);
-      expect(extinct).toBe(true);
-      await expect(running).rejects.toThrow("Claude CLI live session closed.");
-    } finally {
-      release.resolve();
-      await Promise.allSettled([running, waiting]);
-    }
-  });
-
-  it("preserves a missing executable's native spawn error", async () => {
-    const context = await contextForChild("");
-    context.command = path.join(context.cwd, "missing-claude");
-    await expect(collect(context)).rejects.toMatchObject({
-      code: "ENOENT",
-      path: context.command,
-      syscall: `spawn ${context.command}`,
-    });
-  });
-
-  it.runIf(process.platform === "linux")(
-    "raises the CLI child OOM score without changing its shim identity or the parent score",
-    async () => {
-      const context = await contextForChild(`
-        import { readFileSync } from "node:fs";
-        process.stdin.once("data", () => process.stdout.end(JSON.stringify({
-          argv0: process.argv0, score: readFileSync("/proc/self/oom_score_adj", "utf8").trim(),
-        })));
-      `);
-      context.argv0 = "/opt/shims/claude";
-      context.env.OPENCLAW_CHILD_OOM_SCORE_ADJ = "1";
-      const parentScore = await readFile("/proc/self/oom_score_adj", "utf8");
-      using owner = cliProcess.createClaudeCliProcessOwner(() => context);
-      const child = await owner.spawn(context);
-      let output = "";
-      const consumed = child.consumeStdout((chunk) => {
-        output += chunk;
-      });
-      const closed = child.wait();
-      try {
-        child.stdin?.write("ready");
-        child.stdin?.end();
-        expect(await closed).toEqual({ code: 0, signal: null });
-        await consumed;
-        expect(JSON.parse(output)).toEqual({ argv0: context.argv0, score: "1000" });
-        expect(await readFile("/proc/self/oom_score_adj", "utf8")).toBe(parentScore);
-      } finally {
-        child.kill("SIGKILL");
-        await closed;
-        await consumed;
-        await child.waitForExtinction?.();
-        child.dispose();
-      }
->>>>>>> 97b6e87616f
     },
   );
 
@@ -356,6 +258,11 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
     expect(formatErrorMessageForDisplay(error)).not.toContain(secret);
     expect(formatErrorMessageForDisplay(error)).not.toContain("discarded noise");
     expect(formatErrorMessageForDisplay(error).length).toBeLessThan(2_200);
+  });
+
+  it("preserves a silent child's exit error without inventing stderr", async () => {
+    const context = await contextForChild("process.exit(1);");
+    await expect(collect(context)).rejects.toThrow(/^Claude Code process exited with code 1$/);
   });
 
   it.skipIf(process.platform === "win32")(
@@ -403,10 +310,7 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
       const reason = new Error("Synthetic cancellation after stdin failure.");
       const inputErrors: unknown[] = [];
       observeChild((child) => {
-        child.onError((error, source) => {
-          if (source !== "stdin") {
-            return;
-          }
+        child.stdin.once("error", (error) => {
           inputErrors.push(error);
           controller.abort(reason);
         });
@@ -432,11 +336,7 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
       const releaseDiagnostics = createDeferred<void>();
       const inputErrors: unknown[] = [];
       observeChild((child, owner) => {
-        child.onError((error, source) => {
-          if (source === "stdin") {
-            inputErrors.push(error);
-          }
-        });
+        child.stdin.once("error", (error) => inputErrors.push(error));
         const withDiagnostics = owner.withDiagnostics.bind(owner);
         vi.spyOn(owner, "withDiagnostics").mockImplementation(async (error) => {
           diagnosticsStarted.resolve();
@@ -473,15 +373,12 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
         if (diagnosticsReject) {
           vi.spyOn(owner, "withDiagnostics").mockRejectedValue(diagnosticError);
         }
-        child.onError((_error, source) => {
-          if (source !== "stdin") {
-            return;
-          }
+        child.stdin.once("error", () => {
           lateSend = transport.send({ type: "control_response" });
           void lateSend.catch(() => {});
         });
       });
-      const transport = await createClaudeCliTransport({
+      const transport = createClaudeCliTransport({
         context,
         args: [...context.args],
         initialize: { appendSystemPrompt: "x".repeat(1024 * 1024) },
@@ -529,11 +426,11 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
           disposed = true;
           dispose();
         });
-        child.onExit(() => {
+        child.once("exit", () => {
           childExited = true;
         });
       });
-      const transport = await createClaudeCliTransport({
+      const transport = createClaudeCliTransport({
         context,
         args: [...context.args],
         initialize: {},
@@ -568,15 +465,7 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
         expect(signal.aborted).toBe(true);
         expect(childExited).toBe(false);
         if (send) {
-          // The relay may accept the initial write before its downstream pipe fails.
-          await send.catch((error: unknown) => {
-            expect(error).toMatchObject({ code: "EPIPE" });
-          });
-          await expect(
-            transport.send({ type: "user", data: "after pipe failure" }),
-          ).rejects.toMatchObject({
-            code: "EPIPE",
-          });
+          await expect(send).rejects.toMatchObject({ code: "EPIPE" });
         }
       } finally {
         transport.close();
@@ -677,6 +566,7 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
   });
 
   it.each([
+    { firstPrompt: "success with stderr", prompt: "fail silently" },
     { firstPrompt: "success with stderr", prompt: "fail noisily" },
     { firstPrompt: "success with stderr", prompt: "close idle" },
     { firstPrompt: "success with delayed stderr", prompt: "fail silently" },
@@ -770,88 +660,4 @@ describe("Claude subprocess diagnostics through the direct CLI transport", () =>
       expect(stderr).not.toHaveBeenCalled();
     },
   );
-});
-
-async function discoverFromNativeMenu(models: unknown[]) {
-  const context = await contextForChild(`
-    import { createInterface } from "node:readline";
-    createInterface({ input: process.stdin }).on("line", (line) => {
-      const message = JSON.parse(line);
-      if (message.type !== "control_request" || message.request.subtype !== "initialize") {
-        process.exit(7);
-      }
-      process.stdout.write(JSON.stringify({ type: "control_response", response: {
-        subtype: "success", request_id: message.request_id,
-        response: { models: ${JSON.stringify(models)} },
-      } }) + "\\n");
-    });
-  `);
-  const createOwner = cliProcess.createClaudeCliProcessOwner;
-  vi.spyOn(cliProcess, "createClaudeCliProcessOwner").mockImplementation((...args) => {
-    const owner = createOwner(...args);
-    const spawn = owner.spawn;
-    vi.spyOn(owner, "spawn").mockImplementation((options) => {
-      expect(options.args).not.toContain("--model");
-      expect(options.args).toContain("--tools");
-      return spawn({ ...options, command: context.command, args: context.args });
-    });
-    return owner;
-  });
-  return discoverClaudeCliModels({ env: context.env });
-}
-
-it("discovers deduplicated native model IDs through initialize without a turn", async () => {
-  expect(
-    await discoverFromNativeMenu([
-      {
-        value: "default",
-        resolvedModel: "claude-future[1m]",
-        displayName: "Default (recommended)",
-        supportedEffortLevels: ["low", "max"],
-      },
-      {
-        value: "future",
-        resolvedModel: "claude-future[1m]",
-        displayName: "Future",
-        supportedEffortLevels: ["low", "max"],
-      },
-      {
-        value: "opus",
-        resolvedModel: "claude-opus-5-5",
-        displayName: "Opus",
-        supportedEffortLevels: ["low", "max"],
-      },
-    ]),
-  ).toEqual([
-    expect.objectContaining({
-      id: "claude-future[1m]",
-      name: "Future",
-      thinkingLevelMap: {
-        off: "off",
-        minimal: null,
-        low: "low",
-        medium: null,
-        high: null,
-        xhigh: null,
-        max: "max",
-      },
-    }),
-    expect.objectContaining({
-      id: "claude-opus-5-5",
-      name: "Opus",
-      thinkingLevelMap: expect.objectContaining({ off: null, low: "low", max: "max" }),
-    }),
-  ]);
-});
-
-it("keeps the default label when no explicit option names its model", async () => {
-  expect(
-    await discoverFromNativeMenu([
-      { value: "default", resolvedModel: "claude-hidden", displayName: "Default (recommended)" },
-      { value: "opus", resolvedModel: "claude-opus-5-5", displayName: "Opus" },
-    ]),
-  ).toEqual([
-    expect.objectContaining({ id: "claude-hidden", name: "Default (recommended)" }),
-    expect.objectContaining({ id: "claude-opus-5-5", name: "Opus" }),
-  ]);
 });

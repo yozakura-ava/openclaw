@@ -8,11 +8,13 @@ import { closeOpenClawStateDatabaseForTest } from "../../state/openclaw-state-db
 import { createFixtureSuite } from "../../test-utils/fixture-suite.js";
 import { readSessionArchiveContentSync } from "./archive-compression.js";
 import { isRetainedSessionTranscriptArchiveName } from "./artifacts.js";
-import { loadSessionEntry, loadTranscriptEvents, replaceSessionEntry } from "./session-accessor.js";
-import { replaceSessionEntrySync } from "./session-accessor.sqlite-entry.js";
+import {
+  appendTranscriptEventSync,
+  loadSessionEntry,
+  loadTranscriptEvents,
+  replaceSessionEntry,
+} from "./session-accessor.js";
 import * as lifecycleProjection from "./session-accessor.sqlite-projection.js";
-import { appendTranscriptEventSync } from "./session-accessor.sqlite-transcript-write.test-support.js";
-import * as childRead from "./session-entry-children-read.js";
 import * as entryReadRuntime from "./session-entry-read-maintenance.js";
 import { runSessionRegistryMaintenanceForStore } from "./session-registry-maintenance.js";
 import { resolveSqliteTargetFromSessionStorePath } from "./session-sqlite-target.js";
@@ -35,15 +37,12 @@ function sessionEntry(sessionId: string, updatedAt: number): SessionEntry {
   return { sessionId, updatedAt, delivery: { kind: "none" } };
 }
 
-async function createStore(
-  entries: Record<string, SessionEntry>,
-  agentId = "main",
-): Promise<string> {
+async function createStore(entries: Record<string, SessionEntry>): Promise<string> {
   const dir = await fixtureSuite.createCaseDir("store");
   const storePath = path.join(dir, "sessions.json");
   await fs.mkdir(dir, { recursive: true });
   for (const [sessionKey, entry] of Object.entries(entries)) {
-    replaceSessionEntrySync({ sessionKey, storePath, agentId }, entry);
+    await replaceSessionEntry({ sessionKey, storePath }, entry);
   }
   return storePath;
 }
@@ -74,7 +73,6 @@ async function listDeletedArchiveFiles(root: string): Promise<string[]> {
 }
 
 describe("runSessionRegistryMaintenanceForStore", () => {
-<<<<<<< HEAD
   it("keeps expired cron run ancestors of live children reachable", async () => {
     const old = Date.now() - 8 * DAY_MS;
     const parentKey = "agent:main:cron:parent:run:old";
@@ -85,42 +83,11 @@ describe("runSessionRegistryMaintenanceForStore", () => {
       [childKey]: { ...sessionEntry("child", Date.now()), spawnedBy: parentKey },
       [orphanKey]: sessionEntry("orphan-old", old),
     });
-=======
-  it("prunes bloated cron rows in bounded pages while preserving recent and running rows", async () => {
-    const now = Date.now();
-    const usageFamilySessionIds = Array.from({ length: 1024 }, (_, i) => `previous-run-${i}`);
-    const staleKeys = Array.from({ length: 65 }, (_, i) => `agent:main:cron:done:run:${i}`);
-    const recentKey = "agent:main:cron:done:run:recent";
-    const runningKey = "agent:main:cron:running:run:old";
-    const entries = Object.fromEntries(
-      [...staleKeys, recentKey, runningKey].map((key) => [
-        key,
-        {
-          ...sessionEntry(key, key === recentKey ? now : now - 8 * DAY_MS),
-          usageFamilySessionIds,
-        },
-      ]),
-    );
-    const storePath = await createStore(entries);
-    const readRegistry = entryReadRuntime.withSessionRegistryEntriesInWorker;
-    let seen = 0;
-    const reader = vi
-      .spyOn(entryReadRuntime, "withSessionRegistryEntriesInWorker")
-      .mockImplementation((scope, consume) =>
-        readRegistry(scope, async (page, assertCurrent) => {
-          seen += page.length;
-          expect(page.length).toBeLessThanOrEqual(32);
-          expect(Buffer.byteLength(JSON.stringify(page))).toBeLessThan(1024 * 1024);
-          await consume(page, assertCurrent);
-        }),
-      );
->>>>>>> 97b6e87616f
     const result = await runSessionRegistryMaintenanceForStore({
       agentId: "main",
       storePath,
       apply: true,
       retentionMs: 7 * DAY_MS,
-<<<<<<< HEAD
       runningCronJobIds: new Set(),
     });
     expect(result.pruned).toBe(1);
@@ -159,44 +126,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
     }
   });
 
-=======
-      runningCronJobIds: new Set(["running"]),
-    }).finally(() => reader.mockRestore());
-    expect(seen).toBe(67);
-    expect(result).toMatchObject({ pruned: 65, preservedRunning: 1 });
-    for (const sessionKey of staleKeys) {
-      expect(loadSessionEntry({ storePath, sessionKey })).toBeUndefined();
-    }
-    for (const sessionKey of [recentKey, runningKey]) {
-      expect(loadSessionEntry({ storePath, sessionKey })).toEqual(entries[sessionKey]);
-    }
-  });
-
-  it("reports the next retention deadline and goes dormant after the final removal", async () => {
-    const now = Date.now();
-    const sessionKey = "agent:main:cron:deadline:run:recent";
-    const storePath = await createStore({
-      [sessionKey]: sessionEntry("deadline-recent", now),
-    });
-    const options = {
-      agentId: "main",
-      storePath,
-      apply: true,
-      retentionMs: 7 * DAY_MS,
-      runningCronJobIds: new Set<string>(),
-    };
-    const retained = await runSessionRegistryMaintenanceForStore(options);
-    expect(retained.nextSweepAtMs).toBe(now + 7 * DAY_MS + 1);
-    await replaceSessionEntry(
-      { sessionKey, storePath },
-      sessionEntry("deadline-recent", now - 8 * DAY_MS),
-    );
-    const removed = await runSessionRegistryMaintenanceForStore(options);
-    expect(removed).toEqual({ pruned: 1, preservedRunning: 0, nextSweepAtMs: null });
-    expect(loadSessionEntry({ sessionKey, storePath })).toBeUndefined();
-  });
-
->>>>>>> 97b6e87616f
   it("rechecks caller authority inside the removal transaction after planning", async () => {
     const sessionKey = "agent:main:cron:authority:run:old";
     const storePath = await createStore({
@@ -272,57 +201,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
     }
   });
 
-  it.each([false, true])(
-    "retains cross-agent live descendants through archived intermediates=%s",
-    async (intermediate) => {
-      const parentKey = "agent:main:cron:done:run:parent";
-      const middleKey = "agent:other:subagent:middle";
-      const childKey = "agent:other:subagent:live";
-      const storePath = await createStore({
-        [parentKey]: sessionEntry("parent", Date.now() - 8 * DAY_MS),
-      });
-      const childStore = await createStore(
-        {
-          ...(intermediate
-            ? {
-                [middleKey]: {
-                  ...sessionEntry("middle", 1),
-                  spawnedBy: parentKey,
-                  parentSessionId: "parent",
-                  archivedAt: 1,
-                },
-              }
-            : {}),
-          [childKey]: {
-            ...sessionEntry("child", 1),
-            spawnedBy: intermediate ? middleKey : parentKey,
-            parentSessionId: intermediate ? "middle" : "parent",
-          },
-        },
-        "other",
-      );
-      const options = {
-        agentId: "main",
-        storePath,
-        apply: true,
-        retentionMs: 7 * DAY_MS,
-        runningCronJobIds: new Set<string>(),
-        childStores: [
-          { agentId: "main", storePath },
-          { agentId: "other", storePath: childStore },
-        ],
-      };
-      const children = vi.spyOn(childRead, "listSessionChildEntriesReadOnly");
-      try {
-        expect((await runSessionRegistryMaintenanceForStore(options)).pruned).toBe(0);
-        expect(children).toHaveBeenCalled();
-        expect(loadSessionEntry({ storePath, sessionKey: parentKey })?.sessionId).toBe("parent");
-      } finally {
-        children.mockRestore();
-      }
-    },
-  );
-
   it("summarizes a missing store without creating it", async () => {
     const dir = await fixtureSuite.createCaseDir("missing-store");
     const storePath = path.join(dir, "sessions.json");
@@ -339,7 +217,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
     expect(result).toEqual({
       preservedRunning: 0,
       pruned: 0,
-      nextSweepAtMs: null,
     });
     await expect(fs.stat(storePath)).rejects.toMatchObject({ code: "ENOENT" });
     await expect(fs.stat(sqlitePath)).rejects.toMatchObject({ code: "ENOENT" });
@@ -371,7 +248,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
     expect(result).toEqual({
       preservedRunning: 0,
       pruned: 1,
-      nextSweepAtMs: null,
     });
     expect(loadSessionEntry({ sessionKey, storePath })).toBeUndefined();
     const archives = await listDeletedArchiveFiles(path.dirname(storePath));
@@ -432,7 +308,7 @@ describe("runSessionRegistryMaintenanceForStore", () => {
       storePath,
     }).finally(() => reader.mockRestore());
 
-    expect(result).toMatchObject({ preservedRunning: 0, pruned: 1 });
+    expect(result).toEqual({ preservedRunning: 0, pruned: 1 });
     expect(loadSessionEntry({ sessionKey, storePath })).toEqual(
       sessionEntry(sessionId, now - 8 * DAY_MS),
     );
@@ -468,7 +344,7 @@ describe("runSessionRegistryMaintenanceForStore", () => {
       storePath,
     });
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       preservedRunning: 2,
       pruned: 2,
     });
@@ -502,7 +378,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
     });
 
     try {
-      const before = Date.now();
       const activeResult = await runSessionRegistryMaintenanceForStore({
         agentId: "main",
         apply: true,
@@ -511,7 +386,6 @@ describe("runSessionRegistryMaintenanceForStore", () => {
         storePath,
       });
       expect(activeResult.pruned).toBe(0);
-      expect(activeResult.nextSweepAtMs).toBeGreaterThanOrEqual(before + 60_000);
       expect(loadSessionEntry({ sessionKey, storePath })).toBeDefined();
     } finally {
       admission.release();

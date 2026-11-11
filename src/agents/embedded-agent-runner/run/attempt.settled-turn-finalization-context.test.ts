@@ -131,7 +131,6 @@ describe("settled post-tool turn finalization context", () => {
       for (const messages of finalizerContexts) {
         expect(messages).toContainEqual(expect.objectContaining(toolResult));
       }
-<<<<<<< HEAD
       const userMessages = manager
         .buildSessionContext()
         .messages.filter((message) => message.role === "user");
@@ -144,22 +143,6 @@ describe("settled post-tool turn finalization context", () => {
           display: false,
           provenance: { kind: "internal_system" },
         });
-=======
-      const persistedUsers = manager
-        .buildSessionContext()
-        .messages.filter((message) => message.role === "user");
-      const isHiddenInternalPrompt = (message: unknown) =>
-        (message as { provenance?: { kind?: string } }).provenance?.kind === "internal_system";
-      expect(
-        persistedUsers
-          .filter((message) => !isHiddenInternalPrompt(message))
-          .map((message) => message.content),
-      ).toEqual(["hello"]);
-      const hiddenFinalizationPrompts = persistedUsers.filter(isHiddenInternalPrompt);
-      expect(hiddenFinalizationPrompts).toHaveLength(2);
-      for (const message of hiddenFinalizationPrompts) {
-        expect(message).toMatchObject({ display: false, provenance: { kind: "internal_system" } });
->>>>>>> 97b6e87616f
       }
       const genuineUser = { role: "user" as const, content: "Read the next file", timestamp: 5 };
       manager.appendMessage(genuineUser);

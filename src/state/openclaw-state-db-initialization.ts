@@ -22,11 +22,7 @@ export function prepareStateDatabaseInitialization(
   initializationAgentPaths: readonly string[] = [],
 ): StateDatabaseInitialization {
   try {
-<<<<<<< HEAD
     // Lease admission leaves a durable integrity store even for unconfigured external agents.
-=======
-    // Lease admission leaves the quarantine store even for unconfigured external agents.
->>>>>>> 97b6e87616f
     if (
       resolveSqliteDatabaseFilePaths(resolveQuarantineStorePath(env)).some((file) =>
         fs.lstatSync(file, { throwIfNoEntry: false }),

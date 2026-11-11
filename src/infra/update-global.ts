@@ -1186,7 +1186,7 @@ export async function cleanupGlobalRenameDirs(params: {
     }
     const target = path.join(root, entry);
     try {
-      const stat = await fs.lstat(target, { bigint: true });
+      const stat = await fs.lstat(target);
       if (!stat.isDirectory()) {
         continue;
       }
@@ -1199,11 +1199,7 @@ export async function cleanupGlobalRenameDirs(params: {
       if (Date.now() >= inspectionDeadline) {
         break;
       }
-<<<<<<< HEAD
       const current = await fs.lstat(target);
-=======
-      const current = await fs.lstat(target, { bigint: true });
->>>>>>> 97b6e87616f
       if (!current.isDirectory() || !sameFileIdentity(stat, current)) {
         continue;
       }

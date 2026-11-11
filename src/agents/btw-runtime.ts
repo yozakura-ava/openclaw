@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 /** Runtime preparation for /btw side questions. */
 import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
 import type { GetReplyOptions } from "../auto-reply/get-reply-options.types.js";
@@ -7,41 +6,21 @@ import {
   buildReplyUsageState,
   recordReplyUsageState,
 } from "../auto-reply/reply/reply-usage-state.js";
-=======
-import { isRecord } from "@openclaw/normalization-core/record-coerce";
-import { normalizeLowercaseStringOrEmpty } from "@openclaw/normalization-core/string-coerce";
-import type { GetReplyOptions } from "../auto-reply/get-reply-options.types.js";
-import type { ReplyPayload } from "../auto-reply/reply-payload.js";
->>>>>>> 97b6e87616f
 import type { ReasoningLevel, ThinkLevel } from "../auto-reply/thinking.js";
 import type { ChatType } from "../channels/chat-type.js";
 import type { SessionEntry as StoredSessionEntry } from "../config/sessions.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
-<<<<<<< HEAD
 import { emitTrustedDiagnosticEvent, isDiagnosticsEnabled } from "../infra/diagnostic-events.js";
 import type { ImageContent, Message, Model, TextContent } from "../llm/types.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
 import { prepareSystemAgentRunAdmission } from "./admitted-run-context.js";
-=======
-import type { ImageContent, Message, Model, TextContent } from "../llm/types.js";
-import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
-import { runWithAsyncWorkResources } from "../shared/async-work-resources.js";
-import {
-  prepareSystemAgentRunAdmission,
-  type AdmittedRunOperatorAuthority,
-} from "./admitted-run-context.js";
->>>>>>> 97b6e87616f
 import { resolveExternalCliAuthOverlayScopeFromSelection } from "./auth-profiles/external-cli-auth-selection.js";
 import { resolveSessionAuthSelection } from "./auth-profiles/session-override.js";
 import type { AuthProfileStore } from "./auth-profiles/types.js";
 import { reconcileAuthProfileQuotaBlocks } from "./auth-profiles/usage.js";
 import { buildBtwCliPrompt, buildBtwSystemPrompt } from "./btw-prompts.js";
-<<<<<<< HEAD
 import { normalizeBtwContentBlocks, resolveBtwSessionTranscriptPath } from "./btw-transcript.js";
-=======
-import { normalizeBtwContentBlocks } from "./btw-transcript.js";
->>>>>>> 97b6e87616f
 import { executePreparedCliRun } from "./cli-runner/execute.runtime.js";
 import { prepareCliRunContext } from "./cli-runner/prepare.runtime.js";
 import type { BlockReplyChunking } from "./embedded-agent-block-chunker.js";
@@ -49,13 +28,8 @@ import { resolveModelAsync } from "./embedded-agent-runner/model.js";
 import type { AgentHarness } from "./harness/types.js";
 import type { ImageSanitizationLimits } from "./image-sanitization.js";
 import {
-<<<<<<< HEAD
   ensureAuthProfileStore,
   ensureAuthProfileStoreWithoutExternalProfiles,
-=======
-  ensureAuthProfileStoreAsync,
-  ensureAuthProfileStoreWithoutExternalProfilesAsync,
->>>>>>> 97b6e87616f
 } from "./model-auth.js";
 import { isOpenAIProvider } from "./openai-routing.js";
 import {
@@ -72,17 +46,11 @@ import {
 import type { AgentRuntimeAuthPlan } from "./runtime-plan/types.js";
 import { resolveAgentTimeoutMs } from "./timeout.js";
 import { sanitizeImageBlocks } from "./tool-images.js";
-<<<<<<< HEAD
 import { hasBillableUsage, toDiagnosticUsage, type NormalizedUsage } from "./usage.js";
 
 // Planning and immediate resolution share one scoped snapshot so provider
 // bindings and cooldown decisions cannot diverge inside a side question.
 
-=======
-import { normalizeUsage, type NormalizedUsage } from "./usage.js";
-// Planning and immediate resolution share one scoped snapshot so provider
-// bindings and cooldown decisions cannot diverge inside a side question.
->>>>>>> 97b6e87616f
 export async function prepareBtwRuntimeAuth(params: {
   cfg: OpenClawConfig;
   model: Model;
@@ -96,7 +64,6 @@ export async function prepareBtwRuntimeAuth(params: {
 }) {
   const { model } = params;
   const storeOptions = { profileId: params.authProfileId, allowKeychainPrompt: false };
-<<<<<<< HEAD
   const loadStore = (externalCliProviderIds?: readonly string[]) =>
     externalCliProviderIds
       ? ensureAuthProfileStore(params.agentDir, { ...storeOptions, externalCliProviderIds })
@@ -105,19 +72,6 @@ export async function prepareBtwRuntimeAuth(params: {
   let ignoreAutoPreferredProfile = false;
   if (isOpenAIProvider(model.provider)) {
     store = loadStore(["openai"]);
-=======
-  const loadStore = async (externalCliProviderIds?: readonly string[]) =>
-    externalCliProviderIds
-      ? await ensureAuthProfileStoreAsync(params.agentDir, {
-          ...storeOptions,
-          externalCliProviderIds,
-        })
-      : await ensureAuthProfileStoreWithoutExternalProfilesAsync(params.agentDir, storeOptions);
-  let store: AuthProfileStore;
-  let ignoreAutoPreferredProfile = false;
-  if (isOpenAIProvider(model.provider)) {
-    store = await loadStore(["openai"]);
->>>>>>> 97b6e87616f
   } else {
     const selection = {
       provider: model.provider,
@@ -129,22 +83,14 @@ export async function prepareBtwRuntimeAuth(params: {
         params.authProfileIdSource === "user" ? params.authProfileId : undefined,
     };
     let externalCliAuthScope = resolveExternalCliAuthOverlayScopeFromSelection(selection);
-<<<<<<< HEAD
     store = loadStore(externalCliAuthScope.providerIds);
-=======
-    store = await loadStore(externalCliAuthScope.providerIds);
->>>>>>> 97b6e87616f
     if (!externalCliAuthScope.providerIds) {
       externalCliAuthScope = resolveExternalCliAuthOverlayScopeFromSelection({
         ...selection,
         store,
       });
       if (externalCliAuthScope.providerIds) {
-<<<<<<< HEAD
         store = loadStore(externalCliAuthScope.providerIds);
-=======
-        store = await loadStore(externalCliAuthScope.providerIds);
->>>>>>> 97b6e87616f
       }
     }
     ignoreAutoPreferredProfile = externalCliAuthScope.ignoreAutoPreferredProfile;
@@ -174,7 +120,6 @@ export async function prepareBtwRuntimeAuth(params: {
 }
 
 function isBtwTextBlock(block: unknown): block is TextContent {
-<<<<<<< HEAD
   if (!block || typeof block !== "object") {
     return false;
   }
@@ -193,21 +138,6 @@ function isBtwImageBlock(block: unknown): block is ImageContent {
     normalizeLowercaseStringOrEmpty(record.type) === "image" &&
     typeof record.data === "string" &&
     typeof record.mimeType === "string"
-=======
-  return (
-    isRecord(block) &&
-    normalizeLowercaseStringOrEmpty(block.type) === "text" &&
-    typeof block.text === "string"
-  );
-}
-
-function isBtwImageBlock(block: unknown): block is ImageContent {
-  return (
-    isRecord(block) &&
-    normalizeLowercaseStringOrEmpty(block.type) === "image" &&
-    typeof block.data === "string" &&
-    typeof block.mimeType === "string"
->>>>>>> 97b6e87616f
   );
 }
 
@@ -251,7 +181,6 @@ async function sanitizeBtwUserMessage(params: {
 function sanitizeBtwAssistantMessage(
   message: Extract<Message, { role: "assistant" }>,
 ): Extract<Message, { role: "assistant" }> | undefined {
-<<<<<<< HEAD
   // SAFETY: persisted transcripts can contain legacy string content outside the current message type.
   const rawContent = (message as { content?: unknown }).content;
   if (typeof rawContent === "string") {
@@ -277,19 +206,6 @@ function sanitizeBtwAssistantMessage(
     ...message,
     content,
   };
-=======
-  const rawContent: unknown = message.content;
-  let content: TextContent[];
-  if (typeof rawContent === "string") {
-    const text = rawContent.trim();
-    content = text ? [{ type: "text", text }] : [];
-  } else {
-    content = (normalizeBtwContentBlocks(rawContent) ?? []).flatMap((block): TextContent[] =>
-      isBtwTextBlock(block) ? [{ type: "text", text: block.text }] : [],
-    );
-  }
-  return content.length > 0 ? { ...message, content } : undefined;
->>>>>>> 97b6e87616f
 }
 
 export async function toSimpleContextMessages(params: {
@@ -298,16 +214,11 @@ export async function toSimpleContextMessages(params: {
 }): Promise<Message[]> {
   const contextMessages: Message[] = [];
   for (const message of params.messages) {
-<<<<<<< HEAD
     if (!message || typeof message !== "object") {
       continue;
     }
     // SAFETY: the guard above establishes a non-null object; only the optional discriminator is read.
     const role = (message as { role?: unknown }).role;
-=======
-    // Read the role without narrowing `message`; the casts below are from the transcript entry.
-    const role = isRecord(message) ? message.role : undefined;
->>>>>>> 97b6e87616f
     if (role !== "user" && role !== "assistant") {
       continue;
     }
@@ -315,22 +226,14 @@ export async function toSimpleContextMessages(params: {
     // messages and strip hidden reasoning/tool replay data.
     let sanitizedMessage: Message | undefined;
     if (role === "user") {
-<<<<<<< HEAD
       // SAFETY: the runtime discriminator check above establishes the user-message variant.
-=======
-      // SAFETY: transcript entries with role "user" are persisted user Messages; only content is read and replaced.
->>>>>>> 97b6e87616f
       const userMessage = message as Extract<Message, { role: "user" }>;
       sanitizedMessage = await sanitizeBtwUserMessage({
         message: userMessage,
         imageLimits: params.imageLimits,
       });
     } else {
-<<<<<<< HEAD
       // SAFETY: the only remaining admitted discriminator is the assistant-message variant.
-=======
-      // SAFETY: transcript entries with role "assistant" are persisted assistant Messages; only content is read and replaced.
->>>>>>> 97b6e87616f
       const assistantMessage = message as Extract<Message, { role: "assistant" }>;
       sanitizedMessage = sanitizeBtwAssistantMessage(assistantMessage);
     }
@@ -516,14 +419,6 @@ export type RunBtwSideQuestionParams = {
   provider: string;
   model: string;
   question: string;
-<<<<<<< HEAD
-=======
-  toolCalls?: "deny";
-  assertCurrent?: () => void;
-  operatorAuthority?: AdmittedRunOperatorAuthority;
-  /** Background consumers collect usage without recording a user-facing reply. */
-  onUsage?: (usage: NormalizedUsage | undefined) => void;
->>>>>>> 97b6e87616f
   images?: ImageContent[];
   sessionEntry: StoredSessionEntry;
   sessionStore?: Record<string, StoredSessionEntry>;
@@ -565,7 +460,6 @@ export type RunBtwSideQuestionParams = {
   authorityRunId?: string;
 };
 
-<<<<<<< HEAD
 export function resolveBtwTranscript(params: RunBtwSideQuestionParams) {
   const sessionId = params.sessionEntry.sessionId?.trim();
   if (!sessionId) {
@@ -645,8 +539,6 @@ export function createBtwUsageRecorder(params: {
   };
 }
 
-=======
->>>>>>> 97b6e87616f
 export async function runCliBtwSideQuestion(params: {
   cfg: OpenClawConfig;
   model: string;
@@ -668,10 +560,6 @@ export async function runCliBtwSideQuestion(params: {
   messageProvider?: string;
   currentChannelId?: string;
   authorityRunId: string;
-<<<<<<< HEAD
-=======
-  onUsage?: (usage: NormalizedUsage | undefined) => void;
->>>>>>> 97b6e87616f
 }): Promise<ReplyPayload> {
   const timeoutMs = resolveAgentTimeoutMs({
     cfg: params.cfg,
@@ -723,10 +611,6 @@ export async function runCliBtwSideQuestion(params: {
     if (!text) {
       throw new Error(`/btw side question via ${params.cliProvider} produced no answer.`);
     }
-<<<<<<< HEAD
-=======
-    params.onUsage?.(normalizeUsage(output.usage));
->>>>>>> 97b6e87616f
     return { text };
   } finally {
     try {
@@ -751,8 +635,5 @@ export async function withBtwPreparedRuntime(
     });
   });
 }
-<<<<<<< HEAD
 
 /** Answers a side question using sanitized session context and no tool execution. */
-=======
->>>>>>> 97b6e87616f

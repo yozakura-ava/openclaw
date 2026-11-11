@@ -11,6 +11,7 @@ import {
   resolveSessionFilePathCore,
   resolveSessionFilePathOptions,
 } from "../../config/sessions/paths.js";
+import { loadSessionEntry } from "../../config/sessions/session-accessor.js";
 import { composeSessionSourceAssertion } from "../../config/sessions/session-source-authority.js";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import { logVerbose } from "../../globals.js";
@@ -97,21 +98,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     sessionEntryHandle,
     sessionStore,
   } = params;
-  const assertPreparationActive = composeSessionSourceAssertion(
-    [
-      opts?.operatorAuthority?.assertCurrent,
-      opts?.internalEventExecution?.assertCurrent,
-      opts?.scheduledAutomation?.assertCurrent,
-    ],
-    (assertSourceCurrent) => {
-      opts?.abortSignal?.throwIfAborted();
-      opts?.replyOperation?.abortSignal.throwIfAborted();
-      assertSourceCurrent();
-      if (opts?.replyOperation?.result) {
-        throw new Error("Reply operation ended during preparation");
-      }
-    },
-  );
   let { sessionEntry, prefixedBodyBase } = context;
   let { resolvedThinkLevel } = params;
   let thinkLevelOverride =
@@ -169,7 +155,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
         continue;
       }
       const isCurrentSession = systemEventSessionKey === sessionKey;
-      assertPreparationActive();
       const eventsBlock = await drainFormattedSystemEvents({
         cfg,
         agentId,
@@ -225,7 +210,17 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
           execOverrides: params.execOverrides,
           skillFilter: opts?.skillFilter,
           skillOverrides: opts?.skillOverrides,
-          assertCurrent: assertPreparationActive,
+          assertCurrent: composeSessionSourceAssertion(
+            [opts?.operatorAuthority?.assertCurrent, opts?.internalEventExecution?.assertCurrent],
+            (assertSourceCurrent) => {
+              opts?.abortSignal?.throwIfAborted();
+              opts?.replyOperation?.abortSignal.throwIfAborted();
+              assertSourceCurrent();
+              if (opts?.replyOperation?.result) {
+                throw new Error("Reply operation ended while preparing skills");
+              }
+            },
+          ),
         });
       });
   sessionEntry = skillResult.sessionEntry;
@@ -274,6 +269,9 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
         text: `Thinking level "${resolvedThinkLevel}" is not supported for ${provider}/${model}. Use one of: ${formatThinkingLevels(provider, model, ", ", thinkingCatalog, thinkingRuntime)}.`,
       }));
     }
+    // Execution fallbacks are turn-local; directive/model persistence owns
+    // durable thinking remaps so explicit session overrides survive replies.
+    resolvedThinkLevel = thinkingSelection.level;
   }
 
   const providedReplyOperation = opts?.replyOperation;
@@ -317,9 +315,16 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     sessionId: string;
     sessionFile: string;
   } => {
-    // Admission and in-process publications own this turn’s working entry.
+    // Working-set exact key first; disk alias resolve only when storePath known.
+    // No whole-map scan — that encodes the store layout the accessor hides.
     const latestSessionEntry =
-      sessionStore && sessionKey ? (sessionStore[sessionKey] ?? sessionEntry) : sessionEntry;
+      sessionStore && sessionKey
+        ? (sessionStore[sessionKey] ??
+          (storePath
+            ? loadSessionEntry({ storePath, sessionKey, readConsistency: "latest" })
+            : undefined) ??
+          sessionEntry)
+        : sessionEntry;
     const latestSessionId = latestSessionEntry?.sessionId ?? sessionIdFinal;
     rebindProvidedReplyOperation(latestSessionId);
     opts?.onSessionPrepared?.({
@@ -371,10 +376,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     !isRoomEvent &&
     resolveReplyTurnKind(opts) === "visible" &&
     rawActiveSessionIdForInterrupt !== undefined;
-<<<<<<< HEAD
-=======
-  assertPreparationActive();
->>>>>>> 97b6e87616f
   const heartbeatPreemption =
     shouldPreemptHeartbeat && embeddedAgentRuntime
       ? await embeddedAgentRuntime.preemptAndDrainEmbeddedHeartbeatRun(
@@ -392,14 +393,13 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     sessionLaneKey &&
     (laneSize > 0 || activeSessionIdForInterrupt)
   ) {
-    assertPreparationActive();
     // Keyless runs use an incarnation-unique sessionId lane; session-key lanes can be shared.
     const cleared = sessionKey
       ? (await import("./queue/cleanup.js")).clearSessionLifecycleLanes({
           keys: [sessionKey],
           agentId,
           sessionKey,
-          assertCurrent: assertPreparationActive,
+          assertCurrent: () => {},
         })
       : clearCommandLane(sessionLaneKey);
     logVerbose(`Cleared ${cleared} queued command(s) before interrupting ${sessionLaneKey}`);
@@ -414,16 +414,7 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
         sessionKey: context.runtimePolicySessionKey,
       });
   const resolveRuntimeAuthProfile = async () => {
-    const binding = opts?.scheduledAutomation?.job.inferenceBinding;
-    if (binding) {
-      return { authProfileId: binding.profileId, authProfileIdSource: binding.source };
-    }
-    if (
-      useFastReplyRuntime &&
-      !params.configuredProfileId &&
-      !modelState.operatorModelOverride &&
-      !opts?.scheduledAutomation
-    ) {
+    if (useFastReplyRuntime && !params.configuredProfileId && !modelState.operatorModelOverride) {
       return {
         authProfileId: preparedSessionState.sessionEntry?.authProfileOverride,
         authProfileIdSource: resolveCollapsedSessionAuthPinSource(
@@ -434,7 +425,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
     const shouldUseEphemeralSession =
       params.autoFallbackPrimaryProbe !== undefined ||
       params.configuredProfileId !== undefined ||
-      opts?.scheduledAutomation !== undefined ||
       modelState.operatorModelOverride === true;
     const authSessionKey = shouldUseEphemeralSession ? (sessionKey ?? sessionIdFinal) : sessionKey;
     const authSessionEntry =
@@ -465,7 +455,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
       sessionKey: authSessionKey,
       storePath: shouldUseEphemeralSession ? undefined : storePath,
       isNewSession,
-      assertCommitAllowed: assertPreparationActive,
       // Only an authenticated Gateway profile establishes a person-linked pin;
       // channel senders read as observations and resolve to undefined here.
       requesterProfileId: readSessionInputProfileId(ctx),
@@ -528,7 +517,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
   };
   if (commandTurnContinuationTargetKey && providedReplyOperation) {
     const adoption = await admitReplyTurn({
-      onDatabaseRegistration: opts?.onDatabaseRegistration,
       providerReviewAcknowledgment: opts?.providerReviewAcknowledgment,
       agentId,
       sessionKey: commandTurnContinuationTargetKey,
@@ -596,7 +584,6 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
       activeSessionId: activeSessionId ?? resolveActiveQueueSessionId(),
       queueMode: activeRunQueueMode,
       interruptActiveRun: async () => {
-        assertPreparationActive();
         if (activeRunInterruptTarget) {
           return (
             await interruptReplyRunTarget(
@@ -623,7 +610,7 @@ export async function prepareReplyRunAdmission(context: PreparedReplyRunContext)
         ({ authProfileId, authProfileIdSource } = await resolveRuntimeAuthProfile());
         preparedSessionState = resolvePreparedSessionState();
         // The interrupted run may have changed goal or suggestion state while admission waited.
-        refreshInboundContextAfterAdmissionWait();
+        await refreshInboundContextAfterAdmissionWait();
         promptBodies = await rebuildPromptBodies();
       },
       resolveBusyState: resolveQueueBusyState,

@@ -82,7 +82,6 @@ export type DispatchRequest = {
 export type QualificationAdmissionDispatch = {
   request: ReturnType<typeof buildQualificationAdmissionRequest>;
   workflowSha: string;
-  workflowShaPolicy?: "advance-with-main" | "pinned";
   workflowRef: string;
   workflowId: number;
   phase: "prepared" | "attempted" | "observed" | "rejected";
@@ -251,21 +250,17 @@ function validateDispatchRecord(value: unknown): asserts value is DispatchRecord
       "Candidate request cannot change its qualification mode or C=Q identity",
     );
     const admission = value.admission;
-    const admissionKeys = [
-      "request",
-      "workflowSha",
-      "workflowRef",
-      "workflowId",
-      "phase",
-      "run",
-      "descriptor",
-    ];
     requireDispatch(
-      (exactKeys(admission, admissionKeys) ||
-        exactKeys(admission, [...admissionKeys, "workflowShaPolicy"])) &&
+      exactKeys(admission, [
+        "request",
+        "workflowSha",
+        "workflowRef",
+        "workflowId",
+        "phase",
+        "run",
+        "descriptor",
+      ]) &&
         SHA_PATTERN.test(stringValue(admission.workflowSha)) &&
-        (admission.workflowShaPolicy === undefined ||
-          ["advance-with-main", "pinned"].includes(stringValue(admission.workflowShaPolicy))) &&
         (admission.workflowRef === "main" ||
           TRUSTED_WORKFLOW_TAG_PATTERN.test(stringValue(admission.workflowRef))) &&
         Number.isSafeInteger(admission.workflowId) &&
@@ -548,10 +543,6 @@ export async function qualifyAdmission(
       }
       requireDispatch(
         admission.workflowRef === "main" &&
-<<<<<<< HEAD
-=======
-          admission.workflowShaPolicy !== "pinned" &&
->>>>>>> 97b6e87616f
           client.verifyMainAdvance &&
           SHA_PATTERN.test(currentSha) &&
           advances < MAX_ADMISSION_MAIN_ADVANCES,

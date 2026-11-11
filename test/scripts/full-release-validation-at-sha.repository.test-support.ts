@@ -37,13 +37,9 @@ type DispatchRepositoryOptions = {
   workflowSource?: string;
   targetSource?: Record<string, string>;
   targetAlreadyRemote?: boolean;
-<<<<<<< HEAD
   // Records a PR-branch head that the release branch only received as a squash.
   unreachableContributionRecord?: boolean;
   // Replaces the candidate-owned release-notes prose line.
-=======
-  unreachableContributionRecord?: boolean;
->>>>>>> 97b6e87616f
   releaseNotes?: string;
 };
 const repositoryTemplateDirs = useAutoCleanupTempDirTracker(afterAll);
@@ -163,15 +159,7 @@ console.log(JSON.stringify({ valid: true, current: { runId: "123" }, root: { run
         "",
         "### Complete contribution record",
         "",
-<<<<<<< HEAD
         `This audited record covers the complete ${oldWorkflowSha}..${recordTarget} history: 1 in-range PR + 0 retained seed-only PRs = 1 unique PR.`,
-=======
-        "This audited record covers the complete " +
-          oldWorkflowSha +
-          ".." +
-          recordTarget +
-          " history: 1 in-range PR + 0 retained seed-only PRs = 1 unique PR.",
->>>>>>> 97b6e87616f
         "",
         "#### Pull requests",
         "",

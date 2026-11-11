@@ -50,7 +50,6 @@ it("copies small files through owned descriptors with the same bytes, identity a
   expect(fs.readFileSync(subject.target)).toEqual(subject.bytes);
 });
 
-<<<<<<< HEAD
 it.each(["grow", "shrink", "replace", "symlink"])(
   "refuses a source that changes after descriptor admission: %s",
   (change) => {
@@ -97,23 +96,6 @@ it.each(["grow", "shrink"])("refuses source %s during the bounded transfer", (ch
   expect(changed).toBe(true);
 });
 
-=======
-it("refuses source growth during the bounded transfer", () => {
-  const subject = fixture();
-  const write = fs.writeSync;
-  let changed = false;
-  vi.spyOn(fs, "writeSync").mockImplementation((...args) => {
-    if (!changed) {
-      changed = true;
-      fs.appendFileSync(subject.source, "more");
-    }
-    return Reflect.apply(write, fs, args);
-  });
-  expect(subject.copy).toThrow("Plugin source changed");
-  expect(changed).toBe(true);
-});
-
->>>>>>> 97b6e87616f
 it.each(["leaf", "parent", "hardlink"])(
   "refuses substituted destination %s before transfer",
   (change) => {
@@ -155,10 +137,6 @@ it("preserves disk-full diagnostics and does not retry descriptor transfer", () 
 
 it("admits Windows copies through the native spelling of an aliased root", () => {
   const subject = fixture(Buffer.alloc(128 * 1024, 1));
-<<<<<<< HEAD
-=======
-  // A symlink stands in for an 8.3 alias: its native realpath differs from its spelling.
->>>>>>> 97b6e87616f
   const alias = `${subject.root}-alias`;
   fs.symlinkSync(subject.root, alias, "dir");
   vi.spyOn(process, "platform", "get").mockReturnValue("win32");

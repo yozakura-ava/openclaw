@@ -1,10 +1,13 @@
 // Register shared pool mocks before modules that consume them.
 // oxfmt-ignore
-import { emptyReply, mock, queueTask, source } from "./openclaw-state-read-worker.test-harness.js";
-import { expect, it } from "vitest";
+import { emptyReply, mock, queueTask, source, tempDirs } from "./openclaw-state-read-worker.test-harness.js";
+import path from "node:path";
+import { isPromiseLike } from "@openclaw/normalization-core/promise-like";
+import { createRetainedOperation } from "@openclaw/worker-runtime/lifecycle";
+import { expect, it, vi } from "vitest";
+import { createDeferredCore } from "../shared/deferred.js";
 import { closeOpenClawStateDatabaseByPathAsync } from "./openclaw-state-db-cache.js";
 import { executeExistingOpenClawStateRead } from "./openclaw-state-db-readonly.js";
-<<<<<<< HEAD
 import { closeOpenClawStateDatabaseAsync, openOpenClawStateDatabase } from "./openclaw-state-db.js";
 import * as readWorker from "./openclaw-state-read-worker.js";
 import type { OpenClawStateReadReply } from "./openclaw-state-read.types.js";
@@ -343,8 +346,6 @@ it("services two accepted recovery reads through release from their follower's c
     capture.mockRestore();
   }
 });
-=======
->>>>>>> 97b6e87616f
 
 it("uses completed admission for later resource closes through the same pool owner", async () => {
   const { pathname, options } = source();

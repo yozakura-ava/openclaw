@@ -76,7 +76,6 @@ export async function resolveSessionsSendReply(
     return { replyText };
   }
   const stored = await readLatestAssistantReply(params).catch(() => undefined);
-<<<<<<< HEAD
   const snapshot = stored === undefined ? undefined : sanitizeAgentRunTerminalReplyText(stored);
   return snapshot && snapshot === replyText
     ? { replyText: stored }
@@ -101,10 +100,6 @@ export async function settleSessionsSendReply(
     });
   }
   return sendReplyResult(receipt, { ...result, ...(await resolveSessionsSendReply(result, read)) });
-=======
-  const bounded = stored === undefined ? undefined : sanitizeAgentRunTerminalReplyText(stored);
-  return bounded === replyText ? { replyText: stored } : { replyText, replyTruncated: true };
->>>>>>> 97b6e87616f
 }
 
 export function resolveSessionDeliveryTargetFromKey(

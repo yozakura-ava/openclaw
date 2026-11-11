@@ -1,14 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { runTasksWithConcurrency } from "../../utils/run-with-concurrency.js";
-import { DEVICE_FOLDER_MANIFEST_REF } from "../../worker/device-folder.js";
 import { supportsCurrentWorkerLaunch } from "../../worker/worker-build-identity.js";
 import { hasForcedWorkerEnvironmentAbandonment } from "./environment-errors.js";
 import {
   isUnavailableEnvironment,
   workerDisappearanceError,
   type WorkerActiveDispatchPlacement,
-  type WorkerDispatchPlacement,
   type WorkerDispatchEnvironmentService,
 } from "./placement-dispatch-failure.js";
 import {
@@ -64,22 +62,15 @@ function activePlacementExecutionError(
   return undefined;
 }
 
-export function createPlacementRecoveryActions(
-  deps: PlacementRecoveryDeps,
-  initialPlacements: readonly WorkerDispatchPlacement[],
-) {
+export function createPlacementRecoveryActions(deps: PlacementRecoveryDeps) {
   const { environments, failure, placements } = deps;
   const interruptedClaims = new Set(
-    initialPlacements.flatMap((placement) => {
+    placements.list().flatMap((placement) => {
       const claim = projectWorkerSessionTurnClaim(placement);
       return claim ? [serializeWorkerSessionTurnClaim(claim)] : [];
     }),
   );
-<<<<<<< HEAD
   const isInterruptedTurn = (placement: WorkerSessionPlacementRecord) => {
-=======
-  const isInterruptedTurn = (placement: WorkerDispatchPlacement) => {
->>>>>>> 97b6e87616f
     const claim = projectWorkerSessionTurnClaim(placement);
     return Boolean(claim && interruptedClaims.has(serializeWorkerSessionTurnClaim(claim)));
   };
@@ -159,15 +150,6 @@ export function createPlacementRecoveryActions(
         await failure.failActive(placement, error, { forceClaimFence: true });
         return;
       }
-    }
-    if (
-      placement.workspaceBaseManifestRef === DEVICE_FOLDER_MANIFEST_REF &&
-      (!environment ||
-        workerDisappearanceError(environment) ||
-        isUnavailableEnvironment(environment))
-    ) {
-      // There is no Gateway copy to fall back to. Preserve the device binding indefinitely.
-      return;
     }
     const disappearance = workerDisappearanceError(environment);
     if (disappearance || (environment && isUnavailableEnvironment(environment))) {
@@ -400,10 +382,7 @@ export function createPlacementRecoveryActions(
     }
     const candidates = await placements.readRecoveryCandidates();
     if (mode === "startup") {
-      orphanCleanupPending =
-        initialPlacements.length > 0
-          ? { placements: initialPlacements, rootsBySession: new Map(), completedRoots: new Set() }
-          : undefined;
+      orphanCleanupPending = { rootsBySession: new Map(), completedRoots: new Set() };
     }
     for (const { sessionId } of candidates) {
       await admit([sessionId], () => recoverSession(sessionId, mode ?? "restart"));

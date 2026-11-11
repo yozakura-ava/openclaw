@@ -145,17 +145,7 @@ export function inspectUnsealedPlan(
   client: Pick<FrvClient, "getAttemptJobs" | "getRun">,
 ): Promise<Record<string, unknown>>;
 export function loadPlanForCommand(
-<<<<<<< HEAD
   options: { command: string; repository: string; runId: string },
-=======
-  options: {
-    command: string;
-    operationDeadline?: number;
-    repository: string;
-    runId: string;
-    waitForSeal?: boolean;
-  },
->>>>>>> 97b6e87616f
   client: Pick<FrvClient, "getAttemptJobs" | "getRun">,
   loadExecutionPlan?: (...args: unknown[]) => Promise<unknown>,
 ): Promise<

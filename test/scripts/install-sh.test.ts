@@ -2104,7 +2104,6 @@ EOF
     );
   });
 
-<<<<<<< HEAD
   it("mirrors the canonical support policy for Node release labels", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
       engines?: { node?: string };
@@ -2152,53 +2151,12 @@ EOF
       expect(result.stdout, version).toContain(`${index}=${expectedStatus}`);
     }
   });
-=======
-  it.each(["install.sh", "install-cli.sh"])(
-    "checks canonical Node release labels in %s",
-    (installer) => {
-      const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
-        engines?: { node?: string };
-      };
-      expect(pkg.engines?.node).toBe(">=24.16.0 <25 || >=26.1.0");
-      const result = runInstallShell(
-        [
-          `source "scripts/${installer}"`,
-          "set +e",
-          'node() { printf "%s\\n" "$FAKE_NODE_VERSION"; }',
-          ...NODE_RELEASE_VERSION_CASES.flatMap((version, index) => [
-            `FAKE_NODE_VERSION=${JSON.stringify(version)}`,
-            installer === "install.sh"
-              ? "node_version_is_supported"
-              : 'node_release_version_is_supported "$FAKE_NODE_VERSION"',
-            `printf '${index}=%s\\n' "$?"`,
-          ]),
-          "exit 0",
-        ].join("\n"),
-        { TERM: "dumb", OPENCLAW_INSTALL_CLI_SH_NO_RUN: "1" },
-      );
-      expect(result.status).toBe(0);
-      for (const [index, version] of NODE_RELEASE_VERSION_CASES.entries()) {
-        expect(result.stdout, version).toContain(
-          `${index}=${isSupportedOpenClawNodeVersion(version) ? 0 : 1}`,
-        );
-      }
-    },
-  );
->>>>>>> 97b6e87616f
 
   it.each(
     [
       { version: "24.22.1", defect: "none", expected: 0 },
       { version: "24.22.1", defect: "text", expected: 1 },
-<<<<<<< HEAD
       { version: "24.15.0+vendor.1", defect: "none", expected: 1 },
-=======
-      { version: "24.16.0+vendor.1", defect: "none", expected: 0 },
-      { version: "26.1.0", defect: "none", expected: 0 },
-      { version: "24.16.0", defect: "text", expected: 1 },
-      { version: "24.15.0+vendor.1", defect: "none", expected: 1 },
-      { version: "26.0.0+vendor.1", defect: "none", expected: 1 },
->>>>>>> 97b6e87616f
       { version: "24.22.1", defect: "blob", expected: 1 },
       { version: "24.22.1", defect: "json", expected: 1 },
     ].flatMap(({ version, defect, expected }) =>
@@ -3116,22 +3074,6 @@ describe("install.sh macOS Homebrew Node behavior", () => {
     );
     expect(result.stdout).not.toContain("brew:link");
     expect(result.stdout).not.toContain("ensure-called");
-  });
-
-  it("falls back to a managed runtime when Homebrew is below the security floor", () => {
-    const result = runInstallShell(`
-      set -euo pipefail
-      source "${SCRIPT_PATH}"
-      OS=macos
-      run_quiet_step() { return 0; }
-      brew() { return 0; }
-      ensure_macos_default_node_active() { return 1; }
-      install_node_with_user_prefix() { echo "managed-runtime-installed"; }
-      install_node
-    `);
-
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain("managed-runtime-installed");
   });
 
   it("does not print PATH advice when Homebrew node is missing at runtime", () => {

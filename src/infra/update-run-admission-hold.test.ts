@@ -96,10 +96,7 @@ it.each([false, true])(
               { databasePath },
               unused,
               unused,
-<<<<<<< HEAD
               unused,
-=======
->>>>>>> 97b6e87616f
               () => writer,
             ),
           ),

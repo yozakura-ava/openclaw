@@ -77,50 +77,12 @@ function insertBootRows(
 }
 
 describe("gateway crash-loop breaker", () => {
-  it.each(["completed", "interrupted"] as const)(
-    "preserves %s shutdown accounting after database retirement",
-    async (shutdown) => {
-      const lifecycle = createLifecycleDb();
-      insertBootRows(lifecycle, [
-        { bootId: "prior-crash-a", startedAtMs: 1_000 },
-        { bootId: "prior-crash-b", startedAtMs: 2_000 },
-      ]);
-      const bootId = recordGatewayBootStart(lifecycle.env, 3_000);
-      const prepare = vi.spyOn(lifecycle.db, "prepare");
-      const exec = vi.spyOn(lifecycle.db, "exec");
-      try {
-        if (shutdown === "completed") {
-          await completeGatewayBootLifecycle(
-            bootId,
-            { outcome: "clean_stop", reason: "stop (SIGTERM)" },
-            lifecycle.env,
-            4_000,
-          );
-        }
-        expect(prepare).not.toHaveBeenCalled();
-        expect(exec).not.toHaveBeenCalled();
-        await closeOpenClawStateDatabaseAsync();
-      } finally {
-        prepare.mockRestore();
-        exec.mockRestore();
-      }
-
-      expect(readGatewayLastShutdown(lifecycle.env)).toEqual(
-        shutdown === "completed" ? { reason: "stop (SIGTERM)", completedAtMs: 4_000 } : undefined,
-      );
-      expect(inspectGatewayCrashLoopBreaker(lifecycle.env, 4_001)).toMatchObject({
-        tripped: shutdown === "interrupted",
-        uncleanBoots: shutdown === "interrupted" ? 3 : 2,
-      });
-    },
-  );
-
-  it("projects replacement history only while it is the latest shutdown", async () => {
+  it("projects replacement history only while it is the latest shutdown", () => {
     const lifecycle = createLifecycleDb();
     expect(readGatewayLastInstallationReplacement(lifecycle.env)).toBeUndefined();
     const reason = "gateway.installation_replaced: on-disk 2026.9.5 differs from running 2026.9.4";
     const replacedBoot = recordGatewayBootStart(lifecycle.env, 1_000);
-    await completeGatewayBootLifecycle(
+    completeGatewayBootLifecycle(
       replacedBoot,
       { outcome: "planned_restart", reason },
       lifecycle.env,
@@ -131,7 +93,7 @@ describe("gateway crash-loop breaker", () => {
       reason,
       completedAtMs: 2_000,
     });
-    await completeGatewayBootLifecycle(
+    completeGatewayBootLifecycle(
       successor,
       { outcome: "clean_stop", reason: "stop (SIGTERM)" },
       lifecycle.env,
@@ -142,7 +104,7 @@ describe("gateway crash-loop breaker", () => {
 
   it.each(["SIGTERM", "SIGINT"])(
     "warns about repeated %s stops across process lifetimes",
-    async (signal) => {
+    (signal) => {
       const lifecycle = createLifecycleDb();
       const warn = vi.fn();
       setLoggerOverride({ level: "silent", consoleLevel: "warn", consoleStyle: "json" });
@@ -166,7 +128,7 @@ describe("gateway crash-loop breaker", () => {
         },
       ]);
       const secondBoot = recordGatewayBootStart(lifecycle.env, nowMs - 1_000);
-      await completeGatewayBootLifecycle(
+      completeGatewayBootLifecycle(
         secondBoot,
         { outcome: "clean_stop", reason },
         lifecycle.env,
@@ -174,7 +136,7 @@ describe("gateway crash-loop breaker", () => {
       );
       expect(warn).not.toHaveBeenCalled();
       const thirdBoot = recordGatewayBootStart(lifecycle.env, nowMs + 1_000);
-      await completeGatewayBootLifecycle(
+      completeGatewayBootLifecycle(
         thirdBoot,
         { outcome: "clean_stop", reason },
         lifecycle.env,
@@ -187,11 +149,11 @@ describe("gateway crash-loop breaker", () => {
     },
   );
 
-  it("reads the last shutdown without mistaking recovery segments or live boots for stops", async () => {
+  it("reads the last shutdown without mistaking recovery segments or live boots for stops", () => {
     const lifecycle = createLifecycleDb();
     expect(readGatewayLastShutdown(lifecycle.env)).toBeUndefined();
     const bootId = recordGatewayBootStart(lifecycle.env, 1_000);
-    await completeGatewayBootLifecycle(
+    completeGatewayBootLifecycle(
       bootId,
       { outcome: "clean_stop", reason: "stop (SIGTERM)" },
       lifecycle.env,
@@ -273,12 +235,12 @@ describe("gateway crash-loop breaker", () => {
     expect(decision.uncleanBoots).toBe(1);
   });
 
-  it("does not count maintenance refusals toward channel suppression", async () => {
+  it("does not count maintenance refusals toward channel suppression", () => {
     const lifecycle = createLifecycleDb();
     const nowMs = 1_000_000;
     for (let index = 0; index < 3; index++) {
       const bootId = recordGatewayBootStart(lifecycle.env, nowMs + index);
-      await completeGatewayBootLifecycle(
+      completeGatewayBootLifecycle(
         bootId,
         {
           outcome: "startup_failed",
@@ -305,11 +267,7 @@ describe("gateway crash-loop breaker", () => {
     );
     for (let index = 0; index < 3; index++) {
       const bootId = recordGatewayBootStart(lifecycle.env, nowMs + index);
-<<<<<<< HEAD
       completeGatewayBootLifecycle(
-=======
-      await completeGatewayBootLifecycle(
->>>>>>> 97b6e87616f
         bootId,
         {
           outcome: "startup_failed",
@@ -338,11 +296,7 @@ describe("gateway crash-loop breaker", () => {
       recovered: false,
       uncleanBoots: 1,
     });
-<<<<<<< HEAD
     completeGatewayBootLifecycle(
-=======
-    await completeGatewayBootLifecycle(
->>>>>>> 97b6e87616f
       recoveredBootId,
       { outcome: "clean_stop" },
       lifecycle.env,
@@ -453,13 +407,13 @@ describe("gateway crash-loop breaker", () => {
     });
   });
 
-  it("records forced stops without tripping the breaker", async () => {
+  it("records forced stops without tripping the breaker", () => {
     const db = createLifecycleDb();
     const nowMs = 1_000_000;
 
     for (let index = 0; index < GATEWAY_BOOT_LOOP_UNCLEAN_THRESHOLD; index += 1) {
       const bootId = recordGatewayBootStart(db.env, nowMs + index);
-      await completeGatewayBootLifecycle(
+      completeGatewayBootLifecycle(
         bootId,
         { outcome: "forced_stop", reason: "gateway.stop_shutdown_timeout" },
         db.env,

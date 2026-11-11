@@ -76,14 +76,9 @@ export function createBrowserGatewaySocket(
   maxPayloadBytes?: () => number | undefined,
 ): GatewayProtocolSocket {
   const socket = new WebSocket(gatewayWebSocketTransportUrl(url));
-  const listeners = new AbortController();
-  const listenerOptions = { signal: listeners.signal };
   let opening = true;
-<<<<<<< HEAD
   // Local retirement ignores native events a dead peer may deliver later.
   let retired = false;
-=======
->>>>>>> 97b6e87616f
   let openingTimer: ReturnType<typeof setTimeout> | undefined;
   const finishOpening = () => {
     opening = false;
@@ -93,7 +88,6 @@ export function createBrowserGatewaySocket(
     }
   };
   const finishClose = (code: number, reason: string) => {
-<<<<<<< HEAD
     if (retired) {
       return;
     }
@@ -123,43 +117,6 @@ export function createBrowserGatewaySocket(
     finishOpening();
     handlers.error(new Error("websocket error"));
   });
-=======
-    if (listeners.signal.aborted) {
-      return;
-    }
-    finishOpening();
-    // The protocol owner can reconnect synchronously from this terminal callback.
-    listeners.abort();
-    handlers.close(code, reason);
-  };
-
-  socket.addEventListener(
-    "open",
-    () => {
-      finishOpening();
-      handlers.open();
-    },
-    listenerOptions,
-  );
-  socket.addEventListener(
-    "message",
-    (event) => handlers.message(String(event.data ?? "")),
-    listenerOptions,
-  );
-  socket.addEventListener(
-    "close",
-    (event) => finishClose(event.code, event.reason),
-    listenerOptions,
-  );
-  socket.addEventListener(
-    "error",
-    () => {
-      finishOpening();
-      handlers.error(new Error("websocket error"));
-    },
-    listenerOptions,
-  );
->>>>>>> 97b6e87616f
 
   // The protocol challenge timer starts after `open`. Bound the browser's
   // opening phase to the same default preauth budget used by the Node client.
@@ -179,11 +136,7 @@ export function createBrowserGatewaySocket(
   }, DEFAULT_PREAUTH_HANDSHAKE_TIMEOUT_MS);
 
   return {
-<<<<<<< HEAD
     isOpen: () => !retired && socket.readyState === WebSocket.OPEN,
-=======
-    isOpen: () => !listeners.signal.aborted && socket.readyState === WebSocket.OPEN,
->>>>>>> 97b6e87616f
     send: (data) => {
       const limit = maxPayloadBytes?.();
       if (limit !== undefined && new TextEncoder().encode(data).byteLength > limit) {
@@ -192,11 +145,7 @@ export function createBrowserGatewaySocket(
       socket.send(data);
     },
     close: (code, reason) => {
-<<<<<<< HEAD
       if (retired) {
-=======
-      if (listeners.signal.aborted) {
->>>>>>> 97b6e87616f
         return;
       }
       finishOpening();

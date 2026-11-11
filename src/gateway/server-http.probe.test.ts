@@ -378,7 +378,6 @@ describe("gateway probe endpoints", () => {
     }
   });
 
-<<<<<<< HEAD
   it("returns only readiness state for unauthenticated remote /ready requests", async () => {
     const getReadiness: ReadinessChecker = () => ({
       ready: false,
@@ -387,66 +386,23 @@ describe("gateway probe endpoints", () => {
       uptimeMs: 8_000,
     });
 
-=======
-  it("serves bounded probes from headerless trusted proxies while protecting other routes", async () => {
-    let healthy = true;
->>>>>>> 97b6e87616f
     await withGatewayServer({
-      prefix: "probe-headerless-trusted-proxy",
-      resolvedAuth: AUTH_TOKEN,
-      overrides: {
-        getRuntimeConfig: () => ({ gateway: { trustedProxies: ["10.0.0.0/24"] } }),
-        getReadiness: () => ({
-          ready: healthy,
-          coreReady: healthy,
-          failing: ["private-channel"],
-          uptimeMs: 8_000,
-        }),
-        getStartup: () =>
-          healthy
-            ? { ok: true, status: "started", uptimeMs: 8_000 }
-            : {
-                ok: false,
-                status: "starting",
-                uptimeMs: 8_000,
-                pendingReason: "private-startup-detail",
-              },
-      },
+      prefix: "probe-not-ready",
+      resolvedAuth: AUTH_NONE,
+      overrides: { getReadiness },
       run: async (server) => {
-        for (const ready of [true, false]) {
-          healthy = ready;
-          for (const path of ["/ready", "/readyz", "/startup", "/startupz"]) {
-            const body = path.startsWith("/ready")
-              ? { ready }
-              : { ok: ready, status: ready ? "started" : "starting" };
-            for (const method of ["GET", "HEAD"]) {
-              const response = await sendRequest(server, {
-                path,
-                method,
-                remoteAddress: "10.0.0.8",
-                host: "gateway.test",
-              });
-              expect(response.res.statusCode, method + " " + path).toBe(ready ? 200 : 503);
-              expect(response.getBody()).toBe(method === "HEAD" ? "" : JSON.stringify(body));
-              expect(response.setHeader).toHaveBeenCalledWith(
-                "Content-Length",
-                String(Buffer.byteLength(JSON.stringify(body))),
-              );
-            }
-          }
-        }
-        const protectedResponse = await sendRequest(server, {
-          path: "/tools/invoke",
+        const { res, getBody } = await sendRequest(server, {
+          path: "/ready",
           remoteAddress: "10.0.0.8",
           host: "gateway.test",
         });
-        expect(protectedResponse.res.statusCode).toBe(403);
-        expect(protectedResponse.getBody()).toContain("proxy_attribution_required");
+
+        expect(res.statusCode).toBe(503);
+        expect(JSON.parse(getBody())).toEqual({ ready: false });
       },
     });
   });
 
-<<<<<<< HEAD
   it("serves bounded probes from headerless trusted proxies while protecting other routes", async () => {
     let healthy = true;
     await withGatewayServer({
@@ -500,8 +456,6 @@ describe("gateway probe endpoints", () => {
     });
   });
 
-=======
->>>>>>> 97b6e87616f
   it("rejects untrusted proxy ingress before probes, hooks, and watch-node handlers", async () => {
     const handleHooksRequest = vi.fn(async () => true);
     const handleWatchNodeRequest = vi.fn(async () => true);

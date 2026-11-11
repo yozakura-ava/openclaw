@@ -57,7 +57,6 @@ describe("msteams inbound", () => {
           "</blockquote>",
     });
 
-<<<<<<< HEAD
     const quote = (body: string) =>
       `<blockquote itemtype="http://schema.skype.com/Reply" itemscope>${body}</blockquote>`;
     const attachment = (content: unknown) => ({ contentType: "text/html", content });
@@ -65,27 +64,13 @@ describe("msteams inbound", () => {
     it("reads the copy paragraph whatever the tag case and attribute order", () => {
       const html = quote(`<P class="q" ITEMPROP='copy'>quoted <b>text</b></P>`);
       expect(extractMSTeamsQuoteInfo([attachment(html)])?.body).toBe("quoted text");
-=======
-    it("reads the copy paragraph whatever the tag case and attribute order", () => {
-      const html = ((body: string) =>
-        '<blockquote itemtype="http://schema.skype.com/Reply">' + body + "</blockquote>")(
-        `<P class="q" ITEMPROP='copy'>quoted <b>text</b></P>`,
-      );
-      expect(extractMSTeamsQuoteInfo([replyAttachment({ content: html })])?.body).toBe(
-        "quoted text",
-      );
->>>>>>> 97b6e87616f
     });
 
     it("returns promptly for many unterminated paragraph tags", () => {
       // The former paragraph regex re-scanned the tag from every `<p` start.
       const html = `http://schema.skype.com/Reply ${"<P".repeat(4_000)}${'ITEMPROP="COPY"'.repeat(400)}`;
       const started = performance.now();
-<<<<<<< HEAD
       expect(extractMSTeamsQuoteInfo([attachment(html)])).toBeUndefined();
-=======
-      expect(extractMSTeamsQuoteInfo([replyAttachment({ content: html })])).toBeUndefined();
->>>>>>> 97b6e87616f
       expect(performance.now() - started).toBeLessThan(500);
     });
 

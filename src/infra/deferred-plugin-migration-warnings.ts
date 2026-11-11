@@ -1,11 +1,7 @@
 /**
  * Select deferred plugin migration warnings that no longer describe current state:
  * the plugin's obligation left the pending ledger, or a later warning for the same
-<<<<<<< HEAD
  * plugin superseded it.
-=======
- * plugin superseded it, or the caller reports that plugin's final state itself.
->>>>>>> 97b6e87616f
  * Matches both shipped warning forms without reading retired migration reports.
  * Messages are ordered oldest first.
  */

@@ -38,35 +38,30 @@ function expectServing() {
 }
 
 describe("update.run handoff refusal diagnostics", () => {
-  it.each(["managed-service-handoff-failed", "update-recovery-pending"])(
-    "retains the helper's finalized refusal and handoff cause (%s)",
-    async (reason) => {
-      detectRespawnSupervisorMock.mockReturnValueOnce("launchd");
-      mockGlobalInstallSurface();
-      startManagedServiceUpdateHandoffMock.mockImplementationOnce(async (params) => {
-        finishUpdateRun(expectDefined(params.runId, "handoff run"), {
-          status: "failed",
-          reason,
-        });
-        throw Object.assign(new Error("spawn node EACCES"), { code: "EACCES" });
+  it("retains a handoff cause after the helper has finalized the failed run", async () => {
+    detectRespawnSupervisorMock.mockReturnValueOnce("launchd");
+    mockGlobalInstallSurface();
+    startManagedServiceUpdateHandoffMock.mockImplementationOnce(async (params) => {
+      finishUpdateRun(expectDefined(params.runId, "handoff run"), {
+        status: "failed",
+        reason: "managed-service-handoff-failed",
       });
-      const payload = expectDefined(await captureUpdateRunPayload(), "update response");
-      const run = expectDefined(getUpdateRun(payload.runId), "update run");
-      expect(payload.result).toMatchObject({ status: "error", reason });
-      expect(run).toMatchObject({ status: "failed", reason });
-      expect(run.steps.flatMap((step) => step.failureFacts ?? [])).toContainEqual(
-        expect.objectContaining({ code: "handoff-permission-denied" }),
-      );
-      const report = await prepareUpdateFailureReport({
-        attemptId: run.runId,
-        recordedRun: run,
-        result: { status: "error", mode: "npm", steps: [], durationMs: 0 },
-      });
-      expect(report.body).toContain("handoff-permission-denied");
-      expect(report.body).toContain("Recovery outcome: Gateway kept serving");
-      expect(report.body).not.toContain("exit unknown");
-    },
-  );
+      throw Object.assign(new Error("spawn node EACCES"), { code: "EACCES" });
+    });
+    const payload = expectDefined(await captureUpdateRunPayload(), "update response");
+    const run = expectDefined(getUpdateRun(payload.runId), "update run");
+    expect(run.steps.flatMap((step) => step.failureFacts ?? [])).toContainEqual(
+      expect.objectContaining({ code: "handoff-permission-denied" }),
+    );
+    const report = await prepareUpdateFailureReport({
+      attemptId: run.runId,
+      recordedRun: run,
+      result: { status: "error", mode: "npm", steps: [], durationMs: 0 },
+    });
+    expect(report.body).toContain("handoff-permission-denied");
+    expect(report.body).toContain("Recovery outcome: Gateway kept serving");
+    expect(report.body).not.toContain("exit unknown");
+  });
 
   it("records a real detached helper refusal before launchd activation", async () => {
     const root = tempDirs.make("openclaw-handoff-missing-runtime-");
@@ -193,22 +188,12 @@ describe("update.run handoff refusal diagnostics", () => {
   it("preserves the Node engine refusal and serving observation for update.run", async () => {
     const message =
       "Node 26.10.0 at /fixture/node requires >=24.22.1 <25 || >=26.12.1. Install Node 24.22.1 and update the service definition selecting /fixture/node.";
-<<<<<<< HEAD
     startHandoff.mockRejectedValueOnce(
-=======
-    detectRespawnSupervisorMock.mockReturnValueOnce("launchd");
-    mockGlobalInstallSurface();
-    startManagedServiceUpdateHandoffMock.mockRejectedValueOnce(
->>>>>>> 97b6e87616f
       new UpdatePreMutationError("preflight-node-runtime-incompatible", message),
     );
 
     const payload = expectDefined(await captureUpdateRunPayload(), "update response");
-<<<<<<< HEAD
     const run = readRun(payload);
-=======
-    const run = expectDefined(getUpdateRun(payload.runId), "update run");
->>>>>>> 97b6e87616f
     expect(payload).toMatchObject({
       ok: false,
       result: { status: "error", reason: "preflight-node-runtime-incompatible" },
@@ -216,12 +201,7 @@ describe("update.run handoff refusal diagnostics", () => {
     expect(run.origin.nextAction).toBe(message);
     expect(run.verification.serviceRunning).toBe(true);
     expect(renderUpdateRunReport(run).lines.join("\n")).toContain(message);
-<<<<<<< HEAD
     expectServing();
-=======
-    expect(scheduleGatewayRestartMock).not.toHaveBeenCalled();
-    expect(transferManagedServiceUpdateHandoffMock).not.toHaveBeenCalled();
->>>>>>> 97b6e87616f
   });
 
   it.each(["helper-start", "sentinel-write"] as const)(

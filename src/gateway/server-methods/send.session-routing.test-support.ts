@@ -1,9 +1,5 @@
 import { beforeAll, expect, it, vi, type Mock } from "vitest";
 import type { getChannelPlugin } from "../../channels/plugins/index.js";
-<<<<<<< HEAD
-=======
-import { setRuntimeConfigSnapshot } from "../../config/runtime-snapshot.js";
->>>>>>> 97b6e87616f
 import {
   loadSessionEntry,
   loadTranscriptEvents,
@@ -56,10 +52,6 @@ export function registerSendSessionRoutingTests({
     "persists a transcript mirror without rebinding its route (existing=%s)",
     async (existing) => {
       await withOpenClawTestState({ scenario: "minimal" }, async () => {
-<<<<<<< HEAD
-=======
-        setRuntimeConfigSnapshot({});
->>>>>>> 97b6e87616f
         const mirror = "agent:main:main";
         const destination = "agent:main:slack:channel:c1";
         mocks.resolveOutboundSessionRoute.mockResolvedValueOnce({

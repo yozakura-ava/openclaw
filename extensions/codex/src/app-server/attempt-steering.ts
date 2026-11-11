@@ -55,6 +55,13 @@ export function createCodexQuestionInputHandlers(sessionKey: string, assertActiv
       text,
       authority: questionAuthority(authorityKind, assertCurrent, toolAuthorityPreparation),
       sourceRecorder: optionsLocal.userTurnTranscriptRecorder,
+      // Older supported hosts use the ordinary-question callback. Current hosts
+      // prefer the recorder owner so staged secret inputs commit before consumption.
+      persist: optionsLocal.userTurnTranscriptRecorder
+        ? async () => {
+            await optionsLocal.userTurnTranscriptRecorder?.persistApproved();
+          }
+        : undefined,
     });
   };
   const cancelPendingUserInput = (
@@ -473,11 +480,8 @@ export function createCodexSteeringQueue(params: {
         cancelQueue();
         return undefined;
       }
-<<<<<<< HEAD
       // Codex records pending input after tool completion, before its next model request.
       // Give that receipt a bounded chance to arrive before interrupt drops the input.
-=======
->>>>>>> 97b6e87616f
       terminalDrain ??= createDeferred<void>();
       return raceWithTimeout(terminalDrain.promise, CODEX_STEER_TERMINAL_DRAIN_MS, () => {}, {
         ref: false,

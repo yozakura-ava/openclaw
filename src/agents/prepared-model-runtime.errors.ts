@@ -3,17 +3,8 @@ import { PreparedModelRuntimeOwnerNotPublishedError } from "./prepared-model-run
 import type { PreparedModelRuntimeInput } from "./prepared-model-runtime.types.js";
 
 export { PreparedModelRuntimeOwnerNotPublishedError };
-<<<<<<< HEAD
-=======
 
-/** The embedded runner refused its initial admission before executing a generation. */
-export class PreparedModelRuntimeInitialRunAdmissionError extends PreparedModelRuntimeOwnerNotPublishedError {
-  constructor(error: PreparedModelRuntimeOwnerNotPublishedError) {
-    super(error.message, { cause: error, admissionBlocked: true });
-  }
-}
->>>>>>> 97b6e87616f
-
+/** Only missing owners permit activation or catalog fallback; refused admission must settle work. */
 export function isPreparedModelRuntimeMissingOwnerError(
   error: unknown,
 ): error is PreparedModelRuntimeOwnerNotPublishedError {

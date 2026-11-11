@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { retainLegacyDefaultAgentId } from "../config/legacy.default-agent-owner.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { readCronJobScratchState } from "../cron/scratch-store.js";
 import { writeCronJobScratchForMaintenance } from "../cron/scratch-write.kernel.js";
@@ -15,7 +17,7 @@ import {
   closeOpenClawStateDatabaseAsync,
   closeOpenClawStateDatabaseForTest,
 } from "../state/openclaw-state-db.js";
-import { captureEnv } from "../test-utils/env.js";
+import { withMockedPlatform } from "../test-utils/vitest-spies.js";
 import {
   collectHeartbeatScratchMigrationFindings,
   maybeMigrateHeartbeatFilesToScratch,
@@ -23,17 +25,28 @@ import {
 import { maybeMigrateHeartbeatTasksToCron } from "./doctor-heartbeat-task-migration.js";
 
 const tempDirs: string[] = [];
-let savedEnv: ReturnType<typeof captureEnv>;
+let originalHome: string | undefined;
+let originalStateDir: string | undefined;
 
 beforeEach(() => {
-  savedEnv = captureEnv(["HOME", "OPENCLAW_STATE_DIR"]);
+  originalHome = process.env.HOME;
+  originalStateDir = process.env.OPENCLAW_STATE_DIR;
 });
 
 afterEach(async () => {
   await closeOpenClawStateDatabaseAsync();
   closeOpenClawStateDatabaseForTest();
   vi.restoreAllMocks();
-  savedEnv.restore();
+  if (originalHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = originalHome;
+  }
+  if (originalStateDir === undefined) {
+    delete process.env.OPENCLAW_STATE_DIR;
+  } else {
+    process.env.OPENCLAW_STATE_DIR = originalStateDir;
+  }
   await Promise.all(tempDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
 });
 
@@ -124,7 +137,6 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     expect(rerun).toEqual({ changes: [], warnings: [] });
   });
 
-<<<<<<< HEAD
   it("leaves a legacy file when operator scratch has different content", async () => {
     const fixture = await createFixture();
     await fs.writeFile(fixture.heartbeatPath, "legacy file\n", "utf8");
@@ -214,8 +226,6 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     await expect(fs.readFile(fixture.heartbeatPath, "utf8")).resolves.toBe("shared checklist\n");
   });
 
-=======
->>>>>>> 97b6e87616f
   it("copies into enabled scratch while retaining a file shared with a disabled agent", async () => {
     const fixture = await createFixture();
     const cfg = sharedHeartbeatConfig(fixture.workspace);
@@ -323,6 +333,23 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     );
     const { monitor, storePath } = await loadMonitor(cfg);
     expect(readCronJobScratchState(storePath, monitor.id)).toEqual({ currentRevision: 0 });
+  });
+
+  it("respects a configured cron store partition", async () => {
+    const fixture = await createFixture();
+    const customStore = path.join(fixture.root, "custom-cron", "jobs.json");
+    const cfg = { ...fixture.cfg, cron: { store: customStore } } as unknown as OpenClawConfig;
+    await fs.writeFile(fixture.heartbeatPath, "custom store scratch\n", "utf8");
+
+    const result = await maybeMigrateHeartbeatFilesToScratch({ cfg, shouldRepair: true });
+
+    expect(result.warnings).toEqual([]);
+    const { monitor, storePath } = await loadMonitor(cfg);
+    expect(storePath).toBe(path.resolve(customStore));
+    expect(readCronJobScratchState(storePath, monitor.id).scratch?.content).toBe(
+      "custom store scratch\n",
+    );
+    expect((await loadCronJobsStore(resolveCronJobsStorePath())).jobs).toEqual([]);
   });
 
   it("does not resurrect a legacy file after scratch was explicitly unset", async () => {
@@ -434,6 +461,31 @@ describe("HEARTBEAT.md cron scratch migration", () => {
     expect(readCronJobScratchState(storePath, monitor.id).scratch?.content).toBe(content);
     const workspaceEntries = await fs.readdir(fixture.workspace);
     expect(workspaceEntries.filter((entry) => entry.includes(".doctor-importing-"))).toEqual([]);
+  });
+
+  it("recovers an interrupted migration claim owned by a single-thread zombie", async () => {
+    await withMockedPlatform("linux", async () => {
+      const fixture = await createFixture();
+      const claimPath = `${fixture.heartbeatPath}.doctor-importing-42-deadbeefdead`;
+      await fs.writeFile(claimPath, "interrupted checklist\n", "utf8");
+      vi.spyOn(process, "kill").mockReturnValue(true);
+      const readFileSync = fsSync.readFileSync.bind(fsSync);
+      vi.spyOn(fsSync, "readFileSync").mockImplementation((filePath, options) => {
+        if (String(filePath) === "/proc/42/status") {
+          return "Name:\tnode\nState:\tZ (zombie)\nThreads:\t1\n" as never;
+        }
+        return readFileSync(filePath, options as never) as never;
+      });
+
+      const result = await maybeMigrateHeartbeatFilesToScratch({
+        cfg: fixture.cfg,
+        shouldRepair: true,
+      });
+
+      expect(result.warnings).toEqual([]);
+      expect(result.changes).toHaveLength(1);
+      await expect(fs.access(claimPath)).rejects.toMatchObject({ code: "ENOENT" });
+    });
   });
 
   it("refuses to steal a claim held by a live doctor process", async () => {

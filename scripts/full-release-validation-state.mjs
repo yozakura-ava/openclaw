@@ -181,28 +181,6 @@ async function githubAttemptJobs(runId, runAttempt, signal) {
     .map((line) => JSON.parse(line));
 }
 
-const EFFECTIVE_PARENT_GATE_ENV = new Map([
-  ["Prepare release npm artifacts", "NPM_PREPARATION_RESULT"],
-  ["Qualify release npm artifacts", "NPM_QUALIFICATION_RESULT"],
-  ["Prepare exact plugin npm artifacts", "PLUGIN_NPM_PREPARATION_RESULT"],
-  ["Prepare release Docker artifacts", "DOCKER_PREPARATION_RESULT"],
-]);
-const EFFECTIVE_PARENT_GATE_RESULTS = new Set(["success", "failure", "cancelled", "skipped"]);
-
-export function effectiveReleasePlanGates(gates, env = process.env) {
-  return gates.map((gate) => {
-    const envName = EFFECTIVE_PARENT_GATE_ENV.get(gate.name);
-    if (!envName || !env[envName]) {
-      return gate;
-    }
-    const result = env[envName];
-    if (!EFFECTIVE_PARENT_GATE_RESULTS.has(result)) {
-      throw new Error(`Invalid effective release gate result: ${gate.name}`);
-    }
-    return { ...gate, result };
-  });
-}
-
 function issue(kind, child, message, extra = {}) {
   return {
     child: child.key,
@@ -547,26 +525,11 @@ async function validateReuse(executionPlan, signal) {
     if (
       evidence.releaseProfile !== process.env.RELEASE_PROFILE ||
       evidence.rerunGroup !== process.env.RERUN_GROUP ||
-      !evidence.root?.artifact ||
       !evidence.manifest ||
       typeof evidence.manifest !== "object" ||
       Array.isArray(evidence.manifest)
     ) {
       throw new Error("reused release evidence no longer matches the requested validation");
-    }
-    if (
-      evidenceReuse.sourceArtifact &&
-      JSON.stringify(sortJsonValueKeys(evidence.root.artifact)) !==
-        JSON.stringify(sortJsonValueKeys(evidenceReuse.sourceArtifact))
-    ) {
-      throw new Error("reused release evidence artifact differs from the immutable plan");
-    }
-    if (
-      evidenceReuse.sourceManifest &&
-      JSON.stringify(sortJsonValueKeys(evidence.manifest)) !==
-        JSON.stringify(sortJsonValueKeys(evidenceReuse.sourceManifest))
-    ) {
-      throw new Error("reused release evidence manifest differs from the immutable plan");
     }
     validateReleaseTelegramWaiverBinding(executionPlan, evidence.manifest.validationInputs);
     validateReleaseCoveragePolicyBinding(executionPlan, evidence.manifest.validationInputs);
@@ -583,7 +546,6 @@ async function validateReuse(executionPlan, signal) {
       blockers: [],
       children: hydrateReusedPlan(plan, evidence),
       errors: [],
-      sourceArtifact: evidence.root?.artifact,
       sourceManifest: sortJsonValueKeys(evidence.manifest),
     };
   } catch (error) {
@@ -728,7 +690,7 @@ function planExpected() {
   };
 }
 
-function publicationKnownBudget(record, evidenceReuse, reusedManifest) {
+function publicationKnownBudget(record, evidenceReuse) {
   serializeReleaseArtifact(record);
   const source = record.sourceAdmission;
   const context = manifestContextFromEnvironment(source);
@@ -757,7 +719,6 @@ function publicationKnownBudget(record, evidenceReuse, reusedManifest) {
     ...record,
     ...inputs,
     evidenceReuse,
-    pendingEvidenceReuse: evidenceReuse?.requested === true,
     attemptEvidenceVersion: 3,
     children: built.children,
     gates: built.gates,
@@ -773,11 +734,7 @@ function publicationKnownBudget(record, evidenceReuse, reusedManifest) {
       candidateRequest,
     },
   });
-  assertReleasePublicationKnownBudget(
-    plan,
-    context,
-    reusedManifest ?? evidenceReuse?.sourceManifest,
-  );
+  assertReleasePublicationKnownBudget(plan, context);
 }
 
 async function publicationReuseMode() {
@@ -794,7 +751,6 @@ async function publicationReuseMode() {
     workflowRef: process.env.GITHUB_REF_NAME,
   });
   let reuse;
-  let reusedManifest;
   let outputs;
   if (positiveInteger(process.env.GITHUB_RUN_ATTEMPT, "parent attempt") > 1) {
     const { restoreOriginalPublicationAdmission } = await import("./release-ci-summary.mjs");
@@ -802,17 +758,6 @@ async function publicationReuseMode() {
       request: { ...record.sourceAdmission, runAttempt: Number(process.env.GITHUB_RUN_ATTEMPT) },
     });
     reuse = restored.plan.evidenceReuse;
-    if (reuse.requested && !reuse.sourceManifest) {
-      const validated = await validateReuse(restored.plan);
-      if (
-        validated.blockers.length > 0 ||
-        validated.errors.length > 0 ||
-        !validated.sourceManifest
-      ) {
-        throw new Error("publication retry could not revalidate reusable evidence");
-      }
-      reusedManifest = validated.sourceManifest;
-    }
     outputs = reuse.requested
       ? {
           reuse: "true",
@@ -874,11 +819,10 @@ async function publicationReuseMode() {
           ? { publicationAdmissionContract: "1" }
           : {},
       );
-      reusedManifest = reuse.sourceManifest;
     }
     delete outputs.evidence_manifest;
   }
-  publicationKnownBudget(record, reuse, reusedManifest);
+  publicationKnownBudget(record, reuse);
   // Bulk root evidence remains in the private file/retained plan, never job outputs.
   const lines = [];
   for (const [key, value] of Object.entries(outputs)) {
@@ -1040,19 +984,10 @@ async function publicationMode(mode) {
 async function writeManifestMode() {
   const plan = readArtifact(process.env.RELEASE_EXECUTION_PLAN_PATH, "execution plan");
   const drain = readArtifact(process.env.DIAGNOSTIC_DRAIN_PATH, "diagnostic drain");
-  let reusedManifest = plan.evidenceReuse.sourceManifest;
-  if (plan.evidenceReuse.requested && !reusedManifest) {
-    const reuse = await validateReuse(plan);
-    if (reuse.blockers.length > 0 || reuse.errors.length > 0 || !reuse.sourceManifest) {
-      throw new Error("release validation manifest could not revalidate reusable evidence");
-    }
-    reusedManifest = reuse.sourceManifest;
-  }
   const manifest = buildReleaseValidationManifest({
     plan,
     drain,
     context: manifestContextFromEnvironment(plan.sourceAdmission),
-    reusedManifest,
   });
   if (manifest.sourceAdmission?.validationPurpose === "publish" && manifest.rerunGroup === "all") {
     const outputDir = mkdtempSync(
@@ -1095,7 +1030,7 @@ function candidateRequestFromEnvironment() {
   );
 }
 
-function evidenceReuseFromInputs(planInputs, sourceArtifact = null, sourceManifest = null) {
+function evidenceReuseFromInputs(planInputs, sourceManifest = {}) {
   return {
     changedPaths: changedPathsValue(planInputs.evidenceChangedPaths),
     evidenceSha: stringValue(planInputs.evidenceSha),
@@ -1104,15 +1039,7 @@ function evidenceReuseFromInputs(planInputs, sourceArtifact = null, sourceManife
     rootRunId: stringValue(planInputs.evidenceRootRunId),
     runUrl: stringValue(planInputs.evidenceRunUrl),
     selectedRunId: stringValue(planInputs.evidenceRunId),
-    sourceArtifact,
-    ...(sourceArtifact && sourceManifest
-      ? {
-          sourceWorkflow: {
-            ref: requiredString(sourceManifest.workflowRef, "reused evidence workflow ref"),
-            sha: requiredString(sourceManifest.workflowSha, "reused evidence workflow SHA"),
-          },
-        }
-      : {}),
+    sourceManifest,
   };
 }
 
@@ -1260,10 +1187,6 @@ async function planMode() {
     children: hydrateReusedPlan(built.children, { childReuse: planInputs.childReuse ?? {} }),
     childReuse: planInputs.childReuse,
     evidenceReuse: evidenceReuseFromInputs(planInputs),
-<<<<<<< HEAD
-=======
-    pendingEvidenceReuse: true,
->>>>>>> 97b6e87616f
     expected: { ...expected, candidateRequest, parentRunAttempt: sourceParentRunAttempt },
     gates: built.gates,
     releaseProfile: expected.releaseProfile,
@@ -1314,7 +1237,7 @@ async function planMode() {
     blockers: reuse.blockers,
     children: reuse.children,
     errors: reuse.errors,
-    evidenceReuse: evidenceReuseFromInputs(planInputs, reuse.sourceArtifact, reuse.sourceManifest),
+    evidenceReuse: evidenceReuseFromInputs(planInputs, reuse.sourceManifest),
   });
   writeExecutionPlan(outputPath, plan);
   finished = true;
@@ -1353,10 +1276,7 @@ async function collectMode(mode) {
     },
   );
   const plan = executionPlan.children;
-  // The plan freezes which parent gates are required. Their effective result is
-  // supplied by this same parent attempt so failed-job recovery can clear a
-  // retryable qualification failure without changing the admitted gate set.
-  const gateFailures = releasePlanGateFailures(effectiveReleasePlanGates(executionPlan.gates));
+  const gateFailures = releasePlanGateFailures(executionPlan.gates);
   const failFast = mode === "decision" && process.env.FAIL_FAST === "true";
   const pollIntervalMs =
     Number(process.env.FULL_RELEASE_POLL_INTERVAL_MS) || DEFAULT_POLL_INTERVAL_MS;
@@ -1441,9 +1361,8 @@ async function collectMode(mode) {
       };
     }
     if (
-      executionPlan.evidenceReuse.sourceArtifact &&
-      JSON.stringify(sortJsonValueKeys(decisionReuse.sourceArtifact)) !==
-        JSON.stringify(sortJsonValueKeys(executionPlan.evidenceReuse.sourceArtifact))
+      JSON.stringify(sortJsonValueKeys(decisionReuse.sourceManifest)) !==
+      JSON.stringify(sortJsonValueKeys(executionPlan.evidenceReuse.sourceManifest))
     ) {
       decisionReuse = {
         ...decisionReuse,
@@ -1452,7 +1371,7 @@ async function collectMode(mode) {
           {
             child: "<evidence>",
             kind: "provenance_mismatch",
-            message: "revalidated evidence artifact differs from the immutable plan",
+            message: "revalidated evidence source manifest differs from the immutable plan",
             runId: executionPlan.evidenceReuse.rootRunId,
             url: executionPlan.evidenceReuse.runUrl,
           },

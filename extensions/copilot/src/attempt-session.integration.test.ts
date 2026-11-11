@@ -1,14 +1,7 @@
 import type { CopilotClient } from "@github/copilot-sdk";
 import type { AgentHarnessAttemptParamsV2 } from "openclaw/plugin-sdk/agent-harness-runtime";
-<<<<<<< HEAD
-import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "openclaw/plugin-sdk/runtime-config-snapshot";
-=======
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
 import { readSessionTranscriptEvents } from "openclaw/plugin-sdk/session-transcript-runtime";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createFakeSession,
   createFixture,
@@ -21,12 +14,6 @@ import { createCopilotTestHostCapabilities } from "./host-capability.test-suppor
 import type { CopilotClientPool } from "./runtime.js";
 
 describe("Copilot canonical session identity", () => {
-<<<<<<< HEAD
-  beforeEach(() => setRuntimeConfigSnapshot({}));
-  afterEach(() => clearRuntimeConfigSnapshot());
-
-=======
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
   it("keeps the host session through provider failure, retry, resume, and finalization", async () => {
     const { attempt, target, tempDir, bridge } = await createFixture();
     bridge.detach();

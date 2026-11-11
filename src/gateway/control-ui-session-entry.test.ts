@@ -99,18 +99,17 @@ describe("protected canonical session handoff", () => {
     current.mockReturnValue(false);
     expect(isCurrent?.()).toBe(false);
   });
-  it("ends a denied handoff without redirecting into another reader probe", async () => {
+  it("keeps denied members on the public reader without an automatic redirect loop", async () => {
     resolveSession.mockResolvedValue(null);
     const probe = await request(`${entry}&probe=1`);
     expect(probe.res.statusCode).toBe(403);
     expect(probe.serveApp).not.toHaveBeenCalled();
     const opened = await request();
-    expect(opened.res.statusCode).toBe(403);
-    expect(opened.setHeader).not.toHaveBeenCalledWith("Location", expect.anything());
-    expect(opened.getBody()).toContain("Session unavailable");
+    expect(opened.res.statusCode).toBe(303);
+    expect(opened.setHeader).toHaveBeenCalledWith("Location", canonical);
     expect(opened.setHeader).not.toHaveBeenCalledWith("X-OpenClaw-Session-Entry", "1");
   });
-  it.each(["password"] as const)(
+  it.each(["token", "password"] as const)(
     "keeps explicit %s login on the existing app login gate",
     async (mode) => {
       authenticate.mockResolvedValue({
@@ -129,11 +128,11 @@ describe("protected canonical session handoff", () => {
   it.each([
     "https://evil.test/chat/main",
     "/control/chat/main/a\u0000",
+    "/control/chat/main/a\u007f",
     "/control/chat/main/a b",
     "//evil.test/chat/main",
     "/control/settings",
     "/chat/main/topic",
-<<<<<<< HEAD
     "/control/chat/main/topic?token=secret",
     "/control/chat/main/topic?openclaw_mount_recovery=1&token=secret",
     "/control/chat/main/topic?openclaw_mount_recovery=1&unknown=value",
@@ -142,15 +141,6 @@ describe("protected canonical session handoff", () => {
     "/control/chat/main/topic?openclaw_mount_recovery=invalid",
     "/control/chat/main?__openclawSessionKey=first&__openclawSessionKey=second",
     "/control/chat/main?__openclawSessionKey=",
-=======
-    "/control/chat/main/topic?openclaw_mount_recovery=1&token=secret",
-    "/control/chat/main/topic?openclaw_mount_recovery=1&openclaw_mount_recovery=2",
-    "/control/chat/main/topic?openclaw_mount_recovery=invalid",
-    "/control/chat/main?__openclawSessionKey=first&__openclawSessionKey=second",
-    "/control/chat/main?__openclawSessionKey=",
-    "/control/chat/main?__openclawSessionKey=agent%3Amain%00",
-    "/control/chat/main?__openclawSessionKey=agent%3Amain%0A",
->>>>>>> 97b6e87616f
     "/control/chat/main?__openclawComposerFocus=1&__openclawComposerFocus=1",
     "/control/chat/main?__openclawComposerFocus=0",
     "/control/chat/main?__openclawComposerFocus=",

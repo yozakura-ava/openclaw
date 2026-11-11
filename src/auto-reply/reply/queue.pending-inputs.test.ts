@@ -3,20 +3,12 @@ import { afterEach, assert, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDeferred, withinTest } from "../../../test/helpers/promise.js";
 import { useSqliteWorkerFault } from "../../../test/helpers/sqlite-worker-fault.js";
 import {
-  clearRuntimeConfigSnapshot,
-  setRuntimeConfigSnapshot,
-} from "../../config/runtime-snapshot.js";
-import {
   appendTranscriptMessage,
   listSessionPendingInputs,
   loadTranscriptEvents,
   upsertSessionEntryCore,
 } from "../../config/sessions/session-accessor.js";
 import { useTempSessionsFixture } from "../../config/sessions/test-helpers.js";
-<<<<<<< HEAD
-=======
-import type { OpenClawConfig } from "../../config/types.openclaw.js";
->>>>>>> 97b6e87616f
 import { captureGatewayRootWorkReleaseObserver } from "../../process/gateway-work-admission.js";
 import {
   createUserTurnTranscriptRecorder,
@@ -52,7 +44,6 @@ const fault = useSqliteWorkerFault([
 
 describe("followup queue durable input consumption", () => {
   const fixture = useTempSessionsFixture("openclaw-queue-pending-");
-  let config: OpenClawConfig;
   let caseSequence = 0;
   let sessionKey = "";
   const sessionId = "queue-pending-session";
@@ -60,8 +51,6 @@ describe("followup queue durable input consumption", () => {
   const scope = () => ({ agentId: "main", sessionId, sessionKey, storePath: fixture.storePath() });
 
   beforeEach(async () => {
-    config = { session: { store: fixture.storePath() } };
-    setRuntimeConfigSnapshot(config);
     sessionKey = `agent:main:queue-pending-${++caseSequence}`;
     vi.mocked(executeAgentTurn).mockReset();
     await upsertSessionEntryCore(scope(), { sessionId, updatedAt: 1 });
@@ -73,7 +62,6 @@ describe("followup queue durable input consumption", () => {
       recorder.finishPendingInput?.("interrupted");
     }
     closeOpenClawAgentDatabasesForTest();
-    clearRuntimeConfigSnapshot();
   });
 
   const createStagedRun = async (runId: string) => {
@@ -83,7 +71,7 @@ describe("followup queue durable input consumption", () => {
     }));
     const recorder = createUserTurnTranscriptRecorder({
       input: { text: `${runId} private source`, idempotencyKey: `${runId}:user` },
-      target: { ...scope(), sessionEntry: undefined, config },
+      target: { ...scope(), sessionEntry: undefined },
       beforeMessageWrite,
       updateMode: "none",
     });
@@ -101,7 +89,7 @@ describe("followup queue durable input consumption", () => {
         agentId: "main",
         sessionKey,
         sessionId,
-        config,
+        config: { session: { store: fixture.storePath() } },
       },
     };
     return { run, beforeMessageWrite };
@@ -172,7 +160,7 @@ describe("followup queue durable input consumption", () => {
       messageId: "unstaged",
       userTurnTranscriptRecorder: createUserTurnTranscriptRecorder({
         input: { text: "unstaged transcript body" },
-        target: { ...scope(), sessionEntry: undefined, config: staged.run.run.config },
+        target: { ...scope(), sessionEntry: undefined },
       }),
       turnAdoptionLifecycle: { admission: "cancel-only", onAdopted: async () => {} },
     };

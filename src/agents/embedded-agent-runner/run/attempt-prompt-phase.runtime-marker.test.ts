@@ -13,11 +13,7 @@ import {
 import { SessionManager } from "../../sessions/session-manager.js";
 import {
   clearEmbeddedSessionPromptStates,
-<<<<<<< HEAD
   getEmbeddedSessionPromptState,
-=======
-  retainEmbeddedSessionPromptState,
->>>>>>> 97b6e87616f
 } from "../session-prompt-state.js";
 import { runEmbeddedAttemptPromptPhase } from "./attempt-prompt-phase.js";
 import { createFixture, mocks } from "./attempt-prompt-phase.test-support.js";
@@ -70,12 +66,7 @@ describe("runEmbeddedAttemptPromptPhase runtime-only persistence", () => {
     const sessionRuntime = fixture.input.prepared.sessionRuntime;
     sessionRuntime.agentSession.activeSession = session;
     sessionRuntime.sessionManager = guardedManager;
-<<<<<<< HEAD
     const sessionPromptState = getEmbeddedSessionPromptState(markerSessionId);
-=======
-    using promptStateLease = retainEmbeddedSessionPromptState(markerSessionId);
-    const sessionPromptState = promptStateLease.state;
->>>>>>> 97b6e87616f
     sessionRuntime.sessionPromptState = sessionPromptState;
     sessionRuntime.toolResultPromptProjectionState = sessionPromptState.toolResults;
     sessionRuntime.transcriptPolicy.appendOnlyRuntimeContext = true;
