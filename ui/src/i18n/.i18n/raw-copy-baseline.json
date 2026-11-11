@@ -122,23 +122,16 @@
     },
     {
       "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/components/app-sidebar-session-indicators.tsx",
-      "text": "0ms"
-    },
-    {
-      "count": 1,
       "kind": "html-attribute",
       "name": "aria-label",
-      "path": "ui/src/components/app-topbar-solid.tsx",
+      "path": "ui/src/components/app-topbar.ts",
       "text": "OpenClaw"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/components/app-topbar-solid.tsx",
+      "path": "ui/src/components/app-topbar.ts",
       "text": "OpenClaw"
     },
     {
@@ -184,116 +177,81 @@
       "text": "/verbose"
     },
     {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "title",
-      "path": "ui/src/components/lobster-pet-scene-view.tsx",
-      "text": "a message in a bottle"
-    },
-    {
       "count": 2,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/components/lobster-pet-scene-view.tsx",
+      "path": "ui/src/components/lobster-pet-scene-view.ts",
       "text": "z"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/components/lobster-pet-scene-view.tsx",
+      "path": "ui/src/components/lobster-pet-scene-view.ts",
       "text": "Z"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/components/lobster-pet-sprites-wild.tsx",
-      "text": "(o) (o)"
     },
     {
       "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/components/login-gate-solid.tsx",
+      "path": "ui/src/components/login-gate.ts",
       "text": "wss://gateway.example:443"
     },
     {
       "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/components/mcp-servers-form.tsx",
+      "path": "ui/src/components/mcp-server-form.ts",
       "text": "context7"
     },
     {
       "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/components/mcp-servers-form.tsx",
+      "path": "ui/src/components/mcp-server-form.ts",
       "text": "https://mcp.example.com/mcp · npx some-mcp-server"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "AWS"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "Azure"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "Daytona"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "Google Cloud"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "Hetzner"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/components/provider-icon-data.ts",
+      "path": "ui/src/components/provider-icon.ts",
       "text": "Machine0"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/components/sidebar-build-chip.tsx",
-      "text": "v"
-    },
-    {
-      "count": 1,
-      "kind": "object-property",
-      "name": "label",
-      "path": "ui/src/components/solid/sidebar-community-invite.tsx",
-      "text": "follow"
-    },
-    {
-      "count": 2,
-      "kind": "object-property",
-      "name": "label",
-      "path": "ui/src/components/solid/sidebar-community-invite.tsx",
-      "text": "join"
     },
     {
       "count": 1,
@@ -313,7 +271,7 @@
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/about/view.tsx",
+      "path": "ui/src/pages/about/view.ts",
       "text": "v"
     },
     {
@@ -334,42 +292,35 @@
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/agents/memory/view-diary.tsx",
+      "path": "ui/src/pages/agents/memory/view.ts",
       "text": "memory-wiki"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/agents/memory/view-diary.tsx",
+      "path": "ui/src/pages/agents/memory/view.ts",
       "text": "plugins.entries.memory-wiki.enabled = true"
     },
     {
       "count": 2,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/agents/memory/view-scene.tsx",
+      "path": "ui/src/pages/agents/memory/view.ts",
       "text": "z"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/agents/memory/view-scene.tsx",
+      "path": "ui/src/pages/agents/memory/view.ts",
       "text": "Z"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/chat/components/chat-message-stream-view.tsx",
-      "text": "Assistant"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/chat/components/chat-message-timestamp-view.tsx",
+      "path": "ui/src/pages/chat/components/chat-message-timestamp.ts",
       "text": "% ctx"
     },
     {
@@ -381,135 +332,99 @@
     },
     {
       "count": 1,
-      "kind": "object-property",
-      "name": "title",
-      "path": "ui/src/pages/chat/components/chat-sidebar-editor-menu.tsx",
-      "text": "Open in editor"
-    },
-    {
-      "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/cloud-workers/cloud-worker-snapshot-rows.tsx",
-      "text": ".openclaw/worktree-setup.sh"
-    },
-    {
-      "count": 1,
-      "kind": "object-property",
-      "name": "label",
-      "path": "ui/src/pages/cloud-workers/cloud-worker-snapshots.test-support.ts",
-      "text": "github.com/acme/app"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/config/mcp.tsx",
+      "path": "ui/src/pages/config/mcp.ts",
       "text": "openclaw mcp doctor --probe"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/config/mcp.tsx",
+      "path": "ui/src/pages/config/mcp.ts",
       "text": "openclaw mcp login &lt;name&gt;"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/config/mcp.tsx",
+      "path": "ui/src/pages/config/mcp.ts",
       "text": "openclaw mcp reload"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/config/mcp.tsx",
+      "path": "ui/src/pages/config/mcp.ts",
       "text": "openclaw mcp status --verbose"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/config/updates.tsx",
+      "path": "ui/src/pages/config/updates.ts",
       "text": "openclaw triage"
     },
     {
       "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/pages/config/view-appearance-preferences.tsx",
+      "path": "ui/src/pages/config/view-appearance-preferences.ts",
       "text": "48rem"
     },
     {
       "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/pages/config/view-appearance.tsx",
+      "path": "ui/src/pages/config/view-appearance.ts",
       "text": "https://tweakcn.com/editor/theme?theme=... or amethyst-haze"
     },
     {
       "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/config/view-appearance.tsx",
-      "text": "tweakcn"
-    },
-    {
-      "count": 1,
       "kind": "html-attribute",
       "name": "placeholder",
-      "path": "ui/src/pages/connection/view.tsx",
+      "path": "ui/src/pages/connection/view.ts",
       "text": "wss://gateway.example:443"
-    },
-    {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "placeholder",
-      "path": "ui/src/pages/cron/view-delivery.tsx",
-      "text": "agent:main:main"
-    },
-    {
-      "count": 1,
-      "kind": "html-attribute",
-      "name": "placeholder",
-      "path": "ui/src/pages/cron/view-delivery.tsx",
-      "text": "default"
     },
     {
       "count": 1,
       "kind": "object-property",
       "name": "label",
-      "path": "ui/src/pages/cron/view-delivery.tsx",
+      "path": "ui/src/pages/cron/view.ts",
       "text": "last"
     },
     {
       "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/custodian/custodian-setup-card.tsx",
-      "text": "openclaw onboard"
+      "kind": "object-property",
+      "name": "placeholder",
+      "path": "ui/src/pages/cron/view.ts",
+      "text": "agent:main:main"
+    },
+    {
+      "count": 1,
+      "kind": "object-property",
+      "name": "placeholder",
+      "path": "ui/src/pages/cron/view.ts",
+      "text": "default"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/debug/view.tsx",
+      "path": "ui/src/pages/debug/view.ts",
       "text": "openclaw security audit --deep"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/devices/view-exec-approvals.tsx",
+      "path": "ui/src/pages/devices/view-exec-approvals.ts",
       "text": "exec host=gateway/node"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-<<<<<<< HEAD
       "path": "ui/src/pages/new-session/cloud-target.ts",
       "text": "openclaw config set nodeHost.workerRuns.enabled true"
     },
@@ -525,31 +440,13 @@
       "kind": "html-text",
       "name": "text",
       "path": "ui/src/pages/new-session/cloud-target.ts",
-      "text": "openclaw node install --force"
-=======
-      "path": "ui/src/pages/new-session/cloud-target-view.tsx",
-      "text": "openclaw config set nodeHost.workerRuns.enabled true"
->>>>>>> 97b6e87616f
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/new-session/cloud-target-view.tsx",
-      "text": "openclaw node install --force"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/new-session/cloud-target-view.tsx",
       "text": "openclaw node restart"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/new-session/cloud-target-view.tsx",
+      "path": "ui/src/pages/new-session/cloud-target.ts",
       "text": "openclaw update"
     },
     {
@@ -565,20 +462,6 @@
       "name": "label",
       "path": "ui/src/pages/new-session/where-chip.test-support.ts",
       "text": "Duplicate runner"
-    },
-    {
-      "count": 2,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/plugin/logbook-view.tsx",
-      "text": "0s"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/plugins/consent-dialog.tsx",
-      "text": "v"
     },
     {
       "count": 1,
@@ -680,30 +563,23 @@
     },
     {
       "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/plugins/security-audit.tsx",
-      "text": "Clean"
+      "kind": "object-property",
+      "name": "description",
+      "path": "ui/src/pages/search/search-results.ts",
+      "text": "snippet"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/plugins/security-audit.tsx",
-      "text": "Review"
-    },
-    {
-      "count": 1,
-      "kind": "html-text",
-      "name": "text",
-      "path": "ui/src/pages/skills/library-detail.tsx",
+      "path": "ui/src/pages/skills/library-detail.ts",
       "text": "SKILL.md"
     },
     {
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/skills/library-view.tsx",
+      "path": "ui/src/pages/skills/library-view.ts",
       "text": "SKILL.md"
     },
     {
@@ -717,7 +593,7 @@
       "count": 1,
       "kind": "html-text",
       "name": "text",
-      "path": "ui/src/pages/systems/systems-backups.tsx",
+      "path": "ui/src/pages/systems/systems-backups.ts",
       "text": "openclaw backup enable --to &lt;location&gt;"
     }
   ]

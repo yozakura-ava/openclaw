@@ -27,7 +27,6 @@ import {
   resetDiagnosticMemoryForTest,
   type EmitDiagnosticMemorySample,
 } from "./diagnostic-memory.js";
-import { emitMessageProcessedDiagnosticEvent } from "./diagnostic-message-content.js";
 import {
   getCurrentDiagnosticPhase,
   getRecentDiagnosticPhases,
@@ -74,7 +73,6 @@ import {
   isDiagnosticSessionStateCurrent,
   pruneDiagnosticSessionStates,
   resetDiagnosticSessionStateForTest,
-  touchDiagnosticSessionState,
   type SessionRef,
   type SessionState,
   type SessionStateValue,
@@ -340,11 +338,6 @@ function isActiveAbortRecoveryEligible(params: {
   if (classification.classification !== "stalled_agent_run") {
     return false;
   }
-  // Repeated provider requests are diagnostic evidence, not independent stop
-  // authority. The provider retry/deadline owner must settle or stop the run.
-  if (classification.reason === "repeated_model_requests_without_progress") {
-    return false;
-  }
   // Repeated requests can be stalled while a tool owns the current phase.
   // Transport liveness must not replace that independent semantic evidence.
   if (isRepeatedModelRequestStalled(activity, stuckSessionAbortMs)) {
@@ -534,12 +527,7 @@ export function logMessageDispatchCompleted(
   markActivity();
 }
 
-export function logMessageProcessed(
-  params: DiagnosticLogParams<"message.processed"> & {
-    userPrompt?: string;
-    finalResponse?: string;
-  },
-) {
+export function logMessageProcessed(params: DiagnosticLogParams<"message.processed">) {
   if (!areDiagnosticsEnabledForProcess()) {
     return;
   }
@@ -556,7 +544,19 @@ export function logMessageProcessed(
     }`;
     diag[level](payload);
   }
-  emitMessageProcessedDiagnosticEvent(params);
+  emitDiagnosticEvent({
+    type: "message.processed",
+    channel: params.channel,
+    chatId: params.chatId,
+    messageId: params.messageId,
+    sessionId: params.sessionId,
+    sessionKey: params.sessionKey,
+    ...(params.agentId ? { agentId: params.agentId } : {}),
+    durationMs: params.durationMs,
+    outcome: params.outcome,
+    reason: params.reason,
+    error: params.error,
+  });
   markActivity();
 }
 
@@ -635,43 +635,10 @@ export function markDiagnosticSessionProgress(params: SessionRef) {
     return;
   }
   const state = getDiagnosticSessionState(params);
-  const isProbeSession = state.sessionId?.startsWith("probe-") ?? false;
-  const prevState = state.state;
-  state.state = params.state;
-  touchDiagnosticSessionState(state);
-  if (params.state === "processing" && prevState !== "processing") {
-    state.activeQueuedTurn = state.queueDepth > 0;
-  }
-  if (params.state === "idle") {
-    state.queueDepth = Math.max(0, state.queueDepth - 1);
-    state.activeQueuedTurn = false;
-  }
-  if (!isProbeSession && diag.isEnabled("debug")) {
-    diag.debug(
-      `session state: sessionId=${state.sessionId ?? "unknown"} sessionKey=${
-        state.sessionKey ?? "unknown"
-      } prev=${prevState} new=${params.state} reason="${params.reason ?? ""}" queueDepth=${
-        state.queueDepth
-      }`,
-    );
-  }
-  emitDiagnosticEvent({
-    type: "session.state",
-    sessionId: state.sessionId,
-    sessionKey: state.sessionKey,
-    prevState,
-    state: params.state,
-    reason: params.reason,
-    queueDepth: state.queueDepth,
-  });
-  markActivity();
-}
-
-export function markDiagnosticSessionProgress(params: SessionRef) {
-  if (!areDiagnosticsEnabledForProcess()) {
-    return;
-  }
-  touchDiagnosticSessionState(getDiagnosticSessionState(params));
+  state.lastActivity = Date.now();
+  state.generation = (state.generation ?? 0) + 1;
+  state.lastStuckWarnAgeMs = undefined;
+  state.lastLongRunningWarnAgeMs = undefined;
   markActivity();
 }
 
@@ -1030,7 +997,6 @@ export function startGatewayDiagnosticHeartbeat(
     id: "diagnostic-heartbeat",
     atMs: scheduler.now() + DIAGNOSTIC_HEARTBEAT_INTERVAL_MS,
     everyMs: DIAGNOSTIC_HEARTBEAT_INTERVAL_MS,
-    phase: "maintenance",
     run: tick,
   });
   heartbeatJob = job;

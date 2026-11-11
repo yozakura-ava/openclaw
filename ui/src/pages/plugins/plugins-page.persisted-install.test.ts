@@ -3,17 +3,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred as deferred } from "../../../../test/helpers/promise.js";
 import { GatewayRequestError } from "../../api/gateway.ts";
-import { pathForPluginCatalogEntry } from "../../app-route-paths.ts";
 import { showConfirmDialog } from "../../components/confirm-dialog.ts";
 import { i18n } from "../../i18n/index.ts";
 import { createRuntimeConfigCapability } from "../../lib/config/runtime-config-capability.ts";
-import type { PluginMutationResult } from "../../lib/plugins/index.ts";
-import { waitForSolid } from "../../test-helpers/solid-settle.ts";
+import type { PluginInstallRequest, PluginMutationResult } from "../../lib/plugins/index.ts";
+import { waitForFast } from "../../test-helpers/wait-for.ts";
 import {
-  clickPluginAction,
+  activatePluginControl,
   createClient,
   createContext,
-  createDiscoveryDetail,
   createGateway,
   createInspectResult,
   createPlugin,
@@ -22,7 +20,6 @@ import {
   createResult,
   mountPage,
   resetPluginsPageTestState,
-  settlePlugins,
 } from "./plugins-page.test-support.ts";
 
 vi.mock("../../components/confirm-dialog.ts", () => ({ showConfirmDialog: vi.fn() }));
@@ -43,6 +40,11 @@ const available = createPlugin({
   install: { source: "clawhub", packageName: "community-calendar" },
 });
 const installed = { ...available, installed: true, enabled: true, state: "error" as const };
+const installRequest: PluginInstallRequest = {
+  source: "clawhub",
+  packageName: "community-calendar",
+};
+const rowKey = "plugin:calendar-runtime";
 const runtimeFailure = {
   operationId: "install-1",
   generation: 3,
@@ -166,10 +168,6 @@ it("blocks repeat install when saved-state reads fail, then reconciles aliases a
 });
 
 it("retires saved-install refreshes when their Gateway owner is replaced", async () => {
-  const catalog = createDiscoveryDetail(available);
-  catalog.plugin.id = "catalog-calendar-runtime";
-  const replacementCatalog = createDiscoveryDetail({ ...available, name: "Replacement Calendar" });
-  replacementCatalog.plugin.id = catalog.plugin.id;
   const configRead = deferred<typeof configSnapshot>();
   const catalogRead = deferred<ReturnType<typeof createResult>>();
   let installSaved = false;
@@ -190,9 +188,6 @@ it("retires saved-install refreshes when their Gateway owner is replaced", async
     }
     if (method === "plugins.list") {
       return catalogRead.promise;
-    }
-    if (method === "plugins.catalog.get") {
-      return catalog;
     }
     throw new Error(`Unexpected request: ${method}`);
   });
@@ -216,30 +211,31 @@ it("retires saved-install refreshes when their Gateway owner is replaced", async
     createPluginsRouteData(
       harness.gateway,
       createResult(available),
-      createPluginsRouteLocation(pathForPluginCatalogEntry(catalog.plugin.id)),
+      createPluginsRouteLocation("/settings/plugins"),
     ),
   );
   try {
     await runtimeConfig.ensureLoaded();
     const actionStart = initialRequest.mock.calls.length;
-    await clickPluginAction(page, "Install");
-    await waitForSolid(() => {
+    const installing = page.consentController.install(installRequest, rowKey);
+    await waitForFast(() => {
       const actionCalls = initialRequest.mock.calls.slice(actionStart);
       expect(actionCalls).toContainEqual(["config.get", {}]);
       expect(actionCalls).toContainEqual(["plugins.list", {}, expect.anything()]);
     });
     harness.emit(replacement, true);
-    await waitForSolid(() => {
-      expect(page.querySelector("h1")?.textContent).toBe("Replacement Calendar");
+    await waitForFast(() => {
+      expect(page.result?.plugins[0]?.id).toBe("workboard");
       expect(runtimeConfig.state.configSnapshot?.hash).toBe("replacement-config");
     });
     configRead.reject(new Error("Old config read failed"));
     catalogRead.resolve(createResult(installed));
-    await settlePlugins();
-    expect(page.querySelector("h1")?.textContent).toBe("Replacement Calendar");
+    await installing;
+    await page.updateComplete;
+    expect(page.result?.plugins[0]?.id).toBe("workboard");
     expect(runtimeConfig.state.configSnapshot?.hash).toBe("replacement-config");
     expect(runtimeConfig.state.lastError).toBeNull();
-    expect(page.querySelector(".plugins-row-message")).toBeNull();
+    expect(page.messages).toEqual({});
     expect(page.textContent).not.toContain("Old startup failed");
     expect(page.textContent).not.toContain("Old config read failed");
     expect(replacementRequest).toHaveBeenCalledWith("config.get", {});
@@ -324,40 +320,33 @@ describe("plugin runtime mutations", () => {
       });
     try {
       await runtimeConfig.ensureLoaded();
-      await clickPluginAction(page, "Enable Workboard");
-      await waitForSolid(() =>
+      const button = page.querySelector<HTMLButtonElement>('[aria-label="Enable Workboard"]');
+      expect(button, "installed plugin exposes enablement").not.toBeNull();
+      button!.click();
+      await waitForFast(() =>
         expect(request).toHaveBeenCalledWith("plugins.setEnabled", {
           pluginId: "workboard",
           enabled: true,
         }),
       );
-      const busyButton = page.querySelector<HTMLButtonElement>('[aria-label="Enable Workboard"]');
-      expect(busyButton?.getAttribute("aria-busy")).toBe("true");
-      expect(busyButton?.querySelector(".btn__spinner")).not.toBeNull();
+      await page.updateComplete;
+      expect(button!.getAttribute("aria-busy")).toBe("true");
+      expect(button!.querySelector(".btn__spinner")).not.toBeNull();
       expect(page.querySelectorAll(".plugin-catalog-detail__actions .btn__spinner")).toHaveLength(
         1,
       );
-      busyButton!.click();
-      catalog = {
-        ...catalog,
-        generation: 7,
-        plugins: [{ ...receipt.plugin, description: "Published plugin inventory" }],
-      };
+      button!.click();
+      catalog = { ...catalog, generation: 7, plugins: [receipt.plugin] };
       holdMutationConfig = true;
       enabling.resolve(receipt);
       await mutationConfigStarted.promise;
       publish();
-      await waitForSolid(() => {
-        expect(page.querySelector(".plugin-catalog-detail__summary")?.textContent).toBe(
-          "Published plugin inventory",
-        );
-      });
+      await waitForFast(() => expect(page.result?.generation).toBe(7));
       mutationConfig.resolve(enablementSnapshot);
-      await waitForSolid(() => {
-        expect(page.querySelector(".plugin-catalog-detail__actions .btn__spinner")).toBeNull();
-        expect(page.querySelector('[aria-label="Disable Workboard"]')).not.toBeNull();
-      });
-      expect(page.querySelector(".plugins-row-message")).toBeNull();
+      await waitForFast(() => expect(page.busy["plugin:workboard"]).toBeUndefined());
+      await waitForFast(() => expect(page.result?.generation).toBe(7));
+      expect(page.result?.plugins[0]?.enabled).toBe(true);
+      expect(page.messages["plugin:workboard"]).toBeUndefined();
       expect(page.querySelector(".plugin-catalog-detail__actions .btn__spinner")).toBeNull();
       expect(page.querySelector(".plugins-row-message--success")).toBeNull();
       expect(request.mock.calls.filter(([method]) => method === "plugins.setEnabled")).toHaveLength(
@@ -397,7 +386,7 @@ describe("plugin runtime mutations", () => {
         details: { runtime, ...(applied === "earlier" ? { runtimeAttempt: attempted } : {}) },
       });
       const refreshed = {
-        ...createResult(createPlugin({ enabled: action === "enable", state: "error" })),
+        ...createResult(createPlugin({ state: "error" })),
         generation: applied === "earlier" ? 7 : 8,
       };
       const { client, request } = createClient(async (method) => {
@@ -433,29 +422,23 @@ describe("plugin runtime mutations", () => {
       try {
         await runtimeConfig.ensureLoaded();
         const actionStart = request.mock.calls.length;
-        await clickPluginAction(
+        await activatePluginControl(
           page,
-          action === "enable" ? "Enable Workboard" : "Disable Workboard",
+          ".plugin-catalog-detail",
+          action === "enable" ? "Enable" : "Disable",
         );
-        await waitForSolid(() => {
-          expect(page.querySelector('.plugins-row-message[role="alert"]')?.textContent).toContain(
-            error.message,
-          );
-          expect(page.querySelector(".plugin-catalog-detail__actions .btn__spinner")).toBeNull();
-        });
-        expect(page.querySelector('.plugins-row-message[role="alert"]')?.textContent).toContain(
-          "Runtime phase: activate.",
-        );
-        expect(page.textContent).not.toContain("Installation saved");
+        await waitForFast(() => expect(page.busy["plugin:workboard"]).toBeUndefined());
+        await page.updateComplete;
+        const message = page.messages["plugin:workboard"];
+        expect(message?.kind).toBe("error");
+        expect(message?.savedInstall).toBeUndefined();
+        expect(message?.text).toContain(error.message);
+        expect(message?.text).toContain("Runtime phase: activate.");
         const calls = request.mock.calls.slice(actionStart);
         expect(calls.filter(([method]) => method === methodName)).toHaveLength(1);
         expect(calls.filter(([method]) => method === "plugins.list")).toHaveLength(applied ? 1 : 0);
         expect(calls.filter(([method]) => method === "config.get")).toHaveLength(applied ? 1 : 0);
-        expect(
-          page.querySelector(
-            `[aria-label="${applied && action === "enable" ? "Disable" : "Enable"} Workboard"]`,
-          ),
-        ).not.toBeNull();
+        expect(page.result?.generation).toBe(applied ? refreshed.generation : undefined);
         expect(page.querySelector(".plugins-install")).toBeNull();
       } finally {
         runtimeConfig.dispose();

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  loadConfig,
+  getRuntimeConfig,
   clearConfigCache,
   clearRuntimeConfigSnapshot,
   getRuntimeConfigSnapshot,
@@ -20,10 +20,10 @@ describe("talk config validation fail-closed behavior", () => {
 
   it("can load an unpinned runtime config without replacing the process snapshot", async () => {
     await withTempHomeConfig({ gateway: { port: 19002 } }, async () => {
-      const unpinned = loadConfig({ skipPluginValidation: true, pin: false });
+      const unpinned = getRuntimeConfig({ skipPluginValidation: true, pin: false });
       expect(unpinned.gateway?.port).toBe(19002);
       expect(getRuntimeConfigSnapshot()).toBeNull();
-      const pinned = loadConfig();
+      const pinned = getRuntimeConfig();
       expect(pinned.gateway?.port).toBe(19002);
       expect(getRuntimeConfigSnapshot()).toBe(pinned);
     });
@@ -68,7 +68,7 @@ describe("talk config validation fail-closed behavior", () => {
       const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
       let thrown: unknown;
       try {
-        loadConfig();
+        getRuntimeConfig();
       } catch (error) {
         thrown = error;
       }

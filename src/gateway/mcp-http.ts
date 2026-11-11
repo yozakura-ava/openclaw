@@ -4,6 +4,7 @@ import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { resolveBundleMcpServerInstructions } from "../agents/agent-bundle-mcp-instructions.js";
 import { runWithSessionMcpToolCallAuthority } from "../agents/agent-bundle-mcp-request-context.js";
 import { withAgentQuestionAnswerAuthority } from "../agents/harness/host-private-capabilities.js";
+import { acknowledgeInternalToolResult } from "../agents/runtime/internal-hooks.js";
 import { resolveToolLoopDetectionConfig } from "../agents/tool-loop-detection-config.js";
 import { isAutomationsToolName } from "../agents/tools/automations-tool-name.js";
 import {
@@ -11,7 +12,7 @@ import {
   withGatewayToolCallerIdentity,
 } from "../agents/tools/gateway-caller-context.js";
 import { getRuntimeConfig } from "../config/io.js";
-import { readResolvedSessionEntryInWorker } from "../config/sessions/session-accessor.entry.js";
+import { resolveSessionEntryAccessTarget } from "../config/sessions/session-accessor.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { isRequestBodyLimitError, readRequestBodyWithLimit } from "../infra/http-body.js";
 import {
@@ -144,7 +145,7 @@ async function startMcpLoopbackServer(
   const [
     { handleMcpJsonRpc },
     { McpLoopbackToolCache },
-    { assertCompletionGrantLineage, createCompletionGrantLineageAdmission },
+    { createCompletionGrantLineageAdmission },
   ] = await Promise.all([
     import("./mcp-http.handlers.js"),
     import("./mcp-http.runtime.js"),
@@ -485,9 +486,15 @@ async function startMcpLoopbackServer(
             return;
           }
           const payload = JSON.stringify(Array.isArray(parsed) ? responses : responses[0]);
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(payload);
-          return;
+          if (!res.headersSent) {
+            res.writeHead(200, { "Content-Type": "application/json" });
+          }
+          res.end(payload, () => {
+            // Ending queues bytes; only a completed write owns result delivery.
+            if (res.writableFinished) {
+              responses.forEach(acknowledgeInternalToolResult);
+            }
+          });
         }
       } catch (error) {
         const message = isRequestBodyLimitError(error)
@@ -562,22 +569,13 @@ async function startMcpLoopbackServer(
   setActiveMcpLoopbackRuntime({ port: address.port, ownerToken, nonOwnerToken });
   logDebug(`mcp loopback listening on 127.0.0.1:${address.port}`);
 
-  let cleanupDone = false;
-  const cleanup = () => {
-    if (cleanupDone) {
-      return;
-    }
-    cleanupDone = true;
+  return async () => {
+    // Stop admitting this runtime's child grants before draining accepted
+    // requests. A delayed old-server close cannot revoke a successor runtime.
     clearActiveMcpLoopbackRuntimeByOwnerToken(ownerToken);
     revokeMcpLoopbackClientGrantsForRuntime(ownerToken);
     unregisterGrantRevocation();
     toolCache.clear();
-  };
-
-  const close = async () => {
-    // Stop admitting this runtime's child grants before draining accepted
-    // requests. A delayed old-server close cannot revoke a successor runtime.
-    cleanup();
     try {
       await new Promise<void>((resolve, reject) => {
         httpServer.close((error) => (error ? reject(error) : resolve()));
@@ -587,18 +585,6 @@ async function startMcpLoopbackServer(
       await work.drain();
     }
   };
-  const handleUnexpectedClose = () => {
-    cleanup();
-    if (closeActiveMcpLoopbackServer === close) {
-      closeActiveMcpLoopbackServer = undefined;
-      logWarn("mcp-loopback: listener closed unexpectedly; the next run will restart it");
-    }
-    void work.drain().catch((error: unknown) => {
-      logWarn(`mcp-loopback: unexpected server close drain failed: ${String(error)}`);
-    });
-  };
-  httpServer.once("close", handleUnexpectedClose);
-  return close;
 }
 
 /** Waits for the process-owned MCP loopback server, starting one if needed. */

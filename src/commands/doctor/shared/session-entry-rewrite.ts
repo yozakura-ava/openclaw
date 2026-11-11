@@ -13,8 +13,8 @@ import {
 import { normalizeStatus } from "../../../config/sessions/session-accessor.sqlite-status.js";
 import { markCanonicalSessionValidationPending } from "../../../config/sessions/session-canonical-key.js";
 import { parseSqliteSessionEntryRecord } from "../../../config/sessions/session-entry-json.js";
-import { attachSessionEntrySnapshots } from "../../../config/sessions/session-entry-snapshot-values.js";
 import {
+  attachSessionEntrySnapshots,
   sessionEntrySnapshotColumns,
   splitSessionEntrySnapshots,
   writeSessionEntrySnapshots,
@@ -227,17 +227,12 @@ export function rewriteDoctorSessionEntries(
                 ended_at: asFiniteNumber(runOutcome.endedAt) ?? null,
               }
             : undefined;
-          const predicateColumns = deriveSessionPredicateColumns(entryJson);
           executeSqliteQuerySync(
             database.db,
             db
               .updateTable("session_nodes")
               .set({
                 entry_json: entryJson,
-                ...predicateColumns,
-                session_started_at: /* kysely-allow-raw: exact int64 bind; generated INTEGER reads are numbers. */ sql<
-                  number | null
-                >`${predicateColumns.session_started_at}`,
                 entry_valid: entryValid,
                 ...(runProjection ? { status: runProjection.status } : {}),
               })

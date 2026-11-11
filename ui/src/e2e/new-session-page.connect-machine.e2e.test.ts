@@ -57,13 +57,6 @@ suite.define(() => {
     const page = await context.newPage();
     const firstJoinUrl = "https://gateway.example.com/j/first-code?label=alpha&next=$(whoami)";
     const secondJoinUrl = "https://gateway.example.com/j/second-code";
-    const firstCommand = `npx -y openclaw@2026.9.30 connect '${firstJoinUrl}' --service --session-host`;
-    const firstServiceCommand = `npx -y openclaw@2026.9.30 connect '${firstJoinUrl}' --service`;
-    const firstInstalledCommand = `openclaw connect '${firstJoinUrl}' --service --session-host`;
-    const secondCommand = `npx -y openclaw connect ${secondJoinUrl} --service --session-host`;
-    const secondInstalledCommand = `openclaw connect ${secondJoinUrl} --service --session-host`;
-    const versionNote =
-      "The machine needs a matching Gateway build; the exact npm release could not be confirmed.";
     const gateway = await installMockGateway(page, {
       methodResponses: {
         "device.pair.setupCode": {
@@ -71,9 +64,6 @@ suite.define(() => {
             {
               setupCode: "FIRST",
               joinUrl: firstJoinUrl,
-              command: firstCommand,
-              serviceCommand: firstServiceCommand,
-              installedCommand: firstInstalledCommand,
               gatewayUrl: "wss://gateway.example.com",
               auth: "token",
               urlSource: "test",
@@ -83,10 +73,6 @@ suite.define(() => {
             {
               setupCode: "SECOND",
               joinUrl: secondJoinUrl,
-              command: secondCommand,
-              serviceCommand: `npx -y openclaw connect ${secondJoinUrl} --service`,
-              installedCommand: secondInstalledCommand,
-              versionNote,
               gatewayUrl: "wss://gateway.example.com",
               auth: "token",
               urlSource: "test",
@@ -100,13 +86,13 @@ suite.define(() => {
 
     try {
       await page.goto(`${suite.server.baseUrl}new`);
-      const place = page.locator(".oc-popover.new-session-page__where-popover");
+      const place = page.locator("wa-popover.new-session-page__where-popover");
       await page.locator("#new-session-where-trigger").click();
       const connect = place.getByRole("button", { name: "Connect a device" });
       await connect.waitFor();
       expect(await place.getByText("Your devices", { exact: true }).isVisible()).toBe(true);
       await captureProof(page, "01-picker-foot.png", {
-        surface: place,
+        surface: place.locator('wa-popup [part="popup"]'),
         content: [connect],
       });
       await connect.click();
@@ -156,22 +142,8 @@ suite.define(() => {
         })
         .waitFor();
       await captureProof(page, "02-connect-dialog.png", {
-=======
-        .locator(".login-gate__command code")
-        .first()
-        .filter({ hasText: secondCommand })
-        .waitFor();
-      expect(await dialog.locator(".login-gate__command code").first().textContent()).toBe(
-        secondCommand,
-      );
-      expect(await installed.locator("code").textContent()).toBe(secondInstalledCommand);
-      const note = dialog.getByText(versionNote, { exact: true });
-      await note.waitFor();
-      expect(await dialog.getByText(firstCommand, { exact: true }).count()).toBe(0);
-      await captureProof(page, "02-connect-development-build.png", {
->>>>>>> 97b6e87616f
         surface: dialog.locator("dialog"),
-        content: [copy, installed, note],
+        content: [copy],
       });
     } finally {
       await context.close();
@@ -187,7 +159,7 @@ suite.define(() => {
 
     try {
       await page.goto(`${suite.server.baseUrl}new`);
-      const place = page.locator(".oc-popover.new-session-page__where-popover");
+      const place = page.locator("wa-popover.new-session-page__where-popover");
       await page.locator("#new-session-where-trigger").click();
       await place.locator('[data-value="gateway"]').waitFor();
       expect(await place.getByRole("button", { name: "Connect a device" }).count()).toBe(0);
@@ -206,9 +178,6 @@ suite.define(() => {
         "device.pair.setupCode": {
           setupCode: "RETRIED",
           joinUrl,
-          command: `npx -y openclaw@2026.9.30 connect ${joinUrl} --service --session-host`,
-          serviceCommand: `npx -y openclaw@2026.9.30 connect ${joinUrl} --service`,
-          installedCommand: `openclaw connect ${joinUrl} --service --session-host`,
           gatewayUrl: "wss://gateway.example.com",
           auth: "token",
           urlSource: "test",

@@ -18,13 +18,10 @@ import type { OpenClawConfig } from "../config/types.openclaw.js";
 import type { PluginInstallRecord } from "../config/types.plugins.js";
 import { clearAgentRunContext } from "../infra/agent-run-registry.js";
 import { formatErrorMessage } from "../infra/errors.js";
-import { loadInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-record-reader.js";
+import { loadInstalledPluginIndexInstallRecordsSync } from "../plugins/installed-plugin-index-record-reader.js";
 import { loadInstalledPluginIndex } from "../plugins/installed-plugin-index.js";
 import { createPluginCache, withPluginCache, type PluginCache } from "../plugins/plugin-cache.js";
-import {
-  resolvePluginMetadataSnapshotAsync,
-  type resolvePluginMetadataSnapshot,
-} from "../plugins/plugin-metadata-snapshot.js";
+import { resolvePluginMetadataSnapshot } from "../plugins/plugin-metadata-snapshot.js";
 import { getPluginRegistryForContext } from "../plugins/runtime/gateway-request-scope.js";
 import { withPluginRuntimeGenerationScope } from "../plugins/runtime/generation-scope.js";
 import { getPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js";
@@ -61,6 +58,7 @@ import {
   type SetupTurnSuccess,
 } from "./setup-inference-probe-work.js";
 import { resolveSetupInferenceProfileError } from "./setup-inference-profile.js";
+import { createSystemAgentUserTurnRecorder } from "./user-turn-transcript.js";
 import {
   captureSystemAgentOwnerPluginArtifacts,
   createSystemAgentVerifiedInferenceBinding,
@@ -122,6 +120,7 @@ export async function runSetupInferenceTurn(params: {
     "system-agent.setup-inference",
   );
   let successfulAuth: AgentExecutionAuthBinding | undefined;
+  const prompt = params.prompt ?? SETUP_INFERENCE_TEST_PROMPT;
   const shared = {
     preparedRunAdmission,
     sessionId: runId,
@@ -133,7 +132,8 @@ export async function runSetupInferenceTurn(params: {
     workspaceDir,
     agentDir: route.agentDir,
     config: route.runConfig,
-    prompt: params.prompt ?? SETUP_INFERENCE_TEST_PROMPT,
+    prompt,
+    userTurnTranscriptRecorder: createSystemAgentUserTurnRecorder(prompt),
     provider: route.provider,
     model: route.model,
     timeoutMs,
@@ -156,7 +156,7 @@ export async function runSetupInferenceTurn(params: {
     if (cliError) {
       return failed("unavailable", cliError);
     }
-    const profileError = await resolveSetupInferenceProfileError(route, workspaceDir, deps);
+    const profileError = resolveSetupInferenceProfileError(route, workspaceDir, deps);
     if (profileError) {
       return failed("auth", profileError);
     }
@@ -250,16 +250,19 @@ export async function runSetupInferenceTurn(params: {
   }
 }
 
+type RevalidationDeps = SystemAgentVerifiedInferenceDeps & {
+  createSystemAgentVerifiedInferenceBinding?: typeof createSystemAgentVerifiedInferenceBinding;
+  resolvePluginMetadataSnapshot?: typeof resolvePluginMetadataSnapshot;
+};
+
 /** Setup owns fresh package facts without replacing the Gateway's startup generation. */
-export async function loadSetupInferencePluginGeneration(params: {
+export function loadSetupInferencePluginGeneration(params: {
   cache: PluginCache;
   config: OpenClawConfig;
   workspaceDir: string;
   selection: AgentHarnessPluginSelection;
   pendingPluginInstalls?: Record<string, PluginInstallRecord>;
-  resolvePluginMetadataSnapshot?:
-    | typeof resolvePluginMetadataSnapshot
-    | typeof resolvePluginMetadataSnapshotAsync;
+  resolvePluginMetadataSnapshot?: typeof resolvePluginMetadataSnapshot;
 }) {
   // Revalidation must select the probed artifacts: switching a built Gateway
   // owner to source files would report drift even when neither tree changed.
@@ -268,23 +271,21 @@ export async function loadSetupInferencePluginGeneration(params: {
   )?.preferBuiltPluginArtifacts;
   // The install lease may have cached absence before writing the package.
   // This post-mutation owner must capture new facts without retiring that lease's cache.
-  return withPluginCache(params.cache, async () => {
+  return withPluginCache(params.cache, () => {
     const index = params.pendingPluginInstalls
       ? loadInstalledPluginIndex({
           config: params.config,
           workspaceDir: params.workspaceDir,
           env: process.env,
           installRecords: {
-            ...(await loadInstalledPluginIndexInstallRecords()),
+            ...loadInstalledPluginIndexInstallRecordsSync(),
             ...params.pendingPluginInstalls,
           },
         })
       : undefined;
     const generation = {
       config: params.config,
-      metadataSnapshot: await (
-        params.resolvePluginMetadataSnapshot ?? resolvePluginMetadataSnapshotAsync
-      )({
+      metadataSnapshot: (params.resolvePluginMetadataSnapshot ?? resolvePluginMetadataSnapshot)({
         config: params.config,
         env: process.env,
         workspaceDir: params.workspaceDir,
@@ -312,7 +313,7 @@ async function revalidateSetupInferenceOwner(params: {
   route: SystemAgentConfiguredRoute;
   auth: AgentExecutionAuthBinding;
   ownerPluginIds?: readonly string[];
-  deps: ActivateSetupInferenceDeps;
+  deps: RevalidationDeps;
 }): Promise<SystemAgentVerifiedInferenceBinding> {
   const configuredHarnessId =
     params.route.runner === "embedded"
@@ -343,7 +344,7 @@ async function revalidateSetupInferenceOwner(params: {
       process.env,
     );
     await using cache = createPluginCache();
-    const generation = await loadSetupInferencePluginGeneration({
+    const generation = loadSetupInferencePluginGeneration({
       cache,
       config: params.route.runConfig,
       workspaceDir,
@@ -546,7 +547,8 @@ export async function resolvePersistentApplyInference(params: {
       executionRouteIdentity(params.binding.execution),
     ) ||
     !isDeepStrictEqual(live.binding.executionFingerprint, params.binding.executionFingerprint) ||
-    !hasSameOwnerPluginArtifacts(live.binding, params.binding) ||
+    !isDeepStrictEqual(live.binding.ownerPluginIds, params.binding.ownerPluginIds) ||
+    !isDeepStrictEqual(live.binding.ownerPluginArtifacts, params.binding.ownerPluginArtifacts) ||
     !isDeepStrictEqual(live.binding.auth, params.binding.auth)
   ) {
     return null;
@@ -581,7 +583,7 @@ export async function verifySetupInferenceConfig(
     params.config,
     params.agentId,
     {
-      loadAuthProfileStoreForRuntimeAsync: deps.loadAuthProfileStoreForRuntimeAsync,
+      loadAuthProfileStoreForRuntime: deps.loadAuthProfileStoreForRuntime,
       modelTarget: params.modelTarget,
     },
     params.configSnapshot,
@@ -639,7 +641,7 @@ export async function verifySetupInferenceConfig(
         currentConfig,
         route.agentId,
         {
-          loadAuthProfileStoreForRuntimeAsync: deps.loadAuthProfileStoreForRuntimeAsync,
+          loadAuthProfileStoreForRuntime: deps.loadAuthProfileStoreForRuntime,
           modelTarget: params.modelTarget,
         },
         currentSnapshot,
@@ -712,7 +714,7 @@ export async function completeSetupInferenceConfig(
   const route = await resolveSystemAgentConfiguredRouteFromConfig(
     params.config,
     params.agentId,
-    { loadAuthProfileStoreForRuntimeAsync: deps.loadAuthProfileStoreForRuntimeAsync },
+    { loadAuthProfileStoreForRuntime: deps.loadAuthProfileStoreForRuntime },
     params.configSnapshot,
   );
   if (!route) {

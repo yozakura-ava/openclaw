@@ -76,6 +76,30 @@ describe("workboard tools", () => {
     });
   });
 
+  it("preserves authorship across safely split oversized comments", async () => {
+    const store = createWorkboardSqliteTestStore();
+    const card = await store.create({ title: "Chunked comment" });
+    const comment = expectDefined(
+      createWorkboardTools({ store, context: { agentId: "writer-8" } }).find(
+        (tool) => tool.name === "workboard_comment",
+      ),
+      "comment",
+    );
+    const body = "word ".repeat(1_000);
+
+    await comment.execute("comment", { id: card.id, body });
+
+    const updated = await store.get(card.id);
+    expect(updated?.metadata?.comments).toHaveLength(2);
+    expect(updated?.metadata?.comments?.every((entry) => entry.body.length <= 4096)).toBe(true);
+    expect(updated?.metadata?.comments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actorId: "writer-8", actorKind: "agent" }),
+        expect.objectContaining({ body: expect.stringMatching(/\(2\/2\)$/), actorId: "writer-8" }),
+      ]),
+    );
+  });
+
   it("passes live invocation authority through the default-on Sessions board factory", async () => {
     const store = createWorkboardSqliteTestStore();
     await startEmptySessionsBoardService(store);
@@ -406,63 +430,6 @@ describe("workboard tools", () => {
     expect(archivedList.cards).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "archived-1", archivedAt: 2 })]),
     );
-  });
-
-  it("keeps the read card and context together and reads committed edits on the next call", async () => {
-    const { store, stores } = createWorkboardSqliteTestHarness();
-    const card = await store.create({ title: "Before edit", notes: "Original instructions" });
-    const read = expectDefined(
-      createWorkboardTools({ store }).find((tool) => tool.name === "workboard_read"),
-      "Workboard read",
-    );
-    const lookup = stores.cards.lookup.bind(stores.cards);
-    using concurrentEdit = vi.spyOn(stores.cards, "lookup");
-    concurrentEdit.mockImplementationOnce(async (id) => {
-      const captured = await lookup(id);
-      await store.update(card.id, { title: "After edit", notes: "Revised instructions" });
-      return captured;
-    });
-
-    const captured = readPayload(await read.execute("captured", { id: card.id }));
-    expect(captured.card).toMatchObject({
-      title: "Before edit",
-      notes: "Original instructions",
-    });
-    expect(captured.workerContext).toContain("Title: Before edit");
-    expect(captured.workerContext).toContain("Original instructions");
-    expect(captured.workerContext).not.toContain("Revised instructions");
-
-    const updated = readPayload(await read.execute("updated", { id: card.id }));
-    expect(updated.card).toMatchObject({ title: "After edit", notes: "Revised instructions" });
-    expect(updated.workerContext).toContain("Title: After edit");
-    expect(updated.workerContext).toContain("Revised instructions");
-    await expect(read.execute("missing", { id: "missing-card" })).rejects.toThrow(
-      "card not found: missing-card",
-    );
-  });
-
-  it("returns an actionable tool input error when claiming a blocked dependent card", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const parent = await store.create({ title: "Completed parent", status: "done" });
-    const child = await store.create({ title: "Blocked child", parents: [parent.id] });
-    const tools = new Map(
-      createWorkboardTools({ store, context: { agentId: "main" } }).map((tool) => [
-        tool.name,
-        tool,
-      ]),
-    );
-    const claim = expectDefined(tools.get("workboard_claim"), "Workboard claim");
-    const claimed = readPayload(await claim.execute("claim", { id: child.id }));
-    await expectDefined(tools.get("workboard_block"), "Workboard block").execute("block", {
-      id: child.id,
-      token: claimed.token,
-      reason: "Waiting for review",
-    });
-
-    await expect(claim.execute("blocked-claim", { id: child.id })).rejects.toMatchObject({
-      name: "ToolInputError",
-      message: "card is blocked; use workboard_unblock before claiming.",
-    });
   });
 
   it("keeps blocked-card mutations out of the host tool failure contract", async () => {
@@ -893,11 +860,7 @@ describe("workboard tools", () => {
         token: "test-auth-token",
       }),
     );
-    // Review is not terminal: the claim stays with its owner.
-    expect(claimed.card).toMatchObject({
-      status: "review",
-      metadata: { claim: { ownerId: "agent-a" } },
-    });
+    expect(claimed.card).toMatchObject({ status: "review" });
   });
 
   it("accepts cardId as an alias for id on mutation tools", async () => {
@@ -954,180 +917,4 @@ describe("workboard tools", () => {
     );
     expect(cancelled.card).toMatchObject({ status: "cancelled" });
   });
-
-  it("accepts cardId as an alias for id on mutation tools", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const tools = new Map(
-      createWorkboardTools({ store, context: { agentId: "agent-b" } }).map((tool) => [
-        tool.name,
-        tool,
-      ]),
-    );
-    const card = await store.create({ title: "Alias card", status: "todo" });
-
-    // Move using cardId alias instead of id — should succeed.
-    const moved = readPayload(
-      await tools.get("workboard_move")?.execute("alias-move", {
-        cardId: card.id,
-        status: "ready",
-      }),
-    );
-    expect(moved.card).toMatchObject({ status: "ready" });
-
-    // Comment using cardId alias.
-    const commented = readPayload(
-      await tools.get("workboard_comment")?.execute("alias-comment", {
-        cardId: card.id,
-        body: "comment via cardId alias",
-      }),
-    );
-    expect(commented.card).toBeDefined();
-
-    // Neither id nor cardId provided should fail with a clear message.
-    await expect(
-      tools.get("workboard_move")?.execute("alias-missing", {
-        status: "ready",
-      }),
-    ).rejects.toThrow(/card id is required/);
-  });
-
-  it("accepts cancelled as a terminal status in workboard_move", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const tools = new Map(
-      createWorkboardTools({ store, context: { agentId: "agent-c" } }).map((tool) => [
-        tool.name,
-        tool,
-      ]),
-    );
-    const card = await store.create({ title: "Cancel target", status: "todo" });
-
-    const cancelled = readPayload(
-      await tools.get("workboard_move")?.execute("cancel-call", {
-        id: card.id,
-        status: "cancelled",
-      }),
-    );
-    expect(cancelled.card).toMatchObject({ status: "cancelled" });
-  });
-});
-
-async function createDispatchedCard(store: ReturnType<typeof createWorkboardSqliteTestStore>) {
-  const card = await store.create({ title: "Dispatched card", status: "ready" });
-  const claim = await store.claim(card.id, { ownerId: "agent-a" });
-  const prepared = await store.prepareExecutionLaunch(card.id, {
-    requestedSessionKey: "subagent:workboard-terminal",
-    now: claim.card.updatedAt + 1,
-    scope: { ownerId: "agent-a", token: claim.token },
-  });
-  const sessionKey = "agent:main:subagent:workboard-terminal";
-  await store.acceptExecutionLaunch(card.id, {
-    expectedLaunch: prepared.launch,
-    expectedSessionKey: prepared.launch.requestedSessionKey,
-    expectedRunId: prepared.launch.provisionalRunId,
-    sessionKey,
-    runId: "terminal-run",
-    execution: { ...prepared.card.execution!, sessionKey, runId: "terminal-run" },
-    acceptedAt: prepared.launch.preparedAt + 1,
-  });
-  return { card, token: claim.token };
-}
-
-async function expectRunFinished(
-  store: ReturnType<typeof createWorkboardSqliteTestStore>,
-  id: string,
-  status: "done" | "blocked",
-) {
-  const card = expectDefined(await store.get(id), "terminal card");
-  expect(card).toMatchObject({ status, execution: { status } });
-  expect(card.metadata?.claim).toBeUndefined();
-  expect(card.metadata?.attempts).toEqual([
-    expect.objectContaining({ status: status === "done" ? "succeeded" : "blocked" }),
-  ]);
-  expect(card.metadata?.failureCount ?? 0).toBe(status === "done" ? 0 : 1);
-  expect(card.metadata?.notifications?.map((notification) => notification.kind)).toEqual([
-    status === "done" ? "completed" : "failed",
-  ]);
-  const next = await store.create({ title: "Next card", status: "ready" });
-  await expect(store.claim(next.id, { ownerId: "agent-a" })).resolves.toMatchObject({
-    card: { status: "running" },
-  });
-}
-
-describe("workboard terminal status writes", () => {
-  it.each(["done", "blocked"] as const)(
-    "releases the claim and finishes the run when workboard_move targets %s",
-    async (status) => {
-      const store = createWorkboardSqliteTestStore();
-      const tools = new Map(
-        createWorkboardTools({ store, context: { agentId: "agent-a" } }).map((tool) => [
-          tool.name,
-          tool,
-        ]),
-      );
-      const { card, token } = await createDispatchedCard(store);
-
-      const moved = readPayload(
-        await tools.get("workboard_move")?.execute("move-terminal", { id: card.id, status, token }),
-      );
-
-      expect(moved.card).toMatchObject({ status });
-      await expectRunFinished(store, card.id, status);
-    },
-  );
-
-  it("releases the claim when update writes done", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const { card } = await createDispatchedCard(store);
-
-    await store.update(card.id, { status: "done" });
-
-    await expectRunFinished(store, card.id, "done");
-  });
-
-  it("counts block() once, including later blocked writes", async () => {
-    const store = createWorkboardSqliteTestStore();
-    const { card, token } = await createDispatchedCard(store);
-
-    await store.block(card.id, { ownerId: "agent-a", token, reason: "Workboard card blocked." });
-    await store.move(card.id, "blocked", undefined);
-    await store.update(card.id, { status: "blocked" });
-
-    await expectRunFinished(store, card.id, "blocked");
-  });
-
-  it.each(["done", "blocked"] as const)(
-    "only releases the claim when moving to %s after the run already ended",
-    async (status) => {
-      const store = createWorkboardSqliteTestStore();
-      const { card } = await createDispatchedCard(store);
-      const running = expectDefined(await store.get(card.id), "running card");
-      const now = running.updatedAt + 1;
-      await store.syncLifecycle(card.id, {
-        targetStatus: "review",
-        executionStatus: "done",
-        sourceUpdatedAt: now,
-        stale: undefined,
-        now,
-        association: {
-          expectedSessionKey: running.sessionKey,
-          expectedRunId: running.runId,
-          sessionKey: running.sessionKey!,
-          runId: running.runId,
-        },
-      });
-
-      await store.move(card.id, status, undefined);
-
-      const moved = expectDefined(await store.get(card.id), "moved card");
-      expect(moved).toMatchObject({ status, execution: { status: "done" } });
-      expect(moved.metadata?.claim).toBeUndefined();
-      expect(moved.metadata?.attempts).toEqual([expect.objectContaining({ status: "succeeded" })]);
-      expect(moved.metadata?.failureCount ?? 0).toBe(0);
-      expect(moved.metadata?.notifications ?? []).toEqual([]);
-      const next = await store.create({ title: "Next card", status: "ready" });
-      await expect(store.claim(next.id, { ownerId: "agent-a" })).resolves.toMatchObject({
-        card: { status: "running" },
-      });
-    },
-  );
 });

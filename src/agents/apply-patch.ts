@@ -33,7 +33,6 @@ import {
   resolveFileMutationQueueKey,
   withFileMutationQueueKeysResolution,
 } from "./sessions/tools/file-mutation-queue.js";
-import { ToolInputError } from "./tool-input-error.js";
 
 const BEGIN_PATCH_MARKER = "*** Begin Patch";
 const END_PATCH_MARKER = "*** End Patch";
@@ -155,7 +154,7 @@ export function createApplyPatchTool(
       const params = args as { input?: string };
       const input = typeof params.input === "string" ? params.input : "";
       if (!input.trim()) {
-        throw new ToolInputError("Provide a patch input.");
+        throw new Error("Provide a patch input.");
       }
       if (executionSignal?.aborted) {
         throw createPatchAbortError(executionSignal);
@@ -201,17 +200,20 @@ async function applyPatch(input: string, options: ApplyPatchOptions): Promise<Ap
   };
 
   const resolvedHunks: ResolvedHunk[] = await Promise.all(
-    hunks.map(async (hunk) => ({
-      hunk,
-      target: await resolvePatchPath(
-        hunk.path,
-        patchOptions,
-        hunk.kind === "delete" ? PATH_ALIAS_POLICIES.unlinkTarget : PATH_ALIAS_POLICIES.strict,
-      ),
-      ...(hunk.kind === "update" && hunk.movePath
-        ? { moveTarget: await resolvePatchPath(hunk.movePath, patchOptions) }
-        : {}),
-    })),
+    hunks.map(async (hunk) => {
+      const resolved: ResolvedHunk = {
+        hunk,
+        target: await resolvePatchPath(
+          hunk.path,
+          patchOptions,
+          hunk.kind === "delete" ? PATH_ALIAS_POLICIES.unlinkTarget : PATH_ALIAS_POLICIES.strict,
+        ),
+      };
+      if (hunk.kind === "update" && hunk.movePath) {
+        resolved.moveTarget = await resolvePatchPath(hunk.movePath, patchOptions);
+      }
+      return resolved;
+    }),
   );
   const queueKeys = [
     ...new Set(

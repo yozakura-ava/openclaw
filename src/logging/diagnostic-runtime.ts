@@ -37,7 +37,10 @@ export function logMessageQueuedWithBacklogPolicy(
   if (countsTowardBacklog) {
     state.queueDepth += 1;
   }
-  touchDiagnosticSessionState(state);
+  state.lastActivity = Date.now();
+  state.generation = (state.generation ?? 0) + 1;
+  state.lastStuckWarnAgeMs = undefined;
+  state.lastLongRunningWarnAgeMs = undefined;
   if (diagnosticLogger.isEnabled("debug")) {
     diagnosticLogger.debug(
       `message queued: sessionId=${state.sessionId ?? "unknown"} sessionKey=${

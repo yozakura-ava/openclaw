@@ -11,7 +11,7 @@ import { readSessionMessagesAsync } from "../../gateway/session-transcript-reade
 import { openOpenClawAgentDatabase } from "../../state/openclaw-agent-db.js";
 import { withEnvAsync } from "../../test-utils/env.js";
 import { buildCurrentRunRestartRecoveryClaim } from "../agent-command-restart-recovery.js";
-import { readAdmittedHarnessCompletionInputAsync } from "../agent-harness-completion-recovery.js";
+import { readAdmittedHarnessCompletionInput } from "../agent-harness-completion-recovery.js";
 import { captureAdmittedHarnessCompletionForTest } from "../agent-harness-completion.test-support.js";
 import type { SessionEntryFixture } from "../subagent-test-fixtures.test-helpers.js";
 
@@ -252,12 +252,12 @@ export function registerHarnessCompletionRecoveryCases(
           expect(
             binding &&
               current &&
-              (await readAdmittedHarnessCompletionInputAsync({
+              readAdmittedHarnessCompletionInput({
                 claim: binding,
                 entry: current,
                 storePath,
                 operationalRunId,
-              })),
+              }),
           ).toBe(true);
           await expectRecovery({ started: 0, settled: 0, failed: 1, skipped: 0 });
           expect(callGateway).not.toHaveBeenCalled();
@@ -413,10 +413,15 @@ export function registerHarnessCompletionRecoveryCases(
       );
       await expectRecovery({ started: 0, settled: 0, failed: 0, skipped: 1 });
       expect(callGateway).not.toHaveBeenCalled();
-      expect(loadSessionEntry({ sessionKey, storePath })).toMatchObject({
-        abortedLastRun: false,
-        mainRestartRecovery: { tombstone: expect.any(Object) },
-      });
+      const saved = loadSessionEntry({ sessionKey, storePath });
+      expect(saved?.abortedLastRun).toBe(false);
+      if (source === "delegated" || source === "unscoped control-ui") {
+        // Without remaining custody, sender loss retires the input instead of tombstoning.
+        expect(saved?.status).toBe("interrupted");
+        expect(saved?.mainRestartRecovery).toBeUndefined();
+      } else {
+        expect(saved?.mainRestartRecovery?.tombstone).toEqual(expect.any(Object));
+      }
       await expectRecovery({ started: 0, settled: 0, failed: 0, skipped: 0 });
       expect(callGateway).not.toHaveBeenCalled();
     },
