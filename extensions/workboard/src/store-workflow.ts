@@ -29,6 +29,11 @@ import {
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
+  recordClaimConflict,
+  snapshotClaimConflictHistory,
+  type WorkboardClaimConflictEvent,
+} from "./store-claim-conflict.js";
+import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
   isWorkboardClaimReclaimable,
@@ -177,6 +182,17 @@ async function verifyConsumerSurfaceEvidence(
 }
 
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
+  /**
+   * Read-only snapshot of the bounded takeover / claim-conflict history
+   * (#115 scope, prior art upstream issue #24 — CLOSED). Records every
+   * archived/done rejection and every foreign takeover attempt the store has
+   * rejected since process start. Bounded at CLAIM_CONFLICT_HISTORY_CAP
+   * entries, FIFO. Not persisted — restarts clear it.
+   */
+  get claimConflicts(): readonly WorkboardClaimConflictEvent[] {
+    return snapshotClaimConflictHistory();
+  }
+
   async claim(
     id: string,
     input: WorkboardClaimInput,
@@ -198,7 +214,28 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       );
       const guarded = await this.promoteDependencyReady(id, now);
       if (guarded.metadata?.archivedAt) {
+        recordClaimConflict({
+          kind: "claim_on_archived",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
         throw new Error("card is archived.");
+      }
+      // PATCH done-card claim guard (#115 scope, prior art issue #24):
+      // completed cards must reject claim attempts BEFORE the strict claim
+      // fence evaluates, otherwise a done card that already carries a live
+      // claim would hit the fence branch and never reach this guard. Without
+      // it a stale orchestrator can attach a new claim token to a terminal
+      // card and silently re-open the work surface.
+      if (guarded.status === "done") {
+        recordClaimConflict({
+          kind: "claim_on_done",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
+        throw new Error("card is completed.");
       }
       const expectedAuthority = options.expectedAuthority;
       if (
@@ -229,17 +266,16 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const fenceStrict = process.env.OPENCLAW_WORKBOARD_CLAIM_FENCE !== "legacy";
       const holderRefresh = Boolean(
         existingClaim &&
-          existingClaim.ownerId === ownerId &&
-          (existingClaim.token === token ||
-            (existingClaim.sessionId ?? null) === (sessionId ?? null)),
+        existingClaim.ownerId === ownerId &&
+        (existingClaim.token === token ||
+          (existingClaim.sessionId ?? null) === (sessionId ?? null)),
       );
       const activeClaim =
         !existingClaim || holderRefresh
           ? undefined
           : fenceStrict
             ? isFutureDateTimestampMs(existingClaim.expiresAt, { nowMs: now }) ||
-                (guarded.status === "running" &&
-                  !isWorkboardClaimReclaimable(existingClaim, now))
+              (guarded.status === "running" && !isWorkboardClaimReclaimable(existingClaim, now))
               ? existingClaim
               : undefined
             : existingClaim.ownerId !== ownerId &&
@@ -272,12 +308,26 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new Error("card exhausted its retry budget.");
       }
       if (activeClaim) {
+        // PATCH takeover diagnostic (#115 scope, prior art issue #24): record
+        // the takeover ONLY when we are about to reject a FOREIGN live claim
+        // attempt. Same-owner self-recovery does NOT record a takeover event
+        // — the original owner reclaiming its own slot is not a takeover.
+        if (activeClaim.ownerId !== ownerId) {
+          recordClaimConflict({
+            kind: "takeover",
+            cardId: id,
+            attemptedOwnerId: ownerId,
+            priorOwnerId: activeClaim.ownerId,
+            priorExpiresAt: activeClaim.expiresAt,
+            at: now,
+          });
+        }
         throw new Error(
           fenceStrict
             ? `card already claimed by ${activeClaim.ownerId ?? "another agent"}. [claim-fence:strict]` +
-              ` holder session=${activeClaim.sessionId ?? "<unknown-session>"}` +
-              ` claimedAt=${new Date(activeClaim.claimedAt).toISOString()}` +
-              ` — holder must workboard_release/heartbeat; others wait for expiry + grace or reclaim/reassign.`
+                ` holder session=${activeClaim.sessionId ?? "<unknown-session>"}` +
+                ` claimedAt=${new Date(activeClaim.claimedAt).toISOString()}` +
+                ` — holder must workboard_release/heartbeat; others wait for expiry + grace or reclaim/reassign.`
             : `card already claimed by ${activeClaim.ownerId}.`,
         );
       }
