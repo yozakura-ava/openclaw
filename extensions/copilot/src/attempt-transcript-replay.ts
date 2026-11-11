@@ -6,11 +6,20 @@ export type AttemptTranscriptMessage =
   | NonNullable<TranscriptRecorder["message"]>
   | Extract<AgentMessage, { role: "assistant" | "toolResult" }>;
 
+<<<<<<< HEAD
+<<<<<<< HEAD
 export function readIdempotencyKey(message: object): string | undefined {
   const key = "idempotencyKey" in message ? message.idempotencyKey : undefined;
+=======
+export function readIdempotencyKey(message: AgentMessage): string | undefined {
+  // SAFETY: Reads an optional transcript field as unknown and validates it before use.
+  const key = (message as { idempotencyKey?: unknown }).idempotencyKey;
+>>>>>>> 97b6e87616f
   return typeof key === "string" && key ? key : undefined;
 }
 
+=======
+>>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
 export function userText(content: unknown): string {
   if (typeof content === "string") {
     return content;

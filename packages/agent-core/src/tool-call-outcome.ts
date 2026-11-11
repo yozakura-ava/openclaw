@@ -105,6 +105,20 @@ async function applyToolOutcomeHook(
   }
 }
 
+<<<<<<< HEAD
+=======
+export type ImmediateToolCallOutcome = {
+  kind: "immediate";
+  result: AgentToolResult<unknown>;
+  isError: boolean;
+  errorKind?: "argument-validation";
+};
+
+export function immediateToolCallError(message: string): ImmediateToolCallOutcome {
+  return { kind: "immediate", result: createErrorToolResult(message), isError: true };
+}
+
+>>>>>>> 97b6e87616f
 /**
  * An executed call's source comes from its tool declaration, or from the raw
  * result/error mark a dispatcher (Tool Search, Code Mode) sets for nested calls.
@@ -116,6 +130,13 @@ export function resolveToolResultContentSource(
   const resultContentSource =
     tool.resultContentSource ?? getInternalToolResultContentSource(result);
   return resultContentSource ? { resultContentSource } : {};
+}
+
+export function createToolExecutionErrorResult(error: unknown): AgentToolResult<unknown> {
+  const result = createErrorToolResult(coerceErrorMessage(error));
+  return typeof error === "object" && error !== null
+    ? copyInternalToolResultState(error, result)
+    : result;
 }
 
 export function createErrorToolResult(

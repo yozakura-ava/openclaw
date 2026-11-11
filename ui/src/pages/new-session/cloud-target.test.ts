@@ -1,7 +1,8 @@
 /* @vitest-environment jsdom */
 
-import { render } from "lit";
+import { createComponent, createSignal, flush } from "solid-js";
 import { describe, expect, it, vi } from "vitest";
+<<<<<<< HEAD
 import { renderSessionMenuItem, renderCloudProfileMenuItems } from "./cloud-target.ts";
 import {
   projectDevicePlacements,
@@ -14,13 +15,12 @@ describe("cloud target menu", () => {
     render(
       renderSessionMenuItem(
         {
-          value: "device:disabled",
-          label: "Device",
+          value: "auto",
+          label: "Auto",
           compact: true,
           disabled: true,
           checked: false,
-          title: "Hosting disabled",
-          remediation: "enable-session-hosting",
+          title: resolveAutomaticDevicePlacementDisabledReason(environments, devices),
           onSelect: vi.fn(),
         },
         false,
@@ -66,51 +66,39 @@ describe("cloud target menu", () => {
     expect(container.querySelector('[slot="content"]')?.textContent?.trim()).toBe(
       "No devices have session hosting enabled. Connect a machine with session hosting enabled, or enable it on a paired device.",
     );
+    expect(Array.from(card!.querySelectorAll("code"), (command) => command.textContent)).toEqual([
+      "openclaw config set nodeHost.workerRuns.enabled true",
+      "openclaw node install --force",
+    ]);
   });
 
-  it("anchors selected cloud configuration beside its profile row", () => {
+  it("explains missing hosting without claiming a connected device is unpaired", () => {
+    const environments = [
+      {
+        id: "node:paired",
+        type: "node" as const,
+        status: "available" as const,
+        sessionHost: false,
+      },
+    ];
+    const devices = projectDevicePlacements(environments);
     const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
-        profiles: [
-          {
-            id: "aws",
-            providerId: "aws",
-            operatingSystems: [
-              { id: "linux", label: "Linux", default: true },
-              { id: "windows", label: "Windows" },
-            ],
-            machines: [
-              { id: "small", label: "Small", cpu: 2, memoryGb: 4, default: true },
-              { id: "large", label: "Large", cpu: 8, memoryGb: 16 },
-            ],
-          },
-        ],
-        selectedId: "aws",
-        selectedOs: "windows",
-        selectedMachine: "large",
+    mountSessionItem(
+      {
+        value: "auto",
+        label: "Auto",
         compact: true,
-        submitting: false,
+        disabled: true,
+        checked: false,
+        title: resolveAutomaticDevicePlacementDisabledReason(environments, devices),
         onSelect: vi.fn(),
-      }),
+      },
+      false,
       container,
     );
-    expect(container.querySelector('[data-value="cloud:aws"]')?.getAttribute("aria-pressed")).toBe(
-      "true",
+    expect(container.querySelector('[slot="content"]')?.textContent?.trim()).toBe(
+      "No devices have session hosting enabled. Connect a machine with session hosting enabled, or enable it on a paired device.",
     );
-    const wrapper = container.querySelector("openclaw-tooltip.new-session-page__cloud-config-card");
-    expect(wrapper?.getAttribute("placement")).toBe("right");
-    expect(wrapper?.querySelector('[data-value="cloud:aws"]')).not.toBeNull();
-    expect(
-      wrapper
-        ?.querySelector('[slot="content"] [data-value="os:windows"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
-    expect(
-      wrapper
-        ?.querySelector('[slot="content"] [data-value="machine:large"]')
-        ?.getAttribute("aria-pressed"),
-    ).toBe("true");
   });
 
   it("shows unselected provider defaults as suggestions and selects the provider before an explicit choice", () => {
@@ -138,7 +126,7 @@ describe("cloud target menu", () => {
       onSelect,
       onSelectOs,
     };
-    render(renderCloudProfileMenuItems(params), container);
+    const { update } = mountCloudProfiles(params, container);
     const suggested = container.querySelector<HTMLButtonElement>('[data-value="os:linux"]')!;
     expect(suggested.dataset.suggested).toBe("true");
     expect(suggested.getAttribute("aria-pressed")).toBe("true");
@@ -148,38 +136,13 @@ describe("cloud target menu", () => {
     suggested.click();
     expect(onSelect).toHaveBeenCalledExactlyOnceWith("aws", true);
     expect(onSelectOs).toHaveBeenCalledExactlyOnceWith("linux");
-    render(renderCloudProfileMenuItems({ ...params, selectedId: "aws" }), container);
+    update({ ...params, selectedId: "aws" });
     expect(
       container.querySelector('[data-value="os:linux"]')?.getAttribute("data-suggested"),
     ).toBeNull();
     expect(container.querySelector('[data-value="os:linux"]')?.getAttribute("aria-pressed")).toBe(
       "true",
     );
-  });
-
-  it("shows only the blocking reason for unavailable compact choices", () => {
-    const container = document.createElement("div");
-    render(
-      renderSessionMenuItem(
-        {
-          value: "device:offline",
-          label: "Offline device",
-          compact: true,
-          disabled: true,
-          checked: false,
-          title: "Device unavailable",
-          platform: "macOS",
-          facts: ["Camera"],
-          capacityLabel: "Slot utilization unavailable",
-          onSelect: vi.fn(),
-        },
-        false,
-      ),
-      container,
-    );
-    const card = container.querySelector('[slot="content"]');
-    expect(card?.textContent?.trim()).toBe("Device unavailable");
-    expect(card?.querySelector("strong, svg, .new-session-page__capacity-caption")).toBeNull();
   });
 
   it.each([
@@ -192,100 +155,21 @@ describe("cloud target menu", () => {
     { machine: { id: "custom", label: "Custom" }, expected: "Custom" },
   ])("renders a single machine as fixed provider configuration", ({ machine, expected }) => {
     const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
+    mountCloudProfiles(
+      {
         profiles: [{ id: "aws", providerId: "aws", machines: [machine] }],
         selectedId: "aws",
         compact: true,
         selectedMachine: machine.id,
         submitting: false,
         onSelect: vi.fn(),
-      }),
+      },
       container,
     );
     const machineLabel = container.querySelector(`[data-value="machine:${machine.id}"]`);
     expect(machineLabel?.classList.contains("new-session-page__fixed-machine")).toBe(true);
     expect(machineLabel?.textContent).toContain(expected);
     expect(machineLabel?.tagName).toBe("SPAN");
-  });
-
-  it("keeps the profile selected when configuration uses defaults", () => {
-    const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
-        profiles: [
-          {
-            id: "aws",
-            providerId: "aws",
-            operatingSystems: [
-              { id: "windows", label: "Windows" },
-              { id: "linux", label: "Linux", default: true },
-            ],
-            machines: [
-              { id: "small", label: "Small" },
-              { id: "standard", label: "Standard", default: true },
-            ],
-          },
-        ],
-        selectedId: "aws",
-        compact: true,
-        submitting: false,
-        onSelect: vi.fn(),
-      }),
-      container,
-    );
-    expect(container.querySelector('[data-value="cloud:aws"]')?.getAttribute("aria-pressed")).toBe(
-      "true",
-    );
-  });
-
-  it("uses the first machine as the displayed default when a provider omits one", () => {
-    const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
-        profiles: [
-          {
-            id: "daytona",
-            providerId: "crabbox",
-            machines: [
-              { id: "small", label: "Small", cpu: 4, memoryGb: 8 },
-              { id: "large", label: "Large", cpu: 8, memoryGb: 16 },
-            ],
-          },
-        ],
-        selectedId: "daytona",
-        compact: true,
-        submitting: false,
-        onSelect: vi.fn(),
-      }),
-      container,
-    );
-    expect(
-      container.querySelector('[data-value="machine:small"]')?.getAttribute("aria-pressed"),
-    ).toBe("true");
-  });
-
-  it("omits the operating-system heading when a provider exposes only machines", () => {
-    const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
-        profiles: [
-          {
-            id: "daytona",
-            providerId: "crabbox",
-            machines: [{ id: "small", label: "Small", cpu: 4, memoryGb: 8 }],
-          },
-        ],
-        selectedId: "daytona",
-        compact: true,
-        submitting: false,
-        onSelect: vi.fn(),
-      }),
-      container,
-    );
-    const configuration = container.querySelector(".new-session-page__cloud-configuration");
-    expect(configuration?.textContent).not.toContain("Operating system");
-    expect(configuration?.textContent).toContain("Machine");
   });
 
   it("forwards configuration choices and disables them while submitting", () => {
@@ -316,19 +200,19 @@ describe("cloud target menu", () => {
       onSelectOs,
       onSelect: vi.fn(),
     };
-    render(renderCloudProfileMenuItems(params), container);
+    const { update } = mountCloudProfiles(params, container);
     container.querySelector<HTMLButtonElement>('[data-value="machine:large"]')!.click();
     container.querySelector<HTMLButtonElement>('[data-value="os:macos"]')!.click();
     expect(onSelectMachine).toHaveBeenCalledExactlyOnceWith("large");
     expect(onSelectOs).toHaveBeenCalledExactlyOnceWith("macos");
-    render(renderCloudProfileMenuItems({ ...params, submitting: true }), container);
+    update({ ...params, submitting: true });
     expect([...container.querySelectorAll("button")].every((button) => button.disabled)).toBe(true);
   });
 
   it("omits unavailable OS choices even when they are the current selection", () => {
     const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
+    mountCloudProfiles(
+      {
         profiles: [
           {
             id: "aws",
@@ -344,7 +228,7 @@ describe("cloud target menu", () => {
         selectedOs: "windows",
         submitting: false,
         onSelect: vi.fn(),
-      }),
+      },
       container,
     );
     const fixedOs = container.querySelector('[data-value="os:linux"]');
@@ -359,15 +243,15 @@ describe("cloud target menu", () => {
 
   it("disables cloud profiles with the runtime preflight reason", () => {
     const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
+    mountCloudProfiles(
+      {
         profiles: [{ id: "aws", providerId: "crabbox" }],
         selectedId: "",
         submitting: false,
         disabled: true,
         disabledReason: "The acpx runtime does not support cloud workers.",
         onSelect: vi.fn(),
-      }),
+      },
       container,
     );
 
@@ -380,8 +264,8 @@ describe("cloud target menu", () => {
     const reason =
       "The codex runtime cannot use this cloud worker. Choose a compatible cloud worker or run locally.";
     const container = document.createElement("div");
-    render(
-      renderCloudProfileMenuItems({
+    mountCloudProfiles(
+      {
         profiles: [
           { id: "aws", providerId: "crabbox" },
           { id: "ssh", providerId: "static-ssh" },
@@ -390,7 +274,7 @@ describe("cloud target menu", () => {
         submitting: false,
         profileDisabledReason: (profile) => (profile.id === "aws" ? reason : undefined),
         onSelect: vi.fn(),
-      }),
+      },
       container,
     );
 
