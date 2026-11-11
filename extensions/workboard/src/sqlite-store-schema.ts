@@ -2,35 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import {
-  openEngineStore,
-  withEngineStoreAdmission,
-  type EngineConnection,
-  type DatabaseEngineInput,
-} from "openclaw/plugin-sdk/database-engine-worker-runtime";
-import {
   configureSqliteConnectionPragmas,
   migrateSqliteSchemaToStrict,
 } from "openclaw/plugin-sdk/plugin-state-runtime";
-import {
-  getSqliteDatabaseAdmission,
-  openNodeSqliteDatabase,
-  publishSqliteDatabaseAdmission,
-  admitSqliteSchema,
-  getAdmittedSqliteSchemaFacts,
-  type SqliteDatabaseAdmissionKey,
-} from "openclaw/plugin-sdk/sqlite-worker-runtime";
-import { WORKBOARD_POSTGRES_SCHEMA_SQL } from "./workboard-postgres-schema.js";
-import { SCHEMA_VERSION, WORKBOARD_SCHEMA_SQL } from "./workboard-schema.js";
-export type WorkboardSqlConnection = EngineConnection;
-
+import { openNodeSqliteDatabase } from "openclaw/plugin-sdk/sqlite-worker-runtime";
+const SCHEMA_VERSION = 3;
 const WORKBOARD_SQLITE_BUSY_TIMEOUT_MS = 5000;
 const WORKBOARD_SQLITE_DIR_MODE = 0o700;
 const WORKBOARD_SQLITE_FILE_MODE = 0o600;
-const schemaAdmission: SqliteDatabaseAdmissionKey<true> = {
-  name: "workboard.schema",
-  schemaDependent: true,
-  read: (value) => (value === true ? true : undefined),
-};
 
 function tableColumns(db: DatabaseSync, tableName: string): Set<string> {
   return new Set(
@@ -48,7 +27,6 @@ function ensureColumn(db: DatabaseSync, tableName: string, columnName: string, d
   db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${definition}`);
 }
 
-<<<<<<< HEAD
 const WORKBOARD_SCHEMA_SQL = `
     CREATE TABLE IF NOT EXISTS workboard_schema_migrations (
       id TEXT PRIMARY KEY,
@@ -300,12 +278,7 @@ const WORKBOARD_SCHEMA_SQL = `
     ) STRICT;
   `;
 
-=======
->>>>>>> 97b6e87616f
 function ensureWorkboardSchema(db: DatabaseSync): void {
-  if (getSqliteDatabaseAdmission(db, schemaAdmission)) {
-    return;
-  }
   db.exec(WORKBOARD_SCHEMA_SQL);
   ensureColumn(db, "workboard_boards", "automation_job_id", "automation_job_id TEXT");
   ensureColumn(db, "workboard_boards", "kind", "kind TEXT");
@@ -314,6 +287,8 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
   ensureColumn(db, "workboard_card_comments", "actor_kind", "actor_kind TEXT");
   ensureColumn(db, "workboard_card_proof", "actor_id", "actor_id TEXT");
   ensureColumn(db, "workboard_card_proof", "actor_kind", "actor_kind TEXT");
+  ensureColumn(db, "workboard_card_events", "actor_id", "actor_id TEXT");
+  ensureColumn(db, "workboard_card_events", "actor_kind", "actor_kind TEXT");
   const migrationId = `schema-${SCHEMA_VERSION}`;
   const current = db
     .prepare("SELECT 1 AS found FROM workboard_schema_migrations WHERE id = ?")
@@ -326,7 +301,6 @@ function ensureWorkboardSchema(db: DatabaseSync): void {
       "INSERT OR IGNORE INTO workboard_schema_migrations (id, applied_at) VALUES (?, ?)",
     ).run(migrationId, Date.now());
   }
-  publishSqliteDatabaseAdmission(db, schemaAdmission, true);
 }
 
 function chmodIfExists(targetPath: string, mode: number): void {
@@ -359,21 +333,16 @@ function prepareWorkboardDatabasePath(dbPath: string): void {
 export function createWorkboardDatabase(
   dbPath: string,
   retainClose?: (close: () => void) => void,
-  postgresInput?: DatabaseEngineInput,
 ): {
-  db: WorkboardSqlConnection;
+  db: DatabaseSync;
   close: () => void;
 } {
   prepareWorkboardDatabasePath(dbPath);
   const db = openNodeSqliteDatabase(dbPath);
-  let selected: EngineConnection | undefined;
   let maintenance: ReturnType<typeof configureSqliteConnectionPragmas> | undefined;
   let maintenanceClosed = false;
   let databaseClosed = false;
   const close = () => {
-    if (selected && selected !== db) {
-      selected.close();
-    }
     if (!maintenanceClosed) {
       maintenance?.close();
       maintenanceClosed = true;
@@ -385,53 +354,20 @@ export function createWorkboardDatabase(
   };
   try {
     retainClose?.(close);
-    selected = withEngineStoreAdmission(() =>
-      openEngineStore({
-        anchor: db,
-        schema: {
-          id: "workboard",
-          version: SCHEMA_VERSION,
-          sqlite: WORKBOARD_SCHEMA_SQL,
-          postgres: WORKBOARD_POSTGRES_SCHEMA_SQL,
-        },
-        input: postgresInput,
-        inspectSqlite: () => {
-          admitSqliteSchema(db);
-          const facts = getAdmittedSqliteSchemaFacts(db);
-          if (!facts) {
-            throw new Error("Workboard SQLite catalog admission is unavailable");
-          }
-          return {
-            hasEngineAnchor: facts.tables.has("openclaw_engine_anchor"),
-            hasExistingData:
-              [...facts.tables].some(
-                (name) => name !== "openclaw_engine_anchor" && !name.startsWith("sqlite_"),
-              ) ||
-              facts.views.size > 0 ||
-              facts.triggers.size > 0,
-          };
-        },
-        prepareAnchor: () => {
-          maintenance = configureSqliteConnectionPragmas(db, {
-            busyTimeoutMs: WORKBOARD_SQLITE_BUSY_TIMEOUT_MS,
-            checkpointIntervalMs: 0,
-            databaseLabel: "workboard database",
-            databasePath: dbPath,
-            foreignKeys: true,
-            synchronous: "NORMAL",
-          });
-        },
-        openSqlite: () => ensureWorkboardSchema(db),
-      }),
-    );
+    maintenance = configureSqliteConnectionPragmas(db, {
+      busyTimeoutMs: WORKBOARD_SQLITE_BUSY_TIMEOUT_MS,
+      checkpointIntervalMs: 0,
+      databaseLabel: "workboard database",
+      databasePath: dbPath,
+      foreignKeys: true,
+      synchronous: "NORMAL",
+    });
+    ensureWorkboardSchema(db);
     hardenWorkboardDatabaseFiles(dbPath);
-    return { db: selected, close };
+    return { db, close };
   } catch (error) {
     if (!retainClose) {
       try {
-        if (selected && selected !== db) {
-          selected.close();
-        }
         maintenance?.close();
       } finally {
         db.close();
