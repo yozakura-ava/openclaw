@@ -17,6 +17,8 @@ type WorkboardCardMutation = (
 export function createWorkboardCardMutations(store: WorkboardStore, ownerId: string) {
   const readParams = async (rawParams: unknown, requireClaim = false) => {
     const record = asRecord(rawParams);
+    // `cardId` is accepted as an alias for `id` so a caller that already
+    // carries a card id under that name is not rejected at the tool surface.
     const id =
       typeof record.id === "string" && record.id.trim() !== ""
         ? record.id

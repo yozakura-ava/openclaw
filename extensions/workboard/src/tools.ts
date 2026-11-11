@@ -21,6 +21,11 @@ function contextOwner(ctx: OpenClawPluginToolContext | undefined): string {
   return ctx?.agentId || ctx?.sessionKey || ctx?.sessionId || "agent";
 }
 
+/**
+ * Author attribution for writes made through a tool surface (card 9dd79ad6).
+ * A tool call always has a caller, so its writes are attributed to that
+ * caller; a direct store write without an actor stays unattributed.
+ */
 function contextActor(ctx: OpenClawPluginToolContext | undefined): WorkboardActor | undefined {
   const actorId = ctx?.agentId || ctx?.sessionKey || ctx?.sessionId;
   return actorId ? { actorId, actorKind: "agent" } : undefined;
@@ -125,7 +130,7 @@ export function createWorkboardTools(params: {
       name: "workboard_create",
       label: "Workboard Create",
       description:
-        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and idempotency key. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
+        "Create a Workboard card, optionally with parent dependencies, tenant, skills, workspace, and key to prevent duplicate requests. Sessions boards do not hold cards; use workboard_sessions_board_read/update/move for them.",
       parameters: strictObject({
         title: Type.String({ description: "Card title." }),
         notes: Type.Optional(Type.String({ description: "Card notes or acceptance criteria." })),
@@ -140,7 +145,11 @@ export function createWorkboardTools(params: {
         createdByCardId: Type.Optional(
           Type.String({ description: "Parent card that created this card." }),
         ),
-        idempotencyKey: Type.Optional(Type.String({ description: "Idempotent create key." })),
+        idempotencyKey: Type.Optional(
+          Type.String({
+            description: "Reuse this key when retrying to avoid creating a duplicate card.",
+          }),
+        ),
         skills: Type.Optional(Type.Array(Type.String(), { description: "Suggested skills." })),
         workspace: workspaceField(),
         maxRuntimeSeconds: Type.Optional(Type.Number({ description: "Run timeout seconds." })),
@@ -188,13 +197,10 @@ export function createWorkboardTools(params: {
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
-        const card = await store.get(id);
-        if (!card) {
-          throw new Error(`card not found: ${id}`);
-        }
+        const { card, workerContext } = await store.readWithWorkerContext(id);
         return jsonResult({
           card: redactClaimToken(card),
-          workerContext: await store.buildWorkerContext(id),
+          workerContext,
         });
       },
     },
@@ -213,7 +219,6 @@ export function createWorkboardTools(params: {
         const claimed = await store.claim(id, {
           ownerId,
           ttlSeconds: record.ttlSeconds,
-          sessionId: params.context?.sessionKey,
         });
         return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });
       },

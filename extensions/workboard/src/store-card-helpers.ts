@@ -22,16 +22,9 @@ import {
   MAX_WORKER_CONTEXT_RECENT_CARDS,
   READY_STRANDED_MS,
   RUNNING_HEARTBEAT_STALE_MS,
-  isWorkboardClaimReclaimable,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
-import {
-  capText,
-  metadataIsEmpty,
-  normalizeEvents,
-  normalizeTimestamp,
-  removeUndefinedMetadataFields,
-} from "./store-normalizers.js";
+import { capText, metadataIsEmpty, normalizeTimestamp, removeUndefinedMetadataFields } from "./store-normalizers.js";
 
 export function compareCards(left: WorkboardCard, right: WorkboardCard): number {
   if (left.status !== right.status) {
@@ -74,15 +67,16 @@ export function syncExecutionAttemptMetadata(
   }
   const attemptStatus = executionAttemptStatus(execution);
   const attempts = [...(metadata.attempts ?? [])];
-  const key = execution.runId ?? execution.sessionKey ?? execution.id;
-  const existingIndex = attempts.findIndex(
-    (attempt) =>
-      (execution.runId && attempt.runId === execution.runId) ||
-      (!execution.runId && attempt.id === key),
+  const existingIndex = attempts.findIndex((attempt) =>
+    execution.runId
+      ? attempt.runId === execution.runId
+      : execution.sessionKey
+        ? !attempt.runId && attempt.sessionKey === execution.sessionKey
+        : !attempt.runId && !attempt.sessionKey,
   );
   const existingAttempt = existingIndex >= 0 ? attempts[existingIndex] : undefined;
   const nextAttempt: WorkboardRunAttempt = {
-    id: existingAttempt?.id ?? key,
+    id: existingAttempt?.id ?? randomUUID(),
     status: attemptStatus,
     startedAt: existingAttempt?.startedAt ?? execution.startedAt,
     mode: execution.mode,
@@ -123,7 +117,7 @@ export function appendEvent(
   at = Date.now(),
 ): WorkboardEvent[] {
   return [
-    ...normalizeEvents(card.events),
+    ...(card.events ?? []),
     {
       id: randomUUID(),
       at,
@@ -136,13 +130,11 @@ export function appendComment(
   comments: WorkboardMetadata["comments"],
   body: string | undefined,
   now?: number,
-  actor?: { actorId: string; actorKind: "agent" | "system" },
 ): WorkboardMetadata["comments"] {
   return body
-    ? [
-        ...(comments ?? []),
-        { id: randomUUID(), body, createdAt: now ?? Date.now(), ...actor },
-      ].slice(-MAX_CARD_COMMENTS)
+    ? [...(comments ?? []), { id: randomUUID(), body, createdAt: now ?? Date.now() }].slice(
+        -MAX_CARD_COMMENTS,
+      )
     : comments;
 }
 
@@ -256,21 +248,16 @@ export function updateEvent(
     const existingAttempts = existing.metadata?.attempts ?? [];
     const nextAttempts = next.metadata?.attempts ?? [];
     const latestAttempt = nextAttempts.at(-1);
-    if (nextAttempts.length > existingAttempts.length) {
+    const attemptStarted = nextAttempts.length > existingAttempts.length;
+    const previousAttempt =
+      !attemptStarted && latestAttempt
+        ? existingAttempts.find((attempt) => attempt.id === latestAttempt.id)
+        : undefined;
+    if (attemptStarted || (latestAttempt && previousAttempt?.status !== latestAttempt.status)) {
       return {
-        kind: "attempt_started",
+        kind: attemptStarted ? "attempt_started" : "attempt_updated",
         ...(latestAttempt?.sessionKey ? { sessionKey: latestAttempt.sessionKey } : {}),
         ...(latestAttempt?.runId ? { runId: latestAttempt.runId } : {}),
-      };
-    }
-    const previousAttempt = latestAttempt
-      ? existingAttempts.find((attempt) => attempt.id === latestAttempt.id)
-      : undefined;
-    if (latestAttempt && previousAttempt?.status !== latestAttempt.status) {
-      return {
-        kind: "attempt_updated",
-        ...(latestAttempt.sessionKey ? { sessionKey: latestAttempt.sessionKey } : {}),
-        ...(latestAttempt.runId ? { runId: latestAttempt.runId } : {}),
       };
     }
     return {
@@ -324,29 +311,6 @@ export function updateEvent(
   return { kind: "edited" };
 }
 
-export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
-  const next = { ...card };
-  for (const key of [
-    "notes",
-    "agentId",
-    "sessionKey",
-    "runId",
-    "sourceUrl",
-    "execution",
-    "startedAt",
-    "completedAt",
-    "metadata",
-  ] as const) {
-    if (next[key] === undefined) {
-      delete next[key];
-    }
-  }
-  if (metadataIsEmpty(next.metadata)) {
-    delete next.metadata;
-  }
-  return next;
-}
-
 export function assertCanMutateClaimedCard(
   card: WorkboardCard,
   scope: WorkboardMutationScope | undefined,
@@ -361,13 +325,7 @@ export function assertCanMutateClaimedCard(
   const ownerId = normalizeOptionalString(scope.ownerId);
   const token = normalizeOptionalString(scope.token);
   if (claim.ownerId !== ownerId && !safeEqualSecret(token, claim.token)) {
-    // Expired-claim recovery: a claim past its reclaim grace no longer fences
-    // mutations. Otherwise the operator reclaim/release paths are unreachable
-    // (card ba1c45e3): the claim fence exists to protect a LIVE worker's
-    // token, not to entomb a card whose worker already died.
-    if (!isWorkboardClaimReclaimable(claim, Date.now())) {
-      throw new Error(`card is claimed by ${claim.ownerId}.`);
-    }
+    throw new Error(`card is claimed by ${claim.ownerId}.`);
   }
 }
 
@@ -722,10 +680,15 @@ export function compareNotifications(a: WorkboardNotification, b: WorkboardNotif
   return a.id.localeCompare(b.id);
 }
 
+// --- canonical graft (fork-lane promotion) ---
 /**
  * Split an oversized comment body into sequential chunks of at most
  * `maxLength` characters, preferring whitespace boundaries so words are not
  * cut mid-token. Pure function; callers own persistence and labeling.
+ *
+ * The fork lane keeps the oversized-comment split in `store-core.ts`; the
+ * canonical lane extracted it into this sibling module. Both need the
+ * splitter, so it lives here and the canonical module imports it.
  */
 export function splitCommentBody(body: string, maxLength: number): string[] {
   const chunks: string[] = [];
@@ -742,4 +705,27 @@ export function splitCommentBody(body: string, maxLength: number): string[] {
     chunks.push(remaining);
   }
   return chunks;
+}
+
+export function removeUndefinedCardFields(card: WorkboardCard): WorkboardCard {
+  const next = { ...card };
+  for (const key of [
+    "notes",
+    "agentId",
+    "sessionKey",
+    "runId",
+    "sourceUrl",
+    "execution",
+    "startedAt",
+    "completedAt",
+    "metadata",
+  ] as const) {
+    if (next[key] === undefined) {
+      delete next[key];
+    }
+  }
+  if (metadataIsEmpty(next.metadata)) {
+    delete next.metadata;
+  }
+  return next;
 }

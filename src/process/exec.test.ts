@@ -21,6 +21,7 @@ import { isPidAlive } from "../shared/pid-alive.js";
 import { readPidFile } from "../test-utils/process-tree.js";
 import { withTempDir } from "../test-utils/temp-dir.js";
 import { attachChildProcessBridge } from "./child-process-bridge.js";
+import { hasCommandProcessCleanupError } from "./exec-result.js";
 import * as execSpawn from "./exec-spawn.js";
 import { resolveCommandEnv } from "./exec-spawn.js";
 import {
@@ -349,6 +350,16 @@ describe("runCommandWithTimeout", () => {
 });
 
 describe("runCommandBuffered", () => {
+  it("preserves ordinary nonzero exit and output without cleanup uncertainty", async () => {
+    const result = await runCommandBuffered(
+      nodeCommand("process.stdout.write('out'); process.stderr.write('err'); process.exitCode = 7"),
+      { timeoutMs: 3_000 },
+    );
+    expect(result).toMatchObject({ code: 7, signal: null, termination: "exit" });
+    expect([result.stdout, result.stderr]).toEqual([Buffer.from("out"), Buffer.from("err")]);
+    expect(result.error).toBeUndefined();
+  });
+
   it("caps stdout and stderr under one aggregate output budget", async () => {
     const result = await runCommandBuffered(
       nodeCommand("process.stdout.write('abcd'); setImmediate(() => process.stderr.write('efgh'))"),
@@ -548,14 +559,20 @@ describe("runCommandBuffered", () => {
   );
 
   it.runIf(process.platform !== "win32")(
-    "preserves a child-requested signal in buffered results",
+    "preserves cleanup uncertainty alongside a child-requested signal and buffered output",
     async () => {
-      const result = await runCommandBuffered(nodeCommand("process.kill(process.pid, 'SIGTERM')"), {
-        timeoutMs: 2_000,
-      });
+      const result = await runCommandBuffered(
+        nodeCommand(
+          "require('node:fs').writeSync(1, 'out'); require('node:fs').writeSync(2, 'err'); process.kill(process.pid, 'SIGTERM')",
+        ),
+        {
+          timeoutMs: 2_000,
+        },
+      );
 
       expect(result).toMatchObject({ code: null, signal: "SIGTERM", termination: "signal" });
-      expect(result.error).toBeUndefined();
+      expect([result.stdout, result.stderr]).toEqual([Buffer.from("out"), Buffer.from("err")]);
+      expect(hasCommandProcessCleanupError(result.error)).toBe(true);
     },
   );
 
@@ -648,7 +665,7 @@ describe("runExec", () => {
 });
 
 describe("attachChildProcessBridge", () => {
-  it("forwards SIGTERM to the wrapped child and detaches on exit", () => {
+  it("forwards SIGTERM until child exit and detaches only after close", () => {
     const beforeSigterm = new Set(process.listeners("SIGTERM"));
     const child = new EventEmitter() as EventEmitter & ChildProcess;
     const kill = vi.fn<(signal?: NodeJS.Signals) => boolean>(() => true);
@@ -659,20 +676,30 @@ describe("attachChildProcessBridge", () => {
       signals: ["SIGTERM"],
       onSignal: (signal) => observedSignals.push(signal),
     });
-    const addedSigterm = process
-      .listeners("SIGTERM")
-      .find((listener) => !beforeSigterm.has(listener));
-    if (!addedSigterm) {
-      throw new Error("expected SIGTERM listener");
+    try {
+      const addedSigterm = process
+        .listeners("SIGTERM")
+        .find((listener) => !beforeSigterm.has(listener));
+      if (!addedSigterm) {
+        throw new Error("expected SIGTERM listener");
+      }
+
+      addedSigterm("SIGTERM");
+      expect(observedSignals).toEqual(["SIGTERM"]);
+      expect(kill).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+
+      child.emit("exit", 0, null);
+      expect(process.listeners("SIGTERM")).toContain(addedSigterm);
+      addedSigterm("SIGTERM");
+      expect(observedSignals).toEqual(["SIGTERM"]);
+      expect(kill).toHaveBeenCalledOnce();
+
+      child.emit("close", 0, null);
+      expect(process.listeners("SIGTERM")).not.toContain(addedSigterm);
+      expect(process.listeners("SIGTERM")).toHaveLength(beforeSigterm.size);
+    } finally {
+      detach();
     }
-
-    addedSigterm("SIGTERM");
-    expect(observedSignals).toEqual(["SIGTERM"]);
-    expect(kill).toHaveBeenCalledWith("SIGTERM");
-
-    child.emit("exit");
-    expect(process.listeners("SIGTERM")).toHaveLength(beforeSigterm.size);
-    detach();
   });
 });
 

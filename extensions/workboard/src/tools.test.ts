@@ -7,6 +7,7 @@ import { Value } from "typebox/value";
 import { describe, expect, it, vi } from "vitest";
 import type { OpenClawPluginApi } from "../api.js";
 import plugin from "../index.js";
+import { SYSTEM_FALLBACK_ACTOR } from "./actor-attribution.js";
 import { WorkboardStore } from "./store.js";
 import { startEmptySessionsBoardService } from "./test/sessions-board.js";
 import {
@@ -63,15 +64,28 @@ describe("workboard tools", () => {
     });
   });
 
-  it("leaves direct writes unattributed when author identity is unknown", async () => {
+  it("attributes direct writes to the workboard system when author identity is unknown", async () => {
     const store = createWorkboardSqliteTestStore();
     const card = await store.create({ title: "Unattributed evidence" });
     await store.addComment(card.id, { body: "No caller context" });
     await store.addProof(card.id, { status: "unknown", note: "No caller context" });
+    // A write with no caller still happened via the workboard system itself,
+    // so it is attributed to the system writer instead of landing anonymous
+    // (card 9dd79ad6).
     await expect(store.get(card.id)).resolves.toMatchObject({
       metadata: {
-        comments: [expect.not.objectContaining({ actorId: expect.anything() })],
-        proof: [expect.not.objectContaining({ actorId: expect.anything() })],
+        comments: [
+          expect.objectContaining({
+            actorId: SYSTEM_FALLBACK_ACTOR.actorId,
+            actorKind: SYSTEM_FALLBACK_ACTOR.actorKind,
+          }),
+        ],
+        proof: [
+          expect.objectContaining({
+            actorId: SYSTEM_FALLBACK_ACTOR.actorId,
+            actorKind: SYSTEM_FALLBACK_ACTOR.actorKind,
+          }),
+        ],
       },
     });
   });

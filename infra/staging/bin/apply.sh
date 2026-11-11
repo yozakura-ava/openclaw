@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# Single-flight staging IaC apply with paired auto-revert (brick-avoidance).
+# W2: units + users skeleton. W3: gateway payload — pinned artifact to /opt,
+# node toolchain, staging-gateway restart, Tailscale Serve :443 (tailnet-only).
+# Every privileged op batch records a receipt + revert BEFORE mutating.
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+RECEIPT_DIR=/var/lib/staging-iac/receipts
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+LOCK=/var/lib/staging-iac/apply.lock
+SRC_DIST="$HOME/staging/worktrees/openclaw-w1-reland/dist"
+SUMS="$HOME/staging/w1.1-artifact/W1-DIST-SHA256SUMS.rebuild-20261106.txt"
+PIN=a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
+SUMS_PIN=a5123f10a5afd546cbc663c279c59a941d9c1e27f32b8c22037d66d7e4ccfd23
+# R5 supersession (2026-11-06): artifact-of-record dist lost with old hardware; manifest regenerated from verified rebuild of W1.1 port commit 32b91da7cd8. Delta vs original manifest: 21904/21920 rows byte-identical, 16 rows build-timestamp/buildmeta class (buildstamps, build-info, font css + index.html/sw.js/webmanifest embedding build id). See R5 receipt + Rin delta-confirm.
+NODE_SRC="$HOME/staging/toolchain/node-v24.22.2-linux-x64/bin/node"
+OPT=/opt/ava-staging
+
+sudo mkdir -p "$RECEIPT_DIR"
+sudo chown ava-agent:ava-agent "$RECEIPT_DIR" || true
+sudo touch "$LOCK"; sudo chown ava-agent:ava-agent "$LOCK" || true
+exec 9>"$LOCK"
+flock -n 9 || { echo "apply: another apply holds the lock — single-flight refuses" >&2; exit 2; }
+RECEIPT="$RECEIPT_DIR/$TS-first-apply.receipt"
+LOG="$RECEIPT_DIR/$TS-first-apply.log"
+revert() {  # paired revert — W3 scope: gateway payload only. W2 skeleton
+            # (hindsight/backup units, svc users) is NOT rolled back here;
+            # the gateway skeleton unit is restorable from git main's apply.sh.
+  echo "[revert] rolling back batch $TS" | tee -a "$LOG"
+  sudo systemctl disable --now staging-gateway 2>>"$LOG" || true
+  sudo rm -f /etc/systemd/system/staging-gateway.service 2>>"$LOG" || true
+  sudo tailscale serve off 2>>"$LOG" || true
+  sudo rm -rf "$OPT" 2>>"$LOG" || true
+  sudo systemctl daemon-reload 2>>"$LOG" || true
+  echo "[revert] batch $TS complete" | tee -a "$LOG"
+}
+trap 'ec=$?; [ $ec -ne 0 ] && revert; exit $ec' EXIT
+{
+  echo "receipt $TS user=$(id -un) branch=$(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null) commit=$(git -C "$ROOT" rev-parse HEAD 2>/dev/null)"
+  echo "paired-revert: stop+rm staging-gateway, serve off, rm -rf /opt/ava-staging, daemon-reload (W2 users/hindsight/backup untouched)"
+  echo "artifact: pin=$PIN source=$SRC_DIST sums=$(sha256sum "$SUMS" | cut -d" " -f1)"
+} | sudo tee "$RECEIPT" >/dev/null
+
+# --- W3 preflight: pinned-artifact gate, fail closed BEFORE any mutation
+[ -f "$SRC_DIST/index.js" ] || { echo "apply: source dist missing: $SRC_DIST" >&2; exit 3; }
+echo "$PIN  $SRC_DIST/index.js" | sha256sum -c - || { echo "apply: source dist hash mismatch vs W1 pin" >&2; exit 3; }
+echo "$SUMS_PIN  $SUMS" | sha256sum -c - || { echo "apply: SUMS file sha mismatch vs W1.1 artifact-of-record pin" >&2; exit 3; }
+
+# --- users (idempotent, W2)
+for svc in gateway hindsight backup; do
+  if ! id svc-stg-$svc >/dev/null 2>&1; then
+    sudo useradd --system --shell /usr/sbin/nologin --home-dir /nonexistent svc-stg-$svc 2>&1 | tee -a "$LOG"
+  fi
+done
+
+# --- W3 artifact + toolchain install (/opt, root-owned, read-only to services)
+T0=$(date +%s)
+sudo mkdir -p "$OPT/gateway/bin" "$OPT/toolchain/node-v24.22.2/bin"
+sudo rm -rf "$OPT/gateway/dist"
+sudo cp -a "$SRC_DIST" "$OPT/gateway/dist" 2>&1 | tee -a "$LOG"
+sudo chown -R root:root "$OPT"
+echo "$PIN  $OPT/gateway/dist/index.js" | sha256sum -c - || { echo "apply: /opt dist index.js hash mismatch" >&2; exit 4; }
+sudo cp -a "$SUMS" "$OPT/gateway/W1-DIST-SHA256SUMS.installed.txt"
+if ! ( cd "$OPT/gateway" && sudo sha256sum -c --quiet W1-DIST-SHA256SUMS.installed.txt ) 2>>"$LOG"; then
+  echo "apply: full 21920-row SUMS verification FAILED" >&2; exit 4
+fi
+T1=$(date +%s); echo "artifact: 21920 files SUMS-verified in $((T1-T0))s" | tee -a "$LOG"
+sudo install -m 0755 "$NODE_SRC" "$OPT/toolchain/node-v24.22.2/bin/node"
+sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" --version 2>&1 | tee -a "$LOG" | grep -q 'v24.22.2' || { echo "apply: node toolchain check failed" >&2; exit 5; }
+sudo install -m 0755 "$ROOT/bin/singleton-canary.sh" "$OPT/gateway/bin/singleton-canary.sh"
+
+# --- W3 runtime dependency closure: dist bundles npm externals but keeps
+# @openclaw/* workspace siblings AND npm externals (tslog et al.) external.
+# Deployment = worktree runtime SUBSET: dist + node_modules (cp -a, links
+# intact) + packages (target of ../../packages/* workspace links) + package.json.
+# Every link resolves exactly as in the proven worktree, including pnpm cycles;
+# the -xtype l audit above fail-closes on ANY dangling link (attempts 5/6 classes).
+SRC_WT="$HOME/staging/worktrees/openclaw-w1-reland"
+sudo rm -rf "$OPT/gateway/node_modules"
+sudo cp -a "$SRC_WT/node_modules" "$OPT/gateway/node_modules" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/packages" "$OPT/gateway/packages" 2>&1 | tee -a "$LOG"
+sudo mkdir -p "$OPT/gateway/tools"
+sudo cp -a "$SRC_WT/extensions" "$OPT/gateway/extensions" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/ui" "$OPT/gateway/ui" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/tools/solid-lint" "$OPT/gateway/tools/solid-lint" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/examples" "$OPT/gateway/examples" 2>&1 | tee -a "$LOG"
+sudo cp -a "$SRC_WT/package.json" "$OPT/gateway/package.json"
+sudo mkdir -p "$OPT/gateway/docs/reference"
+sudo cp -a "$SRC_WT/docs/reference/templates" "$OPT/gateway/docs/reference/templates"
+sudo chown -R root:root "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" "$OPT/gateway/package.json" "$OPT/gateway/docs"
+DANGLING=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" "$OPT/gateway/docs" -xtype l 2>/dev/null | head -20 || true)
+if [ -n "$DANGLING" ]; then echo "apply: dangling symlinks in closure (first 5):" >&2; printf '%s\n' "$DANGLING" >&2; exit 6; fi
+sudo -u svc-stg-gateway test -f "$OPT/gateway/node_modules/@openclaw/fs-safe/package.json" || { echo "apply: closure resolve check failed (@openclaw/fs-safe)" >&2; exit 6; }
+sudo test -f "$OPT/gateway/docs/reference/templates/AGENTS.md" || { echo "apply: workspace templates missing (docs/reference/templates)" >&2; exit 7; }
+sudo test -n "$(ls -d "$OPT/gateway/node_modules/.pnpm"/tslog@* 2>/dev/null | head -1)" || { echo "apply: closure resolve check failed (tslog)" >&2; exit 6; }
+RESCHECK=$( cd "$OPT/gateway" && sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" -e "Promise.all([import('@openclaw/ai'),import('tslog')]).then(()=>{console.log('closure resolution gate: @openclaw/ai + tslog OK');process.exit(0)},e=>{console.error('closure resolution gate FAILED: '+e.message);process.exit(1)})" 2>&1 | tee -a "$LOG")
+echo "$RESCHECK" | grep -q 'closure resolution gate: @openclaw/ai + tslog OK' || { echo "apply: closure resolution gate FAILED" >&2; exit 6; }
+( cd "$OPT/gateway" && sudo find node_modules packages extensions ui tools examples docs -type f -exec sha256sum {} + | sort -k2 ) | sudo tee "$OPT/gateway/CLOSURE-SHA256SUMS.txt" >/dev/null
+CLOSURE_SHA=$(sudo sha256sum "$OPT/gateway/CLOSURE-SHA256SUMS.txt" | cut -d" " -f1)
+CLOSURE_N=$(sudo find "$OPT/gateway/node_modules" "$OPT/gateway/packages" "$OPT/gateway/extensions" "$OPT/gateway/ui" "$OPT/gateway/tools" "$OPT/gateway/examples" "$OPT/gateway/docs" -type f | wc -l)
+echo "closure: $CLOSURE_N files manifest-sha=$CLOSURE_SHA" | tee -a "$LOG"
+
+# --- pre-restart smoke gate: full module graph must load as the service user
+SMOKE_OUT=$(sudo -u svc-stg-gateway "$OPT/toolchain/node-v24.22.2/bin/node" "$OPT/gateway/dist/index.js" --version 2>&1 | tee -a "$LOG")
+echo "$SMOKE_OUT" | grep -q "2026.11.1" || { echo "apply: /opt smoke gate FAILED: $SMOKE_OUT" >&2; exit 7; }
+echo "smoke: $SMOKE_OUT" | tee -a "$LOG"
+
+# --- units (W2 loop, unchanged for hindsight/backup)
+for svc in gateway hindsight backup; do
+  sudo install -m 0644 "$ROOT/units/staging-$svc.service" "/etc/systemd/system/staging-$svc.service" 2>&1 | tee -a "$LOG"
+done
+sudo systemctl daemon-reload 2>&1 | tee -a "$LOG"
+for svc in hindsight backup; do
+  sudo systemctl enable --now staging-$svc 2>&1 | tee -a "$LOG"   # skeletons stay oneshot
+done
+sudo systemctl enable staging-gateway 2>&1 | tee -a "$LOG"
+sudo systemctl restart staging-gateway 2>&1 | tee -a "$LOG"        # oneshot skeleton -> live payload
+
+# --- dashboard via Tailscale Serve :443 (tailnet-only; NOT Funnel; no ACL edits)
+sudo tailscale serve --bg 18800 2>&1 | tee -a "$LOG"
+
+# --- wait for first-boot canary state before verifying
+for i in $(seq 1 60); do
+  [ -f /var/lib/ava-staging/gateway/canary/singleton.state ] && break
+  sleep 3
+done
+
+# --- W3.1: Serve proxy trust (narrow: loopback Serve proxy) + server-wide CLI
+STG_STATE=/var/lib/ava-staging/gateway
+sudo mkdir -p "$STG_STATE/.openclaw"
+sudo chown -R svc-stg-gateway:svc-stg-gateway "$STG_STATE"
+sudo python3 - "$STG_STATE/.openclaw/openclaw.json" <<'PYCFG'
+import json, os, sys
+p = sys.argv[1]
+cfg = {}
+if os.path.exists(p):
+    try: cfg = json.load(open(p))
+    except Exception: cfg = {}
+g = cfg.setdefault("gateway", {})
+g["trustedProxies"] = ["127.0.0.1"]
+os.makedirs(os.path.dirname(p), exist_ok=True)
+json.dump(cfg, open(p, "w"), indent=2)
+PYCFG
+sudo chown -R svc-stg-gateway:svc-stg-gateway "$STG_STATE/.openclaw"
+sudo install -m 0755 "$ROOT/bin/openclaw-cli" /usr/local/bin/openclaw
+/usr/local/bin/openclaw --version 2>&1 | grep -q "2026.11.1" || { echo "apply: server-wide CLI check failed" >&2; exit 8; }
+
+bash "$ROOT/bin/verify.sh" 2>&1 | tee -a "$LOG"
+trap - EXIT
+echo "apply: OK — receipt $RECEIPT"

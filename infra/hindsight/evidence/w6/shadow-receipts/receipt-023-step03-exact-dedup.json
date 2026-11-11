@@ -1,0 +1,179 @@
+{
+ "groups": [
+  {
+   "collapsed": [
+    "diary:dreaming:memory/.dreams/legacy-json-archive-2026-06-17/daily-ingestion.json"
+   ],
+   "content_sha": "a6418f95abe23b9e1e87987b21866413a2b8907a554ca5f36d60be71a3d50c3d",
+   "keeper": "diary:dreaming:memory/.dreams/daily-ingestion.json.migrated",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/.dreams/phase-signals.json.migrated"
+   ],
+   "content_sha": "ae0c7c592410cd0da2e7499b76cf7c792ef00b33ea65ac875075230648b1b757",
+   "keeper": "diary:dreaming:memory/.dreams/legacy-json-archive-2026-06-17/phase-signals.json",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/.dreams/session-ingestion.json.migrated"
+   ],
+   "content_sha": "9083cc75cedf0bf33e2506a5dc4989fada1e2cc16711b4e25bfe293ee3042bd9",
+   "keeper": "diary:dreaming:memory/.dreams/legacy-json-archive-2026-06-17/session-ingestion.json",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/.dreams/short-term-recall.json.migrated"
+   ],
+   "content_sha": "c100cd9f2d0df179d2206a83f84b02d80ee109589df0f388b2d8f8f13109c0a2",
+   "keeper": "diary:dreaming:memory/.dreams/legacy-json-archive-2026-06-17/short-term-recall.json",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-06-05.md"
+   ],
+   "content_sha": "f01068da4160d0650fcf9dfeafa488004eeb64058e662a1897ec30562ffec44a",
+   "keeper": "diary:dreaming:memory/dreaming/2026-06-05.md",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/deep/2026-05-04.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-07.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-10.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-11.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-14.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-15.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-16.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-18.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-19.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-21.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-24.md",
+    "diary:dreaming:memory/dreaming/deep/2026-08-25.md",
+    "diary:dreaming:memory/dreaming/deep/2026-08-28.md",
+    "diary:dreaming:memory/dreaming/deep/2026-08-29.md",
+    "diary:dreaming:memory/dreaming/deep/2026-08-30.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-14.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-20.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-22.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-27.md",
+    "diary:dreaming:memory/dreaming/deep/2026-10-18.md",
+    "diary:dreaming:memory/dreaming/deep/2026-10-27.md",
+    "diary:dreaming:memory/dreaming/deep/2026-10-31.md",
+    "diary:dreaming:memory/dreaming/deep/2026-11-04.md"
+   ],
+   "content_sha": "7cfc2c68ab410c47ee98a3feac872d9ac037e5236906d5c109be7d777394e0b5",
+   "keeper": "diary:dreaming:memory/dreaming/deep/2026-04-26.md",
+   "n": 24,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/deep/2026-05-22.md"
+   ],
+   "content_sha": "26468570e6342044b595cec46d6b0b94dfb95a4f89e00f9b34fb1a99b6f9a327",
+   "keeper": "diary:dreaming:memory/dreaming/deep/2026-04-29.md",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/deep/2026-05-05.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-06.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-08.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-09.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-12.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-13.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-17.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-20.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-25.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-30.md",
+    "diary:dreaming:memory/dreaming/deep/2026-05-31.md",
+    "diary:dreaming:memory/dreaming/deep/2026-08-26.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-06.md",
+    "diary:dreaming:memory/dreaming/deep/2026-09-13.md"
+   ],
+   "content_sha": "91c70f8d6cdbfc8ce81a2340f682a1577cf0d64dd1a9e1a15564e275526ea031",
+   "keeper": "diary:dreaming:memory/dreaming/deep/2026-05-03.md",
+   "n": 15,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-09.md"
+   ],
+   "content_sha": "f1bfcd4494d0279e4be7fdf626fa1c8018e587d6d7687a8691c2ce895bc2f479",
+   "keeper": "diary:dreaming:memory/dreaming/rem/2026-05-08.md",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-12.md"
+   ],
+   "content_sha": "dfa78da298feafd539c9ba0d846b0a0f82b99953d60e11266d373cee420135e5",
+   "keeper": "diary:dreaming:memory/dreaming/rem/2026-05-11.md",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-14.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-15.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-16.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-17.md"
+   ],
+   "content_sha": "38b66adeb0a0325290375dbc6e18ed572696df2306ac7c1151c97d832b13d34a",
+   "keeper": "diary:dreaming:memory/dreaming/rem/2026-05-13.md",
+   "n": 5,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-19.md"
+   ],
+   "content_sha": "7a21a36290b8169b2f8e1939901e545b615b23dd70baadad132bb6a21f3342c9",
+   "keeper": "diary:dreaming:memory/dreaming/rem/2026-05-18.md",
+   "n": 2,
+   "tier": "T-dreaming"
+  },
+  {
+   "collapsed": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-30.md",
+    "diary:dreaming:memory/dreaming/rem/2026-08-25.md",
+    "diary:dreaming:memory/dreaming/rem/2026-08-28.md",
+    "diary:dreaming:memory/dreaming/rem/2026-08-29.md",
+    "diary:dreaming:memory/dreaming/rem/2026-08-30.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-01.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-13.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-14.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-20.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-22.md",
+    "diary:dreaming:memory/dreaming/rem/2026-09-27.md",
+    "diary:dreaming:memory/dreaming/rem/2026-10-04.md",
+    "diary:dreaming:memory/dreaming/rem/2026-10-11.md",
+    "diary:dreaming:memory/dreaming/rem/2026-10-18.md",
+    "diary:dreaming:memory/dreaming/rem/2026-10-31.md",
+    "diary:dreaming:memory/dreaming/rem/2026-11-01.md",
+    "diary:dreaming:memory/dreaming/rem/2026-11-04.md"
+   ],
+   "content_sha": "957fee9eb89a59fab72890da93215a43b8c36a653777f3a247da4a369f11a289",
+   "keeper": "diary:dreaming:memory/dreaming/rem/2026-05-24.md",
+   "n": 18,
+   "tier": "T-dreaming"
+  }
+ ],
+ "kind": "step03-exact-dedup",
+ "prev_receipt_sha256": "1598956c595e8f809252b9b7da297c2a1057e577765d7c7e1549c83c05db1c2d",
+ "receipt_sha256": "d410b61a9435b255150d6a1053635e87b688a3cda215abbfb1d6ac6182a29094",
+ "tier": "T-dreaming"
+}

@@ -1,0 +1,24 @@
+# Ava vNext staging hindsight — W4 payload: import adapter verify (oneshot).
+# Preserves W2 pins: User/Group svc-stg-hindsight, MemoryMax 4G, MemorySwapMax=0.
+[Unit]
+Description=Ava vNext staging hindsight (W4: import adapter verify)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=svc-stg-hindsight
+Group=svc-stg-hindsight
+WorkingDirectory=/opt/ava-staging/hindsight
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/ava-staging/hindsight/bin/verify.sh
+RemainAfterExit=yes
+MemoryMax=4G
+MemorySwapMax=0
+CPUAccounting=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

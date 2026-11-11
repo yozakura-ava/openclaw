@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { expect, it, vi } from "vitest";
-import { createWorkboardSqliteStores } from "./sqlite-store.js";
+import { createWorkboardSqliteStores } from "./test/database-config.js";
 
 it("recovers Workboard after its slot fails with another client retaining the actor", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "workboard-recovery-"));

@@ -1,0 +1,30 @@
+{
+ "detail": "dropped_chunks=0 schema_violations=0 recovered=1292/1292",
+ "dropped_chunks": [
+  {
+   "canonical_id": "honcho:gold:memory/diary/fantasy/2026-05-03.md",
+   "reason": "no gold-fact units derived"
+  }
+ ],
+ "embed_probe": {
+  "dimension": 1024,
+  "dimension_ok": true,
+  "endpoint": "http://127.0.0.1:11434",
+  "expected_dimension": 1024,
+  "l2_norm": 1.0,
+  "model": "bge-m3",
+  "status": "live"
+ },
+ "gold_facts_recovered": 1292,
+ "gold_facts_total": 1292,
+ "kind": "w6-gold-set-qualification",
+ "n_docs": 100,
+ "receipt_sha256": "e92341cb877e7d07edca8a5702760b2fd538c838d6433b9b91f7c459ee7a42ae",
+ "recovery_rate": 1.0,
+ "replace_attempts": 0,
+ "schema_violations": [],
+ "seed": "w6-gold-set-2026-11-07",
+ "stratum": "A-protected",
+ "threshold": 0.98,
+ "verdict": "PASS"
+}

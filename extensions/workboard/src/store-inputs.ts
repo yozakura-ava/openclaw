@@ -3,6 +3,7 @@ import type {
   WorkboardCard,
   WorkboardDiagnostic,
   WorkboardEvent,
+  WorkboardLaunchState,
   WorkboardWorkspace,
   WorkboardWorkspaceAccess,
 } from "@openclaw/workboard-contract";
@@ -38,8 +39,12 @@ type WorkboardCardInput = {
 };
 
 export type WorkboardCardPatch = WorkboardCardInput;
+/** Internal builders carry launch state separately from untrusted metadata. */
+export type WorkboardOwnedCardPatch = WorkboardCardPatch & {
+  ownedLaunch?: WorkboardLaunchState;
+};
 export type WorkboardUpdateCardOptions = {
-  allowAutomationLaunch?: boolean;
+  automationLaunch?: WorkboardLaunchState;
   allowMetadataDependencyLinks?: boolean;
   enforceStatusHolds?: boolean;
   event?: Omit<WorkboardEvent, "id" | "at">;
@@ -49,7 +54,12 @@ export type WorkboardUpdateCardOptions = {
   preserveProofId?: string;
   preserveNotificationId?: string;
 };
-export type WorkboardCommentInput = { body?: unknown; actorId?: unknown; actorKind?: unknown };
+export type WorkboardCommentInput = {
+  body?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
+  actorId?: unknown;
+  actorKind?: unknown;
+};
 export type WorkboardLinkInput = {
   type?: unknown;
   targetCardId?: unknown;
@@ -63,6 +73,7 @@ export type WorkboardProofInput = {
   command?: unknown;
   url?: unknown;
   note?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
   actorId?: unknown;
   actorKind?: unknown;
 };
@@ -93,8 +104,6 @@ export type WorkboardClaimInput = {
   ownerId?: unknown;
   token?: unknown;
   ttlSeconds?: unknown;
-  /** Owning session key; injected from plugin tool context, never model-supplied. */
-  sessionId?: unknown;
 };
 export type WorkboardClaimOptions = {
   assertOwnerCurrent?: () => void;
@@ -123,6 +132,7 @@ export type WorkboardCompleteInput = {
   ownerId?: unknown;
   token?: unknown;
   summary?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
   actorId?: unknown;
   actorKind?: unknown;
   proof?: unknown;

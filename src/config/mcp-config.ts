@@ -12,7 +12,7 @@ import {
 } from "./mcp-config-normalize.js";
 import { replaceConfigFile } from "./mutate.js";
 import { redactSensitiveArgv } from "./redact-argv.js";
-import { REDACTED_SENTINEL, restoreRedactedValues } from "./redact-snapshot.js";
+import { REDACTED_SENTINEL, redactConfigObject, restoreRedactedValues } from "./redact-snapshot.js";
 import { buildConfigSchemaCore } from "./schema.js";
 import type { McpServerToolFilterConfig } from "./types.mcp.js";
 import type { OpenClawConfig } from "./types.openclaw.js";
@@ -29,12 +29,11 @@ type ConfigMcpSuccess = {
   config: OpenClawConfig;
   mcpServers: ConfigMcpServers;
 };
-type ConfigMcpReadSuccess = ConfigMcpSuccess & {
-  runtimeConfig: Awaited<ReturnType<typeof readSourceConfigSnapshot>>["runtimeConfig"];
-  sourceConfigBeforeMigrations?: Awaited<
-    ReturnType<typeof readSourceConfigSnapshot>
-  >["sourceConfigBeforeMigrations"];
-};
+type ConfigMcpReadSuccess = ConfigMcpSuccess &
+  Pick<
+    Awaited<ReturnType<typeof readSourceConfigSnapshot>>,
+    "authoredConfig" | "runtimeConfig" | "sourceConfigBeforeMigrations"
+  >;
 type ConfigMcpFailure = { ok: false; path: string; error: string };
 type ConfigMcpReadResult =
   | (ConfigMcpReadSuccess & { ok: true; baseHash?: string })
@@ -120,12 +119,38 @@ function resolveConfiguredMcpServers(
     path: snapshot.path,
     config: structuredClone(sourceConfig),
     mcpServers: normalizeConfiguredMcpServers(sourceConfig.mcp?.servers),
+    authoredConfig: snapshot.authoredConfig,
     runtimeConfig: snapshot.runtimeConfig,
-    ...(snapshot.sourceConfigBeforeMigrations
-      ? { sourceConfigBeforeMigrations: snapshot.sourceConfigBeforeMigrations }
-      : {}),
+    sourceConfigBeforeMigrations: snapshot.sourceConfigBeforeMigrations,
     baseHash: snapshot.hash,
   };
+}
+
+function redactMcpServerArgsForDisplay(server: unknown): unknown {
+  if (!isRecord(server)) {
+    return server;
+  }
+  if (!Array.isArray(server.args) || !server.args.every((arg) => typeof arg === "string")) {
+    return server;
+  }
+  return {
+    ...server,
+    args: redactSensitiveArgv(server.args, REDACTED_SENTINEL),
+  };
+}
+
+/** Redact MCP server secrets before CLI or chat display. */
+export function redactMcpServersForDisplay(
+  servers: Record<string, unknown>,
+): Record<string, unknown> {
+  const argvRedacted = Object.fromEntries(
+    Object.entries(servers).map(([name, server]) => [name, redactMcpServerArgsForDisplay(server)]),
+  );
+  const redactedRoot = redactConfigObject(
+    { mcp: { servers: argvRedacted } },
+    buildConfigSchemaCore().uiHints,
+  );
+  return redactedRoot.mcp.servers;
 }
 
 export async function listConfiguredMcpServers(): Promise<ConfigMcpReadResult> {
@@ -188,7 +213,7 @@ async function commitConfiguredMcpServers(params: {
     });
   }
   if (params.independentlyOwnedName) {
-    markClawMcpServerIndependentlyOwned(params.independentlyOwnedName);
+    await markClawMcpServerIndependentlyOwned(params.independentlyOwnedName);
   }
   return {
     ok: true,

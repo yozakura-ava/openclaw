@@ -40,6 +40,7 @@ import type {
   WorkboardLinkedCreateInput,
   WorkboardListOptions,
   WorkboardMutationScope,
+  WorkboardOwnedCardPatch,
   WorkboardStatsResult,
   WorkboardUpdateCardOptions,
 } from "./store-inputs.js";
@@ -177,7 +178,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
 
   protected async updateLatestCard(
     id: string,
-    buildPatch: (current: WorkboardCard) => WorkboardCardPatch | undefined,
+    buildPatch: (current: WorkboardCard) => WorkboardOwnedCardPatch | undefined,
     options: WorkboardUpdateCardOptions = {},
   ): Promise<{ card: WorkboardCard; updated: boolean }> {
     for (let attempt = 0; ; attempt += 1) {
@@ -188,13 +189,18 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       ) {
         throw new WorkboardCardConflictError(current);
       }
-      const patch = buildPatch(current);
-      if (!patch) {
+      const ownedPatch = buildPatch(current);
+      if (!ownedPatch) {
         return { card: current, updated: false };
       }
+      // Launch state is minted by the store's own prepare/accept flow, so it
+      // rides alongside the card patch instead of inside the untrusted
+      // metadata payload.
+      const { ownedLaunch, ...patch } = ownedPatch;
       try {
         const card = await this.updateCard(current, patch, {
           ...options,
+          automationLaunch: ownedLaunch ?? options.automationLaunch,
           expectedUpdatedAt: current.updatedAt,
         });
         return { card, updated: card.updatedAt !== current.updatedAt };
@@ -600,6 +606,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
           : normalizeExecution(effectivePatch.execution);
       let metadata = normalizeMetadata(effectivePatch.metadata, existing.metadata, {
         allowAutomationLaunch: options.allowAutomationLaunch,
+        automationLaunch: options.automationLaunch,
         allowDependencyLinks: options.allowMetadataDependencyLinks !== false,
         preserveProofId: options.preserveProofId,
       });

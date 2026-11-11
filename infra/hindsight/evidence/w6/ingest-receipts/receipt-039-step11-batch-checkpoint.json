@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-A-protected-002",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "c7c23cbcae23cd2c1ef05b5ee66ad17f0864b562aac16d45dd57eff9f64089f6",
+ "quarantined": [],
+ "receipt_sha256": "598f5ca2ed4628df08aa7d425bb35a3f5b2da43e35eee0cba326bd69b58fcd13",
+ "submitted": 200,
+ "tier": "A-protected"
+}

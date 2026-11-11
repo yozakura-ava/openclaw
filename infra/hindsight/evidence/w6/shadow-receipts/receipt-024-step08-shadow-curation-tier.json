@@ -1,0 +1,17 @@
+{
+ "coverage": {
+  "candidate-active": 0,
+  "collapsed-exact-dup": 67,
+  "dreaming-history": 585,
+  "empty-source-record": 0,
+  "holdout-quarantine": 0,
+  "integrity-quarantine": 0,
+  "policy-excluded-operational-noise": 0,
+  "quarantine-bank": 0,
+  "raw-archive": 0
+ },
+ "kind": "step08-shadow-curation-tier",
+ "prev_receipt_sha256": "d410b61a9435b255150d6a1053635e87b688a3cda215abbfb1d6ac6182a29094",
+ "receipt_sha256": "91d149fa814d0a6a074f0c3bfe77d3176400291442d59f261827098c01bfd0cb",
+ "tier": "T-dreaming"
+}

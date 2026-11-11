@@ -437,13 +437,6 @@ describe("post-activation failure settlement without inference", () => {
           root: activeRoot,
           after: { version: rollback === "restored" ? "2026.9.1" : "2026.9.3" },
         },
-        automaticTriage: restoredHealthy
-          ? undefined
-          : expect.objectContaining({
-              kind: "update",
-              phase: reason,
-              installationRoot: activeRoot,
-            }),
       });
       // Plugin writes remain in the original stopped interval and never rerun after restoration.
       expect(mocks.converge).toHaveBeenCalledOnce();
@@ -677,6 +670,7 @@ describe("post-activation failure settlement without inference", () => {
       vi.spyOn(tempRoot, "resolvePreferredOpenClawTmpDir").mockReturnValue(scratch);
       params.root = root;
       const migration = receipt.startsWith("migration-");
+      const untouched = receipt.startsWith("operator-");
       const currentCore = receipt.startsWith("current-core-") || receipt.startsWith("operator-");
       const recovered =
         receipt === "settled" ||
@@ -901,14 +895,18 @@ describe("post-activation failure settlement without inference", () => {
             errors: vi.mocked(defaultRuntime.error).mock.calls,
             result: failure.result,
           }),
-        ).toMatchObject(
-          recovered
-            ? {
-                serviceRestartSafe: true,
-                service: "healthy",
-                version: mocks.version,
-              }
-            : { serviceRestartSafe: false },
+        ).toEqual(
+          untouched
+            ? undefined
+            : expect.objectContaining(
+                recovered
+                  ? {
+                      serviceRestartSafe: true,
+                      service: "healthy",
+                      version: mocks.version,
+                    }
+                  : { serviceRestartSafe: false },
+              ),
         );
       });
       expect(mocks.restartCommand).toHaveBeenCalledTimes(recovered ? 1 : 0);
@@ -924,10 +922,8 @@ describe("post-activation failure settlement without inference", () => {
         expect(doctor).toHaveBeenCalledOnce();
       }
       const report = getUpdateRun(params.opts.run!.runId, { env: params.opts.run!.env });
-      expect(report?.verification).toMatchObject({
-        serviceRunning: recovered,
-        readyz: recovered,
-      });
+      expect(report?.verification.serviceRunning).toBe(untouched ? undefined : recovered);
+      expect(report?.verification.readyz).toBe(untouched ? undefined : recovered);
       const rendered = renderUpdateRunReport(report!).lines.join("\n");
       if (migration) {
         expect(report?.status).toBe("failed");

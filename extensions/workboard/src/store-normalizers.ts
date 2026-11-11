@@ -284,7 +284,7 @@ export function normalizeWorkspace(
 export function normalizeAutomation(
   value: unknown,
   fallback: WorkboardAutomation = {},
-  options: { allowLaunchState?: boolean } = {},
+  options: { allowLaunchState?: boolean; launch?: WorkboardLaunchState } = {},
 ): WorkboardAutomation | undefined {
   const record = isRecord(value) ? value : {};
   const tenant = normalizeBoundedString(record.tenant, fallback.tenant, 80, "tenant");
@@ -336,9 +336,18 @@ export function normalizeAutomation(
     : fallback.workspace;
   // Raw metadata preserves host-issued authority/state but cannot mint or widen either.
   const workspaceAccess = fallback.workspaceAccess;
-  const launch = normalizeLaunchState(
-    options.allowLaunchState && Object.hasOwn(record, "launch") ? record.launch : fallback.launch,
-  );
+  // Launch state travels two ways: an explicit override minted by the store's
+  // own prepare/accept flow (options.launch), or a launch already present on
+  // the metadata being written (record.launch, gated by allowLaunchState).
+  // The explicit override wins so a prepared launch is never lost to a
+  // metadata payload that does not carry it.
+  const launch = options.launch
+    ? normalizeLaunchState(options.launch)
+    : normalizeLaunchState(
+        options.allowLaunchState && Object.hasOwn(record, "launch")
+          ? record.launch
+          : fallback.launch,
+      );
   const next = {
     ...(tenant ? { tenant } : {}),
     ...(boardId ? { boardId } : {}),
@@ -373,7 +382,7 @@ function normalizeLaunchTimestamp(value: unknown): number | undefined {
     : undefined;
 }
 
-function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined {
+export function normalizeLaunchState(value: unknown): WorkboardLaunchState | undefined {
   if (!isRecord(value)) {
     return undefined;
   }
@@ -888,14 +897,18 @@ export function normalizeMetadata(
     allowDependencyLinks?: boolean;
     allowArchivedAt?: boolean;
     allowAutomationLaunch?: boolean;
+    automationLaunch?: WorkboardLaunchState;
     preserveProofId?: string;
     preserveNotificationId?: string;
   } = {},
 ): WorkboardMetadata {
-  if (!isRecord(value)) {
+  // A prepared/accepted launch is minted by the store itself, so it can arrive
+  // with no metadata payload at all. Falling back to the trimmed previous
+  // metadata in that case would drop the launch and strand the launch state.
+  if (!isRecord(value) && !options.automationLaunch) {
     return trimMetadataToBudget(fallback, options);
   }
-  const record = value;
+  const record = isRecord(value) ? value : {};
   const stale = isRecord(record.stale) ? record.stale : null;
   // Archival is a transition owned by archive(), which appends the matching
   // `archived` event. Callers that cannot produce that event (create) must not
@@ -961,7 +974,10 @@ export function normalizeMetadata(
     automation: normalizeAutomation(
       Object.hasOwn(record, "automation") ? record.automation : {},
       fallback.automation,
-      { allowLaunchState: options.allowAutomationLaunch },
+      {
+        allowLaunchState: options.allowAutomationLaunch,
+        launch: options.automationLaunch,
+      },
     ),
     claim: Object.hasOwn(record, "claim")
       ? record.claim

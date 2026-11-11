@@ -3,7 +3,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../test/helpers/promise.js";
 import { setConfiguredMcpServer } from "../agents/mcp-config-mutation.js";
+import { resolveMcpTransportConfig } from "../agents/mcp-transport-config.js";
 import { withTempHome } from "../config/home-env.test-harness.js";
+import { REDACTED_SENTINEL } from "../config/redact-snapshot.js";
+import { registerMcpCliDoctorPathTests } from "./mcp-cli.doctor-path.test-support.js";
 import {
   cleanupMcpCliTestState,
   createWorkspace,
@@ -37,16 +40,123 @@ async function writeMcpServers(home: string, servers: Record<string, unknown>): 
 }
 
 describe("mcp cli", () => {
+  it.each(["cert.pem", " cert.pem "])(
+    "preserves literal TLS client paths from add flags: %j",
+    async (name) => {
+      await withMcpHome(async (home, workspaceDir) => {
+        const clientCert = path.join(workspaceDir, name);
+        const clientKey = path.join(workspaceDir, name.replace("cert", "key"));
+        await runMcpCommand([
+          "mcp",
+          "add",
+          "literal-tls",
+          "--url",
+          "https://mcp.example.com/mcp",
+          "--client-cert",
+          clientCert,
+          "--client-key",
+          clientKey,
+          "--no-probe",
+        ]);
+        const saved = JSON.parse(
+          await fs.readFile(path.join(home, ".openclaw", "openclaw.json"), "utf8"),
+        );
+        expect(saved.mcp.servers["literal-tls"]).toEqual({
+          url: "https://mcp.example.com/mcp",
+          clientCert,
+          clientKey,
+        });
+        expect(
+          resolveMcpTransportConfig("literal-tls", saved.mcp.servers["literal-tls"]),
+        ).toMatchObject({ clientCert, clientKey });
+      });
+    },
+  );
+
+  it("does not persist blank TLS client path flags", async () => {
+    await withMcpHome(async (home) => {
+      await runMcpCommand([
+        "mcp",
+        "add",
+        "blank-tls",
+        "--url",
+        "https://mcp.example.com/mcp",
+        "--client-cert",
+        "   ",
+        "--client-key",
+        "",
+        "--no-probe",
+      ]);
+      const saved = JSON.parse(
+        await fs.readFile(path.join(home, ".openclaw", "openclaw.json"), "utf8"),
+      );
+      expect(saved.mcp.servers["blank-tls"]).toEqual({ url: "https://mcp.example.com/mcp" });
+    });
+  });
+
   beforeEach(() => {
     resetMcpCliTestState();
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await cleanupMcpCliTestState();
   });
 
+  it.each(["node", " node "])("preserves literal stdio paths from add flags: %j", async (name) => {
+    await withMcpHome(async (home, workspaceDir) => {
+      const command = path.join(workspaceDir, name);
+      const cwd = path.join(workspaceDir, name + "-workspace ");
+      await runMcpCommand([
+        "mcp",
+        "add",
+        "literal",
+        "--command",
+        command,
+        "--arg",
+        "server.mjs",
+        "--cwd",
+        cwd,
+        "--no-probe",
+      ]);
+      const file = path.join(home, ".openclaw", "openclaw.json");
+      const saved = JSON.parse(await fs.readFile(file, "utf8"));
+      expect(saved.mcp.servers.literal).toEqual({ command, args: ["server.mjs"], cwd });
+      mockLog.mockClear();
+      await runMcpCommand(["mcp", "show", "literal", "--json"]);
+      expect(JSON.parse(lastLogLine())).toEqual({ command, args: ["server.mjs"], cwd });
+    });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "probes a literal executable and cwd with trailing spaces",
+    async () => {
+      await withMcpHome(async (home, workspaceDir) => {
+        const command = path.join(workspaceDir, "node ");
+        const cwd = path.join(workspaceDir, "workspace ");
+        await fs.symlink(process.execPath, command);
+        await fs.mkdir(cwd);
+        await writeProbeMcpServer(path.join(cwd, "server.mjs"));
+        await runMcpCommand([
+          "mcp",
+          "add",
+          "literal-probe",
+          "--command",
+          command,
+          "--arg",
+          "server.mjs",
+          "--cwd",
+          cwd,
+        ]);
+        const file = path.join(home, ".openclaw", "openclaw.json");
+        const saved = JSON.parse(await fs.readFile(file, "utf8"));
+        expect(saved.mcp.servers["literal-probe"]).toEqual({ command, args: ["server.mjs"], cwd });
+      });
+    },
+  );
+
   it("adds a configured MCP server from flags without replacing operator knobs", async () => {
-    await withMcpHome(async () => {
+    await withMcpHome(async (home) => {
       await runMcpCommand([
         "mcp",
         "add",
@@ -78,7 +188,7 @@ describe("mcp cli", () => {
       expect(JSON.parse(lastLogLine())).toEqual({
         url: "https://mcp.example.com/mcp",
         transport: "streamable-http",
-        headers: { Authorization: "Bearer token" },
+        headers: { Authorization: REDACTED_SENTINEL },
         auth: "oauth",
         oauth: { scope: "docs.read" },
         toolFilter: { include: ["search", "read_*"] },
@@ -87,6 +197,10 @@ describe("mcp cli", () => {
         supportsParallelToolCalls: true,
         codex: { defaultToolsApprovalMode: "approve" },
       });
+      const saved = JSON.parse(
+        await fs.readFile(path.join(home, ".openclaw", "openclaw.json"), "utf8"),
+      );
+      expect(saved.mcp.servers.docs.headers).toEqual({ Authorization: "Bearer token" });
     });
   });
 
@@ -98,8 +212,8 @@ describe("mcp cli", () => {
       });
       setCreateSessionMcpRuntimeOverride(probe);
 
-      await expect(runMcpCommand(["mcp", "add", "docs", "--command", "uvx"])).rejects.toThrow(
-        "__exit__:1",
+      await expect(runMcpCommand(["mcp", "add", "docs", "--command", "uvx"])).rejects.toMatchObject(
+        { code: 1 },
       );
 
       expect(probe).not.toHaveBeenCalled();
@@ -152,8 +266,8 @@ describe("mcp cli", () => {
         };
       });
 
-      await expect(runMcpCommand(["mcp", "add", "docs", "--command", "uvx"])).rejects.toThrow(
-        "__exit__:1",
+      await expect(runMcpCommand(["mcp", "add", "docs", "--command", "uvx"])).rejects.toMatchObject(
+        { code: 1 },
       );
 
       expect(competitorWon).toBe(true);
@@ -205,7 +319,7 @@ describe("mcp cli", () => {
           "0x10",
           "--no-probe",
         ]),
-      ).rejects.toThrow("__exit__:1");
+      ).rejects.toMatchObject({ code: 1 });
       expect(lastErrorLine()).toBe("--timeout must be a positive number.");
       await expect(fs.readFile(configPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
 
@@ -219,7 +333,7 @@ describe("mcp cli", () => {
 
       await expect(
         runMcpCommand(["mcp", "configure", "docs", "--connect-timeout", "0x3"]),
-      ).rejects.toThrow("__exit__:1");
+      ).rejects.toMatchObject({ code: 1 });
       expect(lastErrorLine()).toBe("--connect-timeout must be a positive number.");
 
       mockLog.mockClear();
@@ -255,7 +369,7 @@ describe("mcp cli", () => {
             "--connect-timeout",
             "0.2",
           ]),
-        ).rejects.toThrow("__exit__:1");
+        ).rejects.toMatchObject({ code: 1 });
         const elapsedMs = performance.now() - startedAt;
 
         expect(elapsedMs).toBeGreaterThanOrEqual(100);
@@ -290,7 +404,7 @@ describe("mcp cli", () => {
             "--env",
             "MCP_MODE=crash",
           ]),
-        ).rejects.toThrow("__exit__:1");
+        ).rejects.toMatchObject({ code: 1 });
 
         mockLog.mockClear();
         await runMcpCommand(["mcp", "list", "--json"]);
@@ -380,7 +494,7 @@ describe("mcp cli", () => {
   it("requires an explicit MCP tool filter operation", async () => {
     await withMcpHome(async () => {
       await runMcpCommand(["mcp", "set", "docs", '{"command":"node","args":["server.mjs"]}']);
-      await expect(runMcpCommand(["mcp", "tools", "docs"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", "tools", "docs"])).rejects.toMatchObject({ code: 1 });
 
       expect(lastErrorLine()).toBe("Specify --include, --exclude, or --clear.");
     });
@@ -430,15 +544,25 @@ describe("mcp cli", () => {
 
   it("reports MCP doctor setup errors and sensitive literals", async () => {
     await withMcpHome(async () => {
+      vi.stubEnv("MCP_DOCTOR_AUTHORED_TOKEN", "test-token");
       await runMcpCommand([
         "mcp",
         "set",
         "docs",
-        '{"command":"./missing-mcp","env":{"DOCS_API_KEY":"literal"},"headers":{"Authorization":"Bearer literal"}}',
+        JSON.stringify({
+          command: "./missing-mcp",
+          env: { DOCS_API_KEY: "literal" },
+          headers: {
+            Authorization: "Bearer literal",
+            "X-API-Key": "${MCP_DOCTOR_AUTHORED_TOKEN:-literal-fallback}",
+            "Proxy-Authorization": "$${MCP_DOCTOR_AUTHORED_TOKEN} ${MCP_DOCTOR_AUTHORED_TOKEN}",
+            "Api-Key": "Basic ${MCP_DOCTOR_AUTHORED_TOKEN}:literal-password",
+          },
+        }),
       ]);
       mockLog.mockClear();
 
-      await expect(runMcpCommand(["mcp", "doctor", "--json"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", "doctor", "--json"])).rejects.toMatchObject({ code: 1 });
 
       const result = JSON.parse(lastLogLine());
       expect(result.ok).toBe(false);
@@ -460,10 +584,68 @@ describe("mcp cli", () => {
               "headers.Authorization contains a literal sensitive value",
             ),
           }),
+          expect.objectContaining({
+            message: expect.stringContaining(
+              "headers.X-API-Key contains a literal sensitive value",
+            ),
+          }),
+          expect.objectContaining({
+            message: expect.stringContaining(
+              "headers.Proxy-Authorization contains a literal sensitive value",
+            ),
+          }),
+          expect.objectContaining({
+            message: expect.stringContaining("headers.Api-Key contains a literal sensitive value"),
+          }),
         ]),
       );
     });
   });
+
+  it.each(["process", "dotenv", "unset"])(
+    "does not flag authored MCP header/env references with %s env",
+    async (source) => {
+      await withMcpHome(async (home) => {
+        vi.stubEnv(
+          "MCP_DOCTOR_AUTHORED_TOKEN",
+          source === "process" ? "Bearer test-token" : undefined,
+        );
+        const stateDir = path.join(home, ".openclaw");
+        if (source === "dotenv") {
+          await fs.writeFile(
+            path.join(stateDir, ".env"),
+            "MCP_DOCTOR_AUTHORED_TOKEN=Bearer test-token\n",
+          );
+        }
+        await fs.writeFile(
+          path.join(stateDir, "mcp-servers.json"),
+          JSON.stringify({
+            docs: {
+              url: "https://mcp.example.com/mcp",
+              headers: {
+                Authorization: "${MCP_DOCTOR_AUTHORED_TOKEN}",
+                "Proxy-Authorization": "Bearer ${MCP_DOCTOR_AUTHORED_TOKEN}",
+                "X-API-Key": "${MCP_DOCTOR_AUTHORED_TOKEN:-}",
+                api_key: "${MCP_DOCTOR_AUTHORED_TOKEN}${MCP_DOCTOR_AUTHORED_TOKEN}",
+              },
+              env: { DOCS_API_KEY: "${MCP_DOCTOR_AUTHORED_TOKEN}" },
+            },
+          }),
+        );
+        await fs.writeFile(
+          path.join(stateDir, "openclaw.json"),
+          JSON.stringify({ mcp: { servers: { $include: "./mcp-servers.json" } } }),
+        );
+
+        await runMcpCommand(["mcp", "doctor", "docs", "--json"]);
+
+        expect(JSON.parse(lastLogLine())).toMatchObject({
+          ok: true,
+          servers: [{ name: "docs", ok: true, issues: [] }],
+        });
+      });
+    },
+  );
 
   it("reports ignored OAuth Authorization headers regardless of casing", async () => {
     await withMcpHome(async (home) => {
@@ -621,74 +803,7 @@ describe("mcp cli", () => {
     });
   });
 
-  it.runIf(process.platform !== "win32")(
-    "does not treat Path as PATH when checking MCP stdio commands",
-    async () => {
-      await withMcpHome(async (_home, workspaceDir) => {
-        const binDir = path.join(workspaceDir, "bin");
-        const commandPath = path.join(binDir, "mis-cased-path-mcp");
-        await fs.mkdir(binDir, { recursive: true });
-        await fs.writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf-8");
-        await fs.chmod(commandPath, 0o755);
-
-        await runMcpCommand([
-          "mcp",
-          "set",
-          "docs",
-          JSON.stringify({ command: "mis-cased-path-mcp", env: { Path: binDir } }),
-        ]);
-        mockLog.mockClear();
-
-        await expect(runMcpCommand(["mcp", "doctor", "--json"])).rejects.toThrow("__exit__:1");
-
-        expect(JSON.parse(lastLogLine())).toMatchObject({
-          ok: false,
-          servers: [
-            {
-              name: "docs",
-              ok: false,
-              issues: [
-                {
-                  level: "error",
-                  message: "stdio command not found or not executable: mis-cased-path-mcp",
-                },
-              ],
-            },
-          ],
-        });
-      });
-    },
-  );
-
-  it("resolves relative configured PATH entries from the MCP stdio cwd", async () => {
-    await withMcpHome(async (_home, workspaceDir) => {
-      const appDir = path.join(workspaceDir, "app");
-      const binDir = path.join(appDir, "node_modules", ".bin");
-      const commandPath = path.join(binDir, "docs-mcp");
-      await fs.mkdir(binDir, { recursive: true });
-      await fs.writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf-8");
-      await fs.chmod(commandPath, 0o755);
-
-      await runMcpCommand([
-        "mcp",
-        "set",
-        "docs",
-        JSON.stringify({
-          command: "docs-mcp",
-          cwd: appDir,
-          env: { PATH: "node_modules/.bin" },
-        }),
-      ]);
-      mockLog.mockClear();
-
-      await runMcpCommand(["mcp", "doctor", "--json"]);
-
-      expect(JSON.parse(lastLogLine())).toMatchObject({
-        ok: true,
-        servers: [{ name: "docs", ok: true, issues: [] }],
-      });
-    });
-  });
+  registerMcpCliDoctorPathTests(withMcpHome);
 
   it("removes pure disabled tombstones when enabling MCP servers", async () => {
     await withMcpHome(async () => {
@@ -709,7 +824,7 @@ describe("mcp cli", () => {
 
       await runMcpCommand(["mcp", "set", "docs", '{"enabled":false}']);
 
-      await expect(runMcpCommand(["mcp", "probe", "docs"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", "probe", "docs"])).rejects.toMatchObject({ code: 1 });
       expect(lastErrorLine()).toBe(
         `MCP server "docs" is disabled in ${configPath}. Run openclaw mcp configure docs --enable before checking it.`,
       );
@@ -717,6 +832,7 @@ describe("mcp cli", () => {
   });
 
   it("reports omitted enabled servers while accepting omitted disabled servers", async () => {
+    const invocationExitCode = process.exitCode;
     await withMcpHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");
       let catalogServers: Record<
@@ -753,6 +869,9 @@ describe("mcp cli", () => {
 
       expect(JSON.parse(lastLogLine())).toMatchObject({ servers: {}, diagnostics: [] });
       expect(lastErrorLine()).toBe(`MCP check did not connect to "incomplete" in ${configPath}.`);
+      expect(process.exitCode).toBe(1);
+      // The next probe represents a new CLI invocation, not a continuation of its failed status.
+      process.exitCode = invocationExitCode;
 
       await writeMcpServers(home, {
         healthy: { command: "node" },
@@ -776,6 +895,7 @@ describe("mcp cli", () => {
         diagnostics: [],
       });
       expect(lastErrorLine()).toBe("");
+      expect(process.exitCode).toBe(invocationExitCode);
 
       mockLog.mockClear();
       await runMcpCommand(["mcp", "probe"]);
@@ -841,7 +961,7 @@ describe("mcp cli", () => {
     await withMcpHome(async (home) => {
       const configPath = path.join(home, ".openclaw", "openclaw.json");
 
-      await expect(runMcpCommand(["mcp", "unset", "missing"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", "unset", "missing"])).rejects.toMatchObject({ code: 1 });
       expect(lastErrorLine()).toBe(
         `No MCP server named "missing" in ${configPath}. Run openclaw mcp list to see configured servers.`,
       );
@@ -879,7 +999,7 @@ describe("mcp cli", () => {
     await withTempHome("openclaw-cli-mcp-home-", async () => {
       serveOpenClawChannelMcp.mockRejectedValueOnce(new Error("gateway unavailable"));
 
-      await expect(runMcpCommand(["mcp", "serve"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", "serve"])).rejects.toMatchObject({ code: 1 });
 
       expect(lastErrorLine()).toBe(
         "MCP server failed to start: gateway unavailable. Run openclaw gateway status --deep --require-rpc to inspect Gateway health.",
@@ -888,9 +1008,9 @@ describe("mcp cli", () => {
   });
   it.each(["show"])("emits one JSON failure for an unknown server in %s", async (command) => {
     await withTempHome("openclaw-cli-mcp-json-", async () => {
-      await expect(runMcpCommand(["mcp", command, "missing", "--json"])).rejects.toThrow(
-        "__exit__:1",
-      );
+      await expect(runMcpCommand(["mcp", command, "missing", "--json"])).rejects.toMatchObject({
+        code: 1,
+      });
 
       expect(mockLog).toHaveBeenCalledTimes(1);
       expect(mockError).not.toHaveBeenCalled();
@@ -907,7 +1027,7 @@ describe("mcp cli", () => {
   it.each(["probe"])("emits one JSON failure for invalid config in %s", async (command) => {
     await withTempHome("openclaw-cli-mcp-invalid-json-", async (home) => {
       await fs.writeFile(path.join(home, ".openclaw", "openclaw.json"), "{ invalid");
-      await expect(runMcpCommand(["mcp", command, "--json"])).rejects.toThrow("__exit__:1");
+      await expect(runMcpCommand(["mcp", command, "--json"])).rejects.toMatchObject({ code: 1 });
 
       expect(mockLog).toHaveBeenCalledTimes(1);
       expect(JSON.parse(lastLogLine())).toEqual({
@@ -916,59 +1036,6 @@ describe("mcp cli", () => {
           type: "cli_error",
           message: "Config file is invalid; fix it before using MCP config commands.",
         },
-      });
-    });
-  });
-
-  it("reports directories and continues past them on PATH", async () => {
-    await withTempHome("openclaw-cli-mcp-home-", async () => {
-      const workspaceDir = await createWorkspace();
-      const serverDir = path.join(workspaceDir, "docs-mcp-repo");
-      const shadowDir = path.join(workspaceDir, "shadow");
-      const binDir = path.join(workspaceDir, "bin");
-      await fs.mkdir(serverDir, { recursive: true });
-      await fs.mkdir(path.join(shadowDir, "docs-mcp"), { recursive: true });
-      await fs.mkdir(binDir, { recursive: true });
-      await fs.writeFile(path.join(binDir, "docs-mcp"), "#!/bin/sh\nexit 0\n", "utf-8");
-      await fs.chmod(path.join(binDir, "docs-mcp"), 0o755);
-      vi.spyOn(process, "cwd").mockReturnValue(workspaceDir);
-      const servers = {
-        "explicit-dir": { command: serverDir },
-        "path-dir-only": { command: "docs-mcp", env: { PATH: shadowDir } },
-        "path-dir-then-file": {
-          command: "docs-mcp",
-          env: { PATH: [shadowDir, binDir].join(path.delimiter) },
-        },
-      };
-      for (const [name, server] of Object.entries(servers)) {
-        await runMcpCommand(["mcp", "set", name, JSON.stringify(server)]);
-      }
-      mockLog.mockClear();
-
-      await expect(runMcpCommand(["mcp", "doctor", "--json"])).rejects.toThrow("__exit__:1");
-
-      expect(JSON.parse(lastLogLine())).toMatchObject({
-        ok: false,
-        servers: [
-          {
-            name: "explicit-dir",
-            ok: false,
-            issues: [
-              {
-                level: "error",
-                message: `stdio command not found or not executable: ${serverDir}`,
-              },
-            ],
-          },
-          {
-            name: "path-dir-only",
-            ok: false,
-            issues: [
-              { level: "error", message: "stdio command not found or not executable: docs-mcp" },
-            ],
-          },
-          { name: "path-dir-then-file", ok: true, issues: [] },
-        ],
       });
     });
   });
