@@ -5,12 +5,11 @@ import {
   hasMainSessionRecoveryClaim,
   isMainRestartRecoveryCandidate,
 } from "../../config/sessions/restart-recovery-state.js";
-import { updateSessionEntry } from "../../config/sessions/session-accessor.js";
+import {
+  loadExactSessionEntry,
+  updateSessionEntry,
+} from "../../config/sessions/session-accessor.js";
 import { readSessionEntrySummariesInWorker } from "../../config/sessions/session-entry-read-runtime.js";
-<<<<<<< HEAD
-=======
-import type { SessionSourceAssertion } from "../../config/sessions/session-source-authority.js";
->>>>>>> 97b6e87616f
 import { resolveSessionWorkStartBlock } from "../../config/sessions/session-work-start.js";
 import { isTerminalSessionStatus } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
@@ -21,10 +20,9 @@ import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { findDeliveryIntentOwners } from "../../infra/outbound/delivery-queue-storage.js";
 import {
   getOwedHarnessCompletionTask,
-  createHarnessCompletionSourceAssertion,
-  readAdmittedHarnessCompletionInputAsync,
+  readAdmittedHarnessCompletionInput,
 } from "../agent-harness-completion-recovery.js";
-import { resolveExecDefaultsAsync } from "../exec-defaults.js";
+import { resolveExecDefaults } from "../exec-defaults.js";
 import type { MainSessionRecoveryAdmission } from "./main-session-recovery-admission.js";
 import { buildMainSessionRecoverySettlementPatch } from "./main-session-recovery-clear.js";
 import { createCurrentProcessOwnerLookup } from "./main-session-recovery-live-owners.js";
@@ -36,7 +34,11 @@ import {
   commitMainSessionRecovery,
   type MainSessionRecoveryStoreTarget,
 } from "./main-session-recovery-store.js";
-import { resumeMainSession } from "./main-session-restart-dispatch.js";
+import {
+  hasRestartRecoveryMessageActionAuthority,
+  requiresRestartRecoveryMessageActionAuthority,
+  resumeMainSession,
+} from "./main-session-restart-dispatch.js";
 import {
   markSessionCompletedAfterRecoveryCheckpoint,
   readMainSessionRecoveryCheckpoint,
@@ -47,7 +49,10 @@ import {
   type MainSessionRecoveryDecision,
   type MainSessionRecoverySkipReason,
 } from "./main-session-restart-recovery-diagnostics.js";
-import { tombstoneMainRestartRecoveryWithNotice } from "./main-session-restart-recovery-failure.js";
+import {
+  finishDelegatedRestartRecovery,
+  tombstoneMainRestartRecoveryWithNotice,
+} from "./main-session-restart-recovery-failure.js";
 import {
   hasReplaySafeCodeModeCheckpointInCurrentTurn,
   resolveMainSessionResumePolicy,
@@ -191,7 +196,6 @@ export async function recoverStore(params: {
   activeSessionKeys?: Iterable<string>;
   lifecycleGeneration?: string;
   shouldContinue?: () => boolean;
-  signal?: AbortSignal;
   gatewayRuntime: GatewayRecoveryRuntime;
 }): Promise<{ started: number; settled: number; failed: number; skipped: number }> {
   const result = { started: 0, settled: 0, failed: 0, skipped: 0 };
@@ -201,7 +205,7 @@ export async function recoverStore(params: {
   let entries: Array<{ sessionKey: string; entry: SessionEntry }>;
   try {
     if (params.expectedTarget) {
-      const entry = await loadExpectedRestartRecoveryTarget({
+      const entry = loadExpectedRestartRecoveryTarget({
         expected: params.expectedTarget,
         storePath: params.storePath,
       });
@@ -222,7 +226,6 @@ export async function recoverStore(params: {
     a.sessionKey.localeCompare(b.sessionKey),
   )) {
     let entry = loadedEntry;
-    let completionSource: SessionSourceAssertion | undefined;
     const isRecoveryCandidate =
       !loadedEntry.mainRestartRecovery?.tombstone &&
       hasMainSessionRecoveryClaim(loadedEntry) &&
@@ -257,11 +260,7 @@ export async function recoverStore(params: {
         skip("not_main_session");
         continue;
       }
-<<<<<<< HEAD
       const dispatchTarget = resolveRestartRecoveryDispatchTarget({
-=======
-      const dispatchTarget = await resolveRestartRecoveryDispatchTarget({
->>>>>>> 97b6e87616f
         agentId: params.expectedTarget?.agentId,
         storeAgentId: params.storeAgentId,
         cfg: params.cfg,
@@ -423,22 +422,6 @@ export async function recoverStore(params: {
       const harnessCompletion = entry.restartRecoveryHarnessCompletion;
       let recoverableHarnessCompletion: boolean;
       try {
-        const hasCurrentCompletionInput = async () => {
-          if (!harnessCompletion) {
-            return false;
-          }
-          completionSource = createHarnessCompletionSourceAssertion({
-            claim: harnessCompletion,
-            storePath: params.storePath,
-            mode: "committed",
-          });
-          return readAdmittedHarnessCompletionInputAsync({
-            claim: harnessCompletion,
-            entry,
-            storePath: params.storePath,
-            operationalRunId: entry.restartRecoveryDeliveryRunId,
-          });
-        };
         recoverableHarnessCompletion = Boolean(
           harnessCompletion &&
           harnessCompletion.requesterSessionKey === sessionKey &&
@@ -447,7 +430,12 @@ export async function recoverStore(params: {
           Boolean(entry.restartRecoveryDeliveryRunId) &&
           entry.restartRecoverySourceIngress === "internal" &&
           Boolean(getOwedHarnessCompletionTask(harnessCompletion, entry)) &&
-          (await hasCurrentCompletionInput()),
+          readAdmittedHarnessCompletionInput({
+            claim: harnessCompletion,
+            entry,
+            storePath: params.storePath,
+            operationalRunId: entry.restartRecoveryDeliveryRunId,
+          }),
         );
       } catch (error) {
         mainSessionRecoveryLog.warn(
@@ -492,7 +480,7 @@ export async function recoverStore(params: {
         continue;
       }
 
-      const execPolicy = await resolveExecDefaultsAsync({
+      const execPolicy = resolveExecDefaults({
         cfg: params.cfg,
         agentId,
         sessionKey: dispatchSessionKey,
@@ -540,7 +528,6 @@ export async function recoverStore(params: {
         (entry.restartRecoverySourceIngress === "control-ui" ||
           entry.restartRecoverySourceIngress === "channel");
       if (
-<<<<<<< HEAD
         !recoverableHarnessCompletion &&
         ((source === "inter_session" && !hasRetainedHumanSource) ||
           ((source === undefined ||
@@ -548,7 +535,7 @@ export async function recoverStore(params: {
             source === "harness_completion") &&
             entry.restartRecoverySourceIngress === "internal"))
       ) {
-        const tombstone = await tombstoneMainRestartRecoveryWithNotice({
+        const outcome = await finishDelegatedRestartRecovery({
           ...target,
           cfg: params.cfg,
           entry,
@@ -556,7 +543,7 @@ export async function recoverStore(params: {
           observation: recoveryView.observation,
           reason: "delegated recovery sender authority is unavailable",
         });
-        if (tombstone === "notice_failed") {
+        if (outcome === "notice_failed") {
           result.failed++;
         } else {
           skip("delegated_authority_unavailable");
@@ -565,7 +552,10 @@ export async function recoverStore(params: {
       }
 
       const pendingFinal = entry.pendingFinalDelivery;
-      let resumeOptions: Partial<Parameters<typeof resumeMainSession>[0]>;
+      let resumeOptions: Pick<
+        Parameters<typeof resumeMainSession>[0],
+        "forceCodeModeTools" | "forceRestartSafeTools" | "pendingFinalDeliveryText"
+      >;
       if (pendingAction === "fail" || pendingFinal?.kind === "replayable") {
         resumeOptions = {
           ...(pendingFinal?.kind === "replayable"
@@ -633,10 +623,8 @@ export async function recoverStore(params: {
         cfg: params.cfg,
         entry,
         observation: recoveryView.observation,
-        completionSource,
         recoveryAttempt: recoveryView.nextAttempt,
         recoveryAdmission: params.recoveryAdmission,
-        signal: params.signal,
         gatewayRuntime: params.gatewayRuntime,
         ...resumeOptions,
         lifecycleGeneration: params.lifecycleGeneration,
@@ -648,7 +636,7 @@ export async function recoverStore(params: {
         reason: `dispatch_${resumeResult}`,
         nextOwner:
           resumeResult === "started"
-            ? "background-lane"
+            ? "main-lane"
             : resumeResult === "settled"
               ? "none"
               : "main-session-recovery",
@@ -661,7 +649,7 @@ export async function recoverStore(params: {
       if (resumeResult === "started" || resumeResult === "settled") {
         params.handledSessionKeys.add(resumeDedupeKey);
       } else if (resumeResult === "failed") {
-        const current = await loadExpectedRestartRecoveryTarget({
+        const current = loadExpectedRestartRecoveryTarget({
           expected: { agentId, sessionId: entry.sessionId, sessionKey },
           storePath: params.storePath,
         });

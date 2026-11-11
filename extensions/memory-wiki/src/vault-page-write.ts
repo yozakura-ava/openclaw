@@ -45,8 +45,6 @@ function isMissingWikiPageError(error: unknown): boolean {
   return error instanceof FsSafeError && error.code === "not-found";
 }
 
-=======
->>>>>>> 97b6e87616f
 export function readExistingWikiPageUtf8(
   vault: VaultRoot,
   relativePath: string,
@@ -54,18 +52,10 @@ export function readExistingWikiPageUtf8(
 ): Promise<string> {
   return readExistingWikiPage(
     async () => decodeWikiPageUtf8(await vault.readBytes(relativePath), relativePath),
-<<<<<<< HEAD
     isMissingWikiPageError,
     fallback,
   );
 }
-=======
-    (error) => error instanceof FsSafeError && error.code === "not-found",
-    fallback,
-  );
-}
-
->>>>>>> 97b6e87616f
 export async function writeGuardedVaultPage(params: {
   vault: VaultRoot;
   pagePath: string;

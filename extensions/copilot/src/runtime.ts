@@ -37,13 +37,22 @@ export interface CopilotClientPoolOptions {
 
 export type CopilotClientPool = ReturnType<typeof createCopilotClientPool>;
 
+type EntryState =
+  | { kind: "creating"; promise: Promise<CopilotClient> }
+  | { kind: "ready"; client: CopilotClient }
+  | {
+      kind: "idle";
+      client: CopilotClient;
+      idleTimer: ReturnType<typeof setTimeout>;
+    }
+  | { kind: "stopping"; client: CopilotClient; promise: Promise<Error[]> }
+  | { kind: "stopped" };
+
 interface PoolEntry {
   readonly key: PoolKey;
   readonly cacheKey: string;
-  readonly client: Promise<CopilotClient>;
   refCount: number;
-  idleTimer?: ReturnType<typeof setTimeout>;
-  stopping?: Promise<Error[]>;
+  state: EntryState;
 }
 
 export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) {
@@ -57,7 +66,9 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
   const idleTtlMs = options.idleTtlMs ?? DEFAULT_IDLE_TTL_MS;
   const entries = new Map<string, PoolEntry>();
   const releasedHandles = new WeakSet<PooledClient>();
+  let disposed = false;
   let disposePromise: Promise<Error[]> | undefined;
+  let disposeCompleted = false;
 
   const createDisposedError = () => new Error(POOL_DISPOSED_MESSAGE);
 
@@ -67,26 +78,29 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     }
   };
 
-  const stopEntry = (entry: PoolEntry): Promise<Error[]> => {
-    if (entry.stopping) {
-      return entry.stopping;
+  const stopReadyOrIdleEntry = (
+    entry: PoolEntry,
+    client: CopilotClient,
+    idleTimer?: ReturnType<typeof setTimeout>,
+  ) => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
     }
-    clearTimeout(entry.idleTimer);
-    entry.stopping = (async () => {
+    const stopPromise = (async () => {
       try {
-        const client = await entry.client;
         return await client.stop();
       } catch (error: unknown) {
         return [toCopilotRuntimeError(error)];
       } finally {
+        entry.state = { kind: "stopped" };
         maybeDeleteEntry(entry);
       }
     })();
-    return entry.stopping;
+
+    entry.state = { kind: "stopping", client, promise: stopPromise };
+    return stopPromise;
   };
 
-<<<<<<< HEAD
-=======
   const stopEntry = async (entry: PoolEntry): Promise<Error[]> => {
     switch (entry.state.kind) {
       case "creating": {
@@ -124,19 +138,15 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     };
   };
 
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
   const createEntry = (key: PoolKey, cacheKey: string, clientOptions: CopilotClientOptions) => {
     // Register the entry before invoking a factory that may throw synchronously.
     const createPromise = Promise.resolve().then(async () => {
       try {
-<<<<<<< HEAD
-        return await sdkFactory(clientOptions);
-=======
         const client = await sdkFactory(clientOptions);
         entry.state = { kind: "ready", client };
         return client;
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
       } catch (error: unknown) {
+        entry.state = { kind: "stopped" };
         maybeDeleteEntry(entry);
         throw toCopilotRuntimeError(error);
       }
@@ -144,11 +154,14 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     const entry: PoolEntry = {
       key,
       cacheKey,
-      refCount: 0,
-      client: createPromise,
+      refCount: 1,
+      state: {
+        kind: "creating",
+        promise: createPromise,
+      },
     };
     entries.set(cacheKey, entry);
-    return entry;
+    return { entry, createPromise };
   };
 
   const acquire = async (
@@ -160,16 +173,10 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     const clientOptions = normalizeClientCreateOptions(optionsForCreate, key.copilotHome);
 
     while (true) {
-      if (disposePromise) {
+      if (disposed) {
         throw createDisposedError();
       }
 
-<<<<<<< HEAD
-      const entry = entries.get(cacheKey) ?? createEntry(key, cacheKey, clientOptions);
-      if (entry.stopping) {
-        await entry.stopping;
-        continue;
-=======
       const existing = entries.get(cacheKey);
       if (!existing) {
         const created = createEntry(key, cacheKey, clientOptions);
@@ -179,19 +186,35 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
           throw createDisposedError();
         }
         return { key: created.entry.key, client };
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
       }
-      clearTimeout(entry.idleTimer);
-      entry.refCount += 1;
-      const client = await entry.client;
-      if (disposePromise) {
-        await stopEntry(entry);
-        throw createDisposedError();
+
+      switch (existing.state.kind) {
+        case "creating": {
+          existing.refCount += 1;
+          const client = await existing.state.promise;
+          if (disposed) {
+            await stopEntry(existing);
+            throw createDisposedError();
+          }
+          return { key: existing.key, client };
+        }
+        case "ready":
+          existing.refCount += 1;
+          return { key: existing.key, client: existing.state.client };
+        case "idle": {
+          const client = existing.state.client;
+          clearTimeout(existing.state.idleTimer);
+          existing.refCount += 1;
+          existing.state = { kind: "ready", client };
+          return { key: existing.key, client };
+        }
+        case "stopping":
+          await existing.state.promise;
+          continue;
+        case "stopped":
+          maybeDeleteEntry(existing);
+          continue;
       }
-<<<<<<< HEAD
-      return { key: entry.key, client };
-=======
->>>>>>> f1d8938aaa3 (Revert "fix(copilot): setup verification fails for SDK-backed agents (#163578)")
     }
   };
 
@@ -202,7 +225,24 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
     releasedHandles.add(handle);
 
     const entry = entries.get(JSON.stringify(handle.key));
-    if (!entry || entry.stopping || (await entry.client) !== handle.client) {
+    if (!entry) {
+      return;
+    }
+
+    switch (entry.state.kind) {
+      case "creating":
+      case "stopping":
+      case "stopped":
+        return;
+      case "ready":
+      case "idle":
+        if (entry.state.client !== handle.client) {
+          return;
+        }
+        break;
+    }
+
+    if (entry.refCount <= 0) {
       return;
     }
 
@@ -211,25 +251,32 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
       return;
     }
 
-    if (disposePromise) {
+    if (disposed) {
       await stopEntry(entry);
       return;
     }
 
-    entry.idleTimer = setTimeout(() => {
-      void stopEntry(entry);
-    }, idleTtlMs);
+    if (entry.state.kind === "idle") {
+      clearTimeout(entry.state.idleTimer);
+    }
+    scheduleIdleStop(entry, entry.state.client);
   };
 
   const dispose = async (): Promise<Error[]> => {
+    if (disposeCompleted) {
+      return [];
+    }
     if (disposePromise) {
       await disposePromise;
       return [];
     }
 
+    disposed = true;
     const snapshot = [...entries.values()];
     for (const entry of snapshot) {
-      clearTimeout(entry.idleTimer);
+      if (entry.state.kind === "idle") {
+        clearTimeout(entry.state.idleTimer);
+      }
     }
 
     disposePromise = (async () => {
@@ -239,10 +286,15 @@ export function createCopilotClientPool(options: CopilotClientPoolOptions = {}) 
         errors.push(...stopErrors);
       }
       entries.clear();
+      disposeCompleted = true;
       return errors;
     })();
 
-    return await disposePromise;
+    try {
+      return await disposePromise;
+    } finally {
+      disposePromise = undefined;
+    }
   };
 
   return {
