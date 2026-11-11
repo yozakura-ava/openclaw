@@ -24,7 +24,7 @@ import {
   RUNNING_HEARTBEAT_STALE_MS,
 } from "./store-constants.js";
 import type { WorkboardMutationScope } from "./store-inputs.js";
-import { capText, normalizeTimestamp, removeUndefinedMetadataFields } from "./store-normalizers.js";
+import { capText, metadataIsEmpty, normalizeTimestamp, removeUndefinedMetadataFields } from "./store-normalizers.js";
 
 export function compareCards(left: WorkboardCard, right: WorkboardCard): number {
   if (left.status !== right.status) {
