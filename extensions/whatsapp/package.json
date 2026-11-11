@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/whatsapp",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "OpenClaw WhatsApp channel plugin for WhatsApp Web chats.",
   "repository": {
     "type": "git",
@@ -10,14 +14,18 @@
   "dependencies": {
     "audio-decode": "3.12.0",
     "baileys": "7.0.0-rc14",
-    "typebox": "1.3.34"
+    "typebox": "1.3.35"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*",
     "openclaw": "workspace:*"
   },
   "peerDependencies": {
+<<<<<<< HEAD
     "openclaw": ">=2026.10.8"
+=======
+    "openclaw": ">=2026.11.1"
+>>>>>>> 97b6e87616f
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -45,6 +53,12 @@
       "docsLabel": "whatsapp",
       "blurb": "works with your own number; recommend a separate phone + eSIM.",
       "systemImage": "message",
+      "doctorCapabilities": {
+        "dmAllowFromMode": "topOnly",
+        "groupModel": "sender",
+        "groupAllowFromFallbackToAllowFrom": true,
+        "warnOnEmptyGroupSenderAllowlist": true
+      },
       "persistedAuthState": {
         "specifier": "./auth-presence",
         "exportName": "hasAnyWhatsAppAuth"
@@ -69,11 +83,19 @@
       "minHostVersion": ">=2026.4.25"
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "bundledDist": false,
       "openclawVersion": "2026.10.8"
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "bundledDist": false,
+      "openclawVersion": "2026.11.1"
+>>>>>>> 97b6e87616f
     },
     "release": {
       "publishToClawHub": true,

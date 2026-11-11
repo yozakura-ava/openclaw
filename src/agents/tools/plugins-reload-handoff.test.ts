@@ -120,10 +120,25 @@ describe("plugin reload turn handoff", () => {
                           },
                         });
                         const tool = wrapToolWithAbortSignal(sourceTool, runAbort.signal);
+<<<<<<< HEAD
                         const result = await tool.execute("handoff", {
                           action: "reloadAndResume",
                           pluginId: "reload-fixture",
                         });
+=======
+                        const request = { action: "reloadAndResume", pluginId: "reload-fixture" };
+                        if (outcome === "permission denied") {
+                          await expect(tool.execute("handoff", request)).rejects.toThrow(
+                            "operator.admin",
+                          );
+                          expect(order).toEqual([]);
+                          expect(endpoint).not.toHaveBeenCalled();
+                          expect(enqueue).not.toHaveBeenCalled();
+                          finished.resolve();
+                          return;
+                        }
+                        const result = await tool.execute("handoff", request);
+>>>>>>> 97b6e87616f
                         expect(result.details).toMatchObject({
                           status: "started",
                           async: true,
@@ -156,11 +171,15 @@ describe("plugin reload turn handoff", () => {
                         }
                         cleanup.resolve();
                         const text = await resumed.promise;
+<<<<<<< HEAD
                         expect(order).toEqual(
                           outcome === "permission denied"
                             ? ["yield", "cleanup", "resume"]
                             : ["yield", "cleanup", "reload", "resume"],
                         );
+=======
+                        expect(order).toEqual(["yield", "cleanup", "reload", "resume"]);
+>>>>>>> 97b6e87616f
                         expect(text).toContain(
                           outcome === "success"
                             ? '"generation":2'

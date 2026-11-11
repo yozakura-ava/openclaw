@@ -29,6 +29,40 @@ beforeEach(() => {
   vi.stubEnv("OPENCLAW_DISABLE_BUNDLED_PLUGINS", "1");
 });
 it.each([
+  ["24.16.0", true],
+  ["26.1.0", false],
+] as const)(
+  "warns without refusing an update preview under compatible service Node %s",
+  async (version, json) => {
+    stubNodeRuntime();
+    fixture.managedServiceNodeRunner = process.execPath;
+    vi.spyOn(runtimePaths, "resolveNodeRuntimeInfo").mockResolvedValue({
+      status: "supported",
+      version,
+      sqliteVersion: "3.53.0",
+      nodeSharedSqlite: false,
+      sqliteProbe: { available: true, version: "3.53.0", text: true, blob: true, json: true },
+    });
+    vi.mocked(packageMetadata.fetchNpmPackageTargetStatus).mockResolvedValue({
+      ...targetMetadata,
+      nodeEngine: ">=24.16.0 <25 || >=26.1.0",
+    });
+    const log = vi.spyOn(defaultRuntime, "log").mockImplementation(() => undefined);
+
+    await updateCommand({ tag: targetMetadata.version, yes: true, dryRun: true, json });
+
+    const output = json
+      ? JSON.stringify(vi.mocked(defaultRuntime.writeJson).mock.lastCall?.[0])
+      : log.mock.calls.flat().join("\n");
+    expect(output).toContain("SECURITY WARNING");
+    expect(output).toContain(`Node.js ${version}`);
+    expect(output).not.toContain("Would refuse update");
+    expect(packageUpdate.stagePackageInstallUpdate).not.toHaveBeenCalled();
+    expect(fs.existsSync(fixture.databasePath)).toBe(false);
+  },
+);
+
+it.each([
   { name: "no restart", restart: false, debugCapture: true },
   { name: "replacement" },
   { name: "compatible", compatible: true },
@@ -220,6 +254,7 @@ it.each([
           expect.objectContaining({ nodeRunner: replacement ? "/current/node" : "/service/node" }),
         );
       } else {
+<<<<<<< HEAD
         expect(lastJson()).toMatchObject({
           reason: "preflight-node-runtime-incompatible",
           steps: matchingEntry({
@@ -230,6 +265,24 @@ it.each([
               code: "node-runtime-preflight",
               message: expect.stringContaining("Required: openclaw@2026.9.2 Node >=26.12.1"),
             }),
+=======
+        expect(defaultRuntime.writeJson).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            reason: "preflight-node-runtime-incompatible",
+            steps: expect.arrayContaining([
+              expect.objectContaining({
+                stderrTail: expect.stringContaining(
+                  `node ${process.platform === "win32" ? quotePowerShellArg(path.join(fixture.root, "openclaw.mjs")) : quoteCliArg(path.join(fixture.root, "openclaw.mjs"))} update --tag 2026.9.2`,
+                ),
+                failureFacts: expect.arrayContaining([
+                  expect.objectContaining({
+                    code: "node-runtime-preflight",
+                    message: expect.stringContaining("Required: openclaw@2026.9.2 Node >=26.12.1"),
+                  }),
+                ]),
+              }),
+            ]),
+>>>>>>> 97b6e87616f
           }),
         });
         expect(packageUpdate.stagePackageInstallUpdate).not.toHaveBeenCalled();

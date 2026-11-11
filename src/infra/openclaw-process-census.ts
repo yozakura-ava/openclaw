@@ -109,9 +109,16 @@ function classifyProcessArtifactCustody(
         identity.kind === "other" &&
         typeof position !== "number" &&
         position.kind === "not-runtime" &&
+<<<<<<< HEAD
         command.uid !== undefined &&
         inspectorUid !== undefined &&
         (command.uid !== inspectorUid ||
+=======
+        (command.owner === "different" ||
+          (command.uid !== undefined &&
+            inspectorUid !== undefined &&
+            command.uid !== inspectorUid) ||
+>>>>>>> 97b6e87616f
           isStandardSystemdLoginProcess(command, parentCommand, inspectorUid))
       ) {
         return { kind: "non-holder" };
@@ -189,7 +196,11 @@ export function inspectOtherOpenClawProcesses(handoff?: HandoffReferences) {
       };
     }) ?? [
       ...readProcessGroupMembers(handoff ? 15_000 : 1_000, {
-        readDarwinCommand: readDarwinProcessCommand,
+        // Handoff matches read argv and cwd only; a launcher needs an argv entrypoint,
+        // so the service marker cannot change the outcome. Skip that environment read.
+        readDarwinCommand: handoff
+          ? (pid, owner) => readDarwinProcessCommand(pid, owner, { serviceMarker: false })
+          : readDarwinProcessCommand,
       }),
     ];
     const byPid = new Map(processes.map((entry) => [entry.pid, entry]));
@@ -288,6 +299,7 @@ export function inspectOtherOpenClawProcesses(handoff?: HandoffReferences) {
         const inspectorUid = process.getuid?.();
         const foreign =
           observation?.foreignOwner ||
+          command?.owner === "different" ||
           (command?.uid !== undefined &&
             inspectorUid !== undefined &&
             command.uid !== inspectorUid);

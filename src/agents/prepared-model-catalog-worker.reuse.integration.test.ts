@@ -300,7 +300,10 @@ module.exports = { id: ${JSON.stringify(provider)}, register(api) {
   const retainedShape = {
     controlCollected: true,
     captured: 1,
+<<<<<<< HEAD
     currentExportAlive: true,
+=======
+>>>>>>> 97b6e87616f
     registries: 1,
   };
   expect(retained).toMatchObject(retainedShape);
@@ -340,12 +343,18 @@ module.exports = { id: ${JSON.stringify(provider)}, register(api) {
       expect(readCatalogCaptureFootprint(captureRoot)).toEqual(warmedFootprint);
     }
   }
+<<<<<<< HEAD
   const retainedAfterReuse = JSON.parse(
     fs.readFileSync(path.join(fixture.root, "retention.json"), "utf8"),
   );
   expect(retainedAfterReuse).toMatchObject(retainedShape);
   expect(retainedAfterReuse.nativeExports).toBeGreaterThanOrEqual(1);
   expect(retainedAfterReuse.nativeExports).toBeLessThanOrEqual(retainedAfterReuse.captured);
+=======
+  expect(
+    JSON.parse(fs.readFileSync(path.join(fixture.root, "retention.json"), "utf8")),
+  ).toMatchObject(retainedShape);
+>>>>>>> 97b6e87616f
   const heap = fs
     .readFileSync(path.join(fixture.root, "heap.jsonl"), "utf8")
     .trim()

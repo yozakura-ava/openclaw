@@ -37,7 +37,6 @@ import {
   listUpdateRuns,
   makeOkUpdateResult,
   mockGitUpdateAfterMutation,
-  mutateConfigFileWithRetry,
   readConfigFileSnapshot,
   replaceConfigFile,
   resolveGatewayInstallEntrypoint,
@@ -55,11 +54,7 @@ import {
   pluginSyncResult,
   stableConfig,
 } from "./update-cli/update-cli-config.test-support.js";
-import {
-  mockUnbuiltRecoveryFixture,
-  recoveryVerificationStep,
-  recoveryVersionMismatch,
-} from "./update-cli/update-cli-failure-recovery.test-support.js";
+import { mockUnbuiltRecoveryFixture } from "./update-cli/update-cli-failure-recovery.test-support.js";
 import {
   writeJsonFixture,
   writeOpenClawPackageFixture,
@@ -139,7 +134,15 @@ describe("update-cli", () => {
     expect(result.status).toBe("ok");
     expect(defaultRuntime.exit).toHaveBeenCalledWith(0);
     expectNoSideEffects(updateGitCheckout, spawn);
-    expect(listUpdateRuns()).toEqual(runsBefore);
+    const runsAfter = listUpdateRuns();
+    expect(runsAfter).toHaveLength(runsBefore.length);
+    const { steps: priorSteps, updatedAtMs: _priorUpdate, ...priorOwnership } = runsBefore[0]!;
+    const { steps, updatedAtMs: _updated, ...ownership } = runsAfter[0]!;
+    expect(ownership).toEqual(priorOwnership);
+    expect(steps).toEqual([
+      ...priorSteps,
+      expect.objectContaining({ step: "post-plugin doctor", status: "completed", exitCode: 0 }),
+    ]);
   });
 
   it("post-core resume mode prefers post-doctor disk install records over the stale parent snapshot", async () => {
@@ -187,15 +190,6 @@ describe("update-cli", () => {
     expect(replaceConfigFile).toHaveBeenCalledWith({
       nextConfig: { update: { channel: "dev" } },
       baseHash: "stable-hash",
-    });
-    expect(mutateConfigFileWithRetry).toHaveBeenCalledExactlyOnceWith({
-      mutate: expect.any(Function),
-      writeOptions: {
-        assertCurrent: expect.any(Function),
-        beforeCommit: expect.any(Function),
-        observe: false,
-        skipPluginValidation: true,
-      },
     });
     expect(syncPluginCall()?.channel).toBe("dev");
     expect(syncPluginCall()?.config?.update?.channel).toBe("dev");
@@ -577,7 +571,13 @@ describe("update-cli", () => {
         reason: "post-update-failed",
         steps: [
           expect.objectContaining({ exitCode: 1, stderrTail: message }),
-          recoveryVerificationStep([recoveryVersionMismatch]),
+          {
+            name: "gateway recovery observation",
+            command: "gateway verification",
+            cwd: process.cwd(),
+            durationMs: expect.any(Number),
+            exitCode: 0,
+          },
         ],
       });
     },

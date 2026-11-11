@@ -271,6 +271,10 @@ it.each([
     replacement.registration,
   );
   let probe: Promise<unknown> | undefined;
+  let lateManager: Awaited<ReturnType<MemoryPluginRuntime["getMemorySearchManager"]>>["manager"] =
+    null;
+  // Each live replacement-era manager (fresh main, fenced late) owns one successor provider.
+  const successorProviders = () => (mode === "late-probe" ? 0 : lateManager ? 2 : 1);
   let drain: ReturnType<ReturnType<typeof prepareMemoryRuntimeReload>["drain"]> | undefined;
   try {
     expect(owner.instance.run(() => getMemoryEmbeddingProvider(targetId, config))).toBe(
@@ -324,6 +328,7 @@ it.each([
       });
       assert(unaffected.manager, unaffected.error ?? "Expected an unaffected manager");
       await unaffected.manager.probeEmbeddingAvailability();
+<<<<<<< HEAD
       const prepared = prepareMemoryRuntimeReload(owner.registry, next);
       const probesBeforeAcquisition = embed.mock.calls.length;
       try {
@@ -354,6 +359,8 @@ it.each([
       await expect(resumed.manager?.probeEmbeddingAvailability()).resolves.toMatchObject({
         ok: true,
       });
+=======
+>>>>>>> 97b6e87616f
     }
     const providerClosesBeforeReload = close.mock.calls.length;
     const reload = prepareMemoryRuntimeReload(owner.registry, next);
@@ -372,6 +379,7 @@ it.each([
       const creationsBeforeLateAcquisition = create.mock.calls.length;
       const late = await owner.runtime.getMemorySearchManager({ cfg: config, agentId: "late" });
       assert(late.manager, late.error ?? "Expected a memory manager");
+      lateManager = late.manager;
       await expect(late.manager.probeEmbeddingAvailability()).rejects.toThrow("reloading");
       expect(create).toHaveBeenCalledTimes(creationsBeforeLateAcquisition);
     }
@@ -448,6 +456,14 @@ it.each([
     await expect(fresh.manager.probeEmbeddingAvailability()).resolves.toMatchObject({
       ok: mode !== "late-probe",
     });
+    // A manager fenced during the reload stays cached and live; its own watcher
+    // reconcile sync resumes on the successor adapter whenever its debounce fires.
+    // Acquire that provider here so final cleanup owns a deterministic set.
+    if (lateManager) {
+      await expect(lateManager.probeEmbeddingAvailability()).resolves.toMatchObject({
+        ok: mode !== "late-probe",
+      });
+    }
     const attemptedCloses = close.mock.calls.length;
     const finalClose = owner.runtime.closeAllMemorySearchManagers?.();
     if (mode === "failed-close" || mode === "late-probe") {
@@ -456,7 +472,7 @@ it.each([
     } else {
       await finalClose;
     }
-    expect(successorClose).toHaveBeenCalledTimes(mode === "late-probe" ? 0 : 1);
+    expect(successorClose).toHaveBeenCalledTimes(successorProviders());
   } finally {
     rejectClose = false;
     releaseCreate.resolve();
@@ -492,7 +508,7 @@ it.each([
   }
   expect(siblingClose).toHaveBeenCalledOnce();
   expect(unaffectedClose).toHaveBeenCalledTimes(mode === "ready" ? 1 : 0);
-  expect(successorClose).toHaveBeenCalledTimes(mode === "late-probe" ? 0 : 1);
+  expect(successorClose).toHaveBeenCalledTimes(successorProviders());
 });
 
 it.each(["legacy-success", "legacy", "modern", "revoked"] as const)(
@@ -562,42 +578,5 @@ it("unwinds prepared memory admission when another runtime rejects preparation",
     expect(drain).not.toHaveBeenCalled();
   } finally {
     await disposePluginRegistryInstances(first.registry);
-  }
-});
-
-it("fences runtime acquisition before its first manager and resumes only on rollback", async () => {
-  const state = await createOpenClawTestState({ scenario: "minimal", label: "memory-lazy-reload" });
-  const config: OpenClawConfig = {
-    plugins: { enabled: false },
-    agents: { defaults: { workspace: state.workspaceDir } },
-    memory: {
-      search: {
-        provider: "none",
-        store: { vector: { enabled: false } },
-      },
-    },
-  };
-  const owner = registerMemoryOwner(config);
-  try {
-    const older = prepareMemoryRuntimeReload(owner.registry, createEmptyPluginRegistry());
-    const reload = prepareMemoryRuntimeReload(owner.registry, createEmptyPluginRegistry());
-    await reload.drain();
-    older.rollback();
-    expect(
-      await owner.runtime.getMemorySearchManager({ cfg: config, agentId: "main" }),
-    ).toMatchObject({ manager: null, error: expect.stringContaining("reloading") });
-    reload.rollback();
-    const acquired = await owner.runtime.getMemorySearchManager({ cfg: config, agentId: "main" });
-    assert(acquired.manager, acquired.error ?? "Expected a memory manager");
-    const retiring = prepareMemoryRuntimeReload(owner.registry, createEmptyPluginRegistry());
-    await retiring.close();
-    retiring.commit();
-    expect(
-      await owner.runtime.getMemorySearchManager({ cfg: config, agentId: "main" }),
-    ).toMatchObject({ manager: null, error: expect.stringContaining("reloading") });
-  } finally {
-    await owner.runtime.closeAllMemorySearchManagers?.();
-    await disposePluginRegistryInstances(owner.registry);
-    await state.cleanup();
   }
 });

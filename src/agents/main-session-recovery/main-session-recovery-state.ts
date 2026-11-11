@@ -140,11 +140,19 @@ export function isMainSessionRecoveryPending(entry: SessionEntry, sessionKey: st
 export function isMainSessionRecoveryReconciliationCandidate(entry: SessionEntry): boolean {
   const killedFenceOnly = isKilledMainSessionRecoveryFenceOnly(entry);
   return (
+<<<<<<< HEAD
     (entry.status === undefined ||
       entry.status === "failed" ||
       killedFenceOnly ||
       isMainRestartRecoveryTerminalOnly(entry)) &&
     (entry.abortedLastRun !== true || killedFenceOnly) &&
+=======
+    (isKilledMainSessionRecoveryFenceOnly(entry) ||
+      ((entry.status === undefined ||
+        entry.status === "failed" ||
+        isMainRestartRecoveryTerminalOnly(entry)) &&
+        entry.abortedLastRun !== true)) &&
+>>>>>>> 97b6e87616f
     hasMainSessionRecoveryClaim(entry) &&
     !isRetryableUnadoptedChatClaim(entry) &&
     !entry.mainRestartRecovery?.tombstone

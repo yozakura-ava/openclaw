@@ -4,6 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { isMainThread, workerData } from "node:worker_threads";
 import type { JitiOptions, JitiResolveOptions } from "jiti";
+import { isNativeEsmPackage } from "../infra/native-module-format.js";
 import { isPathInside } from "../infra/path-guards.js";
 import { resolveGlobalMap, resolveGlobalSingleton } from "../shared/global-singleton.js";
 import { createJiti } from "./jiti-factory.js";
@@ -37,9 +38,190 @@ import {
   type PluginSourceLoadMode,
 } from "./plugin-source-build.js";
 import { inspectPluginTypeScriptExecutionFacts } from "./plugin-source-references.js";
+<<<<<<< HEAD
+=======
+import { captureBundledPluginStateOperationModules } from "./plugin-state-operation-module-loader.js";
+import { bindPluginStateOperationModuleSource } from "./plugin-state-operation-source.js";
+>>>>>>> 97b6e87616f
 import type { PluginRegistry } from "./registry-types.js";
 import { getPluginRuntimeLoadContextState } from "./runtime/load-context-state.js";
 import { preparePluginLoaderAliases, isPluginSdkAliasSpecifier } from "./sdk-alias.js";
+import { recordPluginSdkDeprecatedImport } from "./sdk-deprecated-imports.js";
+
+type SourceBuilds = Map<string, PluginSourceBuild>;
+type RetainedNativeEsm = {
+  artifact?: PluginGenerationArtifact;
+  builds: SourceBuilds;
+  modules: Map<string, unknown>;
+  loaded: boolean;
+  owners: Set<PluginInstanceModuleLoaderParams["instance"]>;
+  knownOwners: WeakSet<PluginInstanceModuleLoaderParams["instance"]>;
+};
+
+const retainedNativeEsmModules = resolveGlobalMap<string, RetainedNativeEsm>(
+  Symbol.for("openclaw.retainedNativeEsmPluginModules"),
+);
+const inspectionNativeEsmModules = resolveGlobalSingleton(
+  Symbol.for("openclaw.inspectionNativeEsmPluginModules"),
+  () => new WeakMap<InspectionNativeEsmRetention, Map<string, RetainedNativeEsm>>(),
+);
+
+function inspectionModulesFor(retention: InspectionNativeEsmRetention) {
+  let entries = inspectionNativeEsmModules.get(retention);
+  if (!entries) {
+    entries = new Map();
+    inspectionNativeEsmModules.set(retention, entries);
+    const owned = entries;
+    retention.dispose = async () => {
+      for (const retained of owned.values()) {
+        await disposeModuleSources(retained.builds, retained.artifact);
+        retained.artifact = undefined;
+        retained.modules.clear();
+      }
+      owned.clear();
+    };
+  }
+  return entries;
+}
+
+type RetainedNativeEsmTarget = Pick<
+  PluginInstanceModuleLoaderParams,
+  | "origin"
+  | "source"
+  | "nativeRecovery"
+  | "recoverySourceMap"
+  | "inspectionSourceIdentity"
+  | "inspectionRetention"
+  | "devSourceRoot"
+  | "pluginSdkResolution"
+> & { registry: PluginRegistry | undefined };
+
+function retainedNativeEsmLocation(target: RetainedNativeEsmTarget) {
+  // Explicit recovery keeps its own source custody and must not join an installed entry.
+  if (target.nativeRecovery || target.recoverySourceMap) {
+    return undefined;
+  }
+  const retention = isMainThread ? target.inspectionRetention : undefined;
+  if (
+    !retention &&
+    (isMainThread ||
+      workerData === null ||
+      typeof workerData !== "object" ||
+      !("sourceCaptureDirectory" in workerData))
+  ) {
+    return undefined;
+  }
+  const extension = path.extname(target.source).toLowerCase();
+  if (extension !== ".mjs" && (extension !== ".js" || !isNativeEsmPackage(target.source))) {
+    return undefined;
+  }
+  const workspace = getPluginRuntimeLoadContextState(target.registry)?.workspaceDir;
+  const source = fs.realpathSync(target.source);
+  if (!retention) {
+    return { entries: retainedNativeEsmModules, key: `${source}\0${workspace ?? ""}` };
+  }
+  // Only the inventory's admitted entry/workspace pairs can grow this map. A replacement
+  // inventory owns new code; old borrowers keep their capture until admission retires.
+  if (
+    target.origin !== "global" ||
+    target.inspectionSourceIdentity === undefined ||
+    retention.sources.get(source) !== target.inspectionSourceIdentity ||
+    workspace === undefined ||
+    !retention.workspaces.has(workspace) ||
+    retention.devSourceRoot !== target.devSourceRoot
+  ) {
+    return undefined;
+  }
+  return {
+    entries: inspectionModulesFor(retention),
+    key: JSON.stringify([source, workspace, target.pluginSdkResolution ?? "auto"]),
+  };
+}
+
+function retainedNativeEsmFor(
+  params: PluginInstanceModuleLoaderParams,
+): RetainedNativeEsm | undefined {
+  const location = retainedNativeEsmLocation({
+    ...params,
+    registry: getPluginInstanceOwner(params.instance)?.registry,
+  });
+  if (!location) {
+    return undefined;
+  }
+  const { entries, key } = location;
+  let retained = entries.get(key);
+  if (!retained) {
+    retained = {
+      builds: new Map(),
+      modules: new Map(),
+      loaded: false,
+      owners: new Set(),
+      knownOwners: new WeakSet(),
+    };
+    entries.set(key, retained);
+  }
+  return retained;
+}
+
+function retainedNativeEsmOwner(retained: RetainedNativeEsm) {
+  const requested = pluginInstanceInvocation.getStore()?.instance;
+  if (requested && retained.owners.has(requested)) {
+    return requested;
+  }
+  if (!requested && retained.owners.size === 1) {
+    return retained.owners.values().next().value!;
+  }
+  throw new Error("Plugin native ESM capture has no live workspace owner for this load");
+}
+
+function createSourceOutputLookup(builds: SourceBuilds) {
+  const sourceForOutput = (filename: string): PluginSourceFile => {
+    for (const build of builds.values()) {
+      const source = build.sourceForOutput(filename);
+      if (source) {
+        return source;
+      }
+    }
+    return { source: filename };
+  };
+  return {
+    sourceForOutput,
+    moduleSource: (filename: string) => {
+      const entry = sourceForOutput(filename);
+      return entry.generated ? filename : entry.source;
+    },
+  };
+}
+
+function disposeModuleSources(builds: SourceBuilds, artifact?: PluginGenerationArtifact) {
+  for (const build of builds.values()) {
+    build.dispose();
+  }
+  builds.clear();
+  return artifact?.disposeAsync();
+}
+
+function ownsNativeEsmResolution(
+  retained: RetainedNativeEsm,
+  instance: PluginInstanceModuleLoaderParams["instance"],
+): boolean {
+  const requested = pluginInstanceInvocation.getStore()?.instance;
+  if (!requested) {
+    return true;
+  }
+  if (!retained.knownOwners.has(requested)) {
+    return false;
+  }
+  if (!retained.owners.has(requested)) {
+    throw new Error("Plugin native ESM capture has no live workspace owner for this load");
+  }
+  return requested === instance;
+}
+
+// These callbacks retain code custody, never the generation that first captured it.
+function retainedNativeEsmExecution(retained: RetainedNativeEsm) {
+  return <T>(run: () => T): T => retainedNativeEsmOwner(retained).run(run);
+}
 
 type SourceBuilds = Map<string, PluginSourceBuild>;
 type RetainedNativeEsm = {
@@ -270,6 +452,12 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
       rootDir: params.rootDir,
       cache,
       loader,
+      source: captureBundledPluginStateOperationModules({
+        rootDir: params.rootDir,
+        source: params.source,
+        devSourceRoot: params.devSourceRoot,
+        pluginSdkResolution: params.pluginSdkResolution,
+      }),
     });
     return;
   }
@@ -355,6 +543,7 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
   if (aliases.packageRoot && !reusedArtifact) {
     artifact.linkHost(aliases.packageRoot);
   }
+  bindPluginStateOperationModuleSource({ ...params, artifact });
   installOpenClawPluginSdkNativeResolver({
     moduleUrl: import.meta.url,
     pluginModulePath: params.source,
@@ -458,6 +647,8 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
       return build.resolve(filename, mode, nativeFormat);
     });
   };
+  // Captured sources and compiled outputs share this instance's private namespace.
+  const boundaryUrl = pathToFileURL(artifact.boundaryRoot + path.sep).href;
   const hooks = Module.registerHooks({
     resolve(specifier, context, nextResolve) {
       if (retained && !ownsNativeEsmResolution(retained, params.instance)) {
@@ -466,7 +657,7 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
       // Lazy native imports outlive the binding call. Only this graph's importers
       // borrow its SDK alias cache; callbacks may otherwise use a newer registry.
       const parent = context.parentURL;
-      const parentEntry = parent?.startsWith("file:")
+      const parentEntry = parent?.startsWith(boundaryUrl)
         ? sourceForOutput(fileURLToPath(parent))
         : undefined;
       const parentSource = parentEntry?.source;
@@ -647,7 +838,13 @@ export function bindPluginInstanceModuleLoader(params: PluginInstanceModuleLoade
               }),
             )
           : nextResolve(specifier, nativeContext);
-      if (resolved.url.startsWith("file:")) {
+      if (parentRoot && isPluginSdkAliasSpecifier(specifier)) {
+        recordPluginSdkDeprecatedImport(params.instance.pluginId, specifier);
+      }
+      if (
+        (parentRoot && resolved.url.startsWith("file:")) ||
+        resolved.url.startsWith(boundaryUrl)
+      ) {
         const resolvedFilename = fileURLToPath(resolved.url);
         const entry = sourceForOutput(resolvedFilename);
         const filename = entry.generated ? resolvedFilename : entry.source;

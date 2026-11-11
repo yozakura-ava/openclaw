@@ -1,5 +1,6 @@
 import Foundation
 import OpenClawProtocol
+import os
 import Testing
 @testable import OpenClaw
 @testable import OpenClawKit
@@ -367,6 +368,8 @@ struct GatewayChannelConnectTests {
 
     @Test func `failed connect coalesces callers behind backoff`() async throws {
         let gate = NonCooperativeGate()
+        let nextBackoff = NonCooperativeGate()
+        let completion = ConnectAttemptCompletionProbe()
         let session = self.makeSession(response: .invalid(delayMs: 0))
         let channel = try GatewayChannelActor(
             url: #require(URL(string: "ws://example.invalid")),
@@ -374,11 +377,15 @@ struct GatewayChannelConnectTests {
             session: WebSocketSessionBox(session: session),
             connectOptions: GatewayWebSocketTestSupport.identityFreeOperatorConnectOptions)
 
+        // Install the gate before the first failure can schedule automatic recovery.
+        await channel._test_setConnectFailureBackoffWaitHandler {
+            await gate.wait()
+        }
         await #expect(throws: (any Error).self) {
             try await channel.connect()
         }
-        await channel._test_setConnectFailureBackoffWaitHandler {
-            await gate.wait()
+        await channel._test_setConnectRunFinishedHandler {
+            Task { await completion.record() }
         }
 
         let retries = (0..<5).map { _ in
@@ -386,20 +393,24 @@ struct GatewayChannelConnectTests {
         }
         await gate.waitUntilStarted()
         do {
+            // The automatic reconnect joins the same attempt as the five explicit callers.
             try await TestWait.state("shared retry callers") {
-                await channel._test_connectWaiterCount() >= retries.count
+                await channel._test_connectWaiterCount() == retries.count + 1
             }
         } catch {
+            await channel.shutdown()
             await gate.open()
             retries.forEach { $0.cancel() }
             for retry in retries {
                 _ = await retry.result
             }
             await channel._test_setConnectFailureBackoffWaitHandler(nil)
-            await channel.shutdown()
             throw error
         }
         #expect(session.snapshotMakeCount() == 1)
+        await channel._test_setConnectFailureBackoffWaitHandler {
+            await nextBackoff.wait()
+        }
         await gate.open()
 
         for retry in retries {
@@ -407,8 +418,12 @@ struct GatewayChannelConnectTests {
                 Issue.record("retry unexpectedly succeeded")
             }
         }
-        await channel._test_setConnectFailureBackoffWaitHandler(nil)
+        await nextBackoff.waitUntilStarted()
         await channel.shutdown()
+        await nextBackoff.open()
+        await completion.wait(for: 2)
+        await channel._test_setConnectFailureBackoffWaitHandler(nil)
+        await channel._test_setConnectRunFinishedHandler(nil)
 
         #expect(session.snapshotMakeCount() == 2)
     }
@@ -416,8 +431,20 @@ struct GatewayChannelConnectTests {
     @Test(arguments: [false, true])
     func `startup readiness clears recorded connect failure delays`(alreadyWaiting: Bool) async throws {
         let gate = NonCooperativeGate()
+<<<<<<< HEAD
         let session = GatewayTestWebSocketSession(taskFactory: {
             GatewayTestWebSocketTask(receiveHook: { _, _ in throw URLError(.cannotConnectToHost) })
+=======
+        let firstSocket = OSAllocatedUnfairLock(initialState: true)
+        let session = GatewayTestWebSocketSession(taskFactory: {
+            let shouldFail = firstSocket.withLock { isFirst in
+                defer { isFirst = false }
+                return isFirst
+            }
+            return shouldFail
+                ? GatewayTestWebSocketTask(receiveHook: { _, _ in throw URLError(.cannotConnectToHost) })
+                : GatewayTestWebSocketTask()
+>>>>>>> 97b6e87616f
         })
         let channel = try GatewayChannelActor(
             url: #require(URL(string: "ws://example.invalid")),
@@ -425,6 +452,7 @@ struct GatewayChannelConnectTests {
             session: WebSocketSessionBox(session: session),
             connectOptions: GatewayWebSocketTestSupport.identityFreeOperatorConnectOptions)
         try await self.withChannel(channel) { channel in
+<<<<<<< HEAD
             await #expect(throws: (any Error).self) { try await channel.connect() }
             #expect(session.snapshotMakeCount() == 1)
             await channel._test_setConnectFailureBackoffWaitHandler {
@@ -435,6 +463,14 @@ struct GatewayChannelConnectTests {
                 await gate.wait()
                 try Task.checkCancellation()
             }
+=======
+            await channel._test_setConnectFailureBackoffWaitHandler {
+                await gate.wait()
+                try Task.checkCancellation()
+            }
+            await #expect(throws: (any Error).self) { try await channel.connect() }
+            #expect(session.snapshotMakeCount() == 1)
+>>>>>>> 97b6e87616f
 
             let retry: Task<Void, Error>
             if alreadyWaiting {
@@ -446,9 +482,20 @@ struct GatewayChannelConnectTests {
                 await gate.open()
             } else {
                 await channel.clearConnectFailureBackoff()
+<<<<<<< HEAD
                 retry = Task { try await channel.connect() }
             }
             await #expect(throws: (any Error).self) { try await retry.value }
+=======
+                await channel._test_setConnectFailureBackoffWaitHandler {
+                    Issue.record("Startup retry waited on stale connect-failure backoff")
+                    throw CancellationError()
+                }
+                await gate.open()
+                retry = Task { try await channel.connect() }
+            }
+            try await retry.value
+>>>>>>> 97b6e87616f
             #expect(session.snapshotMakeCount() == 2)
         }
     }
@@ -463,11 +510,11 @@ struct GatewayChannelConnectTests {
             session: WebSocketSessionBox(session: session),
             connectOptions: GatewayWebSocketTestSupport.identityFreeOperatorConnectOptions)
 
-        await #expect(throws: (any Error).self) {
-            try await channel.connect()
-        }
         await channel._test_setConnectFailureBackoffWaitHandler {
             await gate.wait()
+        }
+        await #expect(throws: (any Error).self) {
+            try await channel.connect()
         }
         await channel._test_setConnectRunFinishedHandler {
             Task { await completion.record() }
@@ -507,7 +554,7 @@ struct GatewayChannelConnectTests {
             session: WebSocketSessionBox(session: session),
             connectOptions: options)
         await channel._test_setConnectTimeoutSeconds(0.1)
-        await channel._test_setConnectAttemptFinishedHandler { _ in
+        await channel._test_setConnectAttemptFinishedHandler {
             Task { await completion.record() }
         }
 
@@ -554,7 +601,9 @@ struct GatewayChannelConnectTests {
         })
         let url = try #require(URL(string: "wss://gateway.example.invalid"))
         let channel = GatewayChannelActor(
-            url: url, token: nil, session: WebSocketSessionBox(session: session),
+            url: url,
+            token: nil,
+            session: WebSocketSessionBox(session: session),
             connectOptions: GatewayWebSocketTestSupport.identityFreeOperatorConnectOptions)
         var caught: (any Error)?
         do {

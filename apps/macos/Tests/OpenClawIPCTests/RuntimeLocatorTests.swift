@@ -10,10 +10,15 @@ struct RuntimeLocatorTests {
         return path
     }
 
-    @Test func `resolve succeeds with valid node`() async throws {
+    @Test(arguments: ["24.16.0", "26.1.0", "24.22.1"])
+    func `resolve succeeds with valid node`(version: String) async throws {
         let script = """
         #!/bin/sh
+<<<<<<< HEAD
         echo v24.22.1
+=======
+        echo v\(version)
+>>>>>>> 97b6e87616f
         """
         let root = try makeTempDirForTests()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -24,7 +29,11 @@ struct RuntimeLocatorTests {
             return
         }
         #expect(res.path == node.path)
+<<<<<<< HEAD
         #expect(res.version == Semver(major: 24, minor: 22, patch: 1))
+=======
+        #expect(res.version.description == version)
+>>>>>>> 97b6e87616f
     }
 
     @Test func `runtime version probe tolerates loaded host delay`() async throws {
@@ -84,13 +93,25 @@ struct RuntimeLocatorTests {
         ("23.11.0", false),
         ("24.14.1", false),
         ("24.15.0", false),
+<<<<<<< HEAD
         ("24.22.0", false),
+=======
+        ("24.16.0", true),
+        ("24.22.0", true),
+>>>>>>> 97b6e87616f
         ("24.22.1", true),
         ("25.8.1", false),
         ("25.9.0", false),
         ("26.0.0", false),
+<<<<<<< HEAD
         ("26.12.0", false),
         ("26.12.1", true),
+=======
+        ("26.1.0", true),
+        ("26.12.0", true),
+        ("26.12.1", true),
+        ("27.0.0", true),
+>>>>>>> 97b6e87616f
     ])
     func `node support matches the core runtime contract`(version: String, supported: Bool) throws {
         let parsed = try #require(RuntimeLocator.parseVersion(version))

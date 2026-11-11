@@ -1,6 +1,10 @@
 /** Direct status must inspect pinned sessions without changing their saved selections. */
 import "../test-utils/prepare-compiled-subprocesses.js";
+<<<<<<< HEAD
 import { describe, expect, it, vi } from "vitest";
+=======
+import { beforeEach, describe, expect, it, vi } from "vitest";
+>>>>>>> 97b6e87616f
 import { buildStatusReply } from "../auto-reply/reply/commands-status.js";
 import { setRuntimeConfigSnapshot } from "../config/runtime-snapshot.js";
 import { replaceSessionEntrySync } from "../config/sessions/session-accessor.sqlite-entry.js";
@@ -17,6 +21,10 @@ vi.mock("../agents/auth-profiles.runtime.js", async () => {
   const runtime = createAuthProfileStoreRuntime(createExternalAuthRuntime(() => []));
   return {
     ensureAuthProfileStore: runtime.ensureAuthProfileStoreWithoutExternalProfiles,
+<<<<<<< HEAD
+=======
+    ensureAuthProfileStoreAsync: runtime.ensureAuthProfileStoreWithoutExternalProfilesAsync,
+>>>>>>> 97b6e87616f
     prepareAuthProfileProvider: runtime.prepareAuthProfileProvider,
   };
 });
@@ -29,6 +37,10 @@ vi.mock("../agents/auth-profiles/store-runtime.js", async () => {
   return {
     ...runtime,
     ensureAuthProfileStore: runtime.ensureAuthProfileStoreWithoutExternalProfiles,
+<<<<<<< HEAD
+=======
+    ensureAuthProfileStoreAsync: runtime.ensureAuthProfileStoreWithoutExternalProfilesAsync,
+>>>>>>> 97b6e87616f
   };
 });
 
@@ -75,6 +87,15 @@ const cfg: OpenClawConfig = {
 };
 
 describe("direct status selection is read-only", () => {
+<<<<<<< HEAD
+=======
+  beforeEach(() => {
+    vi.mocked(buildStatusReply).mockImplementation(async (params) => ({
+      text: `Status for ${params.sessionKey}: ${params.sessionEntry?.sessionId}`,
+    }));
+  });
+
+>>>>>>> 97b6e87616f
   it.each([
     { source: "auto", available: true },
     { source: "auto", available: false },

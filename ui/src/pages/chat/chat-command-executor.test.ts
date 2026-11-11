@@ -491,41 +491,51 @@ describe("executeSlashCommand directives", () => {
     });
   });
 
-  it("keeps /usage context hidden when the context snapshot is stale", async () => {
-    const request = mockRequests({
-      "sessions.describe": () => ({
-        session: row("agent:main:main", {
-          model: "gpt-4.1-mini",
-          inputTokens: 1200,
-          outputTokens: 300,
-          totalTokens: 1500,
-          totalTokensFresh: false,
-          contextTokens: 4000,
+  it.each([false, true])(
+    "keeps /usage context hidden when stale (usage unavailable: %s)",
+    async (unavailable) => {
+      const request = mockRequests({
+        "sessions.describe": () => ({
+          session: row("agent:main:main", {
+            model: "gpt-4.1-mini",
+            inputTokens: 1200,
+            outputTokens: 300,
+            totalTokens: 1500,
+            totalTokensFresh: false,
+            ...(unavailable ? { usageReport: { state: "unavailable" as const } } : {}),
+            contextTokens: 4000,
+          }),
         }),
-      }),
-    });
+      });
 
-    const result = await executeSlashCommand(
-      createTestGatewayClient(request),
-      "agent:main:main",
-      "usage",
-      "",
-    );
+      const result = await executeSlashCommand(
+        createTestGatewayClient(request),
+        "agent:main:main",
+        "usage",
+        "",
+      );
 
-    expect(result.content).toBe(
-      [
-        `**${t("chat.commandResults.usage.title")}**`,
-        t("chat.commandResults.usage.inputTokens", { count: "**1.2k**" }),
-        t("chat.commandResults.usage.outputTokens", { count: "**300**" }),
-        t("chat.commandResults.usage.totalTokens", { count: "**~1.5k**" }),
-        t("chat.commandResults.usage.model", { model: "`gpt-4.1-mini`" }),
-      ].join("\n"),
-    );
-    expect(request).toHaveBeenNthCalledWith(1, "sessions.describe", {
-      key: "agent:main:main",
-      agentId: "main",
-    });
-  });
+      expect(result.content).toBe(
+        [
+          `**${t("chat.commandResults.usage.title")}**`,
+          t("chat.commandResults.usage.inputTokens", {
+            count: `**${unavailable ? t("chat.commandResults.usage.notAvailable") : "1.2k"}**`,
+          }),
+          t("chat.commandResults.usage.outputTokens", {
+            count: `**${unavailable ? t("chat.commandResults.usage.notAvailable") : "300"}**`,
+          }),
+          t("chat.commandResults.usage.totalTokens", {
+            count: `**${unavailable ? t("chat.commandResults.usage.notAvailable") : "~1.5k"}**`,
+          }),
+          t("chat.commandResults.usage.model", { model: "`gpt-4.1-mini`" }),
+        ].join("\n"),
+      );
+      expect(request).toHaveBeenNthCalledWith(1, "sessions.describe", {
+        key: "agent:main:main",
+        agentId: "main",
+      });
+    },
+  );
 
   it("uses the context snapshot for /usage while preserving cumulative total display", async () => {
     const request = mockRequests({
@@ -929,7 +939,7 @@ describe("executeSlashCommand /steer (soft inject)", () => {
     );
 
     expect(result.content).toBe(t("chat.commandResults.steer.succeeded"));
-    expect(result.pendingCurrentRun).toBe(true);
+    expect(result).not.toHaveProperty("pendingCurrentRun");
     const chatSend = requireRequestCall(request, "chat.send");
     expect(chatSend.payload).toMatchObject({
       sessionKey: "agent:main:main",
@@ -956,12 +966,13 @@ describe("executeSlashCommand /steer (soft inject)", () => {
     );
 
     expect(result.content).toBe(t("chat.commandResults.steer.succeeded"));
-    expect(result.pendingCurrentRun).toBeUndefined();
+    expect(result).not.toHaveProperty("pendingCurrentRun");
     const chatSend = requireRequestCall(request, "chat.send");
     expect(chatSend.payload.deliver).toBe(false);
   });
 
   it.each([
+<<<<<<< HEAD
     [{ status: "started", runId: "run-1" }, "succeeded"],
     [{ status: "ok", runId: "run-ok", messageSeq: 2 }, "succeeded"],
     [{ status: "timeout", runId: "run-timeout", summary: "aborted" }, "timeout"],
@@ -986,6 +997,31 @@ describe("executeSlashCommand /steer (soft inject)", () => {
     expect(payload).not.toHaveProperty("expectedLeafEntryId");
     expectNoRequestCall(request, "sessions.list");
   });
+=======
+    ["timeout", "chat.commandResults.steer.timeout"],
+    ["error", "chat.commandResults.steer.failed"],
+  ] as const)(
+    "reports terminal %s ACK without marking the current run pending",
+    async (status, expectedKey) => {
+      const request = mockRequests({
+        "chat.send": () => ({ status, runId: `run-${status}`, summary: "aborted" }),
+      });
+
+      const result = await executeSlashCommand(
+        createTestGatewayClient(request),
+        "agent:main:main",
+        "steer",
+        "try a different approach",
+      );
+
+      expect(result.content).toBe(t(expectedKey));
+      expect(result.content).not.toBe(t("chat.commandResults.steer.succeeded"));
+      expect(result).not.toHaveProperty("pendingCurrentRun");
+      const chatSend = requireRequestCall(request, "chat.send");
+      expect(chatSend.payload.deliver).toBe(false);
+    },
+  );
+>>>>>>> 97b6e87616f
 
   it("returns steer usage when no message is provided", async () => {
     const request = vi.fn();

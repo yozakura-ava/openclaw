@@ -335,6 +335,7 @@ describe("cli-session helpers", () => {
   it.each(["prompt-a", "prompt-b"])(
     "invalidates tool catalog drift with a stable MCP topology and system prompt %s",
     (extraSystemPromptHash) => {
+<<<<<<< HEAD
       const reuse = reuseBinding({
         sessionId: "cli-session-1",
         ...fingerprint,
@@ -344,6 +345,29 @@ describe("cli-session helpers", () => {
       expect(
         reuse({ ...fingerprint, extraSystemPromptHash, promptToolNamesHash: "tools-with-exec" }),
       ).toEqual(invalidated("prompt-tools"));
+=======
+      const binding = {
+        sessionId: "cli-session-1",
+        authProfileId: "anthropic:work",
+        authEpoch: "auth-epoch-a",
+        authEpochVersion: 2,
+        extraSystemPromptHash: "prompt-a",
+        mcpConfigHash: "mcp-a",
+        promptToolNamesHash: "tools-without-exec",
+      };
+
+      expect(
+        resolveCliSessionReuse({
+          binding,
+          authProfileId: "anthropic:work",
+          authEpoch: "auth-epoch-a",
+          authEpochVersion: 2,
+          extraSystemPromptHash,
+          mcpConfigHash: "mcp-a",
+          promptToolNamesHash: "tools-with-exec",
+        }),
+      ).toEqual({ mode: "invalidate", invalidatedReason: "prompt-tools" });
+>>>>>>> 97b6e87616f
     },
   );
 

@@ -11,13 +11,20 @@ import {
   PACKAGE_DIST_INVENTORY_RELATIVE_PATH,
 } from "../../scripts/lib/package-dist-inventory-contract.mts";
 import { readRootJsonObjectSync } from "./json-files.js";
+import { packageActivationIdentityOrAbsent as entryIdentity } from "./package-update-activation-custody.js";
 import {
   packageActivationIdentity,
   type PackageActivationJournal,
   type PackageActivationRecord,
 } from "./package-update-activation-journal.js";
-import { decodePackageActivationLauncher } from "./package-update-activation-launcher.js";
 import {
+<<<<<<< HEAD
+=======
+  decodePackageActivationLauncher,
+  matchesPackageActivationLauncher,
+} from "./package-update-activation-launcher.js";
+import {
+>>>>>>> 97b6e87616f
   LEGACY_PACKAGE_RECOVERY_HELPER,
   privatePackageActivationIdentity,
   resolvePackageActivationHelper,
@@ -25,7 +32,6 @@ import {
 import {
   assertPackageIntegritySettlementUnchanged,
   createPackageIntegrityReader,
-  packageLauncherDifferences,
   packageStatUnchanged,
 } from "./package-update-integrity.js";
 
@@ -34,13 +40,18 @@ import {
 const PACKAGE_RECOVERY_2026_9_9_HELPER =
   "6ae5112de5a98832da6c8151c65a9cc1e42c59f210284e539e45cf4f280a427f";
 
+<<<<<<< HEAD
 /** Qualify only the lost publish acknowledgement, never arbitrary stale custody. */
+=======
+/** Qualify untouched preparation or a lost publish acknowledgement, never arbitrary stale custody. */
+>>>>>>> 97b6e87616f
 export function inspectRemountedPackagePublication(
   anchor: string,
   record: PackageActivationRecord,
   remount: NonNullable<ReturnType<PackageActivationJournal["inspectRemount"]>>,
 ) {
   const d = record.descriptor;
+<<<<<<< HEAD
   if (!("digest" in d.candidate)) {
     throw new Error("Remounted settlement requires a fully fingerprinted pending publication.");
   }
@@ -49,6 +60,20 @@ export function inspectRemountedPackagePublication(
   bind(d.helperIdentity, () => privatePackageActivationIdentity(helper, "helper"));
   bind(d.anchorIdentity, () => privatePackageActivationIdentity(anchor, "anchor"));
   bind(d.previous.identity, () => packageActivationIdentity(path.join(anchor, "previous"), true));
+=======
+  const live = d.authority.installKey;
+  const selected: "previous" | "candidate" =
+    packageActivationIdentity(live, true) === remount.currentIdentity(d.previous.identity)
+      ? "previous"
+      : "candidate";
+  const { bind } = remount;
+  const helper = resolvePackageActivationHelper(anchor);
+  bind(d.helperIdentity, () => privatePackageActivationIdentity(helper, "helper"));
+  bind(d.anchorIdentity, () => privatePackageActivationIdentity(anchor, "anchor"));
+  bind(d.previous.identity, () =>
+    packageActivationIdentity(selected === "previous" ? live : path.join(anchor, "previous"), true),
+  );
+>>>>>>> 97b6e87616f
   bind(d.launcherRootIdentity, () =>
     packageActivationIdentity(path.join(anchor, "launchers"), true),
   );
@@ -57,6 +82,7 @@ export function inspectRemountedPackagePublication(
       packageActivationIdentity(path.join(anchor, "previous-launchers"), true),
     );
   }
+<<<<<<< HEAD
   const candidateIdentity = bind(d.candidate.identity, () =>
     packageActivationIdentity(d.authority.installKey, true),
   );
@@ -64,10 +90,23 @@ export function inspectRemountedPackagePublication(
   for (const entry of d.launchers) {
     const launcher = path.join(d.binDir, entry.name);
     const current = packageActivationIdentity(launcher, "launcher");
+=======
+  if (selected === "candidate") {
+    bind(d.candidate.identity, () => packageActivationIdentity(live, true));
+  }
+  const binIdentity = bind(d.binIdentity, () => packageActivationIdentity(d.binDir, "parent"));
+  for (const entry of d.launchers) {
+    const launcher = path.join(d.binDir, entry.name);
+    const current = entryIdentity(launcher, "launcher");
+    if (selected === "previous" && entry.previousIdentity === null && current === null) {
+      continue;
+    }
+>>>>>>> 97b6e87616f
     // The original link may already name the candidate; equality of link contents
     // does not authorize accepting a replacement inode.
     const previous = entry.previousIdentity;
     const historical =
+<<<<<<< HEAD
       previous && previous.split(":")[1] === current.split(":")[1]
         ? previous
         : entry.candidateIdentity;
@@ -83,24 +122,59 @@ export function inspectRemountedPackagePublication(
       throw new Error("Package settlement original launcher did not already match the candidate.");
     }
     bind(historical, () => packageActivationIdentity(launcher, "launcher"));
+=======
+      previous && previous.split(":")[1] === current?.split(":")[1]
+        ? previous
+        : entry.candidateIdentity;
+    if (
+      selected === "candidate" &&
+      historical === previous &&
+      !matchesPackageActivationLauncher(
+        entry.previous ? decodePackageActivationLauncher(entry.previous) : null,
+        entry.candidate,
+      )
+    ) {
+      throw new Error("Package settlement original launcher did not already match the candidate.");
+    }
+    bind(selected === "previous" && previous ? previous : historical, () =>
+      packageActivationIdentity(launcher, "launcher"),
+    );
+>>>>>>> 97b6e87616f
   }
   const assertUnchanged = () => {
     remount.assertUnchanged();
     if (
+<<<<<<< HEAD
       fs.lstatSync(path.join(anchor, "candidate"), { throwIfNoEntry: false }) ||
+=======
+      fs.lstatSync(path.join(anchor, selected === "previous" ? "previous" : "candidate"), {
+        throwIfNoEntry: false,
+      }) ||
+>>>>>>> 97b6e87616f
       fs.lstatSync(d.originalStageRoot, { throwIfNoEntry: false }) ||
       createHash("sha256").update(fs.readFileSync(helper)).digest("hex") !== d.helperDigest
     ) {
       throw new Error(
+<<<<<<< HEAD
         "Package settlement requires the original helper and an already installed candidate.",
+=======
+        "Package settlement requires the original helper and an unambiguous installed generation.",
+>>>>>>> 97b6e87616f
       );
     }
   };
   assertUnchanged();
+<<<<<<< HEAD
   return { candidateIdentity, binIdentity, historicalDevices, assertUnchanged };
 }
 
 /** Verify the installed candidate without republishing it; remounts also prove the sealed tree. */
+=======
+  return { ...remount, binIdentity, assertUnchanged, selected };
+}
+
+/** Verify the installed generation without republishing it; remounts also prove the sealed tree. */
+>>>>>>> 97b6e87616f
 export async function verifyPackagePublicationSettlement(
   record: PackageActivationRecord,
   assertCurrent: () => void,
@@ -108,13 +182,21 @@ export async function verifyPackagePublicationSettlement(
 ) {
   const descriptor = record.descriptor;
   const live = descriptor.authority.installKey;
+  const selected = remount?.selected ?? "candidate";
+  const expectedTree = descriptor[selected];
+  const installedIdentity =
+    remount?.currentIdentity(expectedTree.identity) ?? expectedTree.identity;
   assertCurrent();
   let assertTreeUnchanged: (() => void) | undefined;
   if (remount) {
     remount.assertUnchanged();
     const tree = await createPackageIntegrityReader().tree(
       live,
+<<<<<<< HEAD
       descriptor.originalStageRoot,
+=======
+      selected === "previous" ? live : descriptor.originalStageRoot,
+>>>>>>> 97b6e87616f
       undefined,
       [LEGACY_PACKAGE_RECOVERY_HELPER, PACKAGE_RECOVERY_2026_9_9_HELPER].includes(
         descriptor.helperDigest,
@@ -123,6 +205,7 @@ export async function verifyPackagePublicationSettlement(
     );
     assertCurrent();
     remount.assertUnchanged();
+<<<<<<< HEAD
     if (
       !("digest" in descriptor.candidate) ||
       tree.digest !== descriptor.candidate.digest ||
@@ -134,6 +217,57 @@ export async function verifyPackagePublicationSettlement(
     assertTreeUnchanged = () => assertPackageIntegritySettlementUnchanged(tree);
   }
   const observed = new Map<string, fs.BigIntStats>();
+=======
+    if (!isDeepStrictEqual(tree, { ...expectedTree, identity: installedIdentity })) {
+      throw new Error(`Package settlement full ${selected} fingerprint changed.`);
+    }
+    assertTreeUnchanged = () => assertPackageIntegritySettlementUnchanged(tree);
+  }
+  const observed = new Map<string, fs.BigIntStats | undefined>();
+  const reader = createPackageIntegrityReader();
+  for (const entry of descriptor.launchers) {
+    const launcher = path.join(descriptor.binDir, entry.name);
+    const stat = fs.lstatSync(launcher, { bigint: true, throwIfNoEntry: false });
+    observed.set(launcher, stat);
+    if (
+      !matchesPackageActivationLauncher(
+        stat ? await reader.launcher(launcher) : null,
+        entry[selected],
+      )
+    ) {
+      throw new Error(`Package settlement launcher changed: ${entry.name}.`);
+    }
+  }
+  const assertInstalledUnchanged = () => {
+    assertCurrent();
+    assertTreeUnchanged?.();
+    if (
+      packageActivationIdentity(live, true) !== installedIdentity ||
+      packageActivationIdentity(descriptor.binDir, "parent") !==
+        (remount?.binIdentity ?? descriptor.binIdentity)
+    ) {
+      throw new Error("Package settlement identity changed.");
+    }
+    for (const [file, before] of observed) {
+      const after = fs.lstatSync(file, { bigint: true, throwIfNoEntry: false });
+      if (before && after ? !packageStatUnchanged(before, after) : before !== after) {
+        throw new Error(`Package settlement observation changed: ${path.relative(live, file)}.`);
+      }
+    }
+  };
+  const assertUnchanged = () => {
+    remount?.assertUnchanged();
+    assertInstalledUnchanged();
+  };
+  assertUnchanged();
+  if (selected === "previous") {
+    return {
+      assertUnchanged,
+      assertInstalledUnchanged,
+      detail: "Full previous tree and unchanged launchers verified.",
+    };
+  }
+>>>>>>> 97b6e87616f
   for (const relative of [
     "",
     "dist",
@@ -266,6 +400,7 @@ export async function verifyPackagePublicationSettlement(
       assertTarget("exports", target);
     }
   }
+<<<<<<< HEAD
   const reader = createPackageIntegrityReader();
   for (const entry of descriptor.launchers) {
     const launcher = path.join(descriptor.binDir, entry.name);
@@ -301,6 +436,8 @@ export async function verifyPackagePublicationSettlement(
     remount?.assertUnchanged();
     assertInstalledUnchanged();
   };
+=======
+>>>>>>> 97b6e87616f
   assertUnchanged();
   // Only dist scopes affect inventoried modules; dependency manifests are expected.
   const extraInspection = await walkDirectory(path.join(live, "dist"), {

@@ -316,6 +316,76 @@ describe("FRV immutable plan eligibility", () => {
     );
   });
 
+<<<<<<< HEAD
+=======
+  it("waits for the immutable plan before recovering a terminal child", async () => {
+    const active = rootRun(1, null);
+    let reads = 0;
+    await withFastPolling(async () => {
+      await expect(
+        loadPlanForCommand(
+          {
+            command: "continue",
+            operationDeadline: Date.now() + 1_000,
+            repository: REPOSITORY,
+            runId: "77",
+            waitForSeal: true,
+          },
+          {
+            getRun: async () => structuredClone(active),
+            getAttemptJobs: async () => [
+              { ...job("normalCi"), conclusion: "failure" },
+              {
+                ...job("Seal release execution plan"),
+                conclusion: null,
+                status: "in_progress",
+              },
+            ],
+          },
+          async () => (++reads < 3 ? undefined : executionPlanArtifact()),
+        ),
+      ).resolves.toMatchObject({ plan: { parentRunId: "77" } });
+    });
+  });
+
+  it("does not accept a plan that appears after the seal wait deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-23T20:00:00.000Z"));
+    const active = rootRun(1, null);
+    let reads = 0;
+    try {
+      const loaded = loadPlanForCommand(
+        {
+          command: "continue",
+          operationDeadline: Date.now() + 1_000,
+          repository: REPOSITORY,
+          runId: "77",
+          waitForSeal: true,
+        },
+        {
+          getRun: async () => structuredClone(active),
+          getAttemptJobs: async () => [
+            {
+              ...job("Seal release execution plan"),
+              conclusion: null,
+              status: "in_progress",
+            },
+          ],
+        },
+        async () => (++reads === 1 ? undefined : executionPlanArtifact()),
+      );
+      const rejected = expect(loaded).rejects.toThrow(
+        "timed out waiting for the immutable plan seal",
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+      await rejected;
+      expect(reads).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+>>>>>>> 97b6e87616f
   it("keeps a newly uploaded plan retryable while GitHub propagates its artifact", async () => {
     const active = rootRun(1, null);
     const upload = {
@@ -386,7 +456,14 @@ describe("FRV continuation preflight", () => {
       html_url: `https://github.com/${REPOSITORY}/actions/runs/81`,
     };
     const logs = {
+<<<<<<< HEAD
       dispatch: `Artifact dispatch ${stage} target ${TARGET_SHA}: https://github.com/${REPOSITORY}/actions/runs/81 (attempt 1)`,
+=======
+      dispatch: [
+        `Artifact dispatch ${stage} target ${TARGET_SHA}: https://github.com/${REPOSITORY}/actions/runs/81 (attempt 1)`,
+        ...(stage === "npm" ? ["Artifact preparation npm identity: job 901 (attempt 1)"] : []),
+      ].join("\n"),
+>>>>>>> 97b6e87616f
     };
     const client = {
       ...methods,
@@ -396,7 +473,11 @@ describe("FRV continuation preflight", () => {
           [
             "name: Full Release Validation",
             "env:",
+<<<<<<< HEAD
             '  FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT: "1"',
+=======
+            '  FULL_RELEASE_ARTIFACT_RECOVERY_CONTRACT: "2"',
+>>>>>>> 97b6e87616f
             "jobs:",
             "  prepare_npm_package:",
             '    name: "Prepare release npm artifacts"',
@@ -437,7 +518,7 @@ describe("FRV continuation preflight", () => {
       ],
       getJobLog: async (id: number) => (id === 90 ? logs.dispatch : methods.getJobLog(id)),
       getRun: vi.fn(async (id: string) => (id === "81" ? producer : methods.getRun(id))),
-      getAttemptJobs: async () => [job("test")],
+      getAttemptJobs: async (_runId: string, _attempt: number) => [job("test")],
       rerunFailed: vi.fn(),
       rerunParent: vi.fn(),
     };
@@ -510,9 +591,138 @@ describe("FRV continuation preflight", () => {
     },
   );
 
+<<<<<<< HEAD
   it("does not claim recovery for a failed candidate producer with undispatched consumers", async () => {
     const fixture = artifactFixture("candidate");
     fixture.producer.conclusion = "failure";
+=======
+  it("recovers an unconsumed npm producer without a preparation identity", async () => {
+    const fixture = artifactFixture("npm");
+    fixture.producer.conclusion = "failure";
+    fixture.logs.dispatch = fixture.logs.dispatch.split("\n", 1)[0]!;
+
+    await expect(
+      continueFailed(fixture.plan, "77", fixture.client, { dryRun: true }),
+    ).resolves.toMatchObject({ action: "would-rerun" });
+    expect(fixture.client.rerunFailed).not.toHaveBeenCalled();
+    expect(fixture.client.rerunParent).not.toHaveBeenCalled();
+  });
+
+  it("refuses a consumed producer rerun before mutation and shows authenticated reuse", async () => {
+    const fixture = artifactFixture("npm");
+    fixture.producer.conclusion = "failure";
+    fixture.client.getAttemptJobs = async () => [
+      {
+        ...job("renamed preparation job"),
+        id: 901,
+        run_attempt: 1,
+        conclusion: "failure",
+      },
+    ];
+    const consumedPlan = {
+      ...fixture.plan,
+      candidate: { producer: { runId: "606" } },
+    };
+
+    await expect(continueFailed(consumedPlan, "77", fixture.client)).rejects.toThrow(
+      "artifact:npm producer 81 already supplied the sealed candidate evidence; rerunning cannot preserve those consumed immutable bytes. Dispatch a fresh all-group FRV with reuse_evidence=true to authenticate reuse instead.",
+    );
+    expect(fixture.client.rerunFailed).not.toHaveBeenCalled();
+    expect(fixture.client.rerunParent).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the recorded npm preparation identity is absent", async () => {
+    const fixture = artifactFixture("npm");
+    fixture.producer.conclusion = "failure";
+    fixture.client.getAttemptJobs = async () => [
+      { ...job("different preparation job"), id: 902, run_attempt: 1 },
+    ];
+    const consumedPlan = {
+      ...fixture.plan,
+      candidate: { producer: { runId: "606" } },
+    };
+
+    await expect(continueFailed(consumedPlan, "77", fixture.client)).rejects.toThrow(
+      "artifact:npm producer 81 preparation identity is missing or ambiguous",
+    );
+    expect(fixture.client.rerunFailed).not.toHaveBeenCalled();
+    expect(fixture.client.rerunParent).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { stage: "npm", carriedPreparation: true },
+    { stage: "docker", carriedPreparation: false },
+  ])(
+    "keeps consumed-candidate recovery for $stage producers that preserve bytes",
+    async ({ stage, carriedPreparation }) => {
+      const fixture = artifactFixture(stage);
+      fixture.producer.conclusion = "failure";
+      if (carriedPreparation) {
+        fixture.client.getAttemptJobs = async () => [
+          { ...job("renamed preparation job"), id: 901, run_attempt: 1 },
+        ];
+      }
+      const consumedPlan = {
+        ...fixture.plan,
+        candidate: { producer: { runId: "606" } },
+      };
+
+      await expect(
+        continueFailed(consumedPlan, "77", fixture.client, { dryRun: true }),
+      ).resolves.toMatchObject({ action: "would-rerun" });
+    },
+  );
+
+  it("recognizes a carried npm preparation by its execution fingerprint", async () => {
+    const fixture = artifactFixture("npm");
+    fixture.producer.run_attempt = 2;
+    fixture.producer.conclusion = "failure";
+    const preparation = {
+      ...job("Prepare npm artifacts / Prepare publishable npm package"),
+      id: 901,
+      run_attempt: 1,
+    };
+    fixture.client.getAttemptJobs = async (_runId: string, attempt: number) =>
+      attempt === 1 ? [preparation] : [{ ...preparation, id: 999, run_attempt: 2 }];
+
+    await expect(
+      continueFailed(
+        { ...fixture.plan, candidate: { producer: { runId: "606" } } },
+        "77",
+        fixture.client,
+        { dryRun: true },
+      ),
+    ).resolves.toMatchObject({ action: "would-rerun" });
+  });
+
+  it("rejects a replacement npm preparation even without a second descriptor", async () => {
+    const fixture = artifactFixture("npm");
+    fixture.producer.run_attempt = 2;
+    fixture.producer.conclusion = "failure";
+    const preparation = {
+      ...job("Prepare npm artifacts / Prepare publishable npm package"),
+      id: 901,
+      run_attempt: 1,
+    };
+    fixture.client.getAttemptJobs = async (_runId: string, attempt: number) =>
+      attempt === 1
+        ? [preparation]
+        : [{ ...preparation, id: 999, run_attempt: 2, conclusion: "failure" }];
+
+    await expect(
+      continueFailed(
+        { ...fixture.plan, candidate: { producer: { runId: "606" } } },
+        "77",
+        fixture.client,
+      ),
+    ).rejects.toThrow("already supplied the sealed candidate evidence");
+    expect(fixture.client.rerunFailed).not.toHaveBeenCalled();
+  });
+
+  it("does not claim recovery for a failed candidate producer with undispatched consumers", async () => {
+    const fixture = artifactFixture("candidate");
+    fixture.producer.conclusion = "failure";
+>>>>>>> 97b6e87616f
     const missing = withoutChildRunIdentity(child("pluginPrerelease", "202"));
     fixture.plan = plan([fixture.selected, missing]);
 
@@ -2275,6 +2485,41 @@ describe("FRV watch", () => {
     await expect(poll()).resolves.toMatchObject({ complete: true });
   });
 
+<<<<<<< HEAD
+=======
+  it("labels every failed artifact qualification job as a blocker", async () => {
+    const statePath = path.join(tempDirs.make("frv-producer-blockers-"), "state.json");
+    const messages: string[] = [];
+    const client = {
+      ...unsealedWatcherReads,
+      repository: REPOSITORY,
+      getRun: async (runId: string) =>
+        runId === "77" ? rootRun(1, "failure") : runFor(child("normalCi", "808"), 1, "failure"),
+      getParentJobs: async () => [
+        { ...job("Prepare release npm artifacts"), id: 5, run_attempt: 1 },
+      ],
+      getJobLog: async () =>
+        `Dispatched full-release-artifacts.yml: https://github.com/${REPOSITORY}/actions/runs/808 (attempt 1)`,
+      getAttemptJobs: async () => [
+        job("Prepare npm artifacts / Check npm dependencies", "failure"),
+        job("Prepare npm artifacts / Check npm package contents", "timed_out"),
+      ],
+    };
+
+    await expect(
+      watchRelease("77", client, {
+        statePath,
+        once: true,
+        emit: (event) => messages.push(event.message),
+      }),
+    ).resolves.toMatchObject({ complete: true });
+    expect(messages.filter((message) => message.includes("blocker"))).toEqual([
+      expect.stringContaining("Check npm dependencies"),
+      expect.stringContaining("Check npm package contents"),
+    ]);
+  });
+
+>>>>>>> 97b6e87616f
   it.each([
     "execution plan",
     "invalid plan schema",

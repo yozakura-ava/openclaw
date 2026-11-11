@@ -8,7 +8,6 @@ import { resolveCanonicalMainSessionKey } from "../config/sessions/main-session-
 import type { SessionEntry } from "../config/sessions/types.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
-  captureSystemEventStoreCurrentCheck,
   prepareSystemEventStorePath,
   withSystemEventOwner,
 } from "../infra/system-event-ownership.js";
@@ -27,11 +26,7 @@ const CREATION_SUMMARY_HEADER =
   "Recent session creations (bounded summary; older entries may be omitted):";
 
 function reportCreationSignalFailure(error: unknown): void {
-  try {
-    log.warn(`failed to record session creation: ${String(error)}`);
-  } catch {
-    // A diagnostic sink cannot fail the already committed creation.
-  }
+  log.warn(`failed to record session creation: ${String(error)}`);
 }
 
 /** Notify Home of a new logical session and record its trusted creation attribution. */
@@ -117,11 +112,11 @@ async function enqueueSessionCreatedNotice(params: {
         }
       : undefined,
   };
+<<<<<<< HEAD
   const isStoreCurrent = captureSystemEventStoreCurrentCheck(mainSessionKey, agentId);
+=======
+>>>>>>> 97b6e87616f
   const sessionStorePath = await prepareSystemEventStorePath(mainSessionKey, agentId);
-  if (!isStoreCurrent(sessionStorePath)) {
-    return;
-  }
   const options = withSystemEventOwner(
     {
       sessionKey: mainSessionKey,
@@ -146,6 +141,33 @@ async function enqueueSessionCreatedNotice(params: {
   if (notices.includes(notice)) {
     return;
   }
+<<<<<<< HEAD
+  const options = withSystemEventOwner(
+    {
+      sessionKey: mainSessionKey,
+      sessionStorePath,
+      contextKey: SESSION_CREATED_NOTICE_CONTEXT_PREFIX,
+      replace: true,
+    },
+    agentId,
+  );
+  const pending = peekSystemEventEntries(options.sessionKey).find(
+    (event) => event.contextKey === options.contextKey,
+  );
+  // JSON metadata has no literal blank lines, so each wrapped record stays intact.
+  // The queue owns the batch lifetime; read it after store preparation, without another await.
+  const notices = pending?.text.split("\n\n").slice(1) ?? [];
+  const notice = wrapUntrustedPromptDataBlock({
+    label: "New session created",
+    text: JSON.stringify(details),
+    maxEscapedChars: 2048,
+    truncationMarker: "…",
+  });
+  if (notices.includes(notice)) {
+    return;
+  }
+=======
+>>>>>>> 97b6e87616f
   notices.push(notice);
   let text = [CREATION_SUMMARY_HEADER, ...notices].join("\n\n");
   while (text.length > CREATION_SUMMARY_MAX_CHARS) {

@@ -73,9 +73,7 @@ export function createNodeWorkerLaunchRecovery(
     let recovery = recoveries.get(key);
     if (!recovery) {
       const done = recoverNodeWorkerLaunch(params).finally(() => {
-        if (recoveries.get(key)?.done === done) {
-          recoveries.delete(key);
-        }
+        recoveries.delete(key);
       });
       recovery = { params, done };
       recoveries.set(key, recovery);
@@ -245,6 +243,7 @@ async function recoverNodeWorkerLaunch(params: {
       return latest();
     }
   }
+<<<<<<< HEAD
   const recoveryClosed = new Error("node worker launch recovery is closed");
   const recoveryCancelled = new Error("node worker launch recovery was cancelled before admission");
   while (true) {
@@ -293,7 +292,30 @@ async function recoverNodeWorkerLaunch(params: {
       }
       throw error;
     }
+=======
+  if (!(await stillOwned())) {
+    return latest();
+>>>>>>> 97b6e87616f
   }
+  const state = params.state ?? "interrupted";
+  return params.capacity.finish(
+    {
+      launchId: receipt.launchId,
+      planHash: receipt.planHash,
+      supervisor: receipt.supervisor,
+      worker: receipt.worker,
+      state,
+      errorText:
+        state === "cancelled"
+          ? "node worker launch cancelled"
+          : rebooted
+            ? "node host rebooted before the worker launch completed"
+            : receipt.worker
+              ? "node host stopped before the worker launch completed"
+              : "node host stopped before the worker launch started",
+    },
+    params.notifyCapacity,
+  );
 }
 
 /** Persist an observed physical exit before releasing its active owner and turn waiters. */
@@ -342,9 +364,7 @@ export function createNodeWorkerTerminalReconciliation(options: {
       return receipt;
     })();
     const pending = operation.finally(() => {
-      if (active.reconciliation === pending) {
-        active.reconciliation = undefined;
-      }
+      active.reconciliation = undefined;
     });
     active.reconciliation = pending;
     return pending;

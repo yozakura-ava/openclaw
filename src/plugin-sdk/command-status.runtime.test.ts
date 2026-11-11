@@ -16,6 +16,7 @@ vi.mock("../auto-reply/reply/commands-status.js", () => ({
   buildStatusReply,
 }));
 
+<<<<<<< HEAD
 // mock-isolation: Session data and config belong to the direct-status fixture.
 vi.mock("../gateway/session-utils-store-worker.js", () => ({
   loadGatewaySessionEntryReadOnlyInWorker: loadSessionEntry,
@@ -24,6 +25,16 @@ vi.mock("../gateway/session-utils-store-worker.js", () => ({
 vi.mock("../config/io.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../config/io.js")>()),
   getRuntimeConfig: () => ({}),
+=======
+// mock-isolation: command status tests supply config without reading operator state.
+vi.mock("../config/io.js", () => ({
+  getRuntimeConfig: () => ({}),
+}));
+
+// mock-isolation: command status tests control entry data without a live session store.
+vi.mock("../gateway/session-utils-store-worker.js", () => ({
+  loadGatewaySessionEntryReadOnlyInWorker: loadSessionEntry,
+>>>>>>> 97b6e87616f
 }));
 
 vi.mock("../agents/agent-scope.js", () => ({
@@ -73,7 +84,7 @@ describe("resolveDirectStatusReplyForSessionCore", () => {
     resolveCurrentDirectiveLevels.mockReset();
 
     buildStatusReply.mockImplementation(async (params: unknown) => params);
-    loadSessionEntry.mockReturnValue({
+    loadSessionEntry.mockResolvedValue({
       cfg: {
         agents: {
           defaults: {
@@ -135,7 +146,7 @@ describe("resolveDirectStatusReplyForSessionCore", () => {
       })),
     ),
   )("$action $source for direct /status senders", async ({ session, isAuthorizedSender }) => {
-    loadSessionEntry.mockReturnValue({
+    loadSessionEntry.mockResolvedValue({
       cfg: session ? {} : { agents: { defaults: { reasoningDefault: "stream" } } },
       canonicalKey: "main",
       entry: { sessionId: "sess-main", ...(session ? { reasoningLevel: "stream" } : {}) },

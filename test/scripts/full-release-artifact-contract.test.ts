@@ -230,6 +230,9 @@ globalThis.fetch = async (input, options) => {
   if (url.href === "https://registry.npmjs.org/openclaw") {
     return Response.json({ versions: { "2026.9.8": {} }, "dist-tags": { latest: "2026.9.8", beta: "2026.9.8" } });
   }
+  if (url.href === "https://registry.npmjs.org/openclaw/2026.9.9") {
+    return new Response("{}", { status: 404 });
+  }
   if (url.origin !== "https://api.github.com" || new Headers(options?.headers).get("authorization") !== "Bearer artifact-fixture-token") {
     throw new Error("Unexpected publication fixture transport");
   }
@@ -381,6 +384,11 @@ function registryBudgetFixture(warningCount = 0, validationInputs: Record<string
     releaseProfile,
     rerunGroup: "all",
     resolveTargetResult: "success",
+    npmPreparationResult: "success",
+    npmQualificationResult: "success",
+    pluginNpmPreflightRequired: false,
+    pluginNpmPreparationResult: "skipped",
+    dockerPreparationResult: "success",
   };
   const built = buildReleaseExecutionPlan(inputs);
   const plan = buildReleaseExecutionPlanArtifact({
@@ -435,6 +443,14 @@ describe("retained publication admission", () => {
       const writer = workflow.jobs.summary.steps.find(
         (step: { name: string }) => step.name === "Write release validation manifest",
       );
+      expect(writer.env.OPENCLAW_RELEASE_CI_SUMMARY_VALIDATOR).toBe(
+        "${{ fromJSON(needs.resolve_target.outputs.source_admission_json || '{}').qualificationAdmission != null && format('{0}/qualification-verifier/scripts/release-ci-summary.mjs', github.workspace) || format('{0}/scripts/release-ci-summary.mjs', github.workspace) }}",
+      );
+      expect(
+        workflow.jobs.summary.steps.some(
+          (step: { name?: string }) => step.name === "Checkout admitted qualification verifier",
+        ),
+      ).toBe(true);
       const directory = directories.make("publication-fresh-manifest-");
       const planPath = join(directory, "plan.json");
       const drainPath = join(directory, "drain.json");
@@ -473,6 +489,7 @@ describe("retained publication admission", () => {
         encoding: "utf8",
         env: {
           ...Object.fromEntries(Object.keys(writer.env).map((key) => [key, ""])),
+          RELEASE_STATE_SCRIPT: resolve("scripts/full-release-validation-state.mjs"),
           ...selectedEnv,
           PATH: process.env.PATH,
           RUNNER_TEMP: directory,
@@ -873,6 +890,7 @@ describe("retained publication admission", () => {
       encoding: "utf8",
       env: {
         ...Object.fromEntries(Object.keys(writer.env).map((key) => [key, ""])),
+        RELEASE_STATE_SCRIPT: resolve("scripts/full-release-validation-state.mjs"),
         PATH: process.env.PATH,
         RUNNER_TEMP: directory,
         GITHUB_RUN_ID: context.runId,
@@ -918,6 +936,38 @@ describe("retained publication admission", () => {
       /size limit/u,
     );
     expect(() => assertReleasePublicationKnownBudget(combined, context)).toThrow(/size limit/u);
+  });
+
+  it("budgets compact retry plans with their revalidated root manifest", () => {
+    const { plan, context } = registryBudgetFixture();
+    const current = registryEvidence("123", 132);
+    const root = registryEvidence("99", 132);
+    const compact = {
+      ...plan,
+      ...current.record,
+      evidenceReuse: {
+        changedPaths: [],
+        evidenceSha: root.source.candidateSha,
+        policy: "exact-target-full-validation-v1",
+        requested: true,
+        rootRunId: "99",
+        runUrl: "https://example.invalid/runs/99",
+        selectedRunId: "99",
+        sourceArtifact: {
+          digest: "d".repeat(64),
+          id: "901",
+          name: "full-release-manifest-99-1",
+          runAttempt: 1,
+          sizeInBytes: 4096,
+        },
+        sourceWorkflow: { ref: "release-ci/test", sha: SHA },
+      },
+    };
+
+    expect(() => serializeReleaseArtifact(compact)).not.toThrow();
+    expect(() => assertReleasePublicationKnownBudget(compact, context, root.record)).toThrow(
+      /size limit/u,
+    );
   });
 
   it("reserves JSON escaping of pending bounded fields without truncating later job evidence", () => {
@@ -1459,6 +1509,7 @@ describe("full release artifact contract", () => {
         encoding: "utf8",
         env: {
           ...Object.fromEntries(Object.keys(writer.env).map((key) => [key, ""])),
+          RELEASE_STATE_SCRIPT: resolve("scripts/full-release-validation-state.mjs"),
           EXTENSION_TEST_EXCLUDE_PATTERNS_JSON: "[]",
           PATH: process.env.PATH,
           RUNNER_TEMP: dir,

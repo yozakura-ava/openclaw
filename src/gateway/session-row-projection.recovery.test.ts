@@ -34,7 +34,14 @@ import {
   listSessions,
   requestContext,
 } from "./server-methods/sessions-read-cache.test-support.js";
+<<<<<<< HEAD
 import { observeSessionRowBackfill } from "./session-row-backfill.test-support.js";
+=======
+import {
+  clearStoredSessionRowTranscriptForTest,
+  observeSessionRowBackfill,
+} from "./session-row-backfill.test-support.js";
+>>>>>>> 97b6e87616f
 import { getSessionRowProjection } from "./session-row-projection-access.js";
 import { createSessionRowProjection } from "./session-row-projection.js";
 import * as transcriptBackfill from "./session-row-transcript-backfill.js";
@@ -195,6 +202,7 @@ it("refreshes previews after reconciliation without metadata mutation or clean-r
       touchSessionEntry: false,
     });
     await waitForSessionTranscriptIndexReconcile({ agentId: scope.agentId });
+    clearStoredSessionRowTranscriptForTest(scope);
     const database = openOpenClawAgentDatabase({ agentId: scope.agentId });
     const events = database.db.prepare(
       "SELECT seq, event_json FROM transcript_events WHERE session_id = ? ORDER BY seq",
@@ -230,7 +238,6 @@ it("refreshes previews after reconciliation without metadata mutation or clean-r
 
       const expected = {
         key: scope.sessionKey,
-        derivedTitle: undefined,
         lastMessagePreview: "The existing reply is available again.",
       };
       await vi.waitFor(() =>

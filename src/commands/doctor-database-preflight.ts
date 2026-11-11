@@ -4,9 +4,15 @@ import type { PreparedAgentDatabaseMigrationDiscovery } from "../infra/state-mig
 import { DoctorUnreadableStateDatabaseError } from "../infra/state-repair-message.js";
 import { isUpdateRehearsalReadOnlyPath } from "../infra/update-rehearsal-paths.js";
 import type { OpenClawDatabaseSchemaPreflight } from "../state/openclaw-database-preflight.js";
+<<<<<<< HEAD
+=======
+import type { BackupSqliteSnapshotFact } from "./backup-resource-inventory.js";
+>>>>>>> 97b6e87616f
 import { resolveRelativeSessionStoreMigrationTargets } from "./doctor-relative-session-store-paths.js";
 
 export type DoctorDatabasePreflight = OpenClawDatabaseSchemaPreflight & {
+  /** The native updater already captured these files while holding stopped-state custody. */
+  verifiedSnapshots?: readonly BackupSqliteSnapshotFact[];
   agentDatabaseMigrationDiscovery?: PreparedAgentDatabaseMigrationDiscovery;
   agentDatabaseRecoveryConfigValid?: boolean;
   updateSchemaRehearsal?: { runId: string; updaterVersion: string };

@@ -1,20 +1,15 @@
 import { parseStrictPositiveInteger } from "openclaw/plugin-sdk/number-runtime";
-import type {
-  ProviderAppGuidedSetupContext,
-  ProviderCatalogResult,
-} from "openclaw/plugin-sdk/plugin-entry";
+import type { ProviderAppGuidedSetupContext } from "openclaw/plugin-sdk/plugin-entry";
 import {
   buildApiKeyCredential,
   ensureApiKeyFromEnvOrPrompt,
   hasConfiguredSecretInput,
-  isNonSecretApiKeyMarker,
   normalizeOptionalSecretInput,
   type OpenClawConfig,
   type SecretInput,
   type SecretInputMode,
 } from "openclaw/plugin-sdk/provider-auth";
 import { removeProviderAuthProfilesWithLock } from "openclaw/plugin-sdk/provider-auth-runtime";
-import { runLiveProviderCatalog } from "openclaw/plugin-sdk/provider-catalog-live-runtime";
 import {
   selectPreferredLocalModelId,
   type ModelDefinitionConfig,
@@ -26,7 +21,6 @@ import {
   configureOpenAICompatibleSelfHostedProviderNonInteractive,
   type ProviderAuthMethodNonInteractiveContext,
   type ProviderAuthResult,
-  type ProviderCatalogContext,
   type ProviderPrepareDynamicModelContext,
   type ProviderRuntimeModel,
 } from "openclaw/plugin-sdk/provider-setup";
@@ -55,10 +49,10 @@ import {
 import {
   hasLmstudioAuthorizationHeader,
   resolveLmstudioProviderAuthMode,
+  resolvePersistedLmstudioApiKey,
   shouldUseLmstudioApiKeyPlaceholder,
 } from "./provider-auth.js";
 import {
-  LmstudioConfigResolutionError,
   resolveLmstudioConfiguredApiKey,
   resolveLmstudioProviderHeaders,
   resolveLmstudioRequestContext,
@@ -236,32 +230,6 @@ function resolveLmstudioDiscoveryFailure(params: {
     };
   }
   return null;
-}
-
-function resolvePersistedLmstudioApiKey(params: {
-  currentApiKey: ModelProviderConfig["apiKey"] | undefined;
-  explicitAuth: ModelProviderConfig["auth"] | undefined;
-  fallbackApiKey: ModelProviderConfig["apiKey"] | undefined;
-  preferFallbackApiKey?: boolean;
-  hasModels: boolean;
-  hasAuthorizationHeader?: boolean;
-}): ModelProviderConfig["apiKey"] | undefined {
-  if (params.explicitAuth === "api-key") {
-    if (params.preferFallbackApiKey && params.fallbackApiKey !== undefined) {
-      return params.fallbackApiKey;
-    }
-    if (resolveLmstudioProviderAuthMode(params.currentApiKey)) {
-      return params.currentApiKey;
-    }
-    return params.fallbackApiKey;
-  }
-  return shouldUseLmstudioApiKeyPlaceholder({
-    hasModels: params.hasModels,
-    resolvedApiKey: params.currentApiKey,
-    hasAuthorizationHeader: params.hasAuthorizationHeader,
-  })
-    ? LMSTUDIO_LOCAL_API_KEY_PLACEHOLDER
-    : undefined;
 }
 
 function selectDefaultLmstudioModelId(
@@ -886,6 +854,7 @@ export async function configureLmstudioNonInteractive(
   };
 }
 
+<<<<<<< HEAD
 /** Acquires live inventory for the registered catalog; public helper calls stay advisory. */
 export function discoverLmstudioProvider(ctx: ProviderCatalogContext): Promise<{
   provider: ModelProviderConfig;
@@ -982,6 +951,9 @@ export async function discoverLmstudioProvider(
       })
     : await run();
 }
+=======
+export { discoverLmstudioProvider } from "./catalog.js";
+>>>>>>> 97b6e87616f
 
 export async function prepareLmstudioDynamicModel(
   ctx: ProviderPrepareDynamicModelContext,

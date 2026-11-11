@@ -15,9 +15,15 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
+<<<<<<< HEAD
     <string>2026.10.8</string>
     <key>CFBundleVersion</key>
     <string>2026100800</string>
+=======
+    <string>2026.11.1</string>
+    <key>CFBundleVersion</key>
+    <string>2026110100</string>
+>>>>>>> 97b6e87616f
     <key>CFBundleIconFile</key>
     <string>OpenClaw</string>
     <key>CFBundleIconName</key>
@@ -34,7 +40,7 @@
         </dict>
     </array>
     <key>LSMinimumSystemVersion</key>
-    <string>15.0</string>
+    <string>26.2</string>
     <key>LSUIElement</key>
     <true/>
 

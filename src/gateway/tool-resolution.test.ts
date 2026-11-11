@@ -1,7 +1,11 @@
 import os from "node:os";
 import path from "node:path";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+<<<<<<< HEAD
 import { describe, expect, it, vi } from "vitest";
+=======
+import { beforeEach, describe, expect, it, vi } from "vitest";
+>>>>>>> 97b6e87616f
 import {
   getAdmittedRunDelegatedAuthority,
   prepareSystemAgentRunAdmission,
@@ -11,6 +15,10 @@ import {
   wrapToolWithGatewayCallerIdentity,
 } from "../agents/tools/gateway-caller-context.js";
 import * as gatewayTools from "../agents/tools/gateway.js";
+<<<<<<< HEAD
+=======
+import { setRuntimeConfigSnapshot } from "../config/io.js";
+>>>>>>> 97b6e87616f
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import {
   claimAgentRunApprovalAuthority,
@@ -27,6 +35,7 @@ import {
   resolveMcpLoopbackPolicyTools,
   resolveMcpLoopbackScopedTools,
 } from "./mcp-http.runtime.js";
+import { registerGatewayToolFinalEffectTests } from "./tool-resolution.effects.test-support.js";
 import { resolveGatewayScopedTools } from "./tool-resolution.js";
 
 async function resolveTools(
@@ -41,6 +50,11 @@ async function resolveTools(
 }
 
 describe("resolveGatewayScopedTools", () => {
+<<<<<<< HEAD
+=======
+  beforeEach(() => setRuntimeConfigSnapshot({}));
+
+>>>>>>> 97b6e87616f
   it("retains a computer execution across MCP catalog rebuilds and releases it with its run", async () => {
     const cfg = { plugins: { enabled: false }, tools: { allow: ["computer"] } };
     const admissions = ["computer-first", "computer-next"].map((runId) =>
@@ -374,3 +388,5 @@ describe("resolveGatewayScopedTools", () => {
     expect(names).toContain("sessions_history");
   });
 });
+
+registerGatewayToolFinalEffectTests();

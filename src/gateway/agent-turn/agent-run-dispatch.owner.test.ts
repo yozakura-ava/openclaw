@@ -1,10 +1,19 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createDeferred } from "../../../test/helpers/promise.js";
+<<<<<<< HEAD
 import { sanitizeAgentRunTerminalReplyText } from "../../agents/agent-run-terminal-reply.js";
+=======
+import { buildAgentRunTerminalReplySnapshot } from "../../agents/agent-run-terminal-reply.js";
+>>>>>>> 97b6e87616f
 import type { AgentCommandDeliveryResult } from "../../agents/command/delivery-result.js";
 import type { AgentCommandOpts } from "../../agents/command/types.js";
 import { SessionFollowupCompletion } from "../../agents/subagents/completion/session-followup-completion.js";
 import type { SubagentRunRecord } from "../../agents/subagents/registry/subagent-registry.types.js";
+import {
+  GatewayDrainingError,
+  markGatewayRestartDraining,
+  resetGatewayWorkAdmission,
+} from "../../process/gateway-work-admission.js";
 import * as transcript from "../../sessions/user-turn-transcript-admission.js";
 import { createChatAbortOps } from "../chat-abort-ops.js";
 import { abortChatRunById, type ChatAbortControllerEntry } from "../chat-abort.js";
@@ -270,7 +279,7 @@ describe("Gateway dispatch run ownership", () => {
     expect(params.io.emitFinal).toHaveBeenCalledOnce();
   });
 
-  it.each(["success", "failure", "cancelled"] as const)(
+  it.each(["success", "failure", "cancelled", "restart"] as const)(
     "joins continuation and input settlement before publishing final or replay for %s",
     async (outcome) => {
       const { runId, entry, params } = createDispatch();
@@ -282,6 +291,10 @@ describe("Gateway dispatch run ownership", () => {
       mocks.agentCommand.mockImplementationOnce(async () => {
         if (outcome === "failure") {
           throw new Error("Synthetic active run failure");
+        }
+        if (outcome === "restart") {
+          markGatewayRestartDraining();
+          throw new GatewayDrainingError();
         }
         if (outcome === "cancelled") {
           entry.controller.abort();
@@ -325,6 +338,7 @@ describe("Gateway dispatch run ownership", () => {
             outcome !== "failure",
             expect.objectContaining({
               status: outcome === "success" ? "ok" : outcome === "failure" ? "error" : "timeout",
+              ...(outcome === "restart" ? { stopReason: "restart" } : {}),
             }),
             outcome === "failure" ? expect.any(Object) : undefined,
           ],
@@ -337,6 +351,7 @@ describe("Gateway dispatch run ownership", () => {
         resume.resolve();
         finishCleanup.resolve();
         await completion;
+        resetGatewayWorkAdmission();
       }
     },
   );
@@ -465,10 +480,14 @@ describe("Gateway dispatch run ownership", () => {
   );
   it("keeps one logical owner across yield and delivers only the admitted successor reply", async () => {
     const fullReply = "B_YIELD_DONE ".repeat(400) + "SUCCESSOR_END…";
+<<<<<<< HEAD
     const terminalReply = {
       disposition: "visible" as const,
       text: sanitizeAgentRunTerminalReplyText(fullReply),
     };
+=======
+    const terminalReply = buildAgentRunTerminalReplySnapshot({ visibleText: fullReply });
+>>>>>>> 97b6e87616f
     const { f, owner, dispatch } = createFollowupDispatch();
     const settlementEntered = createDeferred();
     const finishSettlement = createDeferred();

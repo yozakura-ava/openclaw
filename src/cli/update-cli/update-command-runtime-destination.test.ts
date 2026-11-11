@@ -21,7 +21,10 @@ import { createCommandResult } from "../../test-utils/npm-spec-install-test-help
 import { quoteCliArg, quotePowerShellArg } from "../quote-cli-arg.js";
 import { registerUpdateCli } from "../update-cli.js";
 import * as shared from "./shared.js";
+<<<<<<< HEAD
 import { runtimeFixture } from "./update-command-fixtures.test-support.js";
+=======
+>>>>>>> 97b6e87616f
 import { installFreshUpdateFixture, targetMetadata } from "./update-command-fresh.test-support.js";
 import * as packageDestination from "./update-command-package-destination.js";
 import * as packageUpdate from "./update-command-package.js";
@@ -337,6 +340,19 @@ it.each([
 );
 
 const lastJsonCall = () => vi.mocked(defaultRuntime.writeJson).mock.lastCall;
+<<<<<<< HEAD
+=======
+const quote = process.platform === "win32" ? quotePowerShellArg : quoteCliArg;
+function runtimeFixture(version: string, sqliteVersion: string) {
+  return {
+    status: "supported" as const,
+    version,
+    sqliteVersion,
+    nodeSharedSqlite: false,
+    sqliteProbe: { available: true, version: sqliteVersion, text: true, blob: true, json: true },
+  };
+}
+>>>>>>> 97b6e87616f
 function preflightOutcome(
   preflight: MockInstance<typeof runtimePlan.resolvePackageRuntimePreflight>,
 ) {
@@ -418,7 +434,11 @@ it.each([
       throw new Error("Runtime recovery did not provide a continuation command");
     }
     const command = continuation.command;
+<<<<<<< HEAD
     const launcher = `node ${runtimeQuote(path.join(fixture.root, "openclaw.mjs"))} `;
+=======
+    const launcher = `node ${quote(path.join(fixture.root, "openclaw.mjs"))} `;
+>>>>>>> 97b6e87616f
     expect(command.slice(0, launcher.length)).toBe(launcher);
     runtime.mockResolvedValue(runtimeFixture("26.1.0", "3.53.0"));
     const program = new Command();

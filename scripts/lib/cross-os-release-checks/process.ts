@@ -33,7 +33,6 @@ import {
   CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
   CROSS_OS_PROCESS_TREE_KILL_AFTER_MS,
 } from "./config.ts";
-import { readLogTextSince } from "./logs.ts";
 import { formatError, sleep, trimForSummary } from "./shared.ts";
 
 const CROSS_OS_SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
@@ -42,8 +41,6 @@ const CROSS_OS_SIGNAL_EXIT_CODES: Partial<Record<NodeJS.Signals, number>> = {
   SIGTERM: 143,
 };
 const CROSS_OS_ACTIVE_CHILD_TREE_KILLERS = new Set<(signal: NodeJS.Signals) => void>();
-const STARTUP_MIGRATION_RESTART_PREFIX =
-  "OpenClaw plugin migration inputs changed during startup convergence;";
 let forwardedSignalExitCode: number | undefined;
 let forwardedSignalForceKillTimer: NodeJS.Timeout | undefined;
 
@@ -161,6 +158,7 @@ export function captureGatewayProcess(
   return { child, closeLog, ...log, waitForClose: () => childClosePromise };
 }
 
+<<<<<<< HEAD
 export async function waitForGatewayWithStartupRecovery(params: {
   gatewayPort: number;
   gatewayHolder: { current: GatewayHandle | null };
@@ -230,6 +228,8 @@ export async function configureReplacementGatewayPort(params: {
   }
 }
 
+=======
+>>>>>>> 97b6e87616f
 export async function stopGateway(gateway: GatewayHandle | null) {
   try {
     if (!gateway?.child?.pid) {

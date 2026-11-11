@@ -2,13 +2,14 @@ import { performance } from "node:perf_hooks";
 import type { DatabaseSync } from "node:sqlite";
 import {
   assertSqliteIntegrity,
+  classifySqliteFtsIntegrityFindings,
   isTerminalSqliteIntegrityError,
-  runSqliteIntegrityOperationSync,
+  readSqliteIntegrityFindings,
   sqliteIntegrityCheckSteps,
   type SqliteIntegrityDiagnostics,
   type SqliteIntegrityOperation,
 } from "./sqlite-integrity.js";
-import { runSqlitePinnedReadSnapshotSync } from "./sqlite-pinned-read-snapshot.js";
+import { runSqliteSchemaReadSnapshotSync } from "./sqlite-pinned-read-snapshot.js";
 import {
   createSqliteTableContractReader,
   getCanonicalSqliteNamedIndexContracts,
@@ -35,17 +36,6 @@ type RepairCanonicalSqliteIndexesOptions = {
  * Verify the whole file before schema convergence. Physical corruption belongs
  * to explicit Doctor maintenance, including when only an index is damaged.
  */
-export function verifyAndRepairCanonicalSqliteIndexes(
-  db: DatabaseSync,
-  databaseLabel: string,
-  schemaSql: string,
-  options: Omit<RepairCanonicalSqliteIndexesOptions, "verifyPhysicalIntegrity"> = {},
-): string[] {
-  return runSqliteIntegrityOperationSync(
-    verifyAndRepairCanonicalSqliteIndexSteps(db, databaseLabel, schemaSql, options),
-  );
-}
-
 export function* verifyAndRepairCanonicalSqliteIndexSteps(
   db: DatabaseSync,
   databaseLabel: string,
@@ -97,7 +87,7 @@ export function repairCanonicalSqliteIndexes(
   }
   const repairIndexes = new Set<CanonicalSqliteNamedIndexContract>();
   // One read snapshot also avoids a network lock round trip per metadata query.
-  runSqlitePinnedReadSnapshotSync(db, () => {
+  runSqliteSchemaReadSnapshotSync(db, () => {
     const readTable = createSqliteTableContractReader(db);
     for (const tableName of getCanonicalSqliteTableNames(schemaSql)) {
       assertSqliteIdentifier(tableName);
@@ -190,16 +180,29 @@ export function repairCanonicalSqliteIndexes(
 export function repairSqliteIndexCorruption(
   database: DatabaseSync,
   pathname: string,
-  options: { backup: () => void; assertCurrent: () => void },
+  options: {
+    backup: () => void;
+    assertCurrent: () => void;
+    ftsSchemas?: readonly string[];
+    ftsOnly?: boolean;
+  },
 ): string[] {
   let repaired: string[] = [];
   return runSqliteImmediateTransactionSync(
     database,
     () => {
       const names = new Set<string>();
-      // Stream every finding: SQLite's default 100-row limit can hide later damage.
-      for (const row of database.prepare("PRAGMA integrity_check(2147483647)").iterate()) {
-        const finding = row.integrity_check;
+      // Inspect every finding: SQLite's default 100-row limit can hide later damage.
+      const findings = readSqliteIntegrityFindings(database);
+      const ftsTables = classifySqliteFtsIntegrityFindings(
+        database,
+        findings,
+        options.ftsSchemas ?? [],
+      );
+      if (options.ftsOnly && !ftsTables) {
+        throw new Error("Startup repair requires only canonical FTS integrity findings");
+      }
+      for (const finding of ftsTables ? [] : findings) {
         if (finding === "ok") {
           continue;
         }
@@ -215,7 +218,7 @@ export function repairSqliteIndexCorruption(
         }
         names.add(name);
       }
-      if (names.size === 0) {
+      if (names.size === 0 && !ftsTables) {
         return [];
       }
 
@@ -241,9 +244,14 @@ export function repairSqliteIndexCorruption(
       }
 
       options.backup();
-      repaired = [...names].toSorted();
+      repaired = ftsTables ?? [...names].toSorted();
       for (const name of repaired) {
-        database.exec(`REINDEX main.${quoteSqliteIdentifier(name)}`);
+        const identifier = quoteSqliteIdentifier(name);
+        database.exec(
+          ftsTables
+            ? `INSERT INTO main.${identifier}(${identifier}) VALUES('rebuild')`
+            : `REINDEX main.${identifier}`,
+        );
       }
       // Foreign-key checks use parent indexes, so corrupt keys can look like
       // missing parent rows until REINDEX. Real violations still roll back repair.

@@ -1,6 +1,7 @@
 // Sends HMAC-protected exec host requests over the local socket.
 import crypto from "node:crypto";
 import { addTimerTimeoutGraceMs } from "@openclaw/normalization-core/number-coercion";
+<<<<<<< HEAD
 import type { ExecApprovalPolicySnapshot } from "./exec-approvals.js";
 import { requestJsonlSocket } from "./jsonl-socket.js";
 
@@ -9,6 +10,12 @@ export type NodePermissionDetails = {
   state: "not-determined" | "denied" | "restart-required" | "stale-grant" | "disabled-in-openclaw";
 };
 
+=======
+import type { NodePermissionDetails } from "../../packages/gateway-protocol/src/node-permissions.js";
+import type { ExecApprovalPolicySnapshot } from "./exec-approvals.js";
+import { requestJsonlSocket } from "./jsonl-socket.js";
+
+>>>>>>> 97b6e87616f
 // Allow the companion's 15 s approval prompt before execution, then 5 s for its reply.
 const EXEC_HOST_RESPONSE_GRACE_MS = 20_000;
 
@@ -60,10 +67,17 @@ export async function requestExecHostViaSocket(params: {
   if (!socketPath || !token) {
     return null;
   }
+<<<<<<< HEAD
   // Zero disables both command and response deadlines.
   const timeoutMs =
     params.timeoutMs ??
     (request.timeoutMs === 0
+=======
+  // Zero and null (Gateway no expiry) disable deadlines; undefined keeps the default.
+  const timeoutMs =
+    params.timeoutMs ??
+    (request.timeoutMs !== undefined && (request.timeoutMs ?? 0) === 0
+>>>>>>> 97b6e87616f
       ? 0
       : addTimerTimeoutGraceMs(request.timeoutMs, EXEC_HOST_RESPONSE_GRACE_MS)) ??
     20_000;

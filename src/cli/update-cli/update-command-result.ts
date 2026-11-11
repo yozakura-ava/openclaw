@@ -1,8 +1,10 @@
 // Update failures and control-plane results share one reporting boundary.
-import { PLUGIN_CAPABILITY_CONSENT_REQUIRED } from "../../../packages/gateway-protocol/src/capability-consent-error-details.js";
 import { theme } from "../../../packages/terminal-core/src/theme.js";
 import { classifyDoctorMaintenanceRefusal } from "../../commands/doctor-maintenance-inspection.js";
+<<<<<<< HEAD
 import type { TriageFailureContext } from "../../commands/triage-prompt.js";
+=======
+>>>>>>> 97b6e87616f
 import { resolveStateDir } from "../../config/paths.js";
 import { formatServiceInspectionReason } from "../../daemon/service-inspection-error.js";
 import { isAbortError } from "../../infra/abort-signal.js";
@@ -44,7 +46,7 @@ import {
   resolveUpdateRunVerifiedServingVersion,
   updateRunReportInputFromResult,
 } from "../../infra/update-run-report.js";
-import { isFailedUpdateStep, updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
+import { updateRunStepsFromResultStep } from "../../infra/update-run-step.js";
 import { mutateRun } from "../../infra/update-run-write.js";
 import { GitCleanupReportingError } from "../../infra/update-runner-git-cleanup.js";
 import type { UpdateRunResult } from "../../infra/update-runner-types.js";
@@ -52,7 +54,7 @@ import type { UpdateStepResult } from "../../infra/update-step-result.js";
 import { SystemPackageOwnershipError } from "../../infra/update-system-package-ownership.js";
 import { hasCommandProcessCleanupError } from "../../process/exec-result.js";
 import { defaultRuntime } from "../../runtime.js";
-import { isVerifiedUpdateRollback, type UpdateRecoveryStep } from "../../shared/update-outcome.js";
+import type { UpdateRecoveryStep } from "../../shared/update-outcome.js";
 import type { OpenClawSchemaVersions } from "../../state/openclaw-schema-versions.js";
 import { formatCliCommand } from "../command-format.js";
 import {
@@ -177,6 +179,27 @@ export function recordServiceReconciliationWarnings(
       assertCurrent();
       warnings.push("Could not record the service definition warning in update history.");
     }
+  }
+}
+
+/** Timing is diagnostic only: a lost history write never changes the update outcome. */
+export function recordServiceTimedStep(
+  result: UpdateRunResult,
+  step: UpdateStepResult,
+  run: UpdateCommandOptions["run"],
+): void {
+  result.steps.push(step);
+  if (!run) {
+    return;
+  }
+  const endedAtMs = Date.now();
+  const startedAtMs = Math.max(0, endedAtMs - step.durationMs);
+  try {
+    for (const row of updateRunStepsFromResultStep(step)) {
+      recordUpdateRunStep(run.runId, { ...row, startedAtMs, endedAtMs }, { env: run.env });
+    }
+  } catch {
+    // The result step still reports the measured phase.
   }
 }
 
@@ -438,18 +461,15 @@ export async function withUpdateAdmissionReporting<T>(
 
 /** Unwind update ownership before diagnostics or an interactive agent can run. */
 export class UpdateCommandFailure extends Error {
-  readonly automaticTriage?: TriageFailureContext;
-
   constructor(
     readonly result: UpdateRunResult,
     readonly exitCode = 1,
     readonly detail?: string,
-    options?: ErrorOptions & { automaticTriage?: TriageFailureContext },
+    options?: ErrorOptions,
   ) {
     super(detail ?? result.reason ?? "Update failed", options);
     this.result = normalizeUpdateFailureResult(result, options?.cause);
     this.name = "UpdateCommandFailure";
-    this.automaticTriage = options?.automaticTriage;
   }
 }
 
@@ -502,7 +522,7 @@ export function mergeWindowsTaskRecoveryFailure(
         { ...failure.error.result, status: "error" },
         1,
         `${failure.error.message}; Windows autostart recovery: ${formatErrorMessage(recoveryError)}`,
-        { cause: recoveryError, automaticTriage: failure.error.automaticTriage },
+        { cause: recoveryError },
       ),
     };
   }
@@ -517,6 +537,7 @@ export function mergeWindowsTaskRecoveryFailure(
   };
 }
 
+<<<<<<< HEAD
 export function resolveAutomaticUpdateTriage(
   result: UpdateRunResult,
   detail: string | undefined,
@@ -562,6 +583,8 @@ export function resolveAutomaticUpdateTriage(
     : undefined;
 }
 
+=======
+>>>>>>> 97b6e87616f
 export type UpdateAdmissionReportParams = {
   mode?: UpdateRunResult["mode"];
   stepResult?: Pick<UpdateRunResult, "steps" | "failedStep">;

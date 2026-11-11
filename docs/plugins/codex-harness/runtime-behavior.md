@@ -23,7 +23,7 @@ Codex's native `skills` namespace or install marketplace skills. See
 Codex dynamic tools default to `searchable` loading. OpenClaw normally does
 not expose dynamic tools that duplicate Codex-native workspace operations:
 `read`, `write`, `edit`, `apply_patch`, `exec`, `process`,
-`get_goal`, `create_goal`, `update_goal`, `tool_call`, `tool_describe`,
+`get_goal`, `create_goal`, `update_goal`, `dispatch_action`, `tool_describe`,
 and `tool_search`. Goal operations stay native to Codex,
 so OpenClaw does not project a second goal store into Codex turns. Most
 remaining OpenClaw integration tools, such as messaging, media, cron,
@@ -54,7 +54,7 @@ replaced by a selected managed provider. OpenClaw keeps Codex's standalone
 its user-defined `web` namespace. `tools.web.search.enabled: false`
 disables both paths, as do tool-disabled LLM-only runs. Codex treats
 `"cached"` as a preference and resolves it to live external access for
-unrestricted app-server turns. Automatic managed fallback fails closed when
+unrestricted app-server turns. Automatic managed fallback is blocked when
 native `allowedDomains` are set so the allowlist cannot be bypassed.
 Persistent effective search-policy changes rotate the bound Codex thread
 before the next turn; transient per-turn restrictions use a temporary
@@ -83,7 +83,7 @@ debugging the full tool payload.
 Long tool results have a collapsed preview in the Control UI. **Show full output**
 opens the saved result as plain text; copy and download use that text, not the
 preview. Reloading the conversation reads the same saved result. Inspection is
-subject to the Gateway's message-size limits and configured transcript redaction.
+subject to the Gateway's message-size limits. Tool-result text is not secret-masked.
 Tool-output inspection requests the supported maximum of 2,000,000 characters per
 text field; a result that remains capped is explicitly marked unavailable.
 A preview limit does not mean Codex truncated the model's input.
@@ -286,6 +286,7 @@ records retirement even if the transcript note cannot be written. Other pending
 turns of the same child remain independent. Parent subscription retention during
 ordinary completion retries is unchanged.
 
+<<<<<<< HEAD
 If a chat's previous client was retired while other chats still use it, the
 next turn waits for its exact thread to close or for that client to exit before
 resuming. If a plugin reload missed the thread's closure notification, OpenClaw
@@ -293,6 +294,9 @@ reads the exact old client's thread status once. A matching `notLoaded` status
 allows the handoff; a still-loaded thread or a failed read keeps waiting. Native
 resume retains its exclusive persistence writer lock. Stopping the waiting turn
 cancels its read and wait.
+=======
+If a chat’s previous client was retired while siblings still use it, the next turn waits for its exact thread to close or that process to exit. A passive read of that exact old client recovers a missed closure only when the matching thread is notLoaded; failed reads and still-loaded threads preserve the fence. Cancelling the waiting turn stops only its read and wait. Native resume still enforces its exclusive persistence writer lock.
+>>>>>>> 97b6e87616f
 
 Managed local connections share a bounded inference relay. Up to 16 request
 preparations and uploads run at once, with another 16 waiting in arrival order.
@@ -304,8 +308,14 @@ with room for 16 pending or closing admissions. It retains up to 64 usable
 WebSockets and reclaims the oldest completed idle connection when either
 transport needs room. Active responses and newly opened connections awaiting
 their first request are not evicted. HTTP connections close after each response;
-native WebSocket reuse remains intact. The separate limit of 64 admitted root
-contexts is unchanged; transport capacity is not a count of saved conversations.
+native WebSocket reuse remains intact. Separately, each inference relay admits at
+most 64 active root contexts. Additional turns wait in arrival order for a root
+to be released; cancellation removes a waiting turn, and relay shutdown rejects
+its waiters. Admission rechecks the turn and transport ownership before starting.
+Debug logs identify the root limit and waiting count. A completed, failed,
+aborted, or yielded turn releases its root; retained parent subscriptions and
+prepared context do not occupy active roots. Transport capacity is not a count
+of saved conversations.
 
 A new WebSocket waits before opening its upstream connection; admission and its
 handshake share a 10-second deadline. HTTP admission and queued WebSocket
@@ -368,3 +378,6 @@ The Codex harness changes the low-level embedded agent executor only.
 For hook layers, supported V1 surfaces, native permission handling, queue
 steering, Codex feedback upload mechanics, and compaction details, see
 [Codex harness runtime](/plugins/codex-harness-runtime).
+
+Temporary native capability, hook, and tool-catalog probes close and await their isolated
+app-server processes. Shared-client probes release only their borrowed lease.

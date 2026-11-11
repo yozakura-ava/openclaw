@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-C-flag-000",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "ccae4a26796d240cdf53b0e43e418a298a64eb49091342d776e58c3818bc4ab3",
+ "quarantined": [],
+ "receipt_sha256": "47761da02c3c39560d2f3e41cbb8e1649ceaccabae2896b75ea4ff9ba754d8f6",
+ "submitted": 5,
+ "tier": "C-flag"
+}

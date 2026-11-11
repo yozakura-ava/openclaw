@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import type { AgentHarnessAttemptParamsV2 } from "openclaw/plugin-sdk/agent-harness-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/plugin-entry";
 import { createPluginStateKeyedStoreForTests } from "openclaw/plugin-sdk/plugin-state-test-runtime";
+<<<<<<< HEAD
+=======
+import { patchSessionEntry } from "openclaw/plugin-sdk/session-store-runtime";
+>>>>>>> 97b6e87616f
 import { withOpenClawTestState } from "openclaw/plugin-sdk/test-state";
 import { expect, it, vi } from "vitest";
 import type { StoredBinding } from "./agentsapi-binding-record.js";
@@ -117,6 +121,23 @@ export function registerMigrationTests(
           },
         },
         { name: "native search", params: { toolOverrides: { webSearch: false } } },
+<<<<<<< HEAD
+=======
+        {
+          name: "Gateway forwarding",
+          config: {
+            plugins: {
+              entries: { agentsapi: { config: { forwarding: { gatewayTools: false } } } },
+            },
+          },
+        },
+        {
+          name: "MCP forwarding",
+          config: {
+            plugins: { entries: { agentsapi: { config: { forwarding: { mcpServers: false } } } } },
+          },
+        },
+>>>>>>> 97b6e87616f
       ];
       try {
         for (const entry of cases) {
@@ -331,13 +352,29 @@ export function registerMigrationTests(
           status: "in_progress",
         });
         const harness = fixture.createHarness();
+<<<<<<< HEAD
+=======
+        if (operation === "context rollback") {
+          await patchSessionEntry({
+            ...fixture.params.sessionTarget,
+            update: () => ({
+              sessionId: "successor-local-session",
+              previousSessionId: fixture.params.sessionId,
+            }),
+          });
+        }
+>>>>>>> 97b6e87616f
         const cleanup = () =>
           operation === "reset"
             ? harness.reset({ ...fixture.params.sessionTarget, reason: "reset" })
             : operation === "delete"
               ? harness.withSessionDeletion(
                   { ...fixture.params.sessionTarget, assertCurrent: () => {} },
+<<<<<<< HEAD
                   async (mutation) => mutation.commit(),
+=======
+                  async (settle) => settle(),
+>>>>>>> 97b6e87616f
                 )
               : harness.withSessionContextReset(
                   {
@@ -346,9 +383,14 @@ export function registerMigrationTests(
                     previousSessionId: fixture.params.sessionId,
                     assertCurrent: () => {},
                   },
+<<<<<<< HEAD
                   async (mutation) => {
                     mutation.commit();
                     mutation.rollback();
+=======
+                  async (settle) => {
+                    await settle("rollback");
+>>>>>>> 97b6e87616f
                   },
                 );
         try {

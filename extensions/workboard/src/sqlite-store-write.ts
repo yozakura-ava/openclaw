@@ -1,4 +1,4 @@
-import type { DatabaseSync, SQLInputValue } from "node:sqlite";
+import type { SQLInputValue } from "node:sqlite";
 import type { WorkboardCard } from "@openclaw/workboard-contract";
 import {
   compileSqliteQueryBindings,
@@ -12,6 +12,7 @@ import {
   type Row,
   type WorkboardCardDatabase,
 } from "./sqlite-store-records.js";
+import type { WorkboardSqlConnection } from "./sqlite-store-schema.js";
 
 function cardBoardId(card: WorkboardCard): string {
   return card.metadata?.automation?.boardId ?? "default";
@@ -32,7 +33,7 @@ export function bindNull(value: unknown): SQLInputValue {
 }
 
 export function prepareWorkboardUpsert(
-  db: DatabaseSync,
+  db: WorkboardSqlConnection,
   table: "workboard_cards" | "workboard_boards" | "workboard_notification_subscriptions",
   fields: Record<string, () => SQLInputValue>,
   preserved: readonly string[] = [],
@@ -80,7 +81,7 @@ function bindStoredActor(entry: unknown, key: "actorId" | "actorKind"): SQLInput
 }
 
 function insertChildren<T>(
-  db: DatabaseSync,
+  db: WorkboardSqlConnection,
   table: (typeof CARD_CHILD_TABLES)[number],
   cardId: string,
   entries: readonly T[] | undefined,
@@ -112,7 +113,7 @@ function insertChildren<T>(
   }
 }
 
-export function insertCard(db: DatabaseSync, card: WorkboardCard): void {
+export function insertCard(db: WorkboardSqlConnection, card: WorkboardCard): void {
   const board = executeSqliteQueryTakeFirstSync(
     db,
     getNodeSqliteKysely<{ workboard_boards: { id: string; kind: string | null } }>(db)

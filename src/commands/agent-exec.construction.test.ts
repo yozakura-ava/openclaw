@@ -93,7 +93,12 @@ setInterval(() => {}, 1000);`,
     await fs.writeFile(
       configPath,
       JSON.stringify({
+<<<<<<< HEAD
         // This synthetic process backend has no MCP tool-policy projection.
+=======
+        // This process-only fixture has no tools or MCP policy projection.
+        // Override the coding command default so it reaches process construction.
+>>>>>>> 97b6e87616f
         tools: { fs: { workspaceOnly: false } },
         agents: {
           defaults: {

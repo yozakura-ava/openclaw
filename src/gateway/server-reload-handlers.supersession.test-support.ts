@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
+<<<<<<< HEAD
 import { createDeferred } from "../../test/helpers/promise.js";
 import { PreparedModelRuntimePublicationSupersededError } from "../agents/prepared-model-runtime.errors.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
@@ -12,12 +13,54 @@ import type { createGatewayReloadHandlers as createGatewayReloadHandlersImpl } f
 
 export function registerGatewaySupersededReloadTests({
   createGatewayReloadHandlers,
+=======
+import { awaitGateBeforeSettlement, createDeferred } from "../../test/helpers/promise.js";
+import { PreparedModelRuntimePublicationSupersededError } from "../agents/prepared-model-runtime.errors.js";
+import type { RuntimeConfigWriteApplicationStatus } from "../config/runtime-write-application.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { activateSecretsRuntimeSnapshot } from "../secrets/runtime.js";
+import { buildGatewayReloadPlan } from "./config-reload-plan.js";
+import { createConfigReloadTestClock } from "./config-reload.test-support.js";
+import { installWatcherMock } from "./config-reload.watcher.test-support.js";
+import {
+  GatewayConfigReloadSupersededError,
+  type GatewayReloadHandlerParams,
+  type ManagedGatewayConfigReloaderHandle,
+  type ManagedGatewayConfigReloaderParams,
+} from "./server-reload-contracts.js";
+import {
+  createConfigWriteNotification,
+  createDirectConfigWriteFixture,
+  createHotTailPlan,
+  createValidConfigSnapshot,
+  publishConfigWrite,
+} from "./server-reload-handlers.config.test-support.js";
+import type { createGatewayReloadHandlers as createGatewayReloadHandlersImpl } from "./server-reload-hot.js";
+import {
+  createMockRuntimeSecretsActivator,
+  makePreparedSecretsSnapshot,
+} from "./server-startup-config.test-support.js";
+
+export function registerGatewaySupersededReloadTests({
+  createGatewayReloadHandlers,
+  startManagedGatewayConfigReloader,
+>>>>>>> 97b6e87616f
   refreshContextWindowCache,
   refreshPreparedModelRuntimeSnapshots,
 }: {
   createGatewayReloadHandlers: (
     params: Partial<GatewayReloadHandlerParams>,
   ) => ReturnType<typeof createGatewayReloadHandlersImpl>;
+<<<<<<< HEAD
+=======
+  startManagedGatewayConfigReloader: (
+    params: Pick<
+      ManagedGatewayConfigReloaderParams,
+      "initialConfig" | "readSnapshot" | "subscribeToWrites"
+    > &
+      Partial<ManagedGatewayConfigReloaderParams>,
+  ) => ManagedGatewayConfigReloaderHandle;
+>>>>>>> 97b6e87616f
   refreshContextWindowCache: Mock<(config: OpenClawConfig) => Promise<void>>;
   refreshPreparedModelRuntimeSnapshots: Mock<
     (config: OpenClawConfig, options?: { catalogMode?: "live" | "static" }) => Promise<void>
@@ -25,6 +68,132 @@ export function registerGatewaySupersededReloadTests({
 }): void {
   describe("gateway hot reload superseded tail recovery", () => {
     it.each([
+<<<<<<< HEAD
+=======
+      "agent removal",
+      "model-neutral edit",
+      "same config",
+      "invalid watched edit",
+      "failed secrets preflight",
+    ] as const)(
+      "recovers a superseded model build after %s without a restart",
+      async (successor) => {
+        const rejectedSuccessor =
+          successor === "invalid watched edit" || successor === "failed secrets preflight";
+        const { clock, scheduler } = createConfigReloadTestClock();
+        const watcher = successor === "invalid watched edit" ? installWatcherMock() : undefined;
+        const initialConfig: OpenClawConfig = {
+          agents: { entries: { main: {}, retiring: {} } },
+        };
+        const firstConfig: OpenClawConfig = {
+          agents: { entries: { main: {}, retiring: {}, added: {} } },
+        };
+        const nextConfig: OpenClawConfig =
+          successor === "agent removal"
+            ? { agents: { entries: { main: {}, added: {} } } }
+            : successor === "model-neutral edit"
+              ? { ...firstConfig, logging: { level: "debug" } }
+              : successor === "failed secrets preflight"
+                ? { ...firstConfig, logging: { level: "warn" } }
+                : firstConfig;
+        activateSecretsRuntimeSnapshot(makePreparedSecretsSnapshot(initialConfig));
+        const writer = createDirectConfigWriteFixture(initialConfig);
+        const entered = createDeferred();
+        const release = createDeferred();
+        refreshPreparedModelRuntimeSnapshots.mockImplementationOnce(async () => {
+          entered.resolve();
+          await release.promise;
+          throw new Error("Agent database resources are closing: retiring/openclaw-agent.sqlite");
+        });
+        const requestRecoveryRestart = vi.fn(() => ({ status: "emitted" as const }));
+        const logReload = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+        const reloader = startManagedGatewayConfigReloader({
+          scheduler,
+          initialConfig,
+          readSnapshot: writer.readSnapshot,
+          subscribeToWrites: writer.subscribeToWrites,
+          activateRuntimeSecrets: createMockRuntimeSecretsActivator(async (config) => {
+            if (config.logging?.level === "warn") {
+              throw new Error("synthetic successor preflight failed");
+            }
+            return makePreparedSecretsSnapshot(config);
+          }),
+          requestRecoveryRestart,
+          logReload,
+        });
+        await reloader.ready;
+        const write = (config: OpenClawConfig, revision: number) =>
+          publishConfigWrite(
+            writer.ref.current!,
+            createConfigWriteNotification(
+              config,
+              `write-${revision}`,
+              revision,
+              "runtime",
+              "source",
+            ),
+          );
+        let first: Promise<RuntimeConfigWriteApplicationStatus> | undefined;
+        let next: Promise<RuntimeConfigWriteApplicationStatus> | undefined;
+        try {
+          first = write(firstConfig, 1);
+          const firstWake = clock.wake();
+          await awaitGateBeforeSettlement(entered.promise, first, "model build must start");
+          expect(reloader.getCommittedRuntimeConfig?.()).toEqual(firstConfig);
+          if (watcher) {
+            writer.readSnapshot.mockResolvedValueOnce({
+              ...createValidConfigSnapshot(firstConfig, "invalid-edit"),
+              raw: "{",
+              valid: false,
+              issues: [{ path: "", message: "synthetic invalid edit" }],
+            });
+            watcher.emit("change", "/tmp/openclaw.json");
+          } else {
+            next = write(nextConfig, 2);
+          }
+          release.resolve();
+          await firstWake;
+          await clock.wake();
+          await expect(first).resolves.toBe("superseded");
+          if (rejectedSuccessor) {
+            if (watcher) {
+              expect(logReload.warn).toHaveBeenCalledWith(
+                expect.stringContaining("config reload skipped (invalid config)"),
+              );
+            } else {
+              await expect(next).resolves.toBe("failed");
+              expect(logReload.error).toHaveBeenCalledWith(
+                expect.stringContaining("synthetic successor preflight failed"),
+              );
+            }
+            expect(refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledOnce();
+            expect(reloader.isConfigReloadSettled()).toBe(false);
+            expect(requestRecoveryRestart).not.toHaveBeenCalled();
+            // Reapplying committed bytes must rebuild the deferred model owners.
+            next = write(firstConfig, 3);
+            await clock.wake();
+          }
+          await expect(next).resolves.toBe("applied");
+          const appliedConfig = rejectedSuccessor ? firstConfig : nextConfig;
+          expect(refreshPreparedModelRuntimeSnapshots).toHaveBeenLastCalledWith(
+            appliedConfig,
+            expect.anything(),
+          );
+          expect(refreshPreparedModelRuntimeSnapshots).toHaveBeenCalledTimes(2);
+          expect(refreshContextWindowCache).toHaveBeenLastCalledWith(appliedConfig);
+          expect(reloader.isConfigReloadSettled()).toBe(true);
+          expect(requestRecoveryRestart).not.toHaveBeenCalled();
+        } finally {
+          release.resolve();
+          await reloader.stop();
+          await Promise.allSettled([first, next]);
+          watcher?.restore();
+        }
+      },
+    );
+
+    it.each([
+>>>>>>> 97b6e87616f
       { name: "superseded publication", superseded: true, cancelled: true },
       { name: "replaced models with current config", superseded: false, cancelled: true },
       { name: "failed superseded publication", superseded: true, cancelled: false },
@@ -56,13 +225,22 @@ export function registerGatewaySupersededReloadTests({
             publish: async (commit) => await commit(),
           },
         );
+<<<<<<< HEAD
         if (cancelled) {
+=======
+        const recoveryRequired = !cancelled && !superseded;
+        if (!recoveryRequired) {
+>>>>>>> 97b6e87616f
           await expect(reload).rejects.toBeInstanceOf(GatewayConfigReloadSupersededError);
         } else {
           await expect(reload).resolves.toBe("applied-restart-required");
         }
         expect(setState).toHaveBeenCalledOnce();
+<<<<<<< HEAD
         expect(handlers.hasOutstandingGatewayRestart()).toBe(!cancelled);
+=======
+        expect(handlers.hasOutstandingGatewayRestart()).toBe(recoveryRequired);
+>>>>>>> 97b6e87616f
       } finally {
         handlers.stopRestartRetries();
       }
@@ -261,6 +439,10 @@ export function registerGatewaySupersededReloadTests({
         routeHandoff: true,
       });
       expect(startChannel).toHaveBeenCalledWith("discord", undefined, {
+<<<<<<< HEAD
+=======
+        reason: "config-reload",
+>>>>>>> 97b6e87616f
         preserveManualStop: true,
         skipUnavailableAccounts: true,
       });

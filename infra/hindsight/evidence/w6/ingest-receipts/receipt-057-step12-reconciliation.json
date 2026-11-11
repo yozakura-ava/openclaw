@@ -1,0 +1,12 @@
+{
+ "accounted": 3042,
+ "batches_reconciled": 21,
+ "consolidation": "off",
+ "cross_bank_leaks": 0,
+ "d_tier_active": 0,
+ "ingested": 2587,
+ "kind": "step12-reconciliation",
+ "lineage": "source->target and target->source verified; zero orphan derived facts",
+ "prev_receipt_sha256": "232b508ec2bee84db89ede4072db6405a329c7723906da0e9b3dfe4d268ce193",
+ "receipt_sha256": "ec2e51d3cd7332a5e14b71b34af70b5e6d79f90d30535df2fc9dfb7f329502be"
+}

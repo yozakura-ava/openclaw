@@ -1,8 +1,12 @@
 import { coerceErrorMessage } from "@openclaw/normalization-core/error-coercion";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emitToolResultMessage } from "../../../../packages/agent-core/src/agent-stream-response.js";
+<<<<<<< HEAD
 import { copyInternalToolResultState } from "../../../../packages/agent-core/src/internal-hooks.js";
 import { createErrorToolResult } from "../../../../packages/agent-core/src/tool-call-outcome.js";
+=======
+import { createToolExecutionErrorResult } from "../../../../packages/agent-core/src/tool-call-outcome.js";
+>>>>>>> 97b6e87616f
 import { validateScriptFileForShellBleed } from "../../bash-tools.exec-script-preflight.js";
 import {
   buildEmbeddedRunnerAssistant,

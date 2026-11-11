@@ -1,0 +1,8 @@
+{
+ "kind": "step02-normalize",
+ "prev_receipt_sha256": "fc9f4d0921a17ce4103eaefae630fd1eeec76fc1b9b022d23adddb051c200f70",
+ "receipt_sha256": "1598956c595e8f809252b9b7da297c2a1057e577765d7c7e1549c83c05db1c2d",
+ "records": 652,
+ "tier": "T-dreaming",
+ "transform_version": "1"
+}

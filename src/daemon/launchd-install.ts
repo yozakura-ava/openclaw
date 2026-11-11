@@ -166,6 +166,20 @@ export async function installLaunchAgent(
       },
       async () => false,
     );
+<<<<<<< HEAD
+=======
+  const bootstrap = (plistPath: string, actionHint: string) =>
+    bootstrapLaunchAgentOrThrow({
+      domain,
+      serviceTarget,
+      plistPath,
+      actionHint,
+      retryPendingTeardown: true,
+      assertCurrent: assertGatewayServiceUpdateCurrent,
+      preserveAutoStart: args.preserveAutoStart,
+      preservedEnabled: enabled,
+    });
+>>>>>>> 97b6e87616f
   let activationAttempted = false;
   const install = async () => {
     const published = await writeLaunchAgentPlist(
@@ -182,16 +196,7 @@ export async function installLaunchAgent(
     if (loaded) {
       await bootoutLaunchAgent(serviceTarget);
     }
-    await bootstrapLaunchAgentOrThrow({
-      domain,
-      serviceTarget,
-      plistPath: published.plistPath,
-      actionHint: "openclaw gateway install --force",
-      retryPendingTeardown: true,
-      assertCurrent: assertGatewayServiceUpdateCurrent,
-      preserveAutoStart: args.preserveAutoStart,
-      preservedEnabled: enabled,
-    });
+    await bootstrap(published.plistPath, "openclaw gateway install --force");
     assertGatewayServiceUpdateCurrent();
     return published;
   };
@@ -217,16 +222,7 @@ export async function installLaunchAgent(
           if (activationAttempted && restoreLoaded) {
             await files.assertCurrent();
             await assertNoSystemLaunchDaemonOwnership(label);
-            await bootstrapLaunchAgentOrThrow({
-              domain,
-              serviceTarget,
-              plistPath: targetPlistPath,
-              actionHint: "openclaw gateway start",
-              retryPendingTeardown: true,
-              assertCurrent: assertGatewayServiceUpdateCurrent,
-              preserveAutoStart: args.preserveAutoStart,
-              preservedEnabled: enabled,
-            });
+            await bootstrap(targetPlistPath, "openclaw gateway start");
           }
           return restored || activationAttempted;
         });

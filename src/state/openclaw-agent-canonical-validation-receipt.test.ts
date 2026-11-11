@@ -1,17 +1,18 @@
-import { statSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import { expect, it } from "vitest";
+import { runNodeScript } from "../../test/helpers/run-node-script.js";
+import { resolveRuntimeWorkerUrl } from "../infra/runtime-worker-url.js";
 import { withOpenClawTestState } from "../test-utils/openclaw-test-state.js";
+import { stateNativeProcessEntrypoints } from "./native-process-runtime.test-support.js";
 import {
   hasPersistedOpenClawAgentCanonicalValidation,
   recordOpenClawAgentCanonicalValidation,
 } from "./openclaw-agent-canonical-validation-receipt.js";
-import { assertOpenClawAgentSchemaContains } from "./openclaw-agent-db-schema-helpers.js";
 import {
-  closeOpenClawAgentDatabaseByPath,
   openOpenClawAgentDatabase,
   runOpenClawAgentWriteTransaction,
 } from "./openclaw-agent-db.js";
+<<<<<<< HEAD
 import { OPENCLAW_AGENT_SCHEMA_SQL } from "./openclaw-agent-schema.js";
 
 it.each(["legacy-birthtime", "missing-column"] as const)(
@@ -74,6 +75,8 @@ it.each(["legacy-birthtime", "missing-column"] as const)(
     });
   },
 );
+=======
+>>>>>>> 97b6e87616f
 
 it("requires admitted physical identity and write admission for persisted canonical receipts", async () => {
   await withOpenClawTestState({ scenario: "minimal" }, async ({ env }) => {
@@ -93,4 +96,15 @@ it("requires admitted physical identity and write admission for persisted canoni
       raw.close();
     }
   });
+});
+
+it("preserves legacy receipts and shares committed canonical proof with admitted readers", async () => {
+  const result = await runNodeScript(
+    (workerArgv) =>
+      workerArgv(resolveRuntimeWorkerUrl(stateNativeProcessEntrypoints.canonicalReceipt)),
+    process.env,
+    undefined,
+  );
+  expect(result.error, result.stderr).toBeUndefined();
+  expect(result.status, result.stderr).toBe(0);
 });

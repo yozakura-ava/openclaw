@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/brave-plugin",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "OpenClaw Brave Search provider plugin for web search.",
   "repository": {
     "type": "git",
@@ -22,10 +26,17 @@
       "allowInvalidConfigRecovery": true
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "openclawVersion": "2026.10.8"
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1"
+>>>>>>> 97b6e87616f
     },
     "release": {
       "publishToClawHub": true,

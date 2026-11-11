@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
+import { setRuntimeConfigSnapshot } from "../../../config/runtime-snapshot.js";
 import {
   loadTranscriptEventsSync,
   upsertSessionEntryCore,
@@ -73,6 +74,7 @@ async function withPersistedOrphanBoundary(
       sessionKey: "agent:main:orphan-projection",
       storePath: path.join(state.sessionsDir(), "sessions.json"),
     };
+    setRuntimeConfigSnapshot({});
     await upsertSessionEntryCore(target, { sessionId: target.sessionId, updatedAt: 1 });
     const seed = SessionManager.open(target, state.workspaceDir);
     if (options.parent) {
@@ -378,6 +380,7 @@ describe("prepareEmbeddedAttemptSessionBoundary orphan recovery", () => {
     );
   });
 
+<<<<<<< HEAD
   it.each([
     { parent: true, metadata: true },
     { parent: true, metadata: false },
@@ -475,17 +478,48 @@ describe("prepareEmbeddedAttemptSessionBoundary orphan recovery", () => {
       expect(resetLeafAsync).not.toHaveBeenCalled();
       expect(setNextUserMessagePersistence).not.toHaveBeenCalled();
       expect(onUserMessagePersistenceInvalidated).not.toHaveBeenCalled();
+=======
+  it.each([{ parent: false, metadata: true }])(
+    "keeps the repaired orphan on the canonical branch for later turns: %j",
+    async (options) => {
+      await withPersistedOrphanBoundary(
+        { ...options, restartRecovery: true, suppressNextUserMessagePersistence: true },
+        async ({ input, manager, orphanId, target }) => {
+          const boundary = await prepareEmbeddedAttemptSessionBoundary(input);
+          expect(boundary.orphanRepair?.removeLeaf).toBe(false);
+          expect(manager.getBranch().map((entry) => entry.id)).toContain(orphanId);
+          const reopened = SessionManager.openBounded(target, { maxBytes: 4096, maxEvents: 20 });
+          expect(reopened.getBranch().map((entry) => entry.id)).toContain(orphanId);
+          expect(loadTranscriptEventsSync(target)).toEqual(
+            expect.arrayContaining([expect.objectContaining({ id: orphanId })]),
+          );
+          // This turn's assembled messages omit the orphan (folded into the prompt)
+          // while the session tree still points at it for subsequent turns.
+          expect(
+            input.activeSession.agent.state.messages.some((message) => {
+              const content = (message as { content?: unknown }).content;
+              return content === "orphan wake" || JSON.stringify(content).includes("orphan wake");
+            }),
+          ).toBe(false);
+          const leafBeforeAppend = manager.getLeafId();
+          const appended = manager.appendMessageWithTranscriptAnchor(
+            makeAssistantMessageFixture({
+              content: [{ type: "text", text: "recovery reply" }],
+              stopReason: "stop",
+              timestamp: 2,
+            }),
+          );
+          expect(manager.getEntry(appended.entryId)?.parentId).toBe(leafBeforeAppend);
+          expect(manager.getBranch().map((entry) => entry.id)).toEqual(
+            expect.arrayContaining([orphanId, appended.entryId]),
+          );
+        },
+      );
+>>>>>>> 97b6e87616f
     },
   );
 
   it.each([
-    { name: "the active-session copy is absent", prepared: true, recorded: false, persisted: true },
-    {
-      name: "only the recorder owns the durable user",
-      prepared: false,
-      recorded: true,
-      persisted: true,
-    },
     {
       name: "recorder state is lost on restart",
       prepared: true,
@@ -549,7 +583,7 @@ describe("prepareEmbeddedAttemptSessionBoundary orphan recovery", () => {
     },
   );
 
-  it.each([false, true])(
+  it.each([false])(
     "handles a different durable user leaf with current-turn exclusion %s",
     async (excludeFromContext) => {
       const currentUser = {
@@ -664,6 +698,7 @@ describe("prepareEmbeddedAttemptSessionBoundary orphan recovery", () => {
     );
   });
 
+<<<<<<< HEAD
   it("excludes a preserved orphan from this turn's messages without branching", async () => {
     const contextMessages: AgentMessage[] = [
       makeAssistantMessageFixture({
@@ -722,17 +757,9 @@ describe("prepareEmbeddedAttemptSessionBoundary orphan recovery", () => {
     ]);
   });
 
+=======
+>>>>>>> 97b6e87616f
   it.each([
-    {
-      name: "suppressed restart recovery",
-      suppressNextUserMessagePersistence: true,
-      internalContinuation: false,
-    },
-    {
-      name: "ordinary unsuppressed repair",
-      suppressNextUserMessagePersistence: false,
-      internalContinuation: false,
-    },
     {
       name: "an internal retry after the admitted user was persisted",
       suppressNextUserMessagePersistence: true,

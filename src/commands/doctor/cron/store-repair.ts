@@ -1,6 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+<<<<<<< HEAD
 import type { DatabaseSync } from "node:sqlite";
+=======
+>>>>>>> 97b6e87616f
 import { isDeepStrictEqual } from "node:util";
 import { safeParseJsonRecord } from "@openclaw/normalization-core/json-coercion";
 import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
@@ -17,6 +20,7 @@ import {
 } from "../../../cron/store/row-codec.js";
 import { getCronStoreKysely } from "../../../cron/store/schema.js";
 import { executeSqliteQuerySync } from "../../../infra/kysely-sync.js";
+import type { EngineConnection } from "../../../infra/sql-connection.js";
 import { deferSqlitePostCommitPublication } from "../../../infra/sqlite-post-commit.js";
 import { createVerifiedSqliteSnapshot } from "../../../infra/sqlite-snapshot.js";
 import type { PluginDoctorRepairAuthority } from "../../../infra/state-migrations.types.js";
@@ -210,7 +214,7 @@ export async function backupCronStoreForDoctor(
   scope: DoctorCronScope,
   repair: {
     assertCurrent: () => void;
-    assertRowsUnchanged: (db: DatabaseSync) => void;
+    assertRowsUnchanged: (db: EngineConnection) => void;
   },
 ): Promise<string> {
   repair.assertCurrent();
@@ -233,8 +237,8 @@ async function commitCronDoctorRepair(
   scope: DoctorCronScope,
   authority: PluginDoctorRepairAuthority,
   repair: {
-    assertRowsUnchanged: (db: DatabaseSync) => void;
-    write: (db: DatabaseSync) => void;
+    assertRowsUnchanged: (db: EngineConnection) => void;
+    write: (db: EngineConnection) => void;
   },
 ): Promise<string> {
   const backupPath = await backupCronStoreForDoctor(scope, {

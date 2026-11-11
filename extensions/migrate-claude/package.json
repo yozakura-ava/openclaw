@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/migrate-claude",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "private": true,
   "description": "Claude to OpenClaw migration provider",
   "type": "module",
@@ -9,7 +13,11 @@
     "openclaw": "workspace:*"
   },
   "peerDependencies": {
+<<<<<<< HEAD
     "openclaw": ">=2026.10.8"
+=======
+    "openclaw": ">=2026.11.1"
+>>>>>>> 97b6e87616f
   },
   "peerDependenciesMeta": {
     "openclaw": {
@@ -22,6 +30,10 @@
     ]
   },
   "dependencies": {
+<<<<<<< HEAD
     "@openclaw/fs-safe": "0.26.0"
+=======
+    "@openclaw/fs-safe": "0.26.5"
+>>>>>>> 97b6e87616f
   }
 }

@@ -87,7 +87,8 @@ describe("native assignment completion custody", () => {
         completionScope: createCompletionScope("agent:main:original"),
         agentId: "main",
         claimDirectChild,
-        assertCurrent: () => {
+        assertCurrentAsync: async () => {
+          await Promise.resolve();
           if (!current) {
             throw new Error("Caller registration is no longer current");
           }
@@ -481,6 +482,7 @@ async function createSubmissionFixture(acknowledgePredecessor = true) {
         throw new Error("Submission binding changed.");
       }
     },
+    assertCurrentAsync: async () => submissionStore.assertCurrent(),
     read: () => bindingStore.readNativeSubagentSubmissions(identity, owner),
     record: (receipt, guard) =>
       bindingStore.mutate(
@@ -515,7 +517,11 @@ async function createSubmissionFixture(acknowledgePredecessor = true) {
     },
   });
   onTestFinished(async () => {
+<<<<<<< HEAD
     await codexNativeSubagentMonitorRuntime.retireParent(client.client, binding.threadId);
+=======
+    await codexNativeSubagentMonitorRuntime.retireParent(client as never, binding.threadId);
+>>>>>>> 97b6e87616f
     client.close();
     await parent.unregister();
   });
@@ -548,7 +554,11 @@ async function createSubmissionFixture(acknowledgePredecessor = true) {
   if (acknowledgePredecessor) {
     await acknowledgeInitialResult();
     await vi.waitFor(() =>
+<<<<<<< HEAD
       expect(isCodexAppServerLiveThreadClaimed(client.client, "child-thread")).toBe(false),
+=======
+      expect(isCodexAppServerLiveThreadClaimed(client as never, "child-thread")).toBe(false),
+>>>>>>> 97b6e87616f
     );
     expect(holds).toEqual({ client: 0, parent: 0, child: 0 });
   }
@@ -580,7 +590,11 @@ async function createSubmissionFixture(acknowledgePredecessor = true) {
         submissionId,
       }),
     );
+<<<<<<< HEAD
     await vi.waitFor(async () => expect(submissionStore.read()).toHaveLength(1));
+=======
+    await vi.waitFor(async () => expect(await submissionStore.read()).toHaveLength(1));
+>>>>>>> 97b6e87616f
     if (detach) {
       await parent.unregister();
       expect(holds).toEqual({ client: 0, parent: 0, child: 0 });
@@ -618,18 +632,31 @@ it.each([true, false])(
     await parent.unregister();
     const releaseForResume = () =>
       releaseCodexBoundLiveThread({
+<<<<<<< HEAD
         client: client.client,
+=======
+        client: client as never,
+>>>>>>> 97b6e87616f
         threadId: "parent-thread",
         lifecycleTiming: createCodexThreadLifecycleTimingTracker({ enabled: false }),
       });
     await expect(releaseForResume()).rejects.toThrow("claimed by active work; stop it first");
+<<<<<<< HEAD
     const receipt = structuredClone(submissionStore.read());
+=======
+    const receipt = structuredClone(await submissionStore.read());
+>>>>>>> 97b6e87616f
     await completeTurn(client, "turn-b", "result B");
 
     await expect(releaseForResume()).resolves.toBe(true);
     expect(holds.parent).toBe(0);
+<<<<<<< HEAD
     expect(isCodexAppServerLiveThreadProtected(client.client, "child-thread")).toBe(false);
     expect(submissionStore.read()).toEqual(receipt);
+=======
+    expect(isCodexAppServerLiveThreadProtected(client as never, "child-thread")).toBe(false);
+    expect(await submissionStore.read()).toEqual(receipt);
+>>>>>>> 97b6e87616f
     expect(consume).not.toHaveBeenCalled();
     expect(runtime.deliverAgentHarnessCompletion).toHaveBeenCalledWith(
       expect.objectContaining({ result: "result B" }),
@@ -637,7 +664,11 @@ it.each([true, false])(
 
     runtime.deliverAgentHarnessCompletion.mockResolvedValue({ delivered: true, path: "direct" });
     await vi.advanceTimersByTimeAsync(5_000);
+<<<<<<< HEAD
     await vi.waitFor(async () => expect(submissionStore.read()).toEqual([]));
+=======
+    await vi.waitFor(async () => expect(await submissionStore.read()).toEqual([]));
+>>>>>>> 97b6e87616f
     await completeTurn(client, "turn-b", "result B");
     expect(consume).toHaveBeenCalledOnce();
     expect(holds).toEqual({ client: 0, parent: 0, child: 0 });
@@ -649,7 +680,7 @@ it("stops observing opaque receipts when existing warm subscriptions expire", as
   const { client, runtime, holds, consume, submissionStore, unsubscribe } = fixture;
   vi.useFakeTimers({ shouldClearNativeTimers: true });
   await fixture.submit("815dc55d-2d19-4bfe-9fd3-038ce4d6aada");
-  const receipt = structuredClone(submissionStore.read());
+  const receipt = structuredClone(await submissionStore.read());
   const reads = () =>
     client.request.mock.calls.filter(([method]) => method === "thread/read").length;
   // The existing client-runtime owner expires unprotected subscriptions after 30 minutes.
@@ -666,11 +697,11 @@ it("stops observing opaque receipts when existing warm subscriptions expire", as
   await vi.advanceTimersByTimeAsync(300_000);
   expect(reads()).toBe(readsAtExpiry);
   expect(holds).toEqual({ client: 0, parent: 0, child: 0 });
-  expect(submissionStore.read()).toEqual(receipt);
+  expect(await submissionStore.read()).toEqual(receipt);
   expect(consume).not.toHaveBeenCalled();
   expect(runtime.deliverAgentHarnessCompletion).not.toHaveBeenCalled();
   await client.notify(turnStartedNotification(receipt[0]!.submissionId));
-  expect(submissionStore.read()).toEqual(receipt);
+  expect(await submissionStore.read()).toEqual(receipt);
   expect(holds).toEqual({ client: 0, parent: 0, child: 0 });
 });
 
@@ -682,8 +713,13 @@ it("admits a delayed exact start under warm backing and retains its completion o
   await fixture.submit("turn-b");
   await client.notify(turnStartedNotification("turn-b"));
   const runId = "codex-thread:child-thread:turn:turn-b";
+<<<<<<< HEAD
   expect(submissionStore.read()).toHaveLength(1);
   expect(isCodexAppServerLiveThreadClaimed(client.client, "child-thread")).toBe(true);
+=======
+  expect(await submissionStore.read()).toHaveLength(1);
+  expect(isCodexAppServerLiveThreadClaimed(client as never, "child-thread")).toBe(true);
+>>>>>>> 97b6e87616f
   expect(holds.client).toBe(1);
   expect(holds.parent).toBe(1);
   await expect(releaseCodexAppServerLiveThread(client.client, "child-thread")).resolves.toBe(false);
@@ -694,7 +730,7 @@ it("admits a delayed exact start under warm backing and retains its completion o
       items: [{ id: "b", type: "agentMessage", text: "result B" }],
     }),
   );
-  await vi.waitFor(() => expect(submissionStore.read()).toEqual([]));
+  await vi.waitFor(async () => expect(await submissionStore.read()).toEqual([]));
   expect(runtime.deliverAgentHarnessCompletion).toHaveBeenCalledExactlyOnceWith(
     expect.objectContaining({ childSessionKey: runId, result: "result B" }),
   );
@@ -845,7 +881,8 @@ describe("Codex native transient predecessor anchor", () => {
       let parentRegistered = true;
       const submissionStore = {
         assertCurrent: () => {},
-        read: () => [...receipts.values()],
+        assertCurrentAsync: async () => {},
+        read: async () => [...receipts.values()],
         record: vi.fn<CodexNativeSubagentSubmissionStore["record"]>(async (receipt, guard) => {
           guard();
           ownerStatesAtRecord.push(parentRegistered);
@@ -920,7 +957,8 @@ describe("Codex native transient predecessor anchor", () => {
     let recordCompletion: Promise<boolean> | undefined;
     const submissionStore = {
       assertCurrent: () => {},
-      read: () => [...receipts.values()],
+      assertCurrentAsync: async () => {},
+      read: async () => [...receipts.values()],
       record: vi.fn<CodexNativeSubagentSubmissionStore["record"]>((receipt, guard) => {
         recordCompletion = (async () => {
           recordEntered.resolve();

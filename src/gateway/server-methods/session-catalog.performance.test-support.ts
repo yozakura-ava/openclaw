@@ -289,7 +289,7 @@ export async function createComposedCatalogFixture(
     await service.start(serviceContext);
     const connection = new AbortController();
     let sequence = 0;
-    const setupPublications = new Map<string, (catalog: SessionCatalog) => void>();
+    const listPublications = new Map<string, (catalog: SessionCatalog) => void>();
     const client = {
       connectionSignal: connection.signal,
       connId: "composed-catalog",
@@ -304,7 +304,7 @@ export async function createComposedCatalogFixture(
           event === "sessions.catalog.host" &&
           Value.Check(SessionsCatalogHostEventSchema, payload)
         ) {
-          setupPublications.get(payload.progressId)?.(payload.catalog);
+          listPublications.get(payload.progressId)?.(payload.catalog);
         }
       },
       nodeSendToSession: () => {},
@@ -364,6 +364,7 @@ export async function createComposedCatalogFixture(
       }
       return host;
     };
+<<<<<<< HEAD
     const list = async (params: Partial<SessionsCatalogListParams> = {}) =>
       readHost((await requestList(params)).catalogs.find((value) => value.id === "codex"));
     const setupList = async (params: Partial<SessionsCatalogListParams> = {}) => {
@@ -402,9 +403,53 @@ export async function createComposedCatalogFixture(
           setupPublications.delete(progressId);
           await work.drain();
         }
+=======
+    const readSingleList = async (params: Partial<SessionsCatalogListParams> = {}) => {
+      const work = new AsyncWorkScope();
+      const progressId = `catalog-list-${++sequence}`;
+      let published: SessionCatalog | undefined;
+      listPublications.set(progressId, (catalog) => {
+        if (catalog.id === "codex" && catalog.hosts.every((host) => !host.pending)) {
+          published = catalog;
+        }
+      });
+      try {
+        const result = await work.track(() => requestList({ ...params, progressId }));
+        // Warm responses can precede refresh publication; count that work in the same sample.
+        return await work.runWhenIdle(() => {
+          const current = result.catalogs.find((value) => value.id === "codex");
+          return current?.error?.code === "catalog_pending" ? (published ?? current) : current;
+        });
+      } finally {
+        listPublications.delete(progressId);
+        await work.drain();
+>>>>>>> 97b6e87616f
+      }
+    };
+    const list = async (params: Partial<SessionsCatalogListParams> = {}) =>
+      readHost(await readSingleList(params));
+    const setupList = async (params: Partial<SessionsCatalogListParams> = {}) => {
+      for (let attempt = 1; ; attempt++) {
+        const catalog = await readSingleList(params);
+        const host = catalog?.hosts[0];
+        if (
+          attempt < SETUP_LIST_MAX_ATTEMPTS &&
+          !catalog?.error &&
+          catalog?.hosts.length === 1 &&
+          host?.hostId === "gateway:local" &&
+          host.error?.code === "APP_SERVER_UNAVAILABLE" &&
+          host.error.message === "Codex session catalog is still loading. Retry shortly."
+        ) {
+          // Foreground cold-list expiry does not stop index-owned hydration. Retry only
+          // fixture setup; measured list() calls retain the original single-request boundary.
+          await nextTurn();
+          continue;
+        }
+        return readHost(catalog);
       }
     };
     const setupMaintenance = { completed: 0 };
+    let maintenanceReady: ReturnType<typeof observeSessionMaintenanceCompletion> | undefined;
     return {
       api,
       projection,
@@ -415,9 +460,11 @@ export async function createComposedCatalogFixture(
       setupList,
       setupMaintenance,
       async continueSession(hostId: string, threadId: string, sourceHomeId?: string) {
-        const completed = observeSessionMaintenanceCompletion(databasePath, {
+        // Fresh adoptions reuse the first acknowledged maintenance deadline; subsequent
+        // no-op writes need not schedule another pass for the fixture to observe.
+        const completed = (maintenanceReady ??= observeSessionMaintenanceCompletion(databasePath, {
           automatic: true,
-        }).then(() => {
+        })).then(() => {
           setupMaintenance.completed++;
         });
         const [result] = await Promise.all([

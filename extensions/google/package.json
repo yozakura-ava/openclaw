@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/google-plugin",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "private": true,
   "description": "OpenClaw Google plugin",
   "type": "module",

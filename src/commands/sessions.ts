@@ -11,7 +11,11 @@ import type {
 import { sanitizeTerminalText } from "../../packages/terminal-core/src/safe-text.js";
 import { getTerminalTableWidth, renderTable } from "../../packages/terminal-core/src/table.js";
 import { colorize, isRich, theme } from "../../packages/terminal-core/src/theme.js";
+<<<<<<< HEAD
 import { readAcpSessionMetaBatch } from "../acp/runtime/session-meta.js";
+=======
+import { readAcpSessionMetaForEntries } from "../acp/runtime/session-meta-readonly.js";
+>>>>>>> 97b6e87616f
 import { resolveCurrentSessionAgentRuntimeMetadata } from "../agents/agent-runtime-metadata.js";
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope-config.js";
 import { findModelInCatalog } from "../agents/model-catalog-lookup.js";
@@ -26,7 +30,7 @@ import { resolveEffectiveAgentRuntime } from "../agents/thinking-runtime.js";
 import { resolveRuntimePolicySessionKey } from "../auto-reply/reply/runtime-policy-session-key.js";
 import { normalizeChatType } from "../channels/chat-type.js";
 import { ExpectedCliError } from "../cli/failure-output.js";
-import { getRuntimeConfig } from "../config/config.js";
+import { captureRuntimeConfigAsyncReader } from "../config/config.js";
 import { resolveFreshSessionTotalTokens, resolveSessionTotalTokens } from "../config/sessions.js";
 import { resolveProjectedSessionContextTokens } from "../config/sessions/context-token-provenance.js";
 import { listSessionEntriesReadOnly } from "../config/sessions/session-accessor.js";
@@ -268,7 +272,11 @@ export async function sessionsCommand(
   runtime: RuntimeEnv,
 ) {
   const aggregateAgents = opts.allAgents === true;
+<<<<<<< HEAD
   const cfg = getRuntimeConfig();
+=======
+  const cfg = await captureRuntimeConfigAsyncReader()();
+>>>>>>> 97b6e87616f
   const { resolveModelContextTokenProjection } = await import("../agents/context.js");
   const { loadPreparedModelCatalogSnapshot } = await import("../agents/prepared-model-catalog.js");
   const { callGateway, isImplicitLocalGatewayTarget } = await import("../gateway/call.js");
@@ -319,7 +327,7 @@ export async function sessionsCommand(
       return { acpSessionKey, agentId, entry, row };
     },
   );
-  const acpSessionMetaByEntry = readAcpSessionMetaBatch({
+  const acpSessionMetadata = await readAcpSessionMetaForEntries({
     cfg,
     entries: sessionEntries.map(({ acpSessionKey, agentId, entry }) => ({
       sessionKey: acpSessionKey,
@@ -347,8 +355,13 @@ export async function sessionsCommand(
         })
       : undefined;
   const rows = await Promise.all(
+<<<<<<< HEAD
     sessionEntries.map(async ({ acpSessionKey, agentId, entry, row }) => {
       const acpMeta = acpSessionMetaByEntry.get(entry);
+=======
+    sessionEntries.map(async ({ acpSessionKey, agentId, entry, row }, index) => {
+      const acpMeta = acpSessionMetadata[index];
+>>>>>>> 97b6e87616f
       const acpRuntime = acpMeta != null;
       // ACP rows need stored-key metadata before model/runtime resolution so
       // bridge sessions and true ACP runtime sessions display differently.
@@ -518,7 +531,9 @@ export async function sessionsCommand(
 
   const primaryTarget = targets[0];
   if (primaryTarget && targets.length === 1 && !aggregateAgents) {
-    runtime.log(info(`Session store: ${resolveSessionStoreDisplayPath(primaryTarget)}`));
+    runtime.log(
+      info(`Session store: ${sanitizeTerminalText(resolveSessionStoreDisplayPath(primaryTarget))}`),
+    );
   } else {
     runtime.log(
       info(`Session stores: ${targets.length} (${targets.map((t) => t.agentId).join(", ")})`),

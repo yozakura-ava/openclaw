@@ -1,9 +1,15 @@
 // Source-delivery plans decide whether final output is visible through the
 // message tool, direct fallback delivery, both, or neither.
-import type { SourceReplyDeliveryMode } from "../../auto-reply/get-reply-options.types.js";
 import { getChannelPlugin } from "../../channels/plugins/index.js";
 import { stringifyRouteThreadId } from "../../plugin-sdk/channel-route.js";
+import type {
+  SourceDeliveryMessageToolTarget,
+  SourceDeliveryOutcome,
+  SourceDeliveryPlan,
+  SourceDeliveryTarget,
+} from "./source-delivery-plan.types.js";
 import { normalizeTargetForProvider } from "./target-normalization.js";
+<<<<<<< HEAD
 
 /** Owner responsible for making source delivery visible to the user. */
 type SourceVisibleDeliveryOwner =
@@ -79,6 +85,15 @@ export type SourceDeliveryPlan = {
     skipWhenMessageToolSentToTarget: boolean;
   };
 };
+=======
+export type {
+  SourceDeliveryMessageToolTarget,
+  SourceDeliveryOutcome,
+  SourceDeliveryPlan,
+  SourceDeliveryTarget,
+  SourceDeliveryVisibleDelivery,
+} from "./source-delivery-plan.types.js";
+>>>>>>> 97b6e87616f
 
 function normalizeDeliveryTarget(channel: string, to: string): string {
   const toTrimmed = to.trim();

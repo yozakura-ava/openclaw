@@ -180,7 +180,8 @@ describe("update-cli", () => {
 
       await updateCommand({ dryRun: true });
       if (command !== "gateway") {
-        expect(getLogOutput()).toContain("Restart the Gateway you launched manually");
+        expect(getLogOutput()).toContain("Gateway service inspection is unavailable");
+        expect(getLogOutput()).toContain("openclaw gateway status --deep");
       }
 
       expect(serviceReadCommand).toHaveBeenCalledTimes(2);

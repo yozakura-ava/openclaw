@@ -2,12 +2,18 @@ import { randomUUID } from "node:crypto";
 import { getAgentToolExecutionContext } from "../../../packages/agent-core/src/tool-execution-context.js";
 import { GatewayClientRequestError } from "../../../packages/gateway-client/src/request-error.js";
 import { resolveActiveReplyOperationForSessionId } from "../../auto-reply/reply/reply-run-registry.js";
+<<<<<<< HEAD
 import {
   captureSessionEventTargetForHost,
   enqueueSessionEventForHost,
 } from "../../auto-reply/reply/session-event-handoff.js";
 import { prepareSessionEventTargetForHost } from "../../auto-reply/reply/session-event-target.js";
 import { captureOperatorToolGatewayContinuationContext } from "../../gateway/server-plugin-in-process-dispatch.js";
+=======
+import { captureSessionEventTargetForHost } from "../../auto-reply/reply/session-event-handoff.js";
+import { prepareSessionEventTargetForHost } from "../../auto-reply/reply/session-event-target.js";
+import { captureOperatorToolGatewayRequestContinuationContext } from "../../gateway/server-plugin-in-process-dispatch.js";
+>>>>>>> 97b6e87616f
 import { formatErrorMessage } from "../../infra/errors.js";
 import {
   execRequestAbortSignal,
@@ -17,10 +23,18 @@ import {
 } from "../../infra/exec-request-context.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import { runWithGatewayDetachedWorkContinuation } from "../../process/gateway-work-admission.js";
+<<<<<<< HEAD
 import { runOutsidePreparedModelRuntimePluginGenerationScope } from "../prepared-model-runtime-generation-scope.js";
 import { jsonResult, ToolInputError } from "./common.js";
 import { getGatewayToolCallerIdentity } from "./gateway-caller-context.js";
 import { callAgentToolGatewayRequest } from "./in-process-gateway.js";
+=======
+import { isInternalRouteContext } from "../../utils/delivery-context.shared.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../../utils/message-channel.js";
+import { runOutsidePreparedModelRuntimePluginGenerationScope } from "../prepared-model-runtime-generation-scope.js";
+import { jsonResult, ToolInputError } from "./common.js";
+import { getGatewayToolCallerIdentity } from "./gateway-caller-context.js";
+>>>>>>> 97b6e87616f
 import type { SessionsYieldCallback } from "./sessions-yield-tool.js";
 
 const log = createSubsystemLogger("plugins/reload-handoff");
@@ -55,6 +69,7 @@ export async function handoffPluginReload(params: {
     throw new ToolInputError("This turn already handed off a plugin reload.");
   }
   pending.add(operation);
+<<<<<<< HEAD
   let continuation: Awaited<ReturnType<typeof captureOperatorToolGatewayContinuationContext>> =
     undefined;
   try {
@@ -62,6 +77,19 @@ export async function handoffPluginReload(params: {
       agentId: caller.agentId,
       sessionKey: caller.sessionKey,
     });
+=======
+  let continuation: Awaited<
+    ReturnType<typeof captureOperatorToolGatewayRequestContinuationContext>
+  > = undefined;
+  try {
+    continuation = await captureOperatorToolGatewayRequestContinuationContext(
+      {
+        agentId: caller.agentId,
+        sessionKey: caller.sessionKey,
+      },
+      { method: "plugins.reload", params: params.request },
+    );
+>>>>>>> 97b6e87616f
     if (!continuation) {
       throw new ToolInputError("reloadAndResume requires its admitted Gateway.");
     }
@@ -69,6 +97,17 @@ export async function handoffPluginReload(params: {
     if (target.sessionId !== params.sessionId) {
       throw new ToolInputError("The reload requester session changed before handoff.");
     }
+<<<<<<< HEAD
+=======
+    // Internal turns have no external conversation to resume in. Keep the
+    // captured session route for external callers, but not for Control UI wakes.
+    const resumeRoute =
+      isInternalRouteContext({ channel: caller.turnSourceChannel }) &&
+      (!caller.turnSourceTo || caller.turnSourceTo === caller.sessionKey) &&
+      target.deliveryContext?.channel
+        ? { channel: INTERNAL_MESSAGE_CHANNEL }
+        : undefined;
+>>>>>>> 97b6e87616f
     continuation.assertCurrent();
     operation.abortSignal.throwIfAborted();
     params.signal?.throwIfAborted();
@@ -104,6 +143,7 @@ export async function handoffPluginReload(params: {
                 try {
                   const destination = await prepareSessionEventTargetForHost(target);
                   try {
+<<<<<<< HEAD
                     result = await retained.run(() =>
                       callAgentToolGatewayRequest({
                         method: "plugins.reload",
@@ -113,6 +153,12 @@ export async function handoffPluginReload(params: {
                         timeoutMs: null,
                       }),
                     );
+=======
+                    result = await retained.dispatch({
+                      assertCurrent: destination.assertCurrent,
+                      signal: AbortSignal.any([retained.signal, signal]),
+                    });
+>>>>>>> 97b6e87616f
                   } finally {
                     destination.release();
                   }
@@ -128,7 +174,11 @@ export async function handoffPluginReload(params: {
                 if (signal.aborted) {
                   return;
                 }
+<<<<<<< HEAD
                 const receipt = enqueueSessionEventForHost(
+=======
+                const receipt = await retained.enqueueSessionEvent(
+>>>>>>> 97b6e87616f
                   "Plugin reload result: " +
                     params.formatResult(result) +
                     "\nContinue the original task in this conversation. Do not repeat a completed reload.",
@@ -139,6 +189,10 @@ export async function handoffPluginReload(params: {
                       source: "plugin",
                       contextKey: "plugin-reload:" + randomUUID(),
                       expectedTarget: target,
+<<<<<<< HEAD
+=======
+                      ...(resumeRoute ? { deliveryContext: resumeRoute } : {}),
+>>>>>>> 97b6e87616f
                       assertCurrent: retained.assertCurrent,
                       abortSignal: signal,
                     },

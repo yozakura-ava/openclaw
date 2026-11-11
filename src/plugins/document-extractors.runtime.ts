@@ -1,7 +1,11 @@
 /** Resolves bundled document extractor providers from enabled manifest contracts. */
+import { formatErrorMessage } from "@openclaw/normalization-core/error-coercion";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+<<<<<<< HEAD
 import { formatErrorMessage } from "../infra/errors.js";
+=======
+>>>>>>> 97b6e87616f
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveEnabledBundledManifestContractPlugins } from "./bundled-manifest-contract-plugins.js";
 import { normalizePluginsConfig } from "./config-state.js";

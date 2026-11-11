@@ -1,5 +1,12 @@
 import { setImmediate } from "node:timers/promises";
 import { expect, it } from "vitest";
+<<<<<<< HEAD
+=======
+import {
+  ensureCodexAppServerClientRuntime,
+  retainCodexAppServerLiveThread,
+} from "./client-runtime.js";
+>>>>>>> 97b6e87616f
 import { bindingStoreKey, createCodexAppServerBindingStore } from "./session-binding.js";
 import { createCodexTestBindingStateStore } from "./session-binding.test-helpers.js";
 import {
@@ -13,7 +20,11 @@ import { createCodexThreadLifecycleTimingTracker } from "./thread-lifecycle-timi
 import { releaseCodexBoundLiveThread } from "./thread-lifecycle-warm.js";
 import { withCodexAppServerThreadMutation } from "./thread-ownership-queue.js";
 
+<<<<<<< HEAD
 function createHandoffFixture(
+=======
+async function createHandoffFixture(
+>>>>>>> 97b6e87616f
   label: string,
   readThread?: { id?: string; status: "notLoaded" | "idle" },
 ) {
@@ -22,6 +33,12 @@ function createHandoffFixture(
     autoEmitExit: false,
     onWrite: (line, send) => {
       const request = JSON.parse(line) as { id: number; method: string };
+<<<<<<< HEAD
+=======
+      if (request.method === "thread/unsubscribe") {
+        send({ id: request.id, result: {} });
+      }
+>>>>>>> 97b6e87616f
       if (readThread && request.method === "thread/read") {
         send({
           id: request.id,
@@ -47,6 +64,11 @@ function createHandoffFixture(
   const rawBindings = createCodexTestBindingStateStore();
   const bindings = createCodexAppServerBindingStore(rawBindings);
   const identity = { kind: "session" as const, agentId: "main", sessionId: label };
+<<<<<<< HEAD
+=======
+  ensureCodexAppServerClientRuntime(old.client, { agentDir: "" });
+  expect(await retainCodexAppServerLiveThread(old.client, threadId)).toBe(true);
+>>>>>>> 97b6e87616f
   const handoff = (signal?: AbortSignal) =>
     releaseCodexBoundLiveThread({
       client: successor.client,
@@ -81,6 +103,7 @@ function createHandoffFixture(
   };
 }
 
+<<<<<<< HEAD
 it.each(["thread/archived", "thread/deleted", "thread/closed"] as const)(
   "releases a retired owner handoff after %s without waiting for process exit",
   async (method) => {
@@ -115,6 +138,12 @@ it.each(["closed", "force-retired"] as const)(
   "cancels a %s owner handoff and admits a successor without releasing the physical writer fence",
   async (state) => {
     const fixture = createHandoffFixture(state);
+=======
+it.each(["closed", "force-retired"] as const)(
+  "cancels a %s owner handoff and admits a successor without releasing the physical writer fence",
+  async (state) => {
+    const fixture = await createHandoffFixture(state);
+>>>>>>> 97b6e87616f
     if (state === "closed") {
       fixture.old.client.close();
     } else {
@@ -193,7 +222,11 @@ it.each(["closed", "force-retired"] as const)(
 );
 
 it("rejects a pre-aborted closed-owner handoff without retaining a client lease", async () => {
+<<<<<<< HEAD
   const fixture = createHandoffFixture("pre-aborted-closed");
+=======
+  const fixture = await createHandoffFixture("pre-aborted-closed");
+>>>>>>> 97b6e87616f
   retireSharedCodexAppServerClientIfCurrent(fixture.old.client, { failActiveLeases: true });
   const controller = new AbortController();
   const reason = new Error("already cancelled");
@@ -224,7 +257,11 @@ it("rejects a pre-aborted closed-owner handoff without retaining a client lease"
 it.each(["before", "during"] as const)(
   "releases a usable retired-owner retain when cancellation arrives %s acquisition",
   async (when) => {
+<<<<<<< HEAD
     const fixture = createHandoffFixture(`usable-retired-${when}`);
+=======
+    const fixture = await createHandoffFixture(`usable-retired-${when}`);
+>>>>>>> 97b6e87616f
     retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
     const controller = new AbortController();
     const reason = new Error("cancelled handoff");
@@ -251,6 +288,7 @@ it.each(["before", "during"] as const)(
   },
 );
 
+<<<<<<< HEAD
 it("admits a retired-owner handoff when the old client reports the exact thread unloaded", async () => {
   const fixture = createHandoffFixture("unloaded-old-thread", { status: "notLoaded" });
   retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
@@ -260,6 +298,20 @@ it("admits a retired-owner handoff when the old client reports the exact thread 
     expect(fixture.entry.activeLeases).toBe(1);
     expect(fixture.old.client.getCloseError()).toBeUndefined();
     expect(fixture.old.process.exitCode).toBeNull();
+=======
+it("admits a retired-owner handoff when exact closure preceded listener registration", async () => {
+  const fixture = await createHandoffFixture("already-closed-thread-live-sibling");
+  retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
+  fixture.old.send({ method: "thread/closed", params: { threadId: fixture.threadId } });
+  try {
+    await fixture.handoff();
+    await fixture.successor.client.request("thread/resume", { threadId: fixture.threadId });
+    expect(fixture.entry.activeLeases).toBe(1);
+    expect(fixture.old.process.exitCode).toBeNull();
+    expect(fixture.successor.writes.map((line) => JSON.parse(line))).toEqual([
+      expect.objectContaining({ method: "thread/resume", params: { threadId: fixture.threadId } }),
+    ]);
+>>>>>>> 97b6e87616f
   } finally {
     fixture.old.emitExit();
     fixture.cleanup();
@@ -267,7 +319,11 @@ it("admits a retired-owner handoff when the old client reports the exact thread 
 });
 
 it("rejects an unloaded status belonging to a different old thread", async () => {
+<<<<<<< HEAD
   const fixture = createHandoffFixture("wrong-thread-status", {
+=======
+  const fixture = await createHandoffFixture("wrong-thread-status", {
+>>>>>>> 97b6e87616f
     id: "unrelated-thread",
     status: "notLoaded",
   });
@@ -288,7 +344,11 @@ it("rejects an unloaded status belonging to a different old thread", async () =>
 });
 
 it("keeps waiting when the old thread is still loaded", async () => {
+<<<<<<< HEAD
   const fixture = createHandoffFixture("loaded-old-thread", { status: "idle" });
+=======
+  const fixture = await createHandoffFixture("loaded-old-thread", { status: "idle" });
+>>>>>>> 97b6e87616f
   retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
   let resumed = false;
   const handoff = fixture.handoff().then(() => {
@@ -309,7 +369,11 @@ it("keeps waiting when the old thread is still loaded", async () => {
 });
 
 it("cancels a passive old-thread read without stopping sibling work", async () => {
+<<<<<<< HEAD
   const fixture = createHandoffFixture("cancelled-status-read");
+=======
+  const fixture = await createHandoffFixture("cancelled-status-read");
+>>>>>>> 97b6e87616f
   retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
   const controller = new AbortController();
   const reason = new Error("cancelled during old-thread status read");
@@ -332,7 +396,11 @@ it("cancels a passive old-thread read without stopping sibling work", async () =
 });
 
 it("keeps waiting for the retired process exit when its passive status read fails", async () => {
+<<<<<<< HEAD
   const fixture = createHandoffFixture("closed-during-status-read");
+=======
+  const fixture = await createHandoffFixture("closed-during-status-read");
+>>>>>>> 97b6e87616f
   retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
   let outcome: unknown = "pending";
   const handoff = fixture.handoff().then(
@@ -359,3 +427,26 @@ it("keeps waiting for the retired process exit when its passive status read fail
     fixture.cleanup();
   }
 });
+<<<<<<< HEAD
+=======
+
+it("cancels its passive read when exact closure releases the handoff", async () => {
+  const fixture = await createHandoffFixture("closure-during-status-read");
+  retireSharedCodexAppServerClientIfCurrent(fixture.old.client);
+  const handoff = fixture.handoff();
+  try {
+    await setImmediate();
+    expect(fixture.old.client.getPendingRequestMethods()).toContain("thread/read");
+    fixture.old.send({ method: "thread/closed", params: { threadId: fixture.threadId } });
+    await handoff;
+    expect(fixture.old.client.getPendingRequestMethods()).toEqual([]);
+    expect(fixture.entry.activeLeases).toBe(1);
+    expect(fixture.old.client.getCloseError()).toBeUndefined();
+    expect(fixture.old.process.exitCode).toBeNull();
+  } finally {
+    fixture.old.emitExit();
+    await Promise.allSettled([handoff]);
+    fixture.cleanup();
+  }
+});
+>>>>>>> 97b6e87616f

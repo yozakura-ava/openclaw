@@ -1,7 +1,11 @@
 // Preserve module setup before modules that consume it.
 // oxfmt-ignore
 import { useSubagentControlFixture } from "../../agents/subagents/registry/subagent-control.test-support.js";
+<<<<<<< HEAD
 import { expect, it, vi } from "vitest";
+=======
+import { beforeEach, expect, it, vi } from "vitest";
+>>>>>>> 97b6e87616f
 import { markStartupOrphanedMainSessionsForRecovery } from "../../agents/main-session-recovery/main-session-restart-recovery-marking.js";
 import { killAllControlledSubagentRuns } from "../../agents/subagents/registry/subagent-control-kill.js";
 import { subagentRuns } from "../../agents/subagents/registry/subagent-registry-memory.js";
@@ -14,7 +18,11 @@ import {
 } from "../../agents/subagents/registry/subagent-registry.js";
 import { writeSubagentSessionEntry } from "../../agents/subagents/registry/subagent-registry.persistence.test-support.js";
 import { getSubagentRunByChildSessionKey } from "../../agents/subagents/registry/subagent-registry.test-helpers.js";
+<<<<<<< HEAD
 import { getRuntimeConfig } from "../../config/config.js";
+=======
+import { captureRuntimeConfigAsyncReader, getRuntimeConfig } from "../../config/config.js";
+>>>>>>> 97b6e87616f
 import {
   loadSessionEntry,
   replaceSessionEntrySync,
@@ -30,6 +38,13 @@ import { createChatAbortContext } from "./chat.abort.test-helpers.js";
 import { sessionAbortHandlers } from "./sessions-abort.js";
 
 const fixture = useSubagentControlFixture();
+<<<<<<< HEAD
+=======
+
+beforeEach(async () => {
+  await captureRuntimeConfigAsyncReader()();
+});
+>>>>>>> 97b6e87616f
 const parentKey = "agent:main:dashboard:retirement-parent";
 const parentId = "retirement-parent-session";
 const parentRunId = "retirement-parent-run";
@@ -72,6 +87,11 @@ async function seedYieldedParent() {
   await registerSubagentRun({
     runId: childRunId,
     childSessionKey: childKey,
+<<<<<<< HEAD
+=======
+    childAgentId: "main",
+    sessionEntry: { sessionId: childId, lifecycleRevision: "original-incarnation" },
+>>>>>>> 97b6e87616f
     requesterSessionKey: parentKey,
     requesterAgentId: "main",
     requesterDisplayKey: parentKey,

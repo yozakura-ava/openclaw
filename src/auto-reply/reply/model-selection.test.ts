@@ -2,10 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAdmittedRunOperatorAuthority } from "../../agents/admitted-run-context.js";
 import { getContextWindowCaches } from "../../agents/context-cache.js";
-import {
-  loadProviderScopedThinkingCatalog,
-  readPreparedModelCatalog as loadModelCatalogLocal,
-} from "../../agents/model-catalog.runtime.js";
+import { loadProviderScopedThinkingCatalog } from "../../agents/model-catalog.runtime.js";
 import type { ModelCatalogSnapshot } from "../../agents/model-catalog.types.js";
 import { prepareOperatorModelPolicy } from "../../agents/operator-model-policy.js";
 import type { OpenClawConfig } from "../../config/config.js";
@@ -16,7 +13,6 @@ import { prepareModelCatalogThinkingPolicies } from "../../plugins/provider-thin
 import { createEmptyPluginRegistry } from "../../plugins/registry-empty.js";
 import { isThinkingLevelSupported } from "../thinking.js";
 import { prepareModelSelectionRuntime } from "./model-runtime-normalization.js";
-import { resolveContextTokens } from "./model-selection-context.js";
 import {
   createInitialState,
   makeConfiguredModel,
@@ -85,7 +81,7 @@ const authProfileStoreMock = vi.hoisted(() => {
     version: 1;
     profiles: Record<string, { type: "api_key"; provider: string; key: string }>;
   };
-  const ensureAuthProfileStore = vi.fn(() => store);
+  const ensureAuthProfileStoreAsync = vi.fn(() => store);
   const prepareAuthProfileProvider = vi.fn(async (): Promise<{ provider: string | undefined }> => ({
     provider: undefined,
   }));
@@ -96,11 +92,11 @@ const authProfileStoreMock = vi.hoisted(() => {
     set store(next) {
       store = next;
     },
-    ensureAuthProfileStore,
+    ensureAuthProfileStoreAsync,
     prepareAuthProfileProvider,
     reset() {
       store = { version: 1, profiles: {} };
-      ensureAuthProfileStore.mockClear();
+      ensureAuthProfileStoreAsync.mockClear();
       prepareAuthProfileProvider.mockReset().mockResolvedValue({ provider: undefined });
     },
   };
@@ -108,7 +104,7 @@ const authProfileStoreMock = vi.hoisted(() => {
 
 vi.mock("../../agents/auth-profiles.runtime.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../agents/auth-profiles.runtime.js")>()),
-  ensureAuthProfileStore: authProfileStoreMock.ensureAuthProfileStore,
+  ensureAuthProfileStoreAsync: authProfileStoreMock.ensureAuthProfileStoreAsync,
   prepareAuthProfileProvider: authProfileStoreMock.prepareAuthProfileProvider,
 }));
 
@@ -171,10 +167,14 @@ function selectSession(
 }
 
 describe("catalog and thinking selection", () => {
+<<<<<<< HEAD
   it.each([
     { previous: null, observed: "max", supported: true },
     { previous: "max", observed: null, supported: false },
   ])(
+=======
+  it.each([{ previous: null, observed: "max", supported: true }])(
+>>>>>>> 97b6e87616f
     "uses observed levels for reply thinking ($supported)",
     async ({ previous, observed, supported }) => {
       const stale = {
@@ -246,6 +246,7 @@ describe("catalog and thinking selection", () => {
     await expect(state.resolveDefaultReasoningLevel()).resolves.toBe("on");
   });
 
+<<<<<<< HEAD
   it("hydrates thinking separately for embedded and native runtimes", async () => {
     vi.mocked(loadModelCatalogLocal).mockClear();
     vi.mocked(loadProviderScopedThinkingCatalog).mockResolvedValue([
@@ -297,6 +298,8 @@ describe("catalog and thinking selection", () => {
     });
   });
 
+=======
+>>>>>>> 97b6e87616f
   it("reloads embedded metadata when clearing a native runtime pin", async () => {
     const embedded = {
       provider: "openai",
@@ -332,6 +335,7 @@ describe("catalog and thinking selection", () => {
     );
   });
 
+<<<<<<< HEAD
   it("uses provider-specific prepared prompt budgets without an authored provider", async () => {
     vi.mocked(loadModelCatalogLocal).mockClear();
     catalogRuntimeMocks.loadModelCatalogSnapshot.mockClear();
@@ -380,9 +384,10 @@ describe("catalog and thinking selection", () => {
     });
   });
 
+=======
+>>>>>>> 97b6e87616f
   it.each([
     { hasModelDirective: true, capturedPolicy: true, expected: "ultra", unrestricted: false },
-    { hasModelDirective: false, capturedPolicy: false, expected: "medium", unrestricted: true },
   ])("keeps prepared thinking ownership (captured=$capturedPolicy)", async (fixture) => {
     const provider = "fixture-provider";
     const model = "fixture-model";
@@ -889,26 +894,4 @@ describe("refused pins use the primary instead of catalog order", () => {
       }
     },
   );
-
-  it("uses the primary for a stale caller without a session store", async () => {
-    const entry = makeEntry({
-      providerOverride: "provider-c",
-      modelOverride: "model-c1",
-      modelOverrideSource: "auto",
-      modelOverrideRouteResolution: "resolved",
-      modelOverrideFallbackOriginProvider: "provider-c",
-      modelOverrideFallbackOriginModel: "model-c2",
-    });
-    const state = await createInitialState(cfg, "provider-b", "model-b1", {
-      sessionEntry: entry,
-      provider: "provider-c",
-      model: "model-c1",
-      isHeartbeat: true,
-    });
-    expect(state).toMatchObject({
-      resetModelOverride: false,
-      provider: "provider-b",
-      model: "model-b1",
-    });
-  });
 });

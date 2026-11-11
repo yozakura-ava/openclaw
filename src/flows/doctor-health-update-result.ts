@@ -37,10 +37,20 @@ export async function publishDoctorUpdateResult(params: {
   );
   const outcome = { ...doctorResult };
   delete outcome.warnings;
+<<<<<<< HEAD
+=======
+  delete outcome.deferredInspectionCheckIds;
+>>>>>>> 97b6e87616f
   await writeUpdatePostInstallDoctorResult({
     resultPath: updateResult.resultPath,
     result: {
       ...outcome,
+<<<<<<< HEAD
+=======
+      ...(updateResult.capture.deferredInspectionCheckIds
+        ? { deferredInspectionCheckIds: updateResult.capture.deferredInspectionCheckIds }
+        : {}),
+>>>>>>> 97b6e87616f
       ...(maintenance?.databaseWrites ? { databaseWrites: maintenance.databaseWrites } : {}),
       ...(updateResult.capture.fileWrites
         ? { configFileWrites: updateResult.capture.fileWrites }

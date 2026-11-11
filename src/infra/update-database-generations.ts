@@ -4,6 +4,7 @@ import { hashFileDescriptorSync } from "./file-descriptor.js";
 import { openNodeSqliteDatabase } from "./node-sqlite.js";
 import { hasNodeErrorCode } from "./path-guards.js";
 import {
+  createSqliteFileGenerationReader,
   readStableSqliteFileGeneration,
   sameSqliteFileGeneration,
 } from "./sqlite-file-generation.js";
@@ -96,9 +97,10 @@ export function readUpdateDatabaseGenerations(paths: readonly string[]): UpdateD
         throw new Error(`Database generation requires a regular file: ${pathname}`);
       }
       const before = readWalIndexHeader(pathname);
-      const generation = readStableSqliteFileGeneration(pathname);
+      const readGeneration = createSqliteFileGenerationReader();
+      const generation = readStableSqliteFileGeneration(pathname, readGeneration);
       const content = readCommittedContent(pathname);
-      const current = readStableSqliteFileGeneration(pathname);
+      const current = readStableSqliteFileGeneration(pathname, readGeneration);
       const after = readWalIndexHeader(pathname);
       if (
         !sameSqliteFileGeneration(generation, current) ||
@@ -129,4 +131,25 @@ export function readUpdateDatabaseGenerations(paths: readonly string[]): UpdateD
       ];
     }),
   );
+}
+
+export async function readUpdatePhysicalDatabaseGenerations(paths: readonly string[]) {
+  const result = readUpdateDatabaseGenerations(paths);
+  const { readBackupEngine, fingerprintPostgresBackup } =
+    await import("../snapshot/database-backup.js");
+  const postgres = paths.filter(
+    (pathname) => result[pathname] !== null && readBackupEngine(pathname).engine === "postgres",
+  );
+  if (postgres.length) {
+    const { createConfigIO } = await import("../config/io.js");
+    const { config } = await createConfigIO({
+      observe: false,
+      pluginValidation: "core-only",
+      shellEnvFallback: "defer",
+    }).readConfigFileSnapshot();
+    for (const pathname of postgres) {
+      result[pathname] = await fingerprintPostgresBackup(pathname, config);
+    }
+  }
+  return result;
 }

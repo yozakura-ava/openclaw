@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/openshell-sandbox",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "OpenClaw sandbox backend for the NVIDIA OpenShell CLI with mirrored local workspaces and SSH command execution.",
   "repository": {
     "type": "git",
@@ -8,7 +12,11 @@
   },
   "type": "module",
   "dependencies": {
+<<<<<<< HEAD
     "@openclaw/fs-safe": "0.26.0",
+=======
+    "@openclaw/fs-safe": "0.26.5",
+>>>>>>> 97b6e87616f
     "p-limit": "7.3.3",
     "zod": "4.6.5"
   },
@@ -26,10 +34,17 @@
       "minHostVersion": ">=2026.5.12-beta.1"
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "openclawVersion": "2026.10.8",
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1",
+>>>>>>> 97b6e87616f
       "bundledDist": false
     },
     "release": {

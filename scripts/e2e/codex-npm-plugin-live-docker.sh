@@ -67,6 +67,7 @@ if [[ -z "$BINDING_STORE_CONTRACT" ]]; then
     BINDING_STORE_CONTRACT="legacy-sidecar"
   fi
 fi
+<<<<<<< HEAD
 # The source-reply contract moved out of dynamic-tools.ts (#164558); search the app-server
 # sources so split candidates still select the explicit-finality contract.
 if grep -rqs --include='*.ts' --exclude='*.test.ts' \
@@ -77,6 +78,19 @@ else
   # Frozen candidates continue after omitted finality; current candidates require false.
   FOLLOWTHROUGH_PROGRESS_FINAL_MODE="legacy"
 fi
+=======
+# Frozen candidates continue after omitted finality; current candidates require false.
+# The contract moved to dynamic-tool-source-reply.ts with tool-authored source replies
+# (#164558); older candidates define it in dynamic-tools.ts.
+FOLLOWTHROUGH_PROGRESS_FINAL_MODE="legacy"
+for progress_contract_file in dynamic-tool-source-reply.ts dynamic-tools.ts; do
+  if grep -q 'continuesSourceReplyProgress' \
+    "$CANDIDATE_ROOT/extensions/codex/src/app-server/$progress_contract_file" 2>/dev/null; then
+    FOLLOWTHROUGH_PROGRESS_FINAL_MODE="explicit"
+    break
+  fi
+done
+>>>>>>> 97b6e87616f
 run_log=""
 # Signal traps inherit the harness function's log redirection. Reserve the original stdout
 # so EXIT cleanup cannot print the failure tail back into the log it is reading.

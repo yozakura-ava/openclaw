@@ -31,6 +31,7 @@ import type { CronExecutionIdentityAdmission } from "./service/state.js";
 /** Owns one cron tool admission and its private message grant through settlement. */
 export function prepareCronRunAdmission(params: {
   admissionSource?: AdmittedRunContext["admissionSource"];
+  assertSourceCurrent?: () => void;
   cfg: OpenClawConfig;
   agentId: string;
   runId: string;
@@ -42,8 +43,14 @@ export function prepareCronRunAdmission(params: {
   toolsAllow?: string[];
   scheduledToolPolicy?: ScheduledToolPolicyContext;
   executionIdentity?: CronExecutionIdentityAdmission;
+<<<<<<< HEAD
   operatorAuthority?: AdmittedRunOperatorAuthority;
   ingressBoundary?: "cron.isolated-agent" | "cron.script";
+=======
+  ingressBoundary?: "cron.isolated-agent" | "cron.session-agent" | "cron.script";
+  onAdmitted?: (context: AdmittedRunContext) => void;
+  operatorAuthority?: AdmittedRunOperatorAuthority;
+>>>>>>> 97b6e87616f
   resolveGatewayContext?: GatewayContextResolver;
 }) {
   const { runId, scheduledToolPolicy } = params;
@@ -54,6 +61,10 @@ export function prepareCronRunAdmission(params: {
   const basePreparedRunAdmission = prepareAgentRunAdmission({
     operationalRunInstance,
     admissionSource: params.admissionSource,
+<<<<<<< HEAD
+=======
+    assertSourceCurrent: params.assertSourceCurrent,
+>>>>>>> 97b6e87616f
     operatorAuthority: params.operatorAuthority,
     cfg: params.cfg,
     facts: {
@@ -69,6 +80,7 @@ export function prepareCronRunAdmission(params: {
     onAdmitted: (admitted) => {
       bindGatewayContextResolver(admitted, resolveGatewayContext);
       assertAdmitted = resolveAdmittedRunActiveAssertion(admitted);
+      params.onAdmitted?.(admitted);
     },
   });
   const preparedRunAdmission = params.executionIdentity?.onPostAdmission
@@ -116,21 +128,6 @@ export function prepareCronRunAdmission(params: {
               scheduled: {
                 policy: scheduledToolPolicy,
                 assertCurrent: scheduledMessageAuthority,
-                ...(scheduledMessageAuthority.prepareUse
-                  ? {
-                      prepareUse: (sourceSensitive: boolean, assertCurrent?: () => void) => {
-                        const prepare = (
-                          sourceSensitive
-                            ? scheduledMessageSourceAuthority
-                            : scheduledMessageAuthority
-                        )?.prepareUse;
-                        if (!prepare) {
-                          throw new Error("Cron message source has no prepared authority");
-                        }
-                        return prepare(assertCurrent);
-                      },
-                    }
-                  : {}),
                 ...(scheduledMessageSourceAuthority
                   ? { assertSourceCurrent: scheduledMessageSourceAuthority }
                   : {}),

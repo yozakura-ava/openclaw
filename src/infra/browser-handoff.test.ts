@@ -82,11 +82,20 @@ describe("openUrlPrivately", () => {
     async () => {
       const realMkdir = (await import("node:fs")).mkdirSync;
       const realOpen = (await import("node:fs")).openSync;
+<<<<<<< HEAD
+=======
+      const realClose = (await import("node:fs")).closeSync;
+>>>>>>> 97b6e87616f
       createPrivateWindowsDirectoryMock.mockImplementation((dir) => {
         realMkdir(dir, { mode: 0o700 });
       });
       createPrivateWindowsFileMock.mockImplementation((filePath: string) => {
+<<<<<<< HEAD
         return realOpen(filePath, "wx", 0o600);
+=======
+        const fd = realOpen(filePath, "wx", 0o600);
+        return { fd, close: () => realClose(fd), [Symbol.dispose]: () => realClose(fd) };
+>>>>>>> 97b6e87616f
       });
       const platform = vi.spyOn(process, "platform", "get").mockReturnValue("win32");
       try {

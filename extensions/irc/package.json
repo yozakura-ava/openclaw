@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/irc",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "OpenClaw IRC channel plugin",
   "type": "module",
   "devDependencies": {
@@ -124,10 +128,17 @@
       }
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "openclawVersion": "2026.10.8",
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1",
+>>>>>>> 97b6e87616f
       "bundledDist": false
     },
     "release": {

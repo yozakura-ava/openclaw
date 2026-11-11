@@ -1,30 +1,45 @@
 #!/usr/bin/env node
 
 import { execFileSync, spawnSync } from "node:child_process";
+<<<<<<< HEAD
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+=======
+>>>>>>> 97b6e87616f
 import process from "node:process";
 import { booleanFlag, parseFlagArgs, stringFlag } from "./lib/arg-utils.mts";
 import { runManagedCommand } from "./lib/managed-child-process.mts";
 
 type ReleasePrepushCommand = {
   name: string;
+<<<<<<< HEAD
   bin: "node" | "pnpm";
   args: string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
+=======
+  bin: "git" | "node";
+  args: string[];
+  cwd: string;
+>>>>>>> 97b6e87616f
 };
 
 type ReleasePrepushDependencies = {
   assertCleanWorktree: () => void;
   assertAuditBounds: (baseSha: string, headSha: string) => string;
+<<<<<<< HEAD
   createValidationCheckout: (headSha: string) => string;
+=======
+>>>>>>> 97b6e87616f
   currentBranch: () => string;
   pushValidatedHead: (headSha: string, branch: string) => void;
   refreshMain: () => void;
   refreshReleaseBranch: (branch: string) => string | undefined;
+<<<<<<< HEAD
   removeValidationCheckout: (checkout: string) => void;
+=======
+>>>>>>> 97b6e87616f
   resolveCommit: (ref: string) => string;
   runCommand: (command: ReleasePrepushCommand) => Promise<number>;
 };
@@ -124,6 +139,7 @@ export function pushValidatedHead(headSha: string, branch: string): void {
   });
 }
 
+<<<<<<< HEAD
 export function createValidationCheckout(headSha: string): string {
   const root = mkdtempSync(join(tmpdir(), "openclaw-release-prepush-"));
   const checkout = join(root, "checkout");
@@ -148,10 +164,13 @@ export function removeValidationCheckout(checkout: string): void {
   }
 }
 
+=======
+>>>>>>> 97b6e87616f
 export function buildReleasePrepushPlan(
   baseSha: string,
   headSha: string,
   cwd: string,
+<<<<<<< HEAD
   env: NodeJS.ProcessEnv = process.env,
 ): ReleasePrepushCommand[] {
   return [
@@ -182,6 +201,21 @@ export function buildReleasePrepushPlan(
       args: ["scripts/test-projects.mts", "--changed", baseSha],
       cwd,
       env,
+=======
+): ReleasePrepushCommand[] {
+  return [
+    {
+      name: "whitespace and conflict-marker check",
+      bin: "git",
+      args: ["diff", "--check", baseSha, headSha],
+      cwd,
+    },
+    {
+      name: "release changelog layout",
+      bin: "node",
+      args: ["scripts/release-changelog.mjs", "check", "--ref", headSha],
+      cwd,
+>>>>>>> 97b6e87616f
     },
   ];
 }
@@ -192,19 +226,28 @@ async function defaultRunCommand(command: ReleasePrepushCommand): Promise<number
     bin: command.bin,
     args: command.args,
     cwd: command.cwd,
+<<<<<<< HEAD
     env: command.env,
+=======
+>>>>>>> 97b6e87616f
   });
 }
 
 const defaultDependencies: ReleasePrepushDependencies = {
   assertCleanWorktree,
   assertAuditBounds,
+<<<<<<< HEAD
   createValidationCheckout,
+=======
+>>>>>>> 97b6e87616f
   currentBranch,
   pushValidatedHead,
   refreshMain,
   refreshReleaseBranch,
+<<<<<<< HEAD
   removeValidationCheckout,
+=======
+>>>>>>> 97b6e87616f
   resolveCommit,
   runCommand: defaultRunCommand,
 };
@@ -246,16 +289,21 @@ export async function runReleasePrepush(
   }
 
   if (options.dryRun) {
+<<<<<<< HEAD
     for (const command of buildReleasePrepushPlan(
       comparisonBaseSha,
       headSha,
       "<detached-checkout>",
     )) {
+=======
+    for (const command of buildReleasePrepushPlan(comparisonBaseSha, headSha, process.cwd())) {
+>>>>>>> 97b6e87616f
       console.log([command.bin, ...command.args].join(" "));
     }
     return 0;
   }
 
+<<<<<<< HEAD
   const validationCheckout = dependencies.createValidationCheckout(headSha);
   try {
     for (const command of buildReleasePrepushPlan(comparisonBaseSha, headSha, validationCheckout)) {
@@ -267,6 +315,14 @@ export async function runReleasePrepush(
     }
   } finally {
     dependencies.removeValidationCheckout(validationCheckout);
+=======
+  for (const command of buildReleasePrepushPlan(comparisonBaseSha, headSha, process.cwd())) {
+    const status = await dependencies.runCommand(command);
+    if (status !== 0) {
+      console.error(`[release:prepush] failed: ${command.name}`);
+      return status;
+    }
+>>>>>>> 97b6e87616f
   }
 
   dependencies.assertCleanWorktree();
@@ -323,9 +379,15 @@ function usage(): string {
     "Usage: pnpm release:prepush -- [--base <ref>] [--dry-run]",
     "       pnpm release:push [-- --head <sha> --branch <release/YYYY.M.PATCH>]",
     "",
+<<<<<<< HEAD
     "Runs exact-HEAD changed static/type gates, production dead-code analysis, and changed tests.",
     "The default comparison base is origin/main.",
     "release:push refreshes origin/main, validates, and pushes the captured exact SHA to its canonical release branch.",
+=======
+    "Runs fast exact-HEAD whitespace/conflict-marker and release-changelog checks.",
+    "The default comparison base is origin/main.",
+    "release:push refreshes origin/main, runs the short preflight, and pushes the captured exact SHA to its canonical release branch.",
+>>>>>>> 97b6e87616f
   ].join("\n");
 }
 

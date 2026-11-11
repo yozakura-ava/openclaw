@@ -1,24 +1,9 @@
 /** Executes isolated cron prompts with model fallbacks and interim-ack retries. */
-import { resolveGroupToolPolicy } from "../../agents/agent-tools.policy.js";
-import { resolveCliBackendConfig } from "../../agents/cli-backends.js";
-import {
-  cliBackendAcceptsAuthProfileForwarding,
-  resolveCliExecutionAuthProfileId,
-} from "../../agents/cli-execution-auth.js";
-import { resolveCliRuntimeToolsAllow } from "../../agents/cli-runner/tool-policy.js";
-import { settleCliSessionResult } from "../../agents/cli-session-store.js";
-import {
-  applyCliSessionBindingResult,
-  assertCliSessionBindingResultCommitAllowed,
-} from "../../agents/cli-session.js";
-import { runEmbeddedAgentEntry } from "../../agents/embedded-agent-runner/run-entry.js";
-import { createDeferredEmbeddedRunLifecycleManager } from "../../agents/embedded-agent-runner/run/deferred-lifecycle-owner.js";
-import type { FastModeAutoProgressState } from "../../agents/fast-mode.js";
-import { runAgentHarnessBeforeMessageWriteHook } from "../../agents/harness/hook-helpers.js";
 import {
   getGeneratedMediaTaskIdsForSessionKey,
   hasNewGeneratedMediaTaskForSessionKey,
 } from "../../agents/media-generation-activity.js";
+<<<<<<< HEAD
 import {
   findModelInCatalog,
   modelSupportsInput,
@@ -32,65 +17,31 @@ import {
 import { withLocalSessionPlacementTurnSettlement } from "../../agents/session-placement-admission.js";
 import { resolveSessionRuntimeOverrideForProvider } from "../../agents/session-runtime-compat.js";
 import { resolveAgentLifecycleTerminalMetadata } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
+=======
+>>>>>>> 97b6e87616f
 import type { VerboseLevel } from "../../auto-reply/thinking.js";
-import type { CliSessionBinding } from "../../config/sessions.js";
-import { buildGenericCliContextEngineHostSupport } from "../../context-engine/host-compat.js";
-import { registerCronRunExecSource } from "../../infra/cron-run-exec-source.js";
-import {
-  createUserTurnTranscriptRecorder,
-  type UserTurnTranscriptRecorder,
-} from "../../sessions/user-turn-transcript.js";
 import { createLazyImportLoader } from "../../shared/lazy-promise.js";
-import { resolveCronJobConfigRevision } from "../config-revision.js";
-import { prepareCronRunAdmission } from "../run-admission.js";
-import { resolveCronScheduledToolPolicy } from "../scheduled-tool-policy.js";
-import { resolveCronAuthenticatedChannelRequester } from "../tools-allow-provenance.js";
-import type { CronAgentExecutionPhaseUpdate } from "../types.js";
-import {
-  resolveCronChannelOutputPolicy,
-  resolveCurrentChannelTarget,
-} from "./channel-output-policy.js";
+import { resolveCronChannelOutputPolicy } from "./channel-output-policy.js";
 import { resolveCronPayloadOutcome } from "./helpers.js";
-import { resolveIsolatedCronPromptCacheKey } from "./prompt-cache-key.js";
-import { assertCronRuntimeAuthorityCandidate } from "./run-admission.js";
-import { createCronCandidateExecutionResolver } from "./run-candidate-runtime.js";
-import { finalizeCronPromptForResolvedTools } from "./run-delivery-trace.js";
 import {
-  getCliSessionBinding,
   LiveSessionModelSwitchError,
   logWarn,
   normalizeVerboseLevel,
   registerAgentRunContext,
-  resolveBootstrapWarningSignaturesSeen,
-  resolveCronAgentLane,
-  resolveFastModeState,
-  runCliAgent,
 } from "./run-execution.runtime.js";
 import type { CronRunExecutionParams } from "./run-execution.types.js";
-import { resolveCronFallbacksOverride } from "./run-fallback-policy.js";
-import {
-  setCronSessionAgentHarnessId,
-  setCronSessionRuntimeModel,
-  syncCronSessionLiveSelection,
-} from "./run-session-state.js";
-import { resolveThinkingSelection } from "./run.runtime.js";
-import type {
-  CronCompletedPromptRun,
-  CronExecutionResult,
-  CronRunnerStartedInfo,
-} from "./run.types.js";
+import { createCronPromptExecutor } from "./run-prompt-executor.js";
+import { syncCronSessionLiveSelection } from "./run-session-state.js";
+import type { CronCompletedPromptRun, CronExecutionResult } from "./run.types.js";
 import { isLikelyInterimCronMessage } from "./subagent-followup-hints.js";
 
-type CronEmbeddedRuntime = typeof import("./run-embedded.runtime.js");
 type CronSubagentRegistryRuntime = typeof import("./run-subagent-registry.runtime.js");
 
-const cronEmbeddedRuntimeLoader = createLazyImportLoader<CronEmbeddedRuntime>(
-  () => import("./run-embedded.runtime.js"),
-);
 const cronSubagentRegistryRuntimeLoader = createLazyImportLoader<CronSubagentRegistryRuntime>(
   () => import("./run-subagent-registry.runtime.js"),
 );
 
+<<<<<<< HEAD
 function hasCliSessionReuseMetadata(binding: CliSessionBinding): boolean {
   return Object.entries(binding).some(([key, value]) => key !== "sessionId" && value !== undefined);
 }
@@ -677,6 +628,8 @@ function createCronPromptExecutor(
   };
 }
 
+=======
+>>>>>>> 97b6e87616f
 /** Executes an isolated cron prompt, including live model-switch and interim-ack retries. */
 export async function executeCronRun(params: CronRunExecutionParams): Promise<CronExecutionResult> {
   const resolvedVerboseLevel: VerboseLevel =
@@ -808,5 +761,3 @@ export async function executeCronRun(params: CronRunExecutionParams): Promise<Cr
     completedPromptRuns,
   };
 }
-
-/* oxlint-disable max-lines -- TODO: split this grandfathered oversized file. */

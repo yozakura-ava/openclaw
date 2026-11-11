@@ -5,11 +5,14 @@ extension GatewayChannelActor {
         self.connectTimeoutSeconds = seconds
     }
 
-    func _test_setConnectAttemptFinishedHandler(_ handler: (@Sendable (UUID) -> Void)?) {
+    #if DEBUG
+<<<<<<< HEAD
+=======
+    func _test_setConnectAttemptFinishedHandler(_ handler: (@Sendable () -> Void)?) {
         self.testConnectAttemptFinishedHandler = handler
     }
 
-    #if DEBUG
+>>>>>>> 97b6e87616f
     func _test_setConnectRunFinishedHandler(_ handler: (@Sendable () -> Void)?) {
         self.testConnectRunFinishedHandler = handler
     }

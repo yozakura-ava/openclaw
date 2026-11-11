@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import type {
   DesktopObserveResult,
   DesktopSource,
@@ -726,13 +727,13 @@ class OpenClawDesktopPanel extends OpenClawLitElement {
     });
   }
 }
+=======
+import { DesktopPanelController } from "./desktop-panel-controller.ts";
+import { defineDesktopPanelElement } from "./desktop-panel-registration.tsx";
+
+export { DesktopPanelController } from "./desktop-panel-controller.ts";
+>>>>>>> 97b6e87616f
 
 if (!customElements.get("openclaw-desktop-panel")) {
-  customElements.define("openclaw-desktop-panel", OpenClawDesktopPanel);
-}
-
-declare global {
-  interface HTMLElementTagNameMap {
-    "openclaw-desktop-panel": OpenClawDesktopPanel;
-  }
+  defineDesktopPanelElement((element) => new DesktopPanelController(element));
 }

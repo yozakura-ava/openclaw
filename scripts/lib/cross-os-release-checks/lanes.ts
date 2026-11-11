@@ -618,6 +618,7 @@ export async function runInstallerFreshSuite(
     // after the managed service has stopped and before the manual Gateway starts.
     logLanePhase(lane, "models-set");
     await runInstalledModelsSet({
+<<<<<<< HEAD
       cliPath: freshShell.cliPath,
       env,
       providerConfig: params.providerConfig,
@@ -655,24 +656,24 @@ export async function runInstallerFreshSuite(
 
     logLanePhase(lane, "agent-turn");
     const agent = await runInstalledAgentTurn({
+=======
+>>>>>>> 97b6e87616f
       cliPath: freshShell.cliPath,
       env,
+      providerConfig: params.providerConfig,
       cwd: lane.homeDir,
-      label: "installer-fresh",
-      logPath: join(params.logsDir, "installer-fresh-agent.log"),
+      logPath: join(params.logsDir, "installer-fresh-models-set.log"),
     });
 
-    let discordStatus = "skipped";
-    if (params.runDiscordRoundtrip && process.platform === "darwin") {
-      logLanePhase(lane, "discord-roundtrip");
-      discordStatus = await maybeRunDiscordRoundtrip({
-        lane,
-        cliPath: freshShell.cliPath,
-        env,
-        gatewayHolder: manualGateway,
-        logPath: join(params.logsDir, "installer-fresh-discord.log"),
-      });
-    }
+    await gatewayPortReservation?.release();
+    const { agent, discordStatus } = await runInstalledGatewaySmoke({
+      ...params,
+      lane,
+      env,
+      cliPath: freshShell.cliPath,
+      gatewayHolder: manualGateway,
+      cleanup: usesManagedGateway ? undefined : cleanup,
+    });
 
     return {
       status: "pass",
@@ -862,51 +863,14 @@ export async function runDevUpdateSuite(
     });
 
     await gatewayPortReservation.release();
-    logLanePhase(lane, "gateway-start");
-    const gateway = await startManualGatewayFromInstalledCli({
+    const { agent, discordStatus } = await runInstalledGatewaySmoke({
+      ...params,
       lane,
-      cliPath: verifiedShell.cliPath,
       env,
-      logPath: join(params.logsDir, "dev-update-gateway.log"),
-    });
-    manualGateway.current = gateway;
-    cleanup.push(() => stopGateway(manualGateway.current));
-    logLanePhase(lane, "gateway-status");
-    await waitForInstalledGateway({
-      lane,
       cliPath: verifiedShell.cliPath,
-      env,
       gatewayHolder: manualGateway,
-      gatewayLogPath: join(params.logsDir, "dev-update-gateway.log"),
-      logPath: join(params.logsDir, "dev-update-gateway-status.log"),
+      cleanup,
     });
-
-    logLanePhase(lane, "dashboard");
-    await runDashboardSmoke({
-      lane,
-      logPath: join(params.logsDir, "dev-update-dashboard.log"),
-    });
-
-    logLanePhase(lane, "agent-turn");
-    const agent = await runInstalledAgentTurn({
-      cliPath: verifiedShell.cliPath,
-      env,
-      cwd: lane.homeDir,
-      label: "dev-update",
-      logPath: join(params.logsDir, "dev-update-agent.log"),
-    });
-
-    let discordStatus = "skipped";
-    if (params.runDiscordRoundtrip && process.platform === "darwin") {
-      logLanePhase(lane, "discord-roundtrip");
-      discordStatus = await maybeRunDiscordRoundtrip({
-        lane,
-        cliPath: verifiedShell.cliPath,
-        env,
-        gatewayHolder: manualGateway,
-        logPath: join(params.logsDir, "dev-update-discord.log"),
-      });
-    }
 
     return {
       status: "pass",
@@ -920,6 +884,63 @@ export async function runDevUpdateSuite(
   } finally {
     await runCleanup(cleanup);
   }
+}
+
+async function runInstalledGatewaySmoke(
+  params: Pick<LaneBaseParams, "logsDir"> & {
+    lane: LaneState;
+    env: NodeJS.ProcessEnv;
+    cliPath: string;
+    gatewayHolder: { current: GatewayHandle | null };
+    cleanup?: Cleanup[];
+    runDiscordRoundtrip: boolean;
+  },
+) {
+  const { lane, env, cliPath, gatewayHolder } = params;
+  const logPath = (phase: string) => join(params.logsDir, `${lane.name}-${phase}.log`);
+  logLanePhase(lane, "gateway-start");
+  gatewayHolder.current = await startManualGatewayFromInstalledCli({
+    lane,
+    cliPath,
+    env,
+    logPath: logPath("gateway"),
+  });
+  // Managed installer checks retain their host-level cleanup owner.
+  params.cleanup?.push(() => stopGateway(gatewayHolder.current));
+  logLanePhase(lane, "gateway-status");
+  await waitForInstalledGateway({
+    lane,
+    cliPath,
+    env,
+    gatewayHolder,
+    gatewayLogPath: logPath("gateway"),
+    logPath: logPath("gateway-status"),
+  });
+
+  logLanePhase(lane, "dashboard");
+  await runDashboardSmoke({ lane, logPath: logPath("dashboard") });
+
+  logLanePhase(lane, "agent-turn");
+  const agent = await runInstalledAgentTurn({
+    cliPath,
+    env,
+    cwd: lane.homeDir,
+    label: lane.name,
+    logPath: logPath("agent"),
+  });
+
+  let discordStatus = "skipped";
+  if (params.runDiscordRoundtrip && process.platform === "darwin") {
+    logLanePhase(lane, "discord-roundtrip");
+    discordStatus = await maybeRunDiscordRoundtrip({
+      lane,
+      cliPath,
+      env,
+      gatewayHolder,
+      logPath: logPath("discord"),
+    });
+  }
+  return { agent, discordStatus };
 }
 
 function createLaneState(name: string): LaneState {

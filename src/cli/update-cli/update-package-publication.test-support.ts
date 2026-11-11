@@ -14,6 +14,7 @@ import {
 import { createPackageIntegrityReader } from "../../infra/package-update-integrity.js";
 import { createPublicationOwner } from "../../infra/package-update-publication-owner.js";
 import { createPackageSwapFixture } from "../../infra/package-update-swap.test-support.js";
+<<<<<<< HEAD
 import type { UpdateRecoveryFence } from "../../infra/update-run-recovery-types.js";
 import { withUpdateCommandExecutor } from "./update-command-executor.js";
 
@@ -32,6 +33,10 @@ export const publicationActivation = (fence: UpdateRecoveryFence) => ({
   onPrepared: () => {},
 });
 
+=======
+import { withUpdateCommandExecutor } from "./update-command-executor.js";
+
+>>>>>>> 97b6e87616f
 export async function preparePackagePublication(
   f: Awaited<ReturnType<typeof createPackageSwapFixture>>,
   options: Parameters<typeof preparePackageActivationJournal>[0]["options"],

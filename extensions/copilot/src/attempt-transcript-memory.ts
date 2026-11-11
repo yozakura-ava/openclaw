@@ -22,7 +22,11 @@ export function findInMemoryMessage(
     if (entry.type === "message" && readIdempotencyKey(entry.message) === key) {
       return {
         appended: false,
+<<<<<<< HEAD
         // SAFETY: Journal identity keys belong to its user/assistant/toolResult writes; the manager exposes the wider AgentMessage envelope.
+=======
+        // SAFETY: This in-memory manager stores only TranscriptMessage values appended below.
+>>>>>>> 97b6e87616f
         message: entry.message as TranscriptMessage,
         messageId: entry.id,
       };
@@ -42,7 +46,11 @@ export async function appendInMemoryMessage(
   const result = await manager.appendMessageWithTranscriptAnchorAsync(message);
   return {
     appended: result.appended,
+<<<<<<< HEAD
     // SAFETY: The manager canonicalizes this typed journal message without changing its role; optional user metadata remains structurally compatible.
+=======
+    // SAFETY: The manager returns the TranscriptMessage this call appended (or its matching prior row).
+>>>>>>> 97b6e87616f
     message: result.message as TranscriptMessage,
     messageId: result.entryId,
   };

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Ava vNext staging CLI — exec the W1.1 pinned artifact (server-wide).
+# Installed to /usr/local/bin/openclaw by apply.sh; per-user ~/.openclaw state.
+exec /opt/ava-staging/toolchain/node-v24.22.2/bin/node /opt/ava-staging/gateway/dist/index.js "$@"

@@ -25,7 +25,10 @@ For switching channels, see [Release channels](/install/development-channels).
 Extended-stable includes the Gateway, official npm plugins, and Docker images.
 It does not include native apps or ClawHub publication, and it does not change
 the regular stable channel. Its GitHub release is not marked Latest. A monthly
-line retires when `main` advances into the next month.
+line retires when `main` advances into the next month. Maintain only one
+extended-stable line: the trailing completed month relative to `main`'s version;
+older `.33+` lines are retired. Publishing a retired line requires an explicit
+maintainer decision; never bypass the release guards.
 
 ## Version naming
 
@@ -85,6 +88,22 @@ install/upgrade combinations across Linux, Windows, and macOS. Coverage otherwis
 varies by profile and selected operating systems. Check the release's recorded
 coverage: skipped or deferred checks are not passes.
 
+The default stable/full live-provider coverage includes the blocking `live-cache`
+suite; beta includes it when repo/live coverage is selected. Its assertions
+require serialized prompt-prefix stability and provider cache reuse through
+Anthropic Messages and OpenAI Responses, plus OpenRouter when its credential is
+available. Live agent scenarios exercise instruction refresh, activated prompt
+hooks, and persisted prompt-projection rehydration while forcing full-history
+requests through a cold provider transport. This is not a Gateway process-restart
+or retained HTTP continuation check. Focused verification uses
+`rerun_group=live-e2e` and `live_suite_filter=live-cache`; the cross-OS `provider`
+and `mode` inputs do not narrow these cache checks. Offline coverage also compares
+requests across authenticated Gateway chat, a spawned child's private completion, an
+in-process server stop/start, and subsequent authenticated chat in the same
+persisted session. It does not restart the OS process. Deterministic admitted-agent and Gateway
+regressions supply separate evidence from successful live-provider measurements; see
+[Prompt-cache regression coverage](/help/testing/suites#prompt-cache-regression-coverage).
+
 For selected official npm plugins, Full Release Validation packs and qualifies
 the exact tarballs intended for publication and records their immutable artifact
 descriptors. Publication consumes those same bytes. Unpacked source fixtures do
@@ -112,7 +131,11 @@ by profile and how to interpret the results.
 
 Repository write access, organization membership, branch-policy reads, CI bypass,
 release environment approval, and production deployment are separate capabilities.
+<<<<<<< HEAD
 An unavailable [prior-CI exception](https://github.com/openclaw/openclaw/blob/main/.agents/skills/openclaw-pr-maintainer/references/landing.md#explicit-prior-ci-admin-landing) is not a blanket
+=======
+An unavailable [prior-CI exception](/reference/scripts/prior-ci) is not a blanket
+>>>>>>> 97b6e87616f
 release blocker or proof that environment approval is unavailable. Conversely,
 repository MAINTAIN access or CI-bypass authority does not authorize an environment
 approval or production deployment.
@@ -124,6 +147,37 @@ approval-status read is reported as unknown, not as no pending approval, and doe
 not stop validation monitoring. Public release evidence can still use its existing
 anonymous rate-limit fallback; caller-specific approval reads cannot.
 
+<<<<<<< HEAD
+=======
+### Watch publication
+
+After the stable orchestrator has dispatched publication, keep its read-only
+watcher running in a separate shell:
+
+```bash
+pnpm release:stable YYYY.M.PATCH --watch
+```
+
+The watcher uses the orchestrator's retained state to authenticate the publish
+parent and correlate its npm and ClawHub children. It exits as soon as an
+environment approval is pending or a publication parent/child fails, and it
+waits until the observed publication tree succeeds otherwise. It only performs
+GitHub reads; it never approves, reruns, cancels, dispatches, or publishes.
+
+The exit contract is:
+
+- `0`: the observed tree succeeded, or `--once` found no item needing attention.
+- `1`: a pending environment approval or failed publication run needs attention.
+- `2`: usage, identity, transport, truncation, timeout, or observation failed.
+
+Use `--once --json` for a single machine-readable snapshot. JSON has
+`contractVersion: 1` and a top-level `state` of `active`, `attention`, or
+`success`, plus exact parent, child, pending-approval, and failed-run records.
+`--poll-seconds` changes the default 60-second interval and
+`--timeout-seconds` changes the default 12-hour observation deadline. These
+options do not create a daemon or persist watcher state.
+
+>>>>>>> 97b6e87616f
 ### Plugin SDK evidence transport
 
 SDK comparison reports and release evidence use the
@@ -159,12 +213,25 @@ New candidate qualification records three separate identities:
   main revision or protected publication tag. P may differ from C/Q; C/Q does not
   need to be an ancestor of P. Trust in P does not replace qualification of C.
 
-The canonical SHA-pinned helper first asks P to record the reviewed operator
+The standard SHA-pinned helper first asks P to record the reviewed operator
 attestation, complete normalized inputs, and data-only frozen Q coverage in an
 immutable admission artifact. Only then does that same helper dispatch Full
 Release Validation from an immutable `release-ci/*` ref at Q. A publication
 `release-publish/*` tag belongs to P, never to Q merely to make validation run.
 Admission is not a successful test result or publication approval.
+
+`pnpm release:candidate --workflow-sha <P>` pins helper and publication tooling,
+not the qualification harness. Stable `npm-stable-v1` and admitted stable/full
+qualification already include mock-provider package Telegram proof. The helper
+reuses that authenticated proof for the exact FRV-qualified package, without a
+Telegram waiver; `npm-beta-v1` remains deferred, never passed. Separately packed
+historical packages and explicitly selected live-provider Telegram checks need
+their own proof at C. A supplemental check uses only the original retained
+`release-ci/*` ref verified at Q=C, with `harness_ref` pinned to that SHA; missing
+or moved refs require newly bound candidate evidence, never a fallback to main.
+Supplemental run IDs stay in the candidate evidence bundle, not the publisher's
+optional postpublish diagnostic input. Local Parallels qualification likewise
+uses C's harness and dependencies from the validated candidate checkout.
 
 A candidate missing the required qualification contracts needs a deliberate
 backport. The helper does not silently use future-main checks or import

@@ -229,6 +229,10 @@ touch "$restart_plugin_fixture_dir/whatsapp.tgz"
 repair_update_restart_auth() { :; }
 configured_plugin_installs_enabled() { return 1; }
 assert_prepublish_fixture_idle() { printf 'fixture-idle\\n'; }
+<<<<<<< HEAD
+=======
+assert_prepublish_fixture_requests() { assert_prepublish_fixture_idle; }
+>>>>>>> 97b6e87616f
 phase() { printf 'phase:%s\\n' "$1"; shift; "$@"; }
 node() {
   [ "$1" = scripts/e2e/lib/upgrade-survivor/assertions.mjs ] || return 90

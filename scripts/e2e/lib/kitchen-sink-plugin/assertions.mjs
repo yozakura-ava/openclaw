@@ -348,10 +348,19 @@ function assertExpectedDiagnostics(surfaceMode, errorMessages) {
     "agent event subscription registration requires id and handle",
     // @openclaw/kitchen-sink 0.4.1 adds generic no-op probes for these registrars;
     // older published packages do not emit them, so they stay optional here.
+<<<<<<< HEAD
     "agent executor controller requires an absolute workspaceDirectory",
     "Gateway access policy requires an authorize handler",
     "invalid version 1 decision provider contract",
     "storage provider registration missing label",
+=======
+    // This release line still exposes registerAgentExecutorController and uses
+    // its own decision-provider wording.
+    "Gateway access policy requires an authorize handler",
+    "invalid version 1 decision provider contract",
+    "storage provider registration missing label",
+    "agent executor controller requires an absolute workspaceDirectory",
+>>>>>>> 97b6e87616f
   ]);
   if (!INVALID_PROBE_DIAGNOSTIC_SURFACE_MODES.has(surfaceMode)) {
     const unexpected = [...errorMessages];

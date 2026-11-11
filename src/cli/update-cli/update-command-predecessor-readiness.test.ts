@@ -4,6 +4,10 @@ import * as gatewayService from "../../daemon/service.js";
 import { gatewayHealthResponse } from "../../gateway/health-response.test-support.js";
 import { defaultRuntime } from "../../runtime.js";
 import { reserveTestPortListener } from "../../test-utils/port-claims.js";
+<<<<<<< HEAD
+=======
+import { createGatewayRestartDeadline } from "../daemon-cli/restart-health-deadline.js";
+>>>>>>> 97b6e87616f
 import {
   callGateway,
   inspectPortUsage,
@@ -78,13 +82,21 @@ describe("previous Gateway readiness before update activation", () => {
             response.writeHead(request.url === "/readyz" ? readyz : 200).end();
           }),
       });
+<<<<<<< HEAD
+=======
+      const deadline = createGatewayRestartDeadline({ timeoutMs: 60_000 });
+>>>>>>> 97b6e87616f
       const onVerification = vi.fn();
       try {
         await verifyPreviousManagedGatewayForUpdate({
           root: "/synthetic-installation",
           config: {},
           env: { HOME: "/synthetic-home" },
+<<<<<<< HEAD
           opts: { json: true, run: { runId: "previous-observation", env: {} } },
+=======
+          opts: { json: true, run: { runId: "previous-observation", env: {}, deadline } },
+>>>>>>> 97b6e87616f
           timeoutMs: 60_000,
           service: {
             stopped: false,
@@ -98,7 +110,13 @@ describe("previous Gateway readiness before update activation", () => {
         expect(onVerification).toHaveBeenLastCalledWith(verified);
         expect(requests.toSorted()).toEqual(["/healthz", "/readyz"]);
         expect(sleep).not.toHaveBeenCalled();
+<<<<<<< HEAD
       } finally {
+=======
+        expect(deadline.remainingMs()).toBe(60_000);
+      } finally {
+        deadline.dispose();
+>>>>>>> 97b6e87616f
         listener.listener.closeAllConnections();
         await listener.releaseListener();
         await listener.claim.release();

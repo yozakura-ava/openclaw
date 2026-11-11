@@ -1,5 +1,14 @@
+<<<<<<< HEAD
 import { describe, expect, it, vi } from "vitest";
 import { createDeferred } from "../../../../test/helpers/promise.js";
+=======
+import { afterAll, describe, expect, it, vi } from "vitest";
+import { createDeferred } from "../../../../test/helpers/promise.js";
+import {
+  clearRuntimeConfigSnapshot,
+  setRuntimeConfigSnapshot,
+} from "../../../config/runtime-snapshot.js";
+>>>>>>> 97b6e87616f
 import { sqliteWorkerOwnerProbe as probe } from "../../../infra/sqlite-worker-owner-probe.test-support.js";
 import { executeExistingOpenClawStateRead } from "../../../state/openclaw-state-db-readonly.js";
 import * as stateWorker from "../../../state/openclaw-state-worker-store.js";
@@ -7,6 +16,7 @@ import { withOpenClawTestState } from "../../../test-utils/openclaw-test-state.j
 import { mutateSubagentRuns } from "./subagent-registry-persistence.js";
 import { retireSupersededSubagentRun } from "./subagent-registry-sweeper-retire.js";
 import { createSubagentSweeperRun as run } from "./subagent-registry-sweeper.test-support.js";
+<<<<<<< HEAD
 import type { SubagentRegistryWrite } from "./subagent-registry.store.kernel.js";
 import type { SubagentRunRecord } from "./subagent-registry.types.js";
 
@@ -15,6 +25,15 @@ const removeInternalSessionEffectsSession = vi.hoisted(() => vi.fn(async () => {
 vi.mock("../../internal-session-effects.js", () => ({
   removeInternalSessionEffectsSession,
 }));
+=======
+import type { SubagentRegistryWrite } from "./subagent-registry.store.types.js";
+import type { SubagentRunRecord } from "./subagent-registry.types.js";
+
+const removeInternalSessionEffectsSession = vi.hoisted(() => vi.fn(async () => {}));
+// mock-isolation: Cleanup is gated by the race fixture without deleting real internal-session effects.
+vi.mock("../../internal-session-effects.js", () => ({ removeInternalSessionEffectsSession }));
+afterAll(() => clearRuntimeConfigSnapshot());
+>>>>>>> 97b6e87616f
 
 describe("superseded subagent retirement", () => {
   it.each([
@@ -25,6 +44,12 @@ describe("superseded subagent retirement", () => {
     "publishes retirement after durable deletion (refused: $refused, successor retires during cleanup: $retireSuccessor)",
     async ({ refused, retireSuccessor }) => {
       await withOpenClawTestState({ scenario: "minimal" }, async (state) => {
+<<<<<<< HEAD
+=======
+        setRuntimeConfigSnapshot({
+          session: { store: state.statePath("agents/{agentId}/sessions/sessions.json") },
+        });
+>>>>>>> 97b6e87616f
         const entry = run();
         if (retireSuccessor) {
           entry.execution.transcriptTarget = {

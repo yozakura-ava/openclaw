@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/lobster",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "Lobster workflow tool plugin for typed pipelines and resumable approvals.",
   "repository": {
     "type": "git",
@@ -9,7 +13,7 @@
   "type": "module",
   "dependencies": {
     "@clawdbot/lobster": "2026.9.16",
-    "typebox": "1.3.34"
+    "typebox": "1.3.35"
   },
   "devDependencies": {
     "@openclaw/plugin-sdk": "workspace:*"
@@ -25,10 +29,17 @@
       "minHostVersion": ">=2026.4.25"
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "openclawVersion": "2026.10.8"
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1"
+>>>>>>> 97b6e87616f
     },
     "release": {
       "publishToClawHub": true,

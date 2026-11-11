@@ -45,7 +45,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     const regions = vi.spyOn(codeRegions, "findCodeRegions");
     try {
       const projection = createTextProjection([
+<<<<<<< HEAD
         toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+        toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
       ]);
       for (let offset = 0; offset < source.length; offset += CHUNK) {
         projection.append(source.slice(offset, offset + CHUNK));
@@ -70,7 +74,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     const regions = vi.spyOn(codeRegions, "findCodeRegions");
     try {
       const projection = createTextProjection([
+<<<<<<< HEAD
         toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+        toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
       ]);
       for (let offset = 0; offset < source.length; offset += CHUNK) {
         projection.append(source.slice(offset, offset + CHUNK));
@@ -93,7 +101,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     const regions = vi.spyOn(codeRegions, "findCodeRegions");
     try {
       const projection = createTextProjection([
+<<<<<<< HEAD
         toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+        toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
       ]);
       for (let offset = 0; offset < source.length; offset += CHUNK) {
         projection.append(source.slice(offset, offset + CHUNK));
@@ -173,8 +185,16 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
       "[x]: / (title\n```\n<p\n)",
     ].flatMap((source) => ["", "\n", "\r\n", "\n\n"].map((suffix) => source + suffix));
 
+<<<<<<< HEAD
     {
       const filter = toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true });
+=======
+    for (const streaming of [false, true]) {
+      const filter = toolCallXmlTextFilter(
+        { stripFunctionResponseAfterPluralToolCalls: true },
+        streaming,
+      );
+>>>>>>> 97b6e87616f
       for (const source of sources) {
         // Compare retained state with a fresh canonical transform at each prefix.
         const expected = Array.from({ length: source.length + 1 }, (_, end) =>
@@ -194,7 +214,13 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
           let previous = "";
           for (const end of ends) {
             const result = projection.append(source.slice(start, end));
+<<<<<<< HEAD
             expect(result.text, JSON.stringify({ source, start, end })).toBe(expected[end]);
+=======
+            expect(result.text, JSON.stringify({ source, streaming, start, end })).toBe(
+              expected[end],
+            );
+>>>>>>> 97b6e87616f
             if (result.delta !== null) {
               expect(previous + result.delta).toBe(result.text);
             }
@@ -210,7 +236,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     const call = '<tool_call>{"path":"a.ts"}</tool_call>';
     const source = `Before.\n${call}\nAfter.`;
     const projection = createTextProjection([
+<<<<<<< HEAD
       toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+      toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
     ]);
     for (const char of source) {
       projection.append(char);
@@ -222,7 +252,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
   it("preserves a quoted tool-call example inside fenced code", () => {
     const source = '```xml\n<tool_call>{"path":"a.ts"}</tool_call>\n```\n\nDone.';
     const projection = createTextProjection([
+<<<<<<< HEAD
       toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+      toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
     ]);
     for (let offset = 0; offset < source.length; offset += 3) {
       projection.append(source.slice(offset, offset + 3));
@@ -234,7 +268,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     const call = '<tool_call>{"path":"a.ts"}</tool_call>';
     const source = `${jsxAnswer(2)}\n${call}\nAfter.`;
     const projection = createTextProjection([
+<<<<<<< HEAD
       toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+      toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
     ]);
     for (let offset = 0; offset < source.length; offset += CHUNK) {
       projection.append(source.slice(offset, offset + CHUNK));
@@ -249,7 +287,11 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     // does not own a code block for the canonical resolver.
     const source = `\`\`\`jsx \`code\`\n${call}\nDone.`;
     const projection = createTextProjection([
+<<<<<<< HEAD
       toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }),
+=======
+      toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true),
+>>>>>>> 97b6e87616f
     ]);
     const deltas: string[] = [];
     for (let offset = 0; offset < source.length; offset += CHUNK) {
@@ -261,3 +303,32 @@ describe("toolCallXmlTextFilter streamed projection work", () => {
     expect(deltas.join("")).not.toContain('{"path":"a.ts"}');
   });
 });
+<<<<<<< HEAD
+=======
+
+it("bounds work after unfenced XML while continuing the visible reply", () => {
+  const lead =
+    'Here is the call:\n<function_calls><invoke name="read"><parameter name="path">a.md</parameter></invoke></function_calls>\n';
+  const source = lead + "The next step keeps the visible answer moving.\n".repeat(200);
+  const filter = toolCallXmlTextFilter({ stripFunctionResponseAfterPluralToolCalls: true }, true);
+  const projection = createTextProjection([filter]);
+  let testedCharacters: number;
+  const probe = vi.spyOn(RegExp.prototype, "test");
+  try {
+    for (let offset = 0; offset < source.length; offset += CHUNK) {
+      projection.append(source.slice(offset, offset + CHUNK));
+    }
+  } finally {
+    testedCharacters = probe.mock.calls.reduce(
+      (total, [text]) => total + (typeof text === "string" ? text.length : 0),
+      0,
+    );
+    probe.mockRestore();
+  }
+  expect(projection.text).toBe(filter.transform(source));
+  expect(projection.text).toContain("The next step");
+  expect(projection.text).not.toContain("<invoke");
+  // Includes bounded Markdown tail checks, but never a growing whole-reply scan per delta.
+  expect(testedCharacters).toBeLessThan(source.length * 64);
+});
+>>>>>>> 97b6e87616f

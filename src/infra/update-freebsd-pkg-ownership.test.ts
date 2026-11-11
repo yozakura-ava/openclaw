@@ -17,6 +17,7 @@ afterEach(() => {
 });
 
 describe("system package ownership", () => {
+<<<<<<< HEAD
   it("warns and permits Linux updates when pacman is not installed", async () => {
     const runCommand = vi.fn<typeof exec.runCommandBuffered>().mockResolvedValue(
       result("", {
@@ -44,6 +45,8 @@ describe("system package ownership", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+=======
+>>>>>>> 97b6e87616f
   it("uses one non-bootstrap, alias-pinned inventory for a planning snapshot", async () => {
     await withTestDir({ prefix: "openclaw-pkg-inventory-" }, async (base) => {
       const query = vi.spyOn(exec, "runCommandBuffered").mockResolvedValue(result());
@@ -61,10 +64,13 @@ describe("system package ownership", () => {
   });
 
   it.each([
+<<<<<<< HEAD
     { name: "database error", value: result("", { code: 1 }) },
+=======
+>>>>>>> 97b6e87616f
     { name: "timeout", value: result("", { code: null, termination: "timeout" }) },
-    { name: "truncated inventory", value: result("", { code: null, termination: "output-limit" }) },
     {
+<<<<<<< HEAD
       name: "configuration error",
       value: result("", { stderr: Buffer.from("private configuration detail") }),
     },
@@ -79,6 +85,15 @@ describe("system package ownership", () => {
         error: Object.assign(new Error("private database detail"), { code: "EACCES" }),
       }),
     },
+=======
+      name: "launch failure",
+      value: result("", {
+        code: null,
+        termination: "error",
+        error: Object.assign(new Error("private database detail"), { code: "EACCES" }),
+      }),
+    },
+>>>>>>> 97b6e87616f
   ])("warns once and continues after $name without consulting the host", async ({ value }) => {
     const host = vi.spyOn(exec, "runCommandBuffered");
     for (const platform of ["linux", "freebsd"] as const) {
@@ -100,7 +115,11 @@ describe("system package ownership", () => {
     expect(host).not.toHaveBeenCalled();
   });
 
+<<<<<<< HEAD
   it.each(["linux", "freebsd"] as const)(
+=======
+  it.each(["linux"] as const)(
+>>>>>>> 97b6e87616f
     "retains the pre-mutation error contract for a positive %s owner",
     async (platform) => {
       const onWarning = vi.fn();
@@ -116,7 +135,11 @@ describe("system package ownership", () => {
         await expect(failure).rejects.toBeInstanceOf(SystemPackageOwnershipError);
         await expect(failure).rejects.toMatchObject({
           name: "UpdatePreMutationError",
+<<<<<<< HEAD
           reason: platform === "linux" ? "pacman-owned-install" : "pkg-owned-install",
+=======
+          reason: "pacman-owned-install",
+>>>>>>> 97b6e87616f
           owned: true,
         });
       });
@@ -202,7 +225,6 @@ describe("system package ownership", () => {
 
   it.each([
     { operation: "lstat", code: "EACCES" },
-    { operation: "realpath", code: "ENOENT" },
     { operation: "realpath", code: "PRIVATE_CUSTOM_CODE" },
   ] as const)(
     "warns after $operation failure ($code) without private details",

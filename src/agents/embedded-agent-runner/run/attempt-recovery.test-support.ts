@@ -55,6 +55,11 @@ export type TransportDropScenario = {
   toolMediaUrls?: string[];
   sourceReplyDelivered?: EmbeddedRunAttemptWithReceiptEvidence["sourceReplyDelivered"];
   trigger?: "cron";
+<<<<<<< HEAD
+=======
+  modelRun?: boolean;
+  promptMode?: "none";
+>>>>>>> 97b6e87616f
   toolResultText?: string;
   preToolText?: string;
   resolveReplyDelivery?: ReplyDeliveryObserver;
@@ -230,6 +235,11 @@ export async function recoverAfterTransportDrop(scenario: TransportDropScenario 
           config: scenario.config ?? {},
           agentId: "main",
           trigger: scenario.trigger,
+<<<<<<< HEAD
+=======
+          modelRun: scenario.modelRun,
+          promptMode: scenario.promptMode,
+>>>>>>> 97b6e87616f
           resolveReplyDelivery: scenario.resolveReplyDelivery,
           sessionId: "session:transport-drop",
           // This fixture owns no durable session, including under a frozen retry clock.

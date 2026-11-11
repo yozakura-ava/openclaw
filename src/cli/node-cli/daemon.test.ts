@@ -161,7 +161,11 @@ describe("runNodeDaemonInstall", () => {
     mocks.runExec.mockReset().mockImplementation(async (executable: string) => ({
       stdout: JSON.stringify({
         nodeVersion: "26.12.1",
+<<<<<<< HEAD
         bunVersion: /(?:^|[/\\])bun(?:\.exe)?$/i.test(executable) ? "1.4.2" : null,
+=======
+        bunVersion: /(?:^|[/\\])bun(?:\.exe)?$/i.test(executable) ? "1.4.4" : null,
+>>>>>>> 97b6e87616f
         sqliteVersion: "3.53.4",
         sqliteProbe: { available: true, version: "3.53.4", text: true, blob: true, json: true },
       }),

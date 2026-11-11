@@ -1,6 +1,10 @@
 {
   "name": "@openclaw/onnx",
+<<<<<<< HEAD
   "version": "2026.10.8",
+=======
+  "version": "2026.11.1",
+>>>>>>> 97b6e87616f
   "description": "Local ONNX decision models for OpenClaw",
   "repository": {
     "type": "git",
@@ -9,7 +13,7 @@
   "type": "module",
   "dependencies": {
     "@huggingface/tokenizers": "0.2.0",
-    "typebox": "1.3.34"
+    "typebox": "1.3.35"
   },
   "optionalDependencies": {
     "onnxruntime-node": "1.30.0"
@@ -28,11 +32,19 @@
       "minHostVersion": ">=2026.9.6"
     },
     "compat": {
+<<<<<<< HEAD
       "pluginApi": ">=2026.10.8"
     },
     "build": {
       "bundledDist": false,
       "openclawVersion": "2026.10.8",
+=======
+      "pluginApi": ">=2026.11.1"
+    },
+    "build": {
+      "bundledDist": false,
+      "openclawVersion": "2026.11.1",
+>>>>>>> 97b6e87616f
       "workerEntries": [
         "./src/inference.worker.ts"
       ],

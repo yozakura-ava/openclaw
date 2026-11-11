@@ -1,0 +1,8 @@
+{
+ "kind": "step02-normalize",
+ "prev_receipt_sha256": "95534bb768dac14d84d06b5dc3e745ac9182b67d1302521cbca91ef40e2bbaec",
+ "receipt_sha256": "565c54ef1cebf9057d67a2c1f28c25d04ab241c0a9542027853761f6f1d68713",
+ "records": 46,
+ "tier": "D-ghost-window",
+ "transform_version": "1"
+}

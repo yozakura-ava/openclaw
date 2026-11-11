@@ -52,8 +52,15 @@ export function collectRuntimeConfigAssignments(params: {
   if (!discord) {
     return;
   }
+<<<<<<< HEAD
   const surface = resolveChannelAccountSurface(
     discord,
+=======
+  const { channel: discord, surface } = resolved;
+  const hasImplicitDefault =
+    surface.hasExplicitAccounts &&
+    !surface.accounts.some(({ accountId }) => normalizeAccountId(accountId) === "default") &&
+>>>>>>> 97b6e87616f
     [discord.token, params.context.env.DISCORD_BOT_TOKEN].some((value) =>
       hasConfiguredSecretInputValue(value, params.defaults),
     ),

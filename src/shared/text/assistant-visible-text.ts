@@ -13,6 +13,10 @@ import {
   type TextFilter,
 } from "./text-projection.js";
 import { toolCallXmlTextFilter } from "./tool-call-xml.js";
+<<<<<<< HEAD
+=======
+import { createQuotedStringScanner, parseXmlTagAt } from "./xml-tag-at.js";
+>>>>>>> 97b6e87616f
 
 export { stripToolCallXmlTags, toolCallXmlTextFilter } from "./tool-call-xml.js";
 
@@ -63,7 +67,7 @@ const traceLineHeads = traceLineRules.flatMap(({ heads }) =>
  * Minimax sometimes embeds tool calls as XML in text blocks instead of
  * proper structured tool calls.
  */
-function stripMinimaxToolCallXml(text: string): string {
+function stripMinimaxToolCallXml(text: string, options?: { recoverUnclosed?: boolean }): string {
   const encodedTransportBoundaryRe = /\]?<\]minimax\[>\[/g;
   const encodedToolCallOpenRe = /\]?<\]minimax\[>\[<tool_call>/g;
   const encodedToolCallCloseRe = /\]?<\]minimax\[>\[<\/tool_call>/g;
@@ -107,16 +111,52 @@ function stripMinimaxToolCallXml(text: string): string {
   }
 
   const codeRegions = findCodeRegions(normalized);
-  const minimaxToolXmlRe = /<invoke\b[^>]*>[\s\S]*?<\/invoke>|<\/?minimax:tool_call>/gi;
+  const minimaxToolXmlRe = /(<invoke\b[^>]*>)|<\/?minimax:tool_call>/gi;
   let result = "";
   let cursor = 0;
   for (const match of normalized.matchAll(minimaxToolXmlRe)) {
     const start = match.index ?? 0;
-    if (isInsideCode(start, codeRegions)) {
+    if (start < cursor || isInsideCode(start, codeRegions)) {
       continue;
     }
+    let end = start + match[0].length;
+    if (match[1]) {
+      const tag = parseXmlTagAt(normalized, start);
+      if (!tag || tag.isTruncated) {
+        continue;
+      }
+      // Literal closers in JSON arguments or code do not end the invocation.
+      const isInsideQuote = /^\s*[{[]/.test(normalized.slice(tag.end))
+        ? createQuotedStringScanner(normalized, tag.end)
+        : undefined;
+      const closeRe = /<\/invoke>/gi;
+      closeRe.lastIndex = tag.end;
+      let close = closeRe.exec(normalized);
+      const recoveryClose = close;
+      while (
+        close &&
+        (isInsideQuote ? isInsideQuote(close.index) : isInsideCode(close.index, codeRegions))
+      ) {
+        close = closeRe.exec(normalized);
+      }
+      // Only terminal text can recover the legacy boundary when no unquoted close remains.
+      if (!close && isInsideQuote && options?.recoverUnclosed !== false) {
+        close = recoveryClose;
+      }
+      if (!close) {
+        if (options?.recoverUnclosed === false) {
+          // A recognized invocation is private even before its closing tag arrives.
+          // Keep terminal recovery separate; a later append can restore following prose.
+          result += normalized.slice(cursor, start);
+          cursor = normalized.length;
+          break;
+        }
+        continue;
+      }
+      end = close.index + close[0].length;
+    }
     result += normalized.slice(cursor, start);
-    cursor = start + match[0].length;
+    cursor = end;
   }
   result += normalized.slice(cursor);
   return result;
@@ -258,17 +298,20 @@ export function assistantVisibleTextFilters(
       }),
   };
   const filters: TextFilter[] = [
-    ...(!preserve ? [minimaxToolCallTextFilter] : []),
+    ...(!preserve ? [minimaxToolCallTextFilter(streaming)] : []),
     { transform: stripModelSpecialTokens, activationTokens: ["<|", "<｜"] },
     {
       transform: stripRelevantMemoriesTags,
       activationTokens: ["relevant-memories", "relevant_memories"],
     },
-    toolCallXmlTextFilter({
-      stripFunctionCallsXmlPayloads: profile === "tool-progress",
-      stripFunctionResponseAfterPluralToolCalls:
-        profile === "delivery" || profile === "final-answer-delivery",
-    }),
+    toolCallXmlTextFilter(
+      {
+        stripFunctionCallsXmlPayloads: profile === "tool-progress",
+        stripFunctionResponseAfterPluralToolCalls:
+          profile === "delivery" || profile === "final-answer-delivery",
+      },
+      streaming,
+    ),
     ...(profile === "tool-progress" ? [] : [assistantTraceTextFilter]),
     legacyBracketToolCallTextFilter,
     plainToolCallTextFilter,
@@ -292,10 +335,19 @@ export function assistantVisibleTextFilters(
 
 // Activation is a necessary condition only; the canonical parsers still own
 // syntax, code protection, and later corrections once a marker has appeared.
+<<<<<<< HEAD
 export const minimaxToolCallTextFilter: TextFilter = {
   transform: stripMinimaxToolCallXml,
   activationTokens: ["minimax:tool_call", "<]minimax[>[<tool_call>"],
 };
+=======
+export function minimaxToolCallTextFilter(streaming = false): TextFilter {
+  return {
+    transform: (text) => stripMinimaxToolCallXml(text, { recoverUnclosed: !streaming }),
+    activationTokens: ["minimax:tool_call", "<]minimax[>[<tool_call>"],
+  };
+}
+>>>>>>> 97b6e87616f
 
 export const legacyBracketToolCallTextFilter: TextFilter = {
   transform: stripLegacyBracketToolCallBlocks,
@@ -357,7 +409,7 @@ function createAssistantTraceProjector() {
 export const plainToolCallTextFilter: TextFilter = {
   transform: (text) =>
     stripPlainTextToolCallBlocks(text, { resolveProtectedRanges: findCodeRegions }),
-  activationTokens: ["[", "<function=", "to="],
+  activationTokens: ["{", "<parameter=", "<function=", "to="],
 };
 
 export function sanitizeAssistantVisibleTextWithProfile(

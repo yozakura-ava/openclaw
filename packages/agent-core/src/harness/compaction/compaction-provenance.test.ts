@@ -5,7 +5,10 @@ import type { AgentMessage } from "../../types.js";
 import { buildSessionContext } from "../session/session.js";
 import {
   compact,
+<<<<<<< HEAD
   compactWithoutSummary,
+=======
+>>>>>>> 97b6e87616f
   estimateTokens,
   generateSummary,
   prepareCompaction,
@@ -44,6 +47,11 @@ function createCapturingSummaryStream() {
 
 describe("compaction sender provenance", () => {
   it.each([
+<<<<<<< HEAD
+=======
+    { metadata: { provenance: { kind: "external_user" } }, label: "User" },
+    { metadata: { provenance: { kind: "realtime_voice", sourceChannel: "talk" } }, label: "User" },
+>>>>>>> 97b6e87616f
     { metadata: { provenance: null }, label: "Unknown-origin input" },
     { metadata: { provenance: {} }, label: "Unknown-origin input" },
     { metadata: { provenance: "unparsed" }, label: "Unknown-origin input" },
@@ -65,12 +73,17 @@ describe("compaction sender provenance", () => {
       { role: "user" as const, content: "data", timestamp: 1 },
       metadata,
     );
+<<<<<<< HEAD
     expect(serializeConversation([message])).toBe(`[${label}]: data`);
     // Ordinary User text is already the estimator's baseline; charge the added label.
+=======
+    expect(serializeConversation([message])).toBe("[" + label + "]: data");
+>>>>>>> 97b6e87616f
     expect(estimateTokens(message)).toBe(Math.ceil((4 + label.length - "User".length) / 4));
   });
 
   it.each([
+<<<<<<< HEAD
     undefined,
     { kind: "external_user" },
     { kind: "realtime_voice", sourceChannel: "talk" },
@@ -187,6 +200,8 @@ describe("compaction sender provenance", () => {
   );
 
   it.each([
+=======
+>>>>>>> 97b6e87616f
     { name: "custom", summaryPrompt: { kind: "custom" as const, instructions: "Custom format." } },
     { name: "turn-prefix", summaryPrompt: { kind: "turn-prefix" as const } },
   ])("applies attribution instructions to a $name summary prompt", async ({ summaryPrompt }) => {

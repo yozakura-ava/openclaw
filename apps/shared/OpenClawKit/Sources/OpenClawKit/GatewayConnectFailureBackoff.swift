@@ -50,7 +50,10 @@ struct GatewayConnectFailureBackoff {
 
 extension GatewayChannelActor {
     public func clearConnectFailureBackoff() {
+<<<<<<< HEAD
         self.backoffMs = 500
+=======
+>>>>>>> 97b6e87616f
         self.connectFailureBackoff.reset()
         self.connectFailureBackoffWaitTask?.cancel()
     }
@@ -75,7 +78,13 @@ extension GatewayChannelActor {
             }
             #endif
             let clock = ContinuousClock()
-            if clock.now < deadline { try await clock.sleep(until: deadline) }
+            if clock.now < deadline {
+                #if DEBUG
+                try await self.testRecoverySleep(clock.now.duration(to: deadline))
+                #else
+                try await clock.sleep(until: deadline)
+                #endif
+            }
         }
         self.connectFailureBackoffWaitTask = wait
         defer { self.connectFailureBackoffWaitTask = nil }

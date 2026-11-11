@@ -1,7 +1,11 @@
 // Log tail redaction tests cover scrubbing sensitive data from tailed logs.
 import fs from "node:fs/promises";
 import path from "node:path";
+<<<<<<< HEAD
 import { afterEach, describe, expect, it, vi } from "vitest";
+=======
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
+>>>>>>> 97b6e87616f
 import { createTempDirTracker } from "../../test/helpers/temp-dir.js";
 import { resetLogger, setLoggerOverride } from "../logging.js";
 import { withEnvAsync } from "../test-utils/env.js";
@@ -58,6 +62,43 @@ describe("readConfiguredLogTail redaction", () => {
   });
 });
 
+<<<<<<< HEAD
+=======
+it("redacts raw JSON credentials and default tokens with custom tail patterns", async () => {
+  const dir = tempDirs.make("openclaw-raw-log-tail-");
+  const logFile = path.join(dir, "openclaw.log");
+  const configFile = path.join(dir, "openclaw.json");
+  await fs.writeFile(configFile, JSON.stringify({ logging: { redactPatterns: ["CUSTOM_VALUE"] } }));
+  const record = {
+    password: 1234,
+    apiKey: false,
+    signature: "short-signature",
+    nested: { "x-pomerium-jwt-assertion": "opaque-header" },
+    message: "sk-syntheticcredential123456 CUSTOM_VALUE",
+    ordinary: "request completed",
+  };
+  const raw = `${JSON.stringify(record)}\n`;
+  await fs.writeFile(logFile, raw);
+  setLoggerOverride({ file: logFile });
+  const tail = await withEnvAsync({ OPENCLAW_CONFIG_PATH: configFile }, () =>
+    readConfiguredLogTail(),
+  );
+  assert(tail.lines[0] !== undefined);
+  const redacted = JSON.parse(tail.lines[0]);
+  expect(redacted).toMatchObject({
+    password: "***",
+    apiKey: "***",
+    signature: "***",
+    nested: { "x-pomerium-jwt-assertion": "***" },
+    ordinary: "request completed",
+  });
+  expect(redacted.message).not.toContain("sk-syntheticcredential123456");
+  expect(redacted.message).not.toContain("CUSTOM_VALUE");
+  expect(tail.cursor).toBe(Buffer.byteLength(raw));
+  expect(await fs.readFile(logFile, "utf8")).toBe(raw);
+});
+
+>>>>>>> 97b6e87616f
 async function withPemLog(content: string, run: (file: string) => Promise<void>) {
   const dir = tempDirs.make("openclaw-log-tail-pem-");
   const file = path.join(dir, "configured.log");

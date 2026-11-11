@@ -5,6 +5,7 @@ import {
   normalizeOptionalString,
 } from "@openclaw/normalization-core/string-coerce";
 import { sliceUtf16Safe } from "@openclaw/normalization-core/utf16-slice";
+import type { NodePermissionDetails } from "../../packages/gateway-protocol/src/node-permissions.js";
 import { validateSystemRunExecutionContext } from "../../packages/gateway-protocol/src/system-run-execution-context.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { describeInterpreterInlineEval } from "../infra/command-analysis/inline-eval.js";
@@ -83,6 +84,12 @@ import {
   resolveSystemRunExecArgv,
 } from "./invoke-system-run-allowlist.js";
 import {
+  normalizeDeniedReason,
+  sendSystemRunDenied,
+  type SystemRunDeniedReason,
+  type SystemRunInvokeResult,
+} from "./invoke-system-run-denied.js";
+import {
   buildEnvOverrideRejectionMessage,
   hardenApprovedExecutionPaths,
 } from "./invoke-system-run-plan.js";
@@ -95,6 +102,7 @@ import type {
 
 const OUTPUT_EVENT_TAIL = 20_000;
 
+<<<<<<< HEAD
 type SystemRunInvokeResult = {
   ok: boolean;
   payloadJSON?: string | null;
@@ -120,6 +128,8 @@ const transportErrorCodes: Partial<Record<SystemRunDeniedReason, string>> = {
   "response-lost": "UNKNOWN",
 };
 
+=======
+>>>>>>> 97b6e87616f
 type SystemRunExecutionContext = SystemRunParsePhase["execution"];
 
 type SystemRunParsePhase = NonNullable<Awaited<ReturnType<typeof parseSystemRunPhase>>>;
@@ -141,6 +151,7 @@ function warnWritableTrustedDirOnce(message: string): void {
   logWarn(message);
 }
 
+<<<<<<< HEAD
 function normalizeDeniedReason(reason: string | null | undefined): SystemRunDeniedReason {
   switch (reason) {
     case "security=deny":
@@ -158,6 +169,8 @@ function normalizeDeniedReason(reason: string | null | undefined): SystemRunDeni
   }
 }
 
+=======
+>>>>>>> 97b6e87616f
 export async function resolveEffectiveSystemRunExecPolicy(params: {
   cfg: OpenClawConfig;
   agentId: string | undefined;
@@ -194,6 +207,7 @@ type HandleSystemRunInvokeOptions = {
   commitExecAuthorization?: typeof commitExecAuthorizationLocked;
 };
 
+<<<<<<< HEAD
 async function sendSystemRunDenied(
   opts: Pick<HandleSystemRunInvokeOptions, "sendNodeEvent" | "sendInvokeResult">,
   execution: SystemRunExecutionContext,
@@ -223,6 +237,8 @@ async function sendSystemRunDenied(
   return null;
 }
 
+=======
+>>>>>>> 97b6e87616f
 async function sendSystemRunCompleted(
   opts: Pick<HandleSystemRunInvokeOptions, "sendNodeEvent" | "sendInvokeResult">,
   execution: SystemRunExecutionContext,
@@ -844,7 +860,11 @@ async function executeSystemRunPhase(
       await phase.deny(
         response.error.message,
         normalizeDeniedReason(response.error.reason),
+<<<<<<< HEAD
         response.error.details,
+=======
+        response.error.code === "PERMISSION_MISSING" ? response.error.details : undefined,
+>>>>>>> 97b6e87616f
       );
       return;
     }
@@ -854,7 +874,10 @@ async function executeSystemRunPhase(
   }
 
   if (phase.needsScreenRecording) {
-    await phase.deny("PERMISSION_MISSING: screenRecording", "permission:screenRecording");
+    await phase.deny("PERMISSION_MISSING: screenRecording", "permission:screenRecording", {
+      capabilities: ["screenRecording"],
+      state: "not-determined",
+    });
     return;
   }
 

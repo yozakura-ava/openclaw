@@ -1,6 +1,13 @@
 import { getSessionRowProjection } from "../../gateway/session-row-projection-access.js";
 import { captureSessionPortalTarget } from "../../gateway/worker-environments/session-portal-target.js";
 import { resolveGatewayOwnerOnlyToolDenylist } from "../../security/dangerous-tools.js";
+<<<<<<< HEAD
+=======
+import {
+  bindActiveCronCreatorAuthorityResolver,
+  bindCronManagementGrant,
+} from "../cron-creator-authority-context.js";
+>>>>>>> 97b6e87616f
 import { AUTOMATIONS_TOOL_NAME } from "./automations-tool-name.js";
 import { getInProcessGatewayToolContext } from "./in-process-gateway.js";
 
@@ -17,8 +24,17 @@ export function prepareSessionPortalToolAccess(input: {
   sessionId?: string;
   senderIsOwner?: boolean;
   sandboxed: boolean;
-  hasAutomationGrant: boolean;
+  runId?: string;
+  cronSelfRemoveOnlyJobId?: string;
 }) {
+  const cronCreatorAuthorityResolver = bindActiveCronCreatorAuthorityResolver(input.runId);
+  // A scheduled run gets its self-scoped tool, not sender/administrator authority.
+  // The tool action scope and Gateway admission still validate the current job.
+  const hasAutomationGrant = Boolean(
+    input.cronSelfRemoveOnlyJobId ||
+    cronCreatorAuthorityResolver ||
+    bindCronManagementGrant(input.runId),
+  );
   const sessionPortalTarget =
     input.senderIsOwner === false && !input.sandboxed
       ? prepareSessionPortalToolTarget(input)
@@ -29,12 +45,22 @@ export function prepareSessionPortalToolAccess(input: {
     (name) =>
       (name !== "portal" || !sessionPortalTarget) &&
       name !== "sessions" &&
+<<<<<<< HEAD
       (name !== AUTOMATIONS_TOOL_NAME || !input.hasAutomationGrant),
   );
   const ownerOnlyCoreToolPolicy = ownerOnlyCoreToolDenylist.length
     ? { deny: ownerOnlyCoreToolDenylist }
     : undefined;
   return { sessionPortalTarget, ownerOnlyCoreToolDenylist, ownerOnlyCoreToolPolicy };
+=======
+      (name !== AUTOMATIONS_TOOL_NAME || !hasAutomationGrant),
+  );
+  return {
+    sessionPortalTarget,
+    ownerOnlyCoreToolDenylist,
+    cronCreatorAuthorityResolver,
+  };
+>>>>>>> 97b6e87616f
 }
 
 /** Availability uses resident execution facts; the scoped RPC still authorizes every call. */

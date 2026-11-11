@@ -9,10 +9,10 @@ import { selectResetKeptEntries } from "../../../packages/agent-core/src/harness
 import { formatContextJsonBlock } from "../../auto-reply/reply/channel-prompt-context.js";
 import { markInboundContextLabel } from "../../auto-reply/reply/inbound-context-marker.js";
 import {
-  readSessionTranscriptBoundedMessageTailPage,
   waitForSessionTranscriptProjection,
   type SessionTranscriptRuntimeTarget,
 } from "../../config/sessions/session-accessor.js";
+import { captureSessionActorTranscriptRead } from "../../config/sessions/session-actor-transcript-read.js";
 import { SessionTranscriptStorageUnavailableError } from "../../config/sessions/session-transcript-projection-error.js";
 import { resolveSessionTranscriptReadFence } from "../../config/sessions/session-transcript-read-fence.js";
 import { readSessionTranscriptWatermarkAsync } from "../../config/sessions/session-transcript-watermark.js";
@@ -20,7 +20,10 @@ import type { CliSessionBinding } from "../../config/sessions/types.js";
 import {
   annotateInterSessionPromptText,
   normalizeInputProvenance,
+<<<<<<< HEAD
   shouldPreserveUserFacingSessionStateForInputProvenance,
+=======
+>>>>>>> 97b6e87616f
 } from "../../sessions/input-provenance.js";
 import type { UserTurnTranscriptRecorder } from "../../sessions/user-turn-transcript.types.js";
 import { isTranscriptOnlyOpenClawAssistantMessage } from "../../shared/transcript-only-openclaw-assistant.js";
@@ -38,6 +41,15 @@ import {
   type SessionMessageEntry,
 } from "../sessions/session-manager.js";
 import { cliBackendLog } from "./log.js";
+<<<<<<< HEAD
+=======
+import {
+  classifyCliReplies,
+  readTranscriptRunMetadata,
+  renderClaudeSessionGap,
+  type CliReply,
+} from "./session-history-replies.js";
+>>>>>>> 97b6e87616f
 import type { CliReusableSession } from "./types.js";
 
 const MAX_CLI_SESSION_HISTORY_BYTES = 5 * 1024 * 1024;
@@ -308,10 +320,16 @@ async function loadCliSessionEntries({
   if (!sessionTarget) {
     return [];
   }
+  const memory = captureSessionActorTranscriptRead(sessionTarget, abortSignal);
+  if (memory?.missing) {
+    return [];
+  }
   const admission = resolveSessionTranscriptReadFence(sessionTarget);
-  const { restoreSessionColdTranscript } =
-    await import("../../config/sessions/session-cold-storage.js");
-  await restoreSessionColdTranscript(sessionTarget, () => abortSignal?.throwIfAborted());
+  if (!memory) {
+    const { restoreSessionColdTranscript } =
+      await import("../../config/sessions/session-cold-storage.js");
+    await restoreSessionColdTranscript(sessionTarget, () => abortSignal?.throwIfAborted());
+  }
   await waitForSessionTranscriptProjection(sessionTarget, abortSignal);
   // Normalize bounded cuts with opaque ancestry before rebuilding CLI context.
   try {
@@ -342,9 +360,14 @@ async function loadCliSessionEntries({
 export async function hasCliSessionTranscript({
   sessionManager,
   sessionTarget,
+  abortSignal,
 }: CliSessionHistoryParams): Promise<boolean> {
   if (sessionManager) {
     return sessionManager.getEntries().length > 0;
+  }
+  const memory = sessionTarget && captureSessionActorTranscriptRead(sessionTarget, abortSignal);
+  if (memory?.missing) {
+    return false;
   }
   return (
     sessionTarget !== undefined &&
@@ -367,16 +390,29 @@ export async function loadCliSessionHistoryMessages({
   if (!sessionTarget) {
     return [];
   }
-  const { restoreSessionColdTranscript } =
-    await import("../../config/sessions/session-cold-storage.js");
-  await restoreSessionColdTranscript(sessionTarget, () => abortSignal?.throwIfAborted());
-  await waitForSessionTranscriptProjection(sessionTarget, abortSignal);
+  const memory = captureSessionActorTranscriptRead(sessionTarget, abortSignal);
+  if (memory?.missing) {
+    return [];
+  }
+  const target = memory?.target ?? sessionTarget;
+  if (!memory) {
+    const { restoreSessionColdTranscript } =
+      await import("../../config/sessions/session-cold-storage.js");
+    await restoreSessionColdTranscript(target, () => abortSignal?.throwIfAborted());
+  }
+  await waitForSessionTranscriptProjection(target, abortSignal);
   // Hooks retain history across compactions; only reset closes their history window.
-  const page = readSessionTranscriptBoundedMessageTailPage(sessionTarget, {
-    maxBytes: MAX_CLI_SESSION_HISTORY_BYTES,
-    maxMessages: MAX_CLI_SESSION_HISTORY_MESSAGES,
-    offset: 0,
-  });
+  const { readSessionTranscriptBoundedMessageTailPageAsync } =
+    await import("../../gateway/session-transcript-readers.js");
+  const page = await readSessionTranscriptBoundedMessageTailPageAsync(
+    target,
+    {
+      maxBytes: MAX_CLI_SESSION_HISTORY_BYTES,
+      maxMessages: MAX_CLI_SESSION_HISTORY_MESSAGES,
+      offset: 0,
+    },
+    abortSignal,
+  );
   if (page.events.length < page.scannedMessages) {
     cliBackendLog.warn(
       `cli session history truncated to bounded message tail: ${sessionTarget.sessionId}`,
@@ -458,6 +494,7 @@ function renderCliDurableContext(messages: ReturnType<typeof buildSessionContext
   return selected.length > 0 ? render(selected, false) : undefined;
 }
 
+<<<<<<< HEAD
 type CliTurnKind = "ordinary" | "preserved" | "background";
 type CliReply = {
   index: number;
@@ -498,6 +535,8 @@ function classifyCliReplies(entries: SessionEntry[], provider: string | undefine
   return replies;
 }
 
+=======
+>>>>>>> 97b6e87616f
 function resolveResetWindowStart(entries: SessionEntry[]): number {
   const boundaryIndex = entries.findLastIndex((entry) => entry.type === "reset");
   const boundary = entries[boundaryIndex];
@@ -585,6 +624,11 @@ export async function loadCliSessionPromptContext(
     /** The native handle already accepted by the CLI reuse owner, never a fresh handle. */
     nativeSessionId?: string;
     provider?: string;
+<<<<<<< HEAD
+=======
+    sessionKey?: string;
+    tools?: readonly { name: string }[];
+>>>>>>> 97b6e87616f
     runId?: string;
     cliSessionBinding?: CliSessionBinding;
     userTurnTranscriptRecorder?: UserTurnTranscriptRecorder;
@@ -593,6 +637,10 @@ export async function loadCliSessionPromptContext(
   const assertActive =
     params.sessionTarget &&
     params.sessionId === params.sessionTarget.sessionId &&
+<<<<<<< HEAD
+=======
+    params.sessionKey === params.sessionTarget.sessionKey &&
+>>>>>>> 97b6e87616f
     params.admittedRunContext
       ? resolveAdmittedRunActiveAssertion(params.admittedRunContext, params.abortSignal)
       : undefined;
@@ -606,7 +654,11 @@ export async function loadCliSessionPromptContext(
       `cli session history refused across auth boundary: reason=${params.rawTranscriptReseedReason}`,
     );
     // Only an admitted native-only resume may still receive conversation updates.
+<<<<<<< HEAD
     if (!assertActive || params.rawTranscriptReseedReason !== "auth-unknown") {
+=======
+    if (!assertActive) {
+>>>>>>> 97b6e87616f
       return { reseedMessages: [], durableContext: undefined };
     }
   }
@@ -614,6 +666,22 @@ export async function loadCliSessionPromptContext(
   const entries = await loadCliSessionEntries(params);
   assertActive?.();
   const replies = classifyCliReplies(entries, params.provider);
+<<<<<<< HEAD
+=======
+  const sessionGapContext =
+    params.provider === "claude-cli" &&
+    assertActive &&
+    (params.rawTranscriptReseedReason === "auth-unknown" ||
+      (contentBlocked && !params.nativeSessionId))
+      ? renderClaudeSessionGap(entries, replies, {
+          sessionKey: params.sessionKey,
+          historyToolAvailable:
+            params.tools?.some((tool) => tool.name === "sessions_history") === true,
+          freshSession: !params.nativeSessionId,
+          countPreservedTurns: true,
+        })
+      : undefined;
+>>>>>>> 97b6e87616f
   const transcriptCursor =
     assertActive && params.runId && params.sessionId
       ? {
@@ -625,6 +693,10 @@ export async function loadCliSessionPromptContext(
   // This handoff belongs only to the accepted native resume, never fresh-session recovery.
   const resumeContext =
     assertActive &&
+<<<<<<< HEAD
+=======
+    (!contentBlocked || params.rawTranscriptReseedReason === "auth-unknown") &&
+>>>>>>> 97b6e87616f
     params.nativeSessionId &&
     (!params.cliSessionBinding || params.cliSessionBinding.sessionId === params.nativeSessionId) &&
     !params.cliSessionBinding?.forceReuse &&
@@ -632,7 +704,17 @@ export async function loadCliSessionPromptContext(
       ? renderCliPreservedTurns(entries, replies, params)
       : undefined;
   if (contentBlocked) {
+<<<<<<< HEAD
     return { reseedMessages: [], durableContext: undefined, resumeContext, transcriptCursor };
+=======
+    return {
+      reseedMessages: [],
+      durableContext: undefined,
+      resumeContext,
+      transcriptCursor,
+      sessionGapContext,
+    };
+>>>>>>> 97b6e87616f
   }
   // This freshly loaded branch is reseed-owned; use persistence rather than provider timestamps.
   for (const entry of entries) {
@@ -650,7 +732,17 @@ export async function loadCliSessionPromptContext(
     !params.sessionManager &&
     (params.allowRawTranscriptReseed !== true || !params.rawTranscriptReseedReason)
   ) {
+<<<<<<< HEAD
     return { reseedMessages: [], durableContext, resumeContext, transcriptCursor };
+=======
+    return {
+      reseedMessages: [],
+      durableContext,
+      resumeContext,
+      transcriptCursor,
+      sessionGapContext,
+    };
+>>>>>>> 97b6e87616f
   }
   const history = historyMessages.filter(
     (message) =>
@@ -672,5 +764,9 @@ export async function loadCliSessionPromptContext(
           isError: message.role === "toolResult" ? message.isError : undefined,
         };
   });
+<<<<<<< HEAD
   return { reseedMessages, durableContext, resumeContext, transcriptCursor };
+=======
+  return { reseedMessages, durableContext, resumeContext, transcriptCursor, sessionGapContext };
+>>>>>>> 97b6e87616f
 }

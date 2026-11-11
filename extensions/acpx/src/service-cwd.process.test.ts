@@ -12,10 +12,13 @@ const ownerAgentScript = fileURLToPath(
   new URL("../../../test/fixtures/acp/owner-agent.mjs", import.meta.url),
 );
 
+<<<<<<< HEAD
 function fixtureSession(sessionKey: string) {
   return { sessionKey, agent: "fixture", mode: "persistent" as const };
 }
 
+=======
+>>>>>>> 97b6e87616f
 it("probes without a default workspace and launches sessions in their requested cwd", async () => {
   await withOpenClawTestState(
     {
@@ -69,7 +72,13 @@ await import(${JSON.stringify(pathToFileURL(ownerAgentScript).href)});
           throw new Error("ACPX backend was not published");
         }
         const handle = await backend.runtime.ensureSession({
+<<<<<<< HEAD
           ...fixtureSession("agent:main:acp:cwd"),
+=======
+          sessionKey: "agent:main:acp:cwd",
+          agent: "fixture",
+          mode: "persistent",
+>>>>>>> 97b6e87616f
           cwd: workspace,
         });
         try {

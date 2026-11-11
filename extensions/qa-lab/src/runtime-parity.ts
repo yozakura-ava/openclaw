@@ -1,5 +1,5 @@
 import {
-  loadTranscriptEventsSync,
+  loadTranscriptEvents,
   resolveStorePath,
   type SessionEntry,
 } from "openclaw/plugin-sdk/session-store-runtime";
@@ -28,7 +28,7 @@ import {
 import type { RuntimeParityUsage } from "./runtime-parity-usage.js";
 import {
   extractQaMessageText,
-  readQaMessageFunctionCalls,
+  readQaMessageToolCalls,
   readQaTranscriptMessages,
 } from "./runtime-transcript.js";
 import { readRawQaSessionStore } from "./suite-runtime-agent-session.js";
@@ -172,6 +172,8 @@ type RuntimeParityCaptureParams = {
   bootstrapWallClockMs?: number;
   agentId?: string;
   mockBaseUrl?: string;
+  pendingToolResultPoll?: () => Promise<void>;
+  pendingToolResultWaitMs?: number;
 };
 
 type RuntimeParitySessionCandidate = {
@@ -212,6 +214,7 @@ const HEARTBEAT_TRANSCRIPT_PROMPT = "[OpenClaw heartbeat poll]";
 const HEARTBEAT_TASK_PROMPT_PREFIX =
   "Run the following periodic tasks (only those due based on their intervals):";
 const TOOL_RESULT_MISSING_ERROR_CLASS = "tool-result-missing";
+const PENDING_TOOL_RESULT_POLL_MS = 25;
 const RUNTIME_PARITY_SESSION_KEY_DETAIL_PREFIX = "RUNTIME_PARITY_SESSION_KEY=";
 const BOOT_STATE_LINE_RE =
   /\b(?:FailoverError|No API key found|Codex app-server|agent harness selected|auth profile|runtime policy|restart mode:|plugin|doctor)\b/i;
@@ -298,32 +301,11 @@ function extractToolCalls(message: Record<string, unknown>): Array<{
   tool: string;
   args: unknown;
 }> {
-  const calls: Array<{ id?: string; tool: string; args: unknown }> = [];
-  const rawContent = message.content;
-  if (Array.isArray(rawContent)) {
-    for (const block of rawContent) {
-      if (!isMessageRecord(block)) {
-        continue;
-      }
-      const type = readNonEmptyString(block.type)?.toLowerCase();
-      if (type !== "tool_use" && type !== "toolcall" && type !== "tool_call") {
-        continue;
-      }
-      const tool = readNonEmptyString(block.name) ?? "unknown";
-      calls.push({
-        id:
-          readNonEmptyString(block.id) ??
-          readNonEmptyString(block.toolCallId) ??
-          readNonEmptyString(block.toolUseId),
-        tool,
-        args: block.input ?? block.arguments ?? block.args ?? block.payload ?? null,
-      });
-    }
-  }
-  for (const call of readQaMessageFunctionCalls(message)) {
-    calls.push({ ...call, tool: call.tool ?? "unknown" });
-  }
-  return calls;
+  return Array.from(readQaMessageToolCalls(message), ({ id, tool, args }) => ({
+    id,
+    tool: tool ?? "unknown",
+    args,
+  }));
 }
 
 function extractToolResults(message: Record<string, unknown>): Array<{
@@ -1112,7 +1094,7 @@ async function loadRuntimeParityCaptureSources(params: {
     }
     let transcriptBytes = "";
     try {
-      const events = loadTranscriptEventsSync({
+      const events = await loadTranscriptEvents({
         agentId: params.agentId,
         env,
         sessionId,
@@ -1151,6 +1133,34 @@ async function loadRuntimeParityCaptureSources(params: {
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+function captureSourcesHavePendingToolResults(sources: RuntimeParityCaptureSources) {
+  return sources.sessions.some((session) =>
+    mergeRuntimeParityToolCalls({
+      transcriptToolCalls: resolveToolCallOrder(buildTranscriptRecords(session.transcriptBytes)),
+      trajectoryToolCalls: session.trajectoryToolCalls,
+    }).some((toolCall) => toolCall.hasArguments === true && toolCall.hasResult !== true),
+  );
+}
+
+async function loadSettledRuntimeParityCaptureSources(params: {
+  gateway: QaGatewayLike;
+  agentId: string;
+  preferredSessionKeys: readonly string[];
+  poll?: () => Promise<void>;
+  waitMs: number;
+}) {
+  const deadline = Date.now() + Math.max(0, params.waitMs);
+  let sources = await loadRuntimeParityCaptureSources(params);
+  while (captureSourcesHavePendingToolResults(sources) && Date.now() < deadline) {
+    await (params.poll?.() ??
+      new Promise((resolve) => {
+        setTimeout(resolve, PENDING_TOOL_RESULT_POLL_MS);
+      }));
+    sources = await loadRuntimeParityCaptureSources(params);
+  }
+  return sources;
 }
 
 function runtimeParitySessionKeysFromScenarioResult(result: QaSuiteScenarioLike) {
@@ -1211,10 +1221,16 @@ export async function captureRuntimeParityCell(
   params: RuntimeParityCaptureParams,
 ): Promise<RuntimeParityCell> {
   const agentId = params.agentId ?? DEFAULT_AGENT_ID;
-  const { sessions, transcriptBytes } = await loadRuntimeParityCaptureSources({
+  const preferredSessionKeys = runtimeParitySessionKeysFromScenarioResult(params.scenarioResult);
+  const { sessions, transcriptBytes } = await loadSettledRuntimeParityCaptureSources({
     gateway: params.gateway,
     agentId,
-    preferredSessionKeys: runtimeParitySessionKeysFromScenarioResult(params.scenarioResult),
+    poll: params.pendingToolResultPoll,
+    preferredSessionKeys,
+    waitMs:
+      params.runtime === "codex" && params.scenarioResult.status === "pass"
+        ? (params.pendingToolResultWaitMs ?? 0)
+        : 0,
   });
   const transcriptRecords = buildTranscriptRecords(transcriptBytes);
   // Runtime-tool fixtures split happy and failure paths across root sessions.

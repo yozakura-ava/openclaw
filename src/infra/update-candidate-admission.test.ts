@@ -409,7 +409,14 @@ describe("runUpdateCandidateAdmission", () => {
 
     const result = await run({ env: { API_TOKEN: "synthetic-secret" } });
 
+<<<<<<< HEAD
     expect(result).toMatchObject({ owner: "installed", fallbackReason: "malformed-json" });
+=======
+    expect(result, JSON.stringify(result)).toMatchObject({
+      owner: "installed",
+      fallbackReason: "malformed-json",
+    });
+>>>>>>> 97b6e87616f
     const message = result.warning?.message ?? "";
     expect(message).toContain("cannot inspect state");
     const excerpt = /Candidate stdout began with: (".*")$/u.exec(message)?.[1];

@@ -1484,7 +1484,11 @@ fi
     const failed = install();
     expect(failed.status).toBe(1);
     expect(failed.stdout).toContain(
+<<<<<<< HEAD
       "Installed Node 24.22.1 must provide Node >= 24.22.1 with WAL-reset-safe SQLite",
+=======
+      "Installed Node 24.22.1 must provide Node >= 24.16.0 with WAL-reset-safe SQLite",
+>>>>>>> 97b6e87616f
     );
     expect(failed.stdout).toContain("found Node unknown, SQLite unavailable");
     expect(readlinkSync(active)).toBe(oldRuntime);

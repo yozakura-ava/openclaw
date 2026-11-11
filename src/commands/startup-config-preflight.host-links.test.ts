@@ -9,7 +9,11 @@ import {
 } from "../infra/state-migrations.messages.js";
 import { buildUpdateRehearsalPathEnv } from "../infra/update-rehearsal-paths.js";
 import { resolvePluginNpmProjectDir } from "../plugins/install-paths.js";
+<<<<<<< HEAD
 import { readPersistedInstalledPluginIndexInstallRecords } from "../plugins/installed-plugin-index-records.js";
+=======
+import { readPersistedInstalledPluginIndexInstallRecordsAsync } from "../plugins/installed-plugin-index-records.js";
+>>>>>>> 97b6e87616f
 import {
   listActiveDegradedPlugins,
   setActiveDegradedPlugins,
@@ -90,7 +94,11 @@ it.each(["present", "missing"])(
         const configPath = path.join(stateDir, "openclaw.json");
         const configBytes = await writeJson(configPath, config);
         await seedInstalledPluginIndex(records, { config });
+<<<<<<< HEAD
         const recordsBefore = readPersistedInstalledPluginIndexInstallRecords();
+=======
+        const recordsBefore = await readPersistedInstalledPluginIndexInstallRecordsAsync();
+>>>>>>> 97b6e87616f
 
         if (oldRootState === "present") {
           // Update rehearsals keep the old links; their candidate owns the repair.
@@ -136,7 +144,11 @@ it.each(["present", "missing"])(
         });
         expect(readStartupMigrationWarning()).toBeUndefined();
         expect(notes.mock.calls.flat().join("\n")).not.toContain("Repaired OpenClaw host link");
+<<<<<<< HEAD
         expect(readPersistedInstalledPluginIndexInstallRecords()).toEqual(recordsBefore);
+=======
+        expect(await readPersistedInstalledPluginIndexInstallRecordsAsync()).toEqual(recordsBefore);
+>>>>>>> 97b6e87616f
         expect(await fs.readFile(configPath, "utf8")).toBe(configBytes);
       }),
     ),

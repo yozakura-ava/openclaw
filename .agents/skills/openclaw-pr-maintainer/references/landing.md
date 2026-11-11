@@ -1,83 +1,44 @@
 # Publication and native landing
 
-Use only under scoped publication/landing authority. Preserve root approval,
-source-trust, contributor-credit, and exact-head requirements. Never publish
-release artifacts under ordinary ship authority.
+- Scoped publication/landing authority only. Root approval, source-trust, contributor-credit, exact-head gates remain. Ordinary ship ≠ release publication.
 
 ## Checkout and source
 
-`scripts/pr` owns review/prepare worktrees under the canonical repository. If that
-location is outside writable scope, use a fresh full ordinary checkout inside the
-allowed workspace before initializing the operation. Preserve complete history
-and blobs for provenance. Do not clone away an active/uncertain operation or use a
-new lock namespace to retry an uncertain merge.
-
-Run the trusted canonical/origin-main wrapper. Untrusted PR code must not supply
-the local wrapper or execute locally; use the source isolation procedure from
-`$openclaw-testing` and `$crabbox`. Do not weaken guards to accommodate missing
-commands or dependencies. The wrapper requires git, gh, jq, rg, pnpm, and node.
-Unset ambient `GITHUB_TOKEN`, `GH_TOKEN`, and `HOMEBREW_GITHUB_API_TOKEN` when they
-could select the wrong writer. Check the effective PATH `gh` or configured
-`OPENCLAW_GH_BIN` writer, not only cached `ghx` reads. Preserve the protected
-route and qualify its exact native merge arguments using the
-[scripts guide](../../../../scripts/AGENTS.md#octopool-string-rewrite-protection).
-An unsupported writer is a route-owner blocker, not permission to select a raw
-binary, change merge semantics, or replay an uncertain request.
+- `scripts/pr` owns review/prepare worktrees under canonical repo. Outside writable scope → fresh full ordinary checkout inside allowed workspace before init. Preserve full history/blobs. Never clone away active/uncertain operation or retry uncertain merge in new lock namespace.
+- Trusted canonical/origin-main wrapper only. Untrusted PR supplies no local wrapper and never runs locally; isolation: `$openclaw-testing` + `$crabbox`. Never weaken guards for missing commands/deps. Requires git, gh, jq, rg, pnpm, node.
+- Unset ambient `GITHUB_TOKEN`, `GH_TOKEN`, `HOMEBREW_GITHUB_API_TOKEN` if wrong writer possible. Verify effective PATH `gh` or `OPENCLAW_GH_BIN`, not cached `ghx` reads. Qualify protected route's exact merge arguments via [scripts guide](../../../../scripts/AGENTS.md#octopool-string-rewrite-protection). Unsupported writer → route-owner blocker; no raw binary, changed semantics, uncertain replay.
 
 ## Open or update the PR
 
-Use the current template and a real body file. Preserve human credit and keep
-branches editable by maintainers when safe. For a fork, consider GitHub's
-Actions/secrets warning before enabling edits.
-
-Create as draft; when merge readiness is requested, wait for non-null `mergeable`,
-then mark ready and confirm CI attached to the pushed head. A merge-ref startup
-failure cannot be rerun; the hourly PR CI sweeper can re-fire it, or use an
-authorized close/reopen after
-verifying the missing attachment. Do not rebase merely because main advanced.
-Refresh only for a conflict, failing guard, explicit request, or material stale
-base risk. An explicitly requested landing of one's own draft includes marking
-it ready when needed.
-
-For a conflict repair, record the last passing run and tested head, the resolved
-delta, and the affected contracts in the existing preparation evidence. Reuse
-proof for unchanged inputs; run the affected checks instead of restarting every
-completed suite. A passing older run is not current-head CI and does not itself
-waive enforced gates. Once admission succeeds, merge before optional proof polish
-or unrelated cleanup.
-
-Keep source PRs within their generation owners: UI/native translation memory and
-locale metadata normally belong to the post-merge locale workflows. Check a
-hosted review bundle's size before submission; remove accidentally included
-generated outputs through their owning workflow, not by truncating review input
-or silently excluding authored changes.
+- Current template + real body file; preserve human credit, maintainer-editable branches when safe. Fork edits: heed Actions/secrets warning.
+- Build + focused local tests pass → open ready PR promptly; PR CI runs broad suites. Create draft first, wait for non-null `mergeable`, mark ready, verify CI attached to pushed head. Requested landing of own draft includes marking ready.
+- Merge-ref startup failure cannot rerun; hourly PR CI sweeper re-fires, or authorized close/reopen after verifying missing attachment.
+- No rebase just for advancing main. Refresh for conflict, failing guard, explicit request, material stale-base risk only.
+- Conflict repair: record last passing run/tested head, resolved delta, affected contracts in existing preparation evidence. Reuse unchanged-input proof; run affected checks, not every completed suite. Older run ≠ current-head CI or gate waiver. Admission succeeds → merge before optional polish/cleanup.
+- UI/native translation memory + locale metadata: post-merge locale workflow owners. Check hosted review bundle size; remove accidental generated output via owner, never truncate input or silently exclude authored changes.
 
 ## Evidence media
 
-Read the [media upload reference](media.md) for feature detection, endpoint
-commands, supported formats, and artifact fallback.
-
-Inspect and sanitize every capture before upload. Use `gh --attach` only if the
-installed command exposes it; otherwise use GitHub's user-attachments endpoint.
-Never use browser upload, commit proof media into product branches, or use the
-unrelated `gh attach` extension. Uploads are permanent and inherit repository
-visibility. For unsupported artifacts or endpoint failure, use the repository's
-approved artifact store; do not invent an external destination.
-
-Keep images embedded and video URLs on their own lines for GitHub playback.
-Feature-detect format/size support rather than assuming a particular CLI release.
-Do not disclose private desktop content, identifiers, model routes, or secrets.
+- Authorized upload: read [media upload reference](media.md) for feature detection, commands, formats, fallback.
 
 ## Red main and inherited failures
 
-- **Red `main` is an emergency, not a queue item.** When CI on `main` is red, fix it in a fresh worktree, prove it with the exact failing check plus the focused tests (locally or on a Testbox), and push that exact fix directly to `main` — no PR, no auto-merge wait — so every open PR unblocks at once. This applies to deterministic breaks and to flaky tests seen red on `main` alike; open a PR only if the direct push is refused by a ruleset, and say so. Reruns do not clear a red `main`, and PRs whose merge ref went red need a fresh push after the fix lands.
-- Pushes to `main` run only `security-fast`; full `main` CI runs hourly.
-- **CI is expensive; do not spend it on proof.** Prove changes with focused local runs (Crabbox/Testbox for suites too heavy for the host) and trust those results. Do not dispatch workflow runs, rerun jobs, re-push, or update branches just to obtain or confirm green. Breaking `main` is an acceptable cost; fix it forward.
-- **Pre-existing reds do not block landing.** A PR whose only failing checks also fail on current `main` (same test, in files the PR does not touch) may land through the native landing workflow's admin exception; name the inherited failure in the PR. A tiny PR-caused failure (lint, types, a stale test expectation) may land the same way only if the lander pushes the fix to `main` immediately afterward. Anything larger stays blocked.
+- Red `main` = emergency. Fresh worktree; exact failing check + focused tests locally (Testbox only for uncovered environment need, immediate grant). Push proven fix directly to `main`, no PR/auto-merge wait; deterministic breaks and flakes alike. Ruleset refuses direct push → PR + report refusal. Rerun alone ≠ repair. Affected merge refs need fresh push after fix.
+- Main pushes run only `security-fast`; full main CI hourly.
+- PR CI = default broad proof. Before PR: `pnpm test <file> --maxWorkers=1` + targeted typecheck/lint/format. Do not hold ready PR for broad pre-PR suites.
+- Prefer bounded local proof on a qualified, available host. Crabbox/Testbox may cover expensive checks, busy/unqualified hosts or environment gaps; acquire only when ready and capacity is granted promptly. Queue → stop task-owned allocation, use PR CI or a safe local scope; preserve uncovered requirements and secretless isolation for untrusted source. Never chain provider fallbacks.
+- Never dispatch/rerun/re-push/update branches merely for green. Fix real failures. Read failure classification before attribution.
+- PR CI runs every planned job to completion. `pr-failure-report` + `openclaw/ci-gate` summary classify failed jobs against newest scheduled main run:
+  - **pre-existing, matching failure signatures:** no further attribution. Native admin route may cite table run id + rows as evidence.
+  - **pre-existing, job name only:** signatures not compared; inspect failing tests against main run before attribution.
+  - **unknown** (scope differs/no comparable main job) or **new:** treat as PR-caused until shown otherwise.
+- Proven inherited-only reds may land via native admin exception; name failures in PR. Table changes evidence form only: no automatic gate waiver. New/unknown failures require investigation; PR-caused failure does not select inherited-failure exception.
+- PR CI fails → `pnpm test:ci-failed <pr>` → fix new failures/investigate unknown → `pnpm test:ci-failed <pr> --run` until selected tests pass locally → push once. Pre-existing: failure-table rule above. Never `gh run rerun` to chase green; never local full suite for CI repair.
+- Exception: tiny PR-caused failure (lint, types, stale test expectation) may land same way only if lander pushes fix to `main` immediately after. Anything larger stays blocked.
 
 ## Review, prepare, merge
 
-For main-targeted PRs, prefer the native sequence; adapt as needed.
+Main-targeted PRs: native sequence.
 
 ```bash
 scripts/pr review-init <pr>
@@ -91,118 +52,37 @@ env -u OPENCLAW_TESTBOX OPENCLAW_PR_GATES_REMOTE=github scripts/pr prepare-run <
 scripts/pr merge-run <pr> --auto-merge
 ```
 
-Keep the `review.json` PR identity and head stamp intact. JSON owns the verdict;
-validation prints its human-readable summary. No separate Markdown checklist or
-nit sweep is required. Templates describe unfinished work with valid enum values; a land-ready recommendation is `READY
-FOR /prepare-pr`. After every push, rerun `review-init`; checkout alone does not
-refresh the guard. Validate from PR-head mode. Do not fabricate passing evidence
-or erase a failing review condition.
+- `review.json` owns verdict; preserve PR identity/head stamp. Validation prints summary; no separate Markdown checklist/nit sweep. Unfinished templates keep valid enums; ready recommendation `READY FOR /prepare-pr`. After every push, rerun `review-init`; checkout alone leaves stale guard. Validate from PR-head mode. Never invent success or erase failed review condition.
+- Unresolved investigated local failure: follow [test-failure investigation](../../openclaw-testing/SKILL.md#test-failure-policy), retain `tests.result: "fail"` + `tests.investigatedLocalFailures`. Exact `head`; nonempty `failures`: original `failure`, actual `reproductionAttempts`, `evidence`, `remainingUncertainty`. Attempts/evidence = nonempty string arrays; failure/uncertainty = nonempty strings. Keep evidence in PR; passing replay ≠ fix. READY allowed; substantive findings, behavior, CI, security, enforced reviews remain required. Failed CI uses separate admin policy.
+- One gate mode per invocation. Old `OPENCLAW_TESTBOX=1` cleared above for this process only. Unsupported/conflicting mode fails before PR reads, locks, evidence replacement; fix env, don't repeat review/discard proof.
+- Unset `OPENCLAW_PR_GATES_REMOTE` = `github` default; explicit selector above optional. Old full local gates: `OPENCLAW_PR_GATES_REMOTE=local`. Unset remote selector + `OPENCLAW_TESTBOX=1` retains hosted mode.
+- Preparation binds pending gates to head, no success stamps/separate scheduled Testbox proof. Merge submits one pinned squash/auto-merge; known failed required checks reject absent admin exception. GitHub waits for `openclaw/ci-gate` (CI + applicable security review) + required reviews. Clean mergeable PR, or UNSTABLE with only superseded same-lane runs non-passing (watcher GREEN), lands immediately.
+- Stay active through publication/review/CI/accepted auto-merge until verified merge + closeout, user pause, or concrete user-input blocker. One watcher/owner; exact PR head/checks/mergeability every two to three minutes, narrow JSON. No tight loops/repeated unchanged updates. Remote change → `merge-run` reconciliation. Watcher timeout ends observation, not task; collect result, investigate, continue/supported successor under same authority. Honor user time limits/pauses/cancellations; no automatic retry instead.
+- Exact failed run: `pnpm test:ci-failed <pr>` fetches failed logs once; repair task defects/confirmed flakes, rerun only failed tests locally. Infrastructure recovery only after cause identified; never rerun CI for green. Changed head → fresh review/preparation/CI; preserve accepted receipt, recover before head replacement. Never erase outcome or blindly resubmit accepted/uncertain request.
+- GitHub's head precondition applies at submission only; collaborator push may retain auto-merge. Pushed head merged → `merge-recover ... --merged-head <SHA>` ([recovery](landing-recovery.md)); changed head ≠ originally approved head.
 
-After the [test-failure investigation](../../openclaw-testing/SKILL.md#test-failure-policy),
-a local failure whose cause or safe fix remains unresolved can retain
-`tests.result: "fail"` with `tests.investigatedLocalFailures`. Bind `head` to the
-exact reviewed SHA and record every original `failure`, actual
-`reproductionAttempts`, `evidence`, and `remainingUncertainty` in its nonempty
-`failures` array. Attempts and evidence are nonempty string arrays; failure and
-uncertainty are nonempty strings. Keep that evidence in the PR and never claim a
-passing replay proves a fix. The structured disposition permits READY review
-under the existing policy; it does not waive substantive findings, behavioral
-review, required CI, security, or enforced reviews. Failed CI still uses its
-separate admission policy below.
-
-Select one gate mode per invocation; older shells or installed instructions may
-still set `OPENCLAW_TESTBOX=1`. The command above clears it only for that process.
-An unsupported or conflicting mode fails before PR reads, operation locks, or
-preparation can replace existing evidence. Do not rerun review or discard proof
-just to repair this environment mismatch.
-
-Preparation records pending gates bound to the prepared head, without success
-stamps or separate scheduled Testbox proof. Merge submits one pinned squash or
-auto-merge request, rejecting known failed required checks without admin bypass.
-GitHub waits for `openclaw/ci-gate` (CI plus applicable security review) and
-required reviews; a clean, mergeable PR lands immediately.
-
-Keep the landing task active through publication, review, CI waits, and any
-accepted auto-merge until merge and closeout are verified, the user pauses it,
-or a concrete blocker requires user input.
-Poll the exact PR head, required checks, and mergeability every two to three
-minutes with narrow JSON reads. Use one watcher or polling owner; avoid tight
-loops and repeated unchanged status messages. Reconcile through `merge-run`
-when the remote state changes, then use the existing closeout below. An internal
-watcher timeout ends that observation attempt, not the landing task. Collect its
-result, investigate any failure, and continue or arrange a supported successor
-under the same authority. Preserve explicit user time limits, pauses, and
-cancellations; do not replace them with an automatic retry.
-
-Investigate failed checks from the exact run and fetch failed logs once. Repair
-task-related defects and confirmed flakes, then rerun the affected proof; rerun
-transient infrastructure failures only after identifying the cause. Resolve
-conflicts and refresh review, preparation, and CI for a changed head under the
-existing landing authority. Preserve any accepted merge receipt and use native
-recovery before replacing its head; never erase an outcome or blindly resubmit
-an accepted or uncertain request. GitHub's head precondition applies only when
-the request is submitted, and a collaborator push can leave auto-merge enabled.
-Treat a changed head as new review work, never as the original approved head.
-
-When completed hosted evidence is specifically needed, clear the pending-mode
-selector for that invocation:
+Completed hosted evidence specifically needed:
 
 ```bash
 env -u OPENCLAW_PR_GATES_REMOTE OPENCLAW_TESTBOX=1 scripts/pr prepare-run <pr>
 scripts/pr merge-run <pr>
 ```
 
-Run this after CI is green. The wrapper may accept a patch-identical recently
-green pre-rebase run when the incorporated main context is unchanged or disjoint.
-Incorporated overlapping or critical input changes require current-head CI.
-The merge workflow still owns later main-drift policy. For explicitly
-owner-approved reviewed fork code without hosted Testbox, use the documented
-`OPENCLAW_PR_GATES_REMOTE=testbox` path.
+- Run after green CI. Patch-identical recently green pre-rebase run may qualify if incorporated main context unchanged/disjoint. Overlapping/critical input changes → current-head CI. Later main drift remains merge-owned. Explicitly owner-approved reviewed fork without hosted Testbox: `OPENCLAW_PR_GATES_REMOTE=testbox`.
 
 ### Explicit prior-CI admin landing
 
-When the operator explicitly authorizes landing after a prior successful CI run
-and reviewed conflict repairs, prepare the current head with `github_pending`
-and use the native exception below. Ordinary land authority alone does not select
-this exception. Keep the completed review and current prepared-head bindings.
+- Explicit operator authorization after prior successful CI + reviewed conflict repair only; ordinary land authority insufficient. Current `github_pending` preparation + completed exact-head review required.
+- Read [admin evidence and recovery](landing-recovery.md#explicit-prior-ci-admin-landing) before this rare route: schema, authority, security, drift, supported recovery.
 
 ```bash
 node scripts/pr-lib/merge-prior-ci.mjs delta <prior-green-head> <prepared-head>
 scripts/pr merge-run <pr> --admin-evidence <evidence.json> --confirmed-operator-admin
 ```
 
-The delta command reports both heads, `deltaSha256`, and `changedPaths`. Inspect
-that delta, use the changed-check planner to select affected checks, and record
-their actual results. The evidence JSON requires `version: 1`, `repository`,
-numeric `pr`, `head`, `priorHead`, numeric `runId` and `runAttempt`, `deltaSha256`,
-`changeKind: "conflict-resolution"`, an operator `reason`, affected `contracts`
-as strings, and `checks` entries with `command`, `result: "passed"`, and an
-`evidence` description. These scoped results are explicit operator attestations,
-not synthesized current-head CI success.
-
-The tool verifies the earlier successful attempt's PR/head provenance, including
-its CI gate. PR runs need the matching PR association; manually dispatched runs
-need the current same-repository PR branch and an ancestor tested head. It
-rechecks the current writer's repository and active organization-admin authority
-and permits only pending/skipped normal CI. Failed required checks, security
-requirements, enforced reviews and unresolved required review
-threads still block. This mode supports immediate squash on github.com with
-known ruleset policy, not classic protection, queues, or auto-merge. Recovery is
-limited to the explicitly qualified cases below.
-It dispatches the protected REST merge with the exact head pinned and retains
-the prior run, inspected delta, scoped evidence, and operator in the existing
-merge outcome. Accepted or uncertain outcomes still require reconciliation.
-
-If GraphQL cannot determine mergeability, this explicit mode can switch to a
-complete REST observation and retain that reader for the attempt. It preserves
-known GraphQL facts and reads the repository, PR head, main, rules, and required
-checks together; a blocked CI projection remains blocked. The existing admin
-verifier rechecks live authority, enforced reviews, security, and exact CI evidence
-after the final REST reread. Missing or changed evidence still refuses before
-intent. This adds no implicit admin route or mutation retry.
-
 #### Authorized pre-existing failures
 
+<<<<<<< HEAD
 A scoped instruction to land a PR authorizes the inherited-failure exception
 when every remaining failure is independently attributed to the baseline. Do
 not ask for another confirmation just because CI is inherited red. Use the same
@@ -331,34 +211,32 @@ Accepted/uncertain merge intent → recovery below before fresh admission.
 For non-main targets, do not use `prepare-run` or `merge-run`: their base is main.
 Use review artifacts and exact base/head CI, revalidate the remote head, and
 merge with `gh pr merge --match-head-commit <verified-sha>` under the same authority.
+=======
+- Scoped land instruction authorizes inherited-only exception once every remaining failure attributed to baseline; no repeat confirmation. Read [native evidence schema](landing-recovery.md#authorized-pre-existing-failures). `--admin-evidence` + `--confirmed-operator-admin` with `github_pending`; confirmation records operator authority, not bot-admin claim.
+- Readiness question, uncertain attribution, PR-caused failure ≠ authority. Keep exact-head `tests.result: "fail"` + `tests.preExistingCi` (`head`, numeric `runId`/`runAttempt`, nonempty `reason`). READY allowed; ordinary admission still rejects. Admin verifier binds same head/failed attempt. Product findings, enforced reviews, security never waived.
+- Writer needs native verified admin authority, or repository write + active org membership + live bypass for every effective CI gate ruleset. Delegated rule: active repository-owned branch ruleset, only GitHub Actions `openclaw/ci-gate` (integration `15368`), `current_user_can_bypass` = `always`/`pull_requests_only`. Mixed review/security policy or missing/revoked grants refuse. Bypass = capability, not human approval; no self-supplied grants, permission changes, credential substitution, bot org-admin upgrade, or broadened review/security bypass.
+- Authoritative classic-protection absence required. Non-admin `404 Not Found`, GraphQL `branchProtectionRule: null`, empty `branchProtectionRules` ≠ absence proof. Missing policy read → stop before intent; no caller-attested snapshot. Prior-success exception cannot use delegated authority.
+- Matching-signature table run id + rows replace extra causal attribution; still populate native evidence schema. Job-name-only → compare tests with main first. New/unknown → PR's until disproven. Never relabel failed CI green.
+
+### Completed-evidence follow-through
+
+- Diagnosis/completed-evidence path: `node scripts/watch-pr-ci.mjs <pr> <head-sha>`, narrow check/run JSON, failed logs once. Address substantive human/bot findings; resolve fixed conversations.
+- ClawSweeper advisory: no comment, score, completion, freshness prerequisite. Check live rules/review state before claiming required human approval; bypass ≠ authorization to skip enforced review.
+- Non-main target: no `prepare-run`/`merge-run` (base = main). Review artifacts + exact base/head CI, revalidate remote head, authorized `gh pr merge --match-head-commit <verified-sha>`.
+>>>>>>> 97b6e87616f
 
 ## Recovery and closeout
 
-Before replacing the remote head after an accepted or uncertain auto-merge
-submission, explicitly retire that request through its retained outcome:
+- Accepted/uncertain intent, head replacement, lost response, locks, pending completion, cleanup: read [recovery and closeout](landing-recovery.md#recovery-and-closeout) before acting.
+- Never blindly retry merge, erase receipt, clear locks, or remove live-cwd worktree. Verify remote merge + main ancestry. Preserve native cleanup refusals and unknown ownership; report retained path/blocker.
 
-```bash
-git rev-parse refs/openclaw/pr-merge-outcomes/<PR>
-scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery --cancel-auto
-```
+### Receipt for an auto-merged pushed head
 
-This supports an exact non-queue auto intent even when the submission response
-was lost. It preserves the original intent, acknowledgment state, and captures,
-checks the PR identity and head, and reconciles a concurrent merge. A matching
-active request is cancelled once; an already absent request is recorded as
-retired without sending a cancellation. This is an investigated operator
-recovery decision, not proof that the original submission never executed.
-A lost cancellation response is observation-only on retry; never send a second
-cancellation blindly. Only confirmed retirement allows head repair. Existing
-land authority covers this recovery; do not ask again or replace the PR merely
-because its submission response was lost.
-Then repair and push the branch, refresh review and preparation, and wait for
-completed CI. Use the current retained outcome OID and explicitly reviewed head:
+- Read [receipt recovery](landing-recovery.md#receipt-for-an-auto-merged-pushed-head).
 
-```bash
-scripts/pr merge-recover <PR> <OUTCOME_OID> --confirmed-operator-recovery --replacement-head <HEAD_SHA>
-```
+### Replacement after confirmed retirement
 
+<<<<<<< HEAD
 A replacement head repairing the same authorized scope needs fresh review and
 preparation, not renewed landing permission. Explicitly select its exact SHA;
 new scope or a different merge method still needs authorization.
@@ -484,3 +362,6 @@ audit and completion record.
 Preserve the operator-facing narrative: what failed, the owning repair, important
 proof and limitations, human credit, and linked final state. Record material
 tradeoffs or remaining uncertainty, not a mandatory proof essay.
+=======
+- Read [replacement recovery](landing-recovery.md#replacement-after-confirmed-retirement).
+>>>>>>> 97b6e87616f

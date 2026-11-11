@@ -348,7 +348,12 @@ describe("Synology Chat client loopback", () => {
     async ({ text, media, missingChunk, ids }) => {
       let requestCount = 0;
       const port = await listenLoopback((req, res) => {
+<<<<<<< HEAD
         readForm(req, () => {
+=======
+        req.resume();
+        req.on("end", () => {
+>>>>>>> 97b6e87616f
           const index = requestCount++;
           res.writeHead(200, { "Content-Type": "application/json" });
           res.end(
@@ -365,7 +370,19 @@ describe("Synology Chat client loopback", () => {
           );
         });
       });
+<<<<<<< HEAD
       const cfg = config(`http://127.0.0.1:${port}/incoming`);
+=======
+      const cfg = {
+        channels: {
+          "synology-chat": {
+            enabled: true,
+            token: "synology-receipt-proof",
+            incomingUrl: "http://127.0.0.1:" + port + "/incoming",
+          },
+        },
+      };
+>>>>>>> 97b6e87616f
       const context = { cfg, text, to: "123456" };
       const result = media
         ? await synologyChatPlugin.message.send?.media?.({

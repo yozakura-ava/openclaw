@@ -155,7 +155,11 @@ export async function canRepairRuntime(
   command: GatewayServiceCommandConfig,
   plan: GatewayInstallPlan,
   layout: GatewayServiceLayoutSummary | undefined,
+<<<<<<< HEAD
   platform: NodeJS.Platform = process.platform,
+=======
+  platform: NodeJS.Platform,
+>>>>>>> 97b6e87616f
 ): Promise<boolean> {
   const runtimeCodes: ReadonlySet<string> = new Set([
     SERVICE_AUDIT_CODES.gatewayRuntimeNode,

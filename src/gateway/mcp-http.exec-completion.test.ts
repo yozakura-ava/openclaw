@@ -180,6 +180,7 @@ async function readToolSurface(context: PreparedCliRunContext, signal: AbortSign
 }
 
 it.for([
+<<<<<<< HEAD
   {
     name: "no caller cap",
     toolsAllow: undefined,
@@ -206,6 +207,12 @@ it.for([
     toolsAllow: undefined,
     sessionId: "exec-failed",
     terminal: "failed",
+=======
+  { name: "no caller cap", toolsAllow: undefined, expectedStatus: "completed" },
+  {
+    name: "a finite caller cap",
+    toolsAllow: ["exec", "process", "session_status"],
+>>>>>>> 97b6e87616f
     expectedStatus: "failed",
   },
 ])(
@@ -256,7 +263,10 @@ it.for([
     const normalSurface = await readToolSurface(original, signal);
     expect(normalSurface.mcp).toContain("exec");
     expect(normalSurface.mcp).toContain("session_status");
+<<<<<<< HEAD
     // Ordinary managed Claude turns already use the mediated surface completions require.
+=======
+>>>>>>> 97b6e87616f
     expect(normalSurface.native).toEqual([]);
     if (source.toolsAllow) {
       expect(normalSurface.mcp).toEqual(["exec", "process", "session_status"]);
@@ -334,10 +344,22 @@ it.for([
       await withinTest(waitForExecScope(sessionKey), signal);
       const receipt = expectDefined(receipts[receiptIndex], "background exec completion");
       await expect(withinTest(receipt.accepted, signal)).resolves.toEqual({ ok: true });
+<<<<<<< HEAD
       await expect(withinTest(receipt.settled, signal)).resolves.toMatchObject({
         status: "completed",
         executionStarted: true,
       });
+=======
+      const outcome = await withinTest(receipt.settled, signal);
+      expect(outcome).toMatchObject({
+        status: source.expectedStatus,
+        executionStarted: true,
+      });
+      if (source.toolsAllow) {
+        expect(outcome.error).toContain("Session event permissions were restricted");
+        expect(outcome).toMatchObject({ delivered: false, deliveryAttempted: false });
+      }
+>>>>>>> 97b6e87616f
       expect(completionSurfaces).toEqual([normalSurface]);
     } finally {
       for (const receipt of receipts.slice(receiptIndex)) {

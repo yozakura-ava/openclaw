@@ -1,14 +1,11 @@
-import { html, nothing } from "lit";
-import { quoteCliArg } from "../../../../src/cli/quote-cli-arg.js";
 import type { GatewayBrowserClient } from "../../api/gateway.ts";
-import { renderConnectCommand } from "../../components/connect-command.ts";
-import { icons } from "../../components/icons.ts";
-import "../../components/modal-dialog.ts";
 import { t } from "../../i18n/index.ts";
 import { registerNewSessionSetupEnglish } from "../../i18n/locales/en-new-session-setup.ts";
-import { requestDevicePairJoinSetup, type DevicePairSetup } from "../../lib/device-pair-setup.ts";
+import {
+  requestDevicePairJoinSetup,
+  type DevicePairJoinSetup,
+} from "../../lib/device-pair-setup.ts";
 import { formatUiError } from "../../lib/format-error.ts";
-import { formatTimeMs } from "../../lib/format.ts";
 
 registerNewSessionSetupEnglish();
 
@@ -18,7 +15,7 @@ export class ConnectMachineSetupState {
   private openValue = false;
   private loadingValue = false;
   private errorValue: string | null = null;
-  private setupValue: DevicePairSetup | null = null;
+  private setupValue: DevicePairJoinSetup | null = null;
   private requestId = 0;
 
   constructor(
@@ -46,14 +43,20 @@ export class ConnectMachineSetupState {
     this.setupValue = null;
   }
 
-  render(enabled: boolean, onManageDevices: () => void) {
-    if (!this.open || !enabled) {
-      return nothing;
-    }
-    const onClose = () => {
-      this.close();
-      this.requestUpdate();
+  view(enabled: boolean, onManageDevices: () => void) {
+    return {
+      open: this.open && enabled,
+      loading: this.loadingValue,
+      error: this.errorValue,
+      setup: this.setupValue,
+      onClose: () => {
+        this.close();
+        this.requestUpdate();
+      },
+      onRefresh: () => void this.refresh(),
+      onManageDevices,
     };
+<<<<<<< HEAD
     const { loadingValue: loading, errorValue: error, setupValue: setup } = this;
     const title = t("newSession.connectMachineTitle");
     const joinUrl = setup?.joinUrl?.trim();
@@ -148,6 +151,8 @@ export class ConnectMachineSetupState {
         </section>
       </openclaw-modal-dialog>
     `;
+=======
+>>>>>>> 97b6e87616f
   }
 
   async refresh(): Promise<void> {

@@ -168,7 +168,11 @@ export function nodeRuntimeFailure(version, probe) {
   if (!probe.version || !isSqliteWalResetSafeVersion(probe.version)) {
     return `${label}: SQLite ${probe.version ?? "unknown"} is not WAL-reset-safe; use SQLite 3.51.3+, 3.50.7+, or 3.44.6+ on its patched release line.`;
   }
+<<<<<<< HEAD
   // SQLite capabilities cannot establish that the TLS verifier rejects compromised keys.
+=======
+  // Keep incompatible Node release lines excluded even when a vendor binding passes.
+>>>>>>> 97b6e87616f
   if (!isSupportedOpenClawNodeVersion(version)) {
     return `${label}: openclaw requires Node ${SUPPORTED_NODE_VERSION_RANGE.replace(" || ", ", or ")}.`;
   }

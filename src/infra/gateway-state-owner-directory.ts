@@ -94,6 +94,10 @@ export function resolveStateOwnerIdentity(databasePath: string) {
 
 function resolveCanonicalStateOwnerPath(canonical: string): string {
   const uid = process.getuid?.();
+<<<<<<< HEAD
+=======
+  // The state directory is an ancestor of the freshly canonical database path.
+>>>>>>> 97b6e87616f
   const directory =
     process.platform === "win32"
       ? path.join(

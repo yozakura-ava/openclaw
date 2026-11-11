@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, createWriteStream, existsSync, mkdirSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { runReleaseAgentTurn } from "./agent.ts";
 import type {
@@ -11,7 +11,6 @@ import type {
 } from "./config.ts";
 import {
   CROSS_OS_GATEWAY_STATUS_COMMAND_TIMEOUT_MS,
-  CROSS_OS_GATEWAY_STATUS_RPC_TIMEOUT_MS,
   buildReleaseModelConfigCommands,
   gatewayReadyDeadlineMs,
   installTimeoutMs,
@@ -20,6 +19,11 @@ import {
   resolveExpectedDevUpdateRef,
   shouldUseManagedGatewayService,
 } from "./config.ts";
+import {
+  resolveGatewayStatusArgs,
+  waitForReleaseGateway,
+  type GatewayReadinessParams,
+} from "./gateway-readiness.ts";
 import {
   installedEntryPath,
   normalizeWindowsInstalledCliPath,
@@ -30,15 +34,21 @@ import { readLogFileSize } from "./logs.ts";
 import {
   canConnectToLoopbackPort,
   captureGatewayProcess,
+<<<<<<< HEAD
   configureReplacementGatewayPort,
   hasChildExited,
   resolveCommandSpawnInvocation,
   runCommand,
   runCommandInvocation,
   waitForGatewayWithStartupRecovery,
+=======
+  resolveCommandSpawnInvocation,
+  runCommand,
+  runCommandInvocation,
+>>>>>>> 97b6e87616f
   withAllocatedGatewayPort,
 } from "./process.ts";
-import { formatError, shellEscapeForSh, sleep } from "./shared.ts";
+import { shellEscapeForSh, sleep } from "./shared.ts";
 
 const INSTALLER_CONNECT_TIMEOUT_SECONDS = 10;
 const INSTALLER_REQUEST_TIMEOUT_SECONDS = 120;
@@ -501,39 +511,11 @@ async function resolveInstalledGatewayStatusArgs(params: {
   logPath: string;
   requireRpc?: boolean;
 }) {
-  const requireRpc = params.requireRpc !== false;
-  try {
-    const help = await runInstalledCli({
-      cliPath: params.cliPath,
-      args: ["gateway", "status", "--help"],
-      cwd: params.cwd,
-      env: params.env,
-      logPath: params.logPath,
-      timeoutMs: 15_000,
-      check: false,
-    });
-    return buildGatewayStatusArgsFromHelpText(`${help.stdout}\n${help.stderr}`, { requireRpc });
-  } catch (error) {
-    appendGatewayStatusHelpProbeFallback(params.logPath, error);
-    return buildGatewayStatusArgsFromHelpText("--require-rpc", { requireRpc });
-  }
-}
-
-export function buildGatewayStatusArgsFromHelpText(
-  helpText: string,
-  options: { requireRpc?: boolean } = {},
-) {
-  const requireRpc = options.requireRpc !== false;
-  if (requireRpc && helpText.includes("--require-rpc")) {
-    return [
-      "gateway",
-      "status",
-      "--require-rpc",
-      "--timeout",
-      String(CROSS_OS_GATEWAY_STATUS_RPC_TIMEOUT_MS),
-    ];
-  }
-  return ["gateway", "status"];
+  return resolveGatewayStatusArgs(
+    (args, timeoutMs) => runInstalledCli({ ...params, args, timeoutMs, check: false }),
+    params.logPath,
+    { requireRpc: params.requireRpc !== false },
+  );
 }
 
 export function buildGatewayStopArgsFromHelpText(helpText: string) {
@@ -543,13 +525,26 @@ export function buildGatewayStopArgsFromHelpText(helpText: string) {
   return ["gateway", "stop"];
 }
 
-export function appendGatewayStatusHelpProbeFallback(logPath: string, error: unknown) {
-  appendFileSync(
-    logPath,
-    `${new Date().toISOString()} gateway status help probe failed; assuming current --require-rpc support: ${formatError(error)}\n`,
+export async function waitForInstalledGateway(
+  params: GatewayReadinessParams & { cliPath: string },
+) {
+  await waitForReleaseGateway(
+    params,
+    (args, timeoutMs) =>
+      runInstalledCli({
+        cliPath: params.cliPath,
+        cwd: params.lane.homeDir,
+        env: params.env,
+        logPath: params.logPath,
+        args,
+        timeoutMs,
+        check: false,
+      }),
+    (logPath) => startManualGatewayFromInstalledCli({ ...params, logPath }),
   );
 }
 
+<<<<<<< HEAD
 export async function waitForInstalledGateway(params: {
   lane: LaneState;
   cliPath: string;
@@ -634,6 +629,8 @@ export async function waitForInstalledGateway(params: {
   throw new Error(`Gateway did not become ready on port ${params.lane.gatewayPort}.`);
 }
 
+=======
+>>>>>>> 97b6e87616f
 export async function waitForInstalledGatewayToStop(params: {
   lane: LaneState;
   cliPath: string;

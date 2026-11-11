@@ -106,6 +106,7 @@ function createPruneContext(params?: {
     reconciledPlacements,
     order,
     context,
+    connectedDeviceIds: [...connected],
   };
 }
 
@@ -204,6 +205,10 @@ describe("pruneSupersededSilentPairingsAfterApproval", () => {
     const pruning = pruneSupersededSilentPairingsAfterApproval({
       deviceId: "cli-anchor",
       context: harness.context,
+<<<<<<< HEAD
+=======
+      connectedDeviceIds: harness.connectedDeviceIds,
+>>>>>>> 97b6e87616f
       baseDir,
       nowMs: Date.now() + 120_000,
     }).catch((error: unknown) => error);
@@ -287,6 +292,7 @@ describe("pruneSupersededSilentPairingsAfterApproval", () => {
     const pruned = await pruneSupersededSilentPairingsAfterApproval({
       deviceId: anchor.deviceId,
       context: harness.context,
+      connectedDeviceIds: harness.connectedDeviceIds,
       baseDir,
       nowMs: Date.now() + 120_000,
     });
@@ -364,6 +370,7 @@ describe("pruneSupersededSilentPairingsAfterApproval", () => {
     const pruned = await pruneSupersededSilentPairingsAfterApproval({
       deviceId: anchor.deviceId,
       context: harness.context,
+      connectedDeviceIds: harness.connectedDeviceIds,
       baseDir,
       nowMs: Date.now() + 120_000,
     });

@@ -261,12 +261,16 @@ export function resolveModelContextTokenProjectionFromCache(
         configuredModel,
         normalizePositiveContextTokens,
       );
-    if (effectiveConfiguredTokens !== undefined) {
-      return { contextTokens: effectiveConfiguredTokens, authoredContextTokens };
+    const configuredTokens = effectiveConfiguredTokens ?? fixedContextWindow;
+    if (configuredTokens !== undefined) {
+      return { contextTokens: configuredTokens, authoredContextTokens };
     }
+<<<<<<< HEAD
     if (fixedContextWindow !== undefined) {
       return { contextTokens: fixedContextWindow, authoredContextTokens };
     }
+=======
+>>>>>>> 97b6e87616f
     const providerKey = providerContextTokenCacheKey(normalizeProviderId(ref.provider), ref.model);
     const providerResult =
       params.allowCacheLookup === false ? undefined : lookupContextTokens(providerKey);

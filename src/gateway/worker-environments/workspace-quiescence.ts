@@ -6,10 +6,15 @@ import {
   type NodeWorkerWorkspaceQuiescenceInput,
 } from "../../worker/node-workspace-protocol.js";
 import type { WorkerWorkspaceCommand, WorkerWorkspaceQuiescence } from "./tunnel-contract.js";
+<<<<<<< HEAD
 import {
   legacyWindowsWorkspaceQuiescenceAcquireArgv,
   workspaceQuiescenceArgv,
 } from "./workspace-quiescence-scripts.js";
+=======
+import { legacyWindowsWorkspaceQuiescenceAcquireArgv } from "./workspace-quiescence-lease-scripts.js";
+import { workspaceQuiescenceArgv } from "./workspace-quiescence-scripts.js";
+>>>>>>> 97b6e87616f
 import {
   waitForQuiescenceRenewal,
   workerWorkspaceCommandSucceeded,

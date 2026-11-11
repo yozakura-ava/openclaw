@@ -1,11 +1,19 @@
 // Tests for consumer_surface_evidence gating on workboard_complete
 // (yozakura-ava/openclaw#120). The store verifies evidence independently —
 // caller-supplied proof text is never trusted.
+<<<<<<< HEAD
+=======
+// W1.1 semantic port from the fork lineage (70e50616d1e..b31df7b2f5e) onto the
+// v2026.11.1 re-land; the fork file's #115-scope claim-guard block is already
+// covered on this branch by store-claim-conflict.test.ts and
+// store-claim-guard.test.ts and is intentionally not duplicated here.
+>>>>>>> 97b6e87616f
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+<<<<<<< HEAD
 import { afterEach, describe, expect, it } from "vitest";
 import { clearClaimConflictHistory, snapshotClaimConflictHistory } from "./store-claim-conflict.js";
 import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
@@ -168,6 +176,11 @@ describe("WorkboardWorkflowStore claim guard (#115 scope)", () => {
   });
 });
 
+=======
+import { describe, expect, it } from "vitest";
+import { createWorkboardSqliteTestStore } from "./test/sqlite-store.js";
+
+>>>>>>> 97b6e87616f
 const execFileAsync = promisify(execFile);
 
 async function createBuildCard(

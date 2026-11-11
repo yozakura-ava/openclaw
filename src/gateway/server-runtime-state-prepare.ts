@@ -5,12 +5,14 @@ import type { ChannelId } from "../channels/plugins/types.public.js";
 import { createDefaultDeps } from "../cli/deps.js";
 import { getRuntimeConfig } from "../config/io.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
+import { loadOrCreateProcessDeviceIdentityAsync } from "../infra/device-identity-async.js";
 import type { GatewayScheduler } from "../infra/gateway-scheduler.js";
 import { loadGatewayTlsServerRuntime } from "../infra/tls/gateway.js";
 import type { createSubsystemLogger } from "../logging/subsystem.js";
 import { runtimeForLogger } from "../logging/subsystem.js";
 import type { createPluginRegistryOwner } from "../plugins/runtime.js";
 import { isGatewayDraining } from "../process/command-queue.js";
+import { getActiveGatewayRootWorkCount } from "../process/gateway-work-admission.js";
 import type { RuntimeEnv } from "../runtime.js";
 import { getActiveSecretsRuntimeConfigSnapshot } from "../secrets/runtime-state.js";
 import { createDeferredCore } from "../shared/deferred.js";
@@ -23,6 +25,7 @@ import { resolveDatabasePath } from "../state/openclaw-state-db.paths.js";
 import { createGatewayAuthRateLimiter } from "./auth-rate-limit.js";
 import { resolveGatewayAuth } from "./auth.js";
 import { createDesktopSessionRegistry } from "./desktop/session-registry.js";
+import { publishHooksTokenEnvKey } from "./hooks.js";
 import { isLoopbackHost } from "./net.js";
 import { createNodeReapprovalCoordinator } from "./node-reapproval-coordinator.js";
 import { GatewayOperatorAccessUnavailableError } from "./operator-access-policy.js";
@@ -123,6 +126,11 @@ export async function prepareGatewayKernelState(params: {
     getPluginRegistry: () => pluginRuntime.registry,
     hostDesktopService,
   });
+  await startupTrace.measure("device-identity", () =>
+    loadOrCreateProcessDeviceIdentityAsync().catch(() => {
+      // Chat fingerprints are optional; admission owns the bounded unavailability warning.
+    }),
+  );
   const workerEnvironmentRuntime = workerEnvironmentStartup
     ? await startupTrace.measure("worker-environments.runtime-imports", async () => {
         const workerModule = await import("./server-worker-environment-startup.js");
@@ -187,30 +195,44 @@ export async function prepareGatewayKernelState(params: {
           workerPlacementModule.createGatewayWorkerPlacementRuntime({
             scheduler,
             placements: workerEnvironmentStartup.placementStore,
+            initialPlacements: await workerEnvironmentStartup.placementStore.listAsync(),
             getCommittedRuntimeConfig,
             environments: workerEnvironmentService,
             gatewayNamespace: nodeWorkerGatewayNamespace,
             nodeWorkerBundleRetention,
             getSessionChangeContext: () => pluginGatewayContext.current,
+<<<<<<< HEAD
             persistAbandonedPartial: async ({ sessionId, sessionKey, agentId, runId }) => {
               // Placement runtime starts before chat state exists; callers run only after startup.
               const partial = connectionState.chatRunState.resolveBuffer(runId, { final: true });
               const text = partial.displayText ?? partial.text;
               if (!text.trim()) {
+=======
+            persistAbandonedPartial: async (request) => {
+              // Placement runtime starts before chat state exists; callers run only after startup.
+              const partial = connectionState.chatRunState.resolveBuffer(request.runId, {
+                final: true,
+              });
+              const text = partial.displayText ?? partial.text;
+              if (!text.trim() && !request.missingToolResultText) {
+>>>>>>> 97b6e87616f
                 return;
               }
-              const { captureAbortedPartial, persistAbortedPartials } =
+              const transcript =
                 await import("./server-methods/chat-transcript-persistence.runtime.js");
-              await persistAbortedPartials({
+              await transcript.persistAbortedPartials({
                 context: { logGateway: log },
+                missingToolResultText: request.missingToolResultText,
                 snapshots: [
-                  captureAbortedPartial({
-                    sessionKey,
-                    sessionId,
-                    agentId,
-                    runId,
+                  transcript.captureAbortedPartial({
+                    ...request,
                     text,
                     abortOrigin: "placement-abandon",
+                    session: await transcript.prepareChatAbortSessionSnapshot({
+                      cfg: getCommittedRuntimeConfig(),
+                      key: request.sessionKey,
+                      agentId: request.agentId,
+                    }),
                   }),
                 ],
               });
@@ -353,6 +375,8 @@ export async function prepareGatewayKernelState(params: {
     required: null,
   });
   const initialHooksConfig = runtimeConfig.hooksConfig;
+  // Publish before startup prepares plugins and other host exec owners.
+  publishHooksTokenEnvKey(initialHooksConfig);
   const initialHookClientIpConfig = resolveHookClientIpConfig(cfgAtStart);
 
   const rateLimitConfig = cfgAtStart.gateway?.auth?.rateLimit;
@@ -400,9 +424,13 @@ export async function prepareGatewayKernelState(params: {
     loadGatewayTlsServerRuntime(cfgAtStart.gateway?.tls, log.child("tls")),
   );
   const serverStartedAt = Date.now();
-  const readinessEventLoopHealth = createGatewayEventLoopHealthMonitor({ scheduler });
+  const readinessEventLoopHealth = createGatewayEventLoopHealthMonitor({
+    scheduler,
+    isIdle: () => getActiveGatewayRootWorkCount({ excludeCurrent: true }) === 0,
+  });
   const startupState = {
     sidecarsReady: minimalTestGateway,
+    postAttachSettled: false,
     pendingReason: "startup-sidecars",
     dispatchReady: false,
   };
@@ -438,7 +466,10 @@ export async function prepareGatewayKernelState(params: {
   channelManager.setAutostartSuppression(opts.channelAutostartSuppression ?? null);
   const sidecarStartup = opts.sidecarStartup ?? "start";
   const isGatewayStartupPending = () =>
-    !startupState.sidecarsReady && !lifecycle.closePreludeStarted;
+    (!startupState.dispatchReady ||
+      !startupState.sidecarsReady ||
+      !startupState.postAttachSettled) &&
+    !lifecycle.closePreludeStarted;
   const startupCheckerDeps = {
     startedAt: serverStartedAt,
     getStartupPending: isGatewayStartupPending,
@@ -452,7 +483,6 @@ export async function prepareGatewayKernelState(params: {
     getEventLoopHealth: readinessEventLoopHealth.snapshot,
     getStateDatabaseFailure: () =>
       openClawStateDatabaseCache.getOpenClawStateDatabaseRecordedFailure(resolveDatabasePath()),
-    allowPendingAgentDatabases: !opts.updateCanary,
     getAgentDatabaseAdmissionRefusals: () => {
       const cfg = getRuntimeConfig();
       return listAgentDatabaseAdmissionRefusals().filter(

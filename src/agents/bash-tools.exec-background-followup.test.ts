@@ -1,9 +1,13 @@
 import "../test-utils/prepare-compiled-subprocesses.js";
 import fs from "node:fs/promises";
 import path from "node:path";
+<<<<<<< HEAD
 import { Worker } from "node:worker_threads";
 import { expectDefined } from "@openclaw/normalization-core/expect";
 import { isRecord } from "@openclaw/normalization-core/record-coerce";
+=======
+import { expectDefined } from "@openclaw/normalization-core/expect";
+>>>>>>> 97b6e87616f
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import { withinTest } from "../../test/helpers/promise.js";
 import * as sessionEvents from "../auto-reply/reply/session-event-handoff.js";
@@ -12,6 +16,11 @@ import { replaceSessionEntry } from "../config/sessions/session-accessor.js";
 import * as sessionReads from "../config/sessions/session-entry-read-runtime.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { resetSystemEventsForTest } from "../infra/system-events.js";
+<<<<<<< HEAD
+=======
+import { sessionChanges } from "../sessions/session-row-changes.js";
+import { resolveOpenClawAgentSqlitePath } from "../state/openclaw-agent-db.paths.js";
+>>>>>>> 97b6e87616f
 import { openOpenClawStateDatabase } from "../state/openclaw-state-db.js";
 import {
   createOpenClawTestState,
@@ -57,12 +66,19 @@ beforeAll(async () => {
     plugins: { enabled: false },
     skills: { load: { watch: false } },
   };
+<<<<<<< HEAD
   setRuntimeConfigSnapshot(config);
+=======
+>>>>>>> 97b6e87616f
   await state.writeConfig(config);
   openOpenClawStateDatabase();
 });
 
 beforeEach(() => {
+<<<<<<< HEAD
+=======
+  setRuntimeConfigSnapshot(config);
+>>>>>>> 97b6e87616f
   model.mockReset().mockImplementation(async (params: RunEmbeddedAgentParams) => {
     await expectDefined(params.preparedRunAdmission, "real completion admission").admit(
       "gateway",
@@ -190,11 +206,16 @@ test("starts and notifies when identity enrichment fails, then resolves child id
   }
 });
 
+<<<<<<< HEAD
 test("reports manual collection after real destination capture fails, then recovers on the same tool", async ({
+=======
+test("reports manual collection after destination capture fails, then recovers on the same tool", async ({
+>>>>>>> 97b6e87616f
   signal,
 }) => {
   const sessionKey = "agent:main:exec-capture-failure";
   await seedOrigin(sessionKey);
+<<<<<<< HEAD
   let faults = 0;
   const failRead = (value: unknown) => {
     if (
@@ -220,6 +241,26 @@ test("reports manual collection after real destination capture fails, then recov
     failRead(value);
     threadPost.call(this, value, transferList);
   });
+=======
+  // Force a cold destination read so the transport fault cannot be bypassed by writer receipts.
+  sessionChanges.invalidate({
+    agentId: "main",
+    sessionKey,
+    storePath: resolveOpenClawAgentSqlitePath({ agentId: "main" }),
+    factsInvalidated: true,
+  });
+  let faults = 0;
+  const capture = sessionEvents.captureSessionEventTargetForHost;
+  vi.spyOn(sessionEvents, "captureSessionEventTargetForHost").mockImplementation(
+    async (...args) => {
+      if (args[0] === "main" && args[1] === sessionKey && faults === 0) {
+        faults++;
+        throw new Error("session event destination unavailable");
+      }
+      return capture(...args);
+    },
+  );
+>>>>>>> 97b6e87616f
   const exec = createExecTool({
     config,
     host: "gateway",

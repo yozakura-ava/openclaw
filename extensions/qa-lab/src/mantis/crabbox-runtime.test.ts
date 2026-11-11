@@ -63,7 +63,11 @@ describe("Mantis Crabbox binary admission", () => {
 
 describe("Crabbox command runner", () => {
   it.skipIf(process.platform === "win32")(
+<<<<<<< HEAD
     "waits for aborted child cleanup and retains its final output",
+=======
+    "waits for aborted child cleanup without exposing its final output",
+>>>>>>> 97b6e87616f
     async () => {
       const fixtureDir = tempDirs.make("mantis-abort-");
       const ready = path.join(fixtureDir, "ready");
@@ -107,10 +111,13 @@ describe("Crabbox command runner", () => {
         await fs.writeFile(release, "release");
         const error = await result;
         expect(error).toMatchObject({ name: "AbortError", code: "ABORT_ERR", cause: reason });
+<<<<<<< HEAD
         expect(getCommandFailureDiagnostics(error)).toMatchObject({
           stdout: "private stdout tail",
           stderr: "private stderr tail",
         });
+=======
+>>>>>>> 97b6e87616f
         expect(String(error)).not.toContain("private");
         expect(JSON.stringify(error)).not.toContain("private");
       } finally {
@@ -146,6 +153,7 @@ describe("Crabbox command runner", () => {
     expect(JSON.parse(result.stdout)).toBe("测".repeat(20000));
   });
 
+<<<<<<< HEAD
   it("bounds failure snapshots without losing native acquisition markers in the middle", async () => {
     const result = await defaultCommandRunner(
       process.execPath,
@@ -194,6 +202,8 @@ describe("Crabbox command runner", () => {
     ]);
   });
 
+=======
+>>>>>>> 97b6e87616f
   it("preserves UTF-8 split across child-process pipe chunks", async () => {
     const childScript = `
       process.stdout.write(Buffer.from([0xf0, 0x9f]));

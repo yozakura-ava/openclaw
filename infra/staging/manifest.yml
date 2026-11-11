@@ -1,0 +1,42 @@
+# Staging service roster — source of truth for units, users, limits.
+# Owner ruling 2026-11-06T00:23Z: limits are raisable, never lowered.
+version: 1
+services:
+  - name: staging-gateway
+    user: svc-stg-gateway
+    unit: staging-gateway.service
+    memory_max: 8G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []          # W3 will add SecretRef entries; values never inline
+  - name: staging-hindsight
+    user: svc-stg-hindsight
+    unit: staging-hindsight.service
+    memory_max: 4G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []
+  - name: staging-backup
+    user: svc-stg-backup
+    unit: staging-backup.service
+    memory_max: 4G
+    memory_swap_max: "0"
+    cpu_accounting: true
+    secret_refs: []
+
+# W3 gateway payload (first boot) — added 2026-11-06, card c631b24b
+gateway_payload:
+  artifact:
+    source_dist: "~/staging/worktrees/openclaw-w1-reland/dist"   # W1.1 set, post-#120 rebuild (NOT w1-deployed-dist)
+    source_commit: 32b91da7cd8c
+    dist_index_sha256: a33d0d7e5151f57be71120700cc6e73813a93e9f571b6b22643134df814c48f7
+    sums_file_sha256: 27c23ea6009a796eaf2d37dd135203435d0672f1440bbf4c3560999232ebc3ca  # W1.1 set: Rin-promoted artifact of record
+    files: 21920
+  toolchain:
+    node: v24.22.2
+  bind: "127.0.0.1:18800"          # loopback only (port_registry: openclaw-staging)
+  dashboard: tailscale-serve-443    # tailnet-only 100.119.82.96; Serve, never Funnel
+  runtime_closure:
+    source: "~/staging/worktrees/openclaw-w1-reland/node_modules (FULL pnpm closure, lockfile cac4e381)"
+    install: "cp -a to /opt/ava-staging/gateway/node_modules (symlinks intact); CLOSURE-SHA256SUMS.txt generated at apply"
+  canary: singleton-exactly-one-response

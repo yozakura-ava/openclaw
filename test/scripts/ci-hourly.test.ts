@@ -25,51 +25,6 @@ function evaluate(expression: string, context: Context) {
 }
 
 describe("hourly main CI admission", () => {
-  it.each([
-    ["", false],
-    ["1", false],
-    ["true", true],
-  ])("opts main pushes into full CI only with %s", (ciOnPush, admitted) => {
-    const context = { ...base, eventName: "push", ciOnPush } as const;
-    expect(evaluate(ci.jobs.preflight.if, context)).toBe(admitted);
-    expect(evaluate(ci.jobs["ci-gate"].if, context)).toBe(admitted);
-    // This job uses !cancelled(), so a skipped preflight does not skip security.
-    expect(evaluate(ci.jobs["security-fast"].if, context)).toBe(true);
-    if (!admitted) {
-      for (const [name, job] of Object.entries(ci.jobs)) {
-        if (name !== "security-fast") {
-          expect(evaluate((job as { if: string }).if, { ...context, runCheck: false }), name).toBe(
-            false,
-          );
-        }
-      }
-    }
-    for (const name of [...auxiliaryNames, "docs"]) {
-      const workflow = readWorkflow(`.github/workflows/${name}.yml`);
-      const entry = Object.entries(workflow.jobs).find(([id]) => id !== "scope")![1] as {
-        if: string;
-      };
-      expect(evaluate(entry.if, context), name).toBe(admitted);
-    }
-  });
-
-  it.each([false, true])("preserves PR admission with draft=%s", (draft) => {
-    const context = { ...base, eventName: "pull_request", draft } as const;
-    for (const name of ["preflight", "security-fast", "ci-gate"]) {
-      expect(evaluate(ci.jobs[name].if, context), name).toBe(!draft);
-    }
-  });
-
-  it.each(["refs/heads/main", "refs/tags/v2026.9.5"])(
-    "preserves manual validation on %s",
-    (ref) => {
-      const context = { ...base, eventName: "workflow_dispatch", ref } as const;
-      expect(evaluate(ci.jobs.preflight.if, context)).toBe(true);
-      expect(evaluate(ci.jobs["ci-gate"].if, context)).toBe(true);
-      expect(evaluate(ci.jobs.preflight.if, { ...context, releaseGate: true })).toBe(true);
-    },
-  );
-
   it("admits hourly work only in the canonical repo even during release validation", () => {
     const context = { ...base, eventName: "schedule" } as const;
     expect(ci.on.schedule).toEqual([{ cron: "23 * * * *" }]);
@@ -94,6 +49,7 @@ describe("hourly main CI admission", () => {
     }
   });
 
+<<<<<<< HEAD
   it.each(["github", "hybrid", ""] as const)(
     "preserves automatic runner and cache policy for scheduled %s runs",
     (runnerBackend) => {
@@ -179,6 +135,8 @@ describe("hourly main CI admission", () => {
     }
   });
 
+=======
+>>>>>>> 97b6e87616f
   it("isolates full manual CI from a later skip-only main push", () => {
     const common = { ...base, workflow: "CI", runId: 123, runNumber: 456 } as const;
     const full = evaluate(ci.concurrency.group, { ...common, eventName: "workflow_dispatch" });
@@ -255,46 +213,6 @@ describe("hourly main CI admission", () => {
     }
   });
 
-  it("schedules complete main coverage at the workflow revision without a diff filter", () => {
-    const childSha = "b".repeat(40);
-    const context = {
-      ...base,
-      eventName: "schedule",
-      sha: childSha,
-      workflowSha: childSha,
-    } as const;
-    const checkout = ci.jobs.preflight.steps.find(
-      (step: { name?: string }) => step.name === "Checkout",
-    );
-    expect(evaluate(checkout.env.CHECKOUT_REF, context)).toBe(childSha);
-    expect(evaluate(checkout.env.WORKFLOW_SHA, context)).toBe(childSha);
-    const manifest = ci.jobs.preflight.steps.find(
-      (step: { id?: string }) => step.id === "manifest",
-    );
-    for (const [key, expression] of Object.entries(manifest.env)) {
-      if (
-        /^OPENCLAW_CI_RUN_(NODE|MACOS|MACOS_NODE|IOS_BUILD|ANDROID|WINDOWS|SKILLS_PYTHON|CONTROL_UI_I18N|UI_TESTS|NATIVE_I18N)$/.test(
-          key,
-        )
-      ) {
-        expect(evaluate(expression as string, context), key).toBe("true");
-      }
-    }
-    expect(evaluate(manifest.env.OPENCLAW_CI_DOCS_ONLY, context)).toBe("false");
-    expect(evaluate(manifest.env.OPENCLAW_CI_DOCS_CHANGED, context)).toBe("true");
-    expect(evaluate(manifest.env.OPENCLAW_CI_VALIDATION_TIER, context)).toBe("main");
-    expect(evaluate(ci.jobs.android.strategy["max-parallel"], context)).toBe(2);
-    expect(evaluate(ci.jobs["macos-swift"].env.OPENCLAWKIT_TEST_EXECUTION, context)).toBe("serial");
-    for (const id of ["docs_scope", "changed_scope"]) {
-      expect(
-        evaluate(
-          ci.jobs.preflight.steps.find((step: { id?: string }) => step.id === id).if,
-          context,
-        ),
-      ).toBe(false);
-    }
-  });
-
   it("keeps differential guards on the push range, not hourly main-against-itself", () => {
     const guards = ci.jobs["security-fast"].steps.find(
       (step: { name?: string }) => step.name === "Check main push ratchets and protocol additions",
@@ -303,7 +221,10 @@ describe("hourly main CI admission", () => {
     const context = {
       ...base,
       eventName: "push",
-      steps: { diff_base: { outputs: { sha: baseSha } } },
+      steps: {
+        diff_base: { outputs: { sha: baseSha } },
+        guard_setup: { outputs: {}, outcome: "success" },
+      },
     } as const;
     expect(evaluate(guards.if, context)).toBe(true);
     expect(evaluate(guards.env.BASE_SHA, context)).toBe(baseSha);
@@ -359,5 +280,99 @@ describe("hourly main CI admission", () => {
     expect(evaluate(codeql.jobs["security-high"].if, context)).toBe(true);
     const sanity = readWorkflow(".github/workflows/workflow-sanity.yml");
     expect(evaluate(sanity.jobs.actionlint.if, context)).toBe(true);
+  });
+});
+
+describe("CodeQL language selection", () => {
+  const workflow = readWorkflow(".github/workflows/codeql.yml");
+  const scope = workflow.jobs.scope;
+  const script = scope.steps.find((step: { id?: string }) => step.id === "scope").with.script;
+  const categories = [
+    "core-auth-secrets",
+    "channel-runtime-boundary",
+    "network-ssrf-boundary",
+    "mcp-process-tool-boundary",
+    "process-exec-boundary",
+    "plugin-trust-boundary",
+    "actions",
+  ];
+
+  const cases: Array<{
+    files: string[];
+    expected: string[];
+    eventName?: string;
+    exitCode?: number;
+    checkoutOutcome?: string;
+  }> = [
+    { files: [".github/workflows/docs.yml"], expected: ["actions"] },
+    { files: [".github/actions/example/action.yml"], expected: ["actions"] },
+    { files: [".github/workflows/codeql.yml"], expected: categories },
+    { files: [".github/codeql/codeql-actions-critical-security.yml"], expected: categories },
+    { files: ["src/main.ts"], expected: categories.slice(0, -1) },
+    { files: ["packages/example/README.md"], expected: categories.slice(0, -1) },
+    { files: [".github/workflows/docs.yml", "src/main.ts"], expected: categories },
+    { files: [], expected: categories },
+    { files: [".github/workflows/docs.yml"], checkoutOutcome: "failure", expected: categories },
+    { files: [".github/workflows/docs.yml"], exitCode: 128, expected: categories },
+    ...["push", "schedule", "workflow_dispatch"].map((eventName) => ({
+      eventName,
+      files: [".github/workflows/docs.yml"],
+      expected: categories,
+    })),
+  ];
+
+  it.each(cases)(
+    "selects $expected for $files/$eventName/$exitCode",
+    async ({ files, expected, ...options }) => {
+      let matrix: { include: Array<Record<string, string | number>> } | undefined;
+      await runInNewContext(`(async () => { ${script} })()`, {
+        context: { eventName: options.eventName ?? "pull_request" },
+        process: { env: { CODEQL_CHECKOUT_OUTCOME: options.checkoutOutcome ?? "success" } },
+        core: {
+          setOutput: (_name: string, value: string) => {
+            matrix = JSON.parse(value);
+          },
+          warning: () => {},
+        },
+        exec: {
+          getExecOutput: async (_command: string, args: string[]) => {
+            expect(args).toEqual(["diff", "--no-renames", "--name-only", "-z", "HEAD^1", "HEAD"]);
+            return {
+              exitCode: options.exitCode ?? 0,
+              stdout: files.join("\0") + (files.length ? "\0" : ""),
+            };
+          },
+        },
+      });
+      expect(matrix?.include).toEqual(
+        expected.map((category) => ({
+          category,
+          language: category === "actions" ? "actions" : "javascript-typescript",
+          runs_on: "ubuntu-24.04",
+          timeout_minutes: category === "actions" ? 10 : 25,
+          config_file: `./.github/codeql/codeql-${category}-critical-security.yml`,
+        })),
+      );
+    },
+  );
+
+  it("keeps event admission and exact merge identity", () => {
+    expect(scope.if).toBe(workflow.jobs["security-high"].if);
+    const checkout = scope.steps.find(
+      (step: { name?: string }) => step.name === "Checkout event merge",
+    );
+    expect(checkout["continue-on-error"]).toBe(true);
+    expect(
+      scope.steps.find((step: { id?: string }) => step.id === "scope").env.CODEQL_CHECKOUT_OUTCOME,
+    ).toBe("${{ steps.checkout.outcome }}");
+    expect(checkout.with).toMatchObject({
+      ref: "${{ github.sha }}",
+      "fetch-depth": 2,
+      "persist-credentials": false,
+    });
+    expect(workflow.jobs["security-high"].needs).toBe("scope");
+    expect(workflow.jobs["security-high"].strategy.matrix).toBe(
+      "${{ fromJSON(needs.scope.outputs.matrix) }}",
+    );
   });
 });

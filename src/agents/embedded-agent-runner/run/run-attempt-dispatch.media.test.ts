@@ -325,7 +325,11 @@ describe("plugin harness prompt media", () => {
       runParams: {
         agentId: "main",
         config: { agents: { defaults: { sandbox: { mode: "off" } } } },
+<<<<<<< HEAD
         sessionId: "session-run-suppressed",
+=======
+        sessionId: "session-run-suppression",
+>>>>>>> 97b6e87616f
         images: [inlineImage],
         imageOrder: ["inline"],
         media: [
@@ -353,7 +357,10 @@ describe("plugin harness prompt media", () => {
       },
       runtime: {
         model: { input: ["text", "image"] },
+<<<<<<< HEAD
         sessionId: "session-run-suppressed",
+=======
+>>>>>>> 97b6e87616f
         workspaceDir: "/tmp",
       },
     } as unknown as Parameters<typeof preparePluginHarnessPromptImages>[0]);

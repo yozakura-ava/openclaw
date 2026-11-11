@@ -10,6 +10,13 @@ import {
 } from "../agents/agent-scope.js";
 import { resolveAgentHarnessPolicy } from "../agents/harness/policy.js";
 import type { ModelRef } from "../agents/model-ref-shared.js";
+<<<<<<< HEAD
+=======
+import {
+  buildAllowedModelSet,
+  resolveConfiguredModelPolicyAllow,
+} from "../agents/model-selection-shared.js";
+>>>>>>> 97b6e87616f
 import {
   modelKey,
   normalizeProviderId,
@@ -18,6 +25,7 @@ import {
 } from "../agents/model-selection.js";
 import { resolveAgentModelFallbackValues } from "../config/model-input.js";
 import type { SessionEntry } from "../config/sessions.js";
+import { hasSessionActiveAutoModelFallback } from "../config/sessions/model-override-provenance.js";
 import { applySessionEntryReplacements } from "../config/sessions/session-accessor.js";
 import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { updateLegacySessionStore } from "../infra/state-migrations.legacy-session-store.js";
@@ -80,6 +88,17 @@ function resolveConfiguredDoctorSessionStateRoute(params: {
   return {
     defaultProvider: primary.provider,
     configuredModelRefs: [...configuredModelRefs],
+    // An absent policy is not an explicit unrestricted selection policy.
+    modelPolicy:
+      resolveConfiguredModelPolicyAllow({ cfg: params.cfg, agentId }).configPath === null
+        ? undefined
+        : buildAllowedModelSet({
+            cfg: params.cfg,
+            catalog: [],
+            agentId,
+            defaultProvider: primary.provider,
+            defaultModel: primary,
+          }),
     runtime,
   };
 }
@@ -221,7 +240,21 @@ function scanEntryForOwner(params: {
 
   if (directOverrideIsOwned && !directOverrideIsConfigured) {
     if (directOverrideSource === "auto") {
-      addReason(reasons, "auto model override");
+      const activeFallback = hasSessionActiveAutoModelFallback({
+        providerOverride: normalizeString(params.entry.providerOverride),
+        modelOverride: normalizeString(params.entry.modelOverride),
+        modelOverrideSource: "auto",
+        modelOverrideFallbackOriginProvider: normalizeString(
+          params.entry.modelOverrideFallbackOriginProvider,
+        ),
+        modelOverrideFallbackOriginModel: normalizeString(
+          params.entry.modelOverrideFallbackOriginModel,
+        ),
+      });
+      // Child selections carry self-origin provenance; only a moved origin is fallback residue.
+      if (activeFallback || !params.route.modelPolicy?.allows(directOverride)) {
+        addReason(reasons, "auto model override");
+      }
     } else if (!routeAllowsOwner) {
       return {
         manualReview: {
@@ -422,6 +455,10 @@ export function createPluginSessionStateDoctorScanner(params: {
                         provider: model.provider,
                         modelId: model.model,
                         requestedRuntime: selection.runtime,
+<<<<<<< HEAD
+=======
+                        contextManagement: harness.contextManagement,
+>>>>>>> 97b6e87616f
                         config: params.cfg,
                         agentId,
                         sessionKey: selection.key,

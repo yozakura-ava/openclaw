@@ -1,5 +1,8 @@
 import { classifyDoctorMaintenanceRefusal } from "../../commands/doctor-maintenance-inspection.js";
+<<<<<<< HEAD
 import type { TriageFailureContext } from "../../commands/triage-prompt.js";
+=======
+>>>>>>> 97b6e87616f
 import { collectNestedErrorCandidates } from "../../infra/error-graph-internal.js";
 import { formatErrorMessage } from "../../infra/errors.js";
 import { resolveManagedServiceUpdateFailureExitCode } from "../../infra/update-control-plane-sentinel.js";
@@ -18,11 +21,16 @@ import {
   recordMutableUpdateInterruption,
 } from "./update-command-mutable-signals.js";
 import { createUpdateCommandFinalizationFence } from "./update-command-recovery.js";
+<<<<<<< HEAD
 import {
   isUpdateStateReadContention,
   resolveAutomaticUpdateTriage,
   UpdateCommandFailure,
 } from "./update-command-result.js";
+=======
+import { isUpdateStateReadContention, UpdateCommandFailure } from "./update-command-result.js";
+import { GatewayRestartHealthError } from "./update-command-service-command.js";
+>>>>>>> 97b6e87616f
 import { withOwnedManagedUpdateEnv } from "./update-command-service-env.js";
 import type { UpdateCommandTerminalRecord } from "./update-command-terminal-record.js";
 import {
@@ -78,7 +86,7 @@ export async function withUpdateProgressSettlement(
       throw cause;
     }
     failure = { cause };
-    const { result } = createPostUpdateFailureResult(params, cause);
+    const { result } = createPostUpdateExceptionResult(params, cause);
     settledParams = {
       ...params,
       result:
@@ -103,18 +111,13 @@ export async function withUpdateProgressSettlement(
   }
 }
 
-export function bindUpdateFinalizationFailure(
-  params: FinishUpdateParams,
-  progressFailure: { cause: unknown } | undefined,
-  readTriage: () => { triageAllowed: boolean; gateway: TriageFailureContext["gateway"] },
-) {
+export function bindUpdateFinalizationFailure(progressFailure: { cause: unknown } | undefined) {
   return (
     result: UpdateRunResult,
     detail?: string,
     options?: ErrorOptions,
     exitCode = resolveManagedServiceUpdateFailureExitCode(result),
   ) => {
-    const { triageAllowed, gateway } = readTriage();
     const failureOptions =
       progressFailure &&
       !collectNestedErrorCandidates(options?.cause).includes(progressFailure.cause)
@@ -128,12 +131,7 @@ export function bindUpdateFinalizationFailure(
                 : progressFailure.cause,
           }
         : options;
-    return new UpdateCommandFailure(result, exitCode, detail, {
-      ...failureOptions,
-      automaticTriage: triageAllowed
-        ? resolveAutomaticUpdateTriage(result, detail, { ...params, gateway })
-        : undefined,
-    });
+    return new UpdateCommandFailure(result, exitCode, detail, failureOptions);
   };
 }
 
@@ -219,18 +217,46 @@ export async function publishSettledUpdateCommandResult(
   );
 }
 
-export function createPostUpdateFailureResult(
+export function shouldPropagatePostUpdateException(
+  error: unknown,
+  activationVerified: boolean,
+): boolean {
+  return (
+    (error instanceof UpdateCommandFailure &&
+      (!activationVerified || error.result.reason !== "wrapper-retirement-failed")) ||
+    hasCommandProcessCleanupError(error)
+  );
+}
+
+export function createPostUpdateExceptionResult(
   params: Pick<FinishUpdateParams, "result" | "root" | "startedAt">,
   error: unknown,
   activationVerified = false,
 ): { result: UpdateRunResult; message: string } {
   const message = formatErrorMessage(error);
   const failureFacts = collectUpdateDoctorFailureFacts(error);
+<<<<<<< HEAD
   if (
     activationVerified &&
     error instanceof Error &&
     params.result.recovery?.serviceRestartSafe !== false
   ) {
+=======
+  const refusal = classifyDoctorMaintenanceRefusal(error);
+  if (
+    activationVerified &&
+    collectNestedErrorCandidates(error).every(
+      (cause) =>
+        cause instanceof GatewayRestartHealthError ||
+        (cause instanceof UpdateCommandFailure &&
+          cause.result.reason === "wrapper-retirement-failed" &&
+          cause.result.recovery?.serviceRestartSafe !== false),
+    ) &&
+    error instanceof Error &&
+    params.result.recovery?.serviceRestartSafe !== false
+  ) {
+    // Only known maintenance failures qualify; health does not grant authority.
+>>>>>>> 97b6e87616f
     const warning = `Gateway activation verified; post-update maintenance needs attention: ${message}`;
     return {
       message: warning,
@@ -258,7 +284,11 @@ export function createPostUpdateFailureResult(
       status: "error",
       reason: "post-update-failed",
       recovery:
+<<<<<<< HEAD
         classifyDoctorMaintenanceRefusal(error).kind === "data-at-risk"
+=======
+        refusal.kind === "data-at-risk"
+>>>>>>> 97b6e87616f
           ? { serviceRestartSafe: false, reason: "runtime-verification-failed" }
           : isUpdateStateReadContention(error) && version
             ? (params.result.recovery ?? { serviceRestartSafe: true, version })

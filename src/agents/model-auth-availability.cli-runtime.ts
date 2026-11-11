@@ -132,8 +132,12 @@ export function createCliRuntimeModelAuthEvaluator(
         });
       }
     }
+<<<<<<< HEAD
+=======
+    const runtimeAuth = { id: runtimeProvider, source: "native" as const };
+>>>>>>> 97b6e87616f
     if (normalizeProviderId(runtimeProvider) === normalizeProviderId(provider)) {
-      return runtimeOwners?.length ? evaluation : undefined;
+      return runtimeOwners?.length ? { ...evaluation, runtimeAuth } : undefined;
     }
     const runtimeAuthMode =
       params.preparedRuntimeAuthModes?.[normalizeProviderIdForAuth(runtimeProvider)];
@@ -144,6 +148,7 @@ export function createCliRuntimeModelAuthEvaluator(
         routeResolution: null,
         selectedAuthMode: runtimeAuthMode,
         evidence: "runtime",
+        runtimeAuth,
       };
     }
     // Preparation probes the native login of every configured runtime; only routes found by
@@ -159,7 +164,12 @@ export function createCliRuntimeModelAuthEvaluator(
     );
     return params.preparedSyntheticAuthComplete ||
       configuredRuntimes.has(normalizeProviderId(runtimeProvider))
-      ? { availability: false, routeResolution: null, unavailableReason: "missing-auth" }
-      : { availability: undefined, routeResolution: null };
+      ? {
+          availability: false,
+          routeResolution: null,
+          unavailableReason: "missing-auth",
+          runtimeAuth,
+        }
+      : { availability: undefined, routeResolution: null, runtimeAuth };
   };
 }
