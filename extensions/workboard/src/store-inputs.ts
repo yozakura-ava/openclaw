@@ -54,7 +54,12 @@ export type WorkboardUpdateCardOptions = {
   preserveProofId?: string;
   preserveNotificationId?: string;
 };
-export type WorkboardCommentInput = { body?: unknown };
+export type WorkboardCommentInput = {
+  body?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
+  actorId?: unknown;
+  actorKind?: unknown;
+};
 export type WorkboardLinkInput = {
   type?: unknown;
   targetCardId?: unknown;
@@ -68,6 +73,9 @@ export type WorkboardProofInput = {
   command?: unknown;
   url?: unknown;
   note?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
+  actorId?: unknown;
+  actorKind?: unknown;
 };
 export type WorkboardArtifactInput = {
   label?: unknown;
@@ -124,6 +132,9 @@ export type WorkboardCompleteInput = {
   ownerId?: unknown;
   token?: unknown;
   summary?: unknown;
+  /** Author attribution (card 9dd79ad6); absent means the system wrote it. */
+  actorId?: unknown;
+  actorKind?: unknown;
   proof?: unknown;
   proofId?: unknown;
   consumer_surface_evidence?: unknown;

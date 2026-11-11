@@ -508,7 +508,14 @@ describe("Workboard board-scoped SQLite hydration", () => {
       boardId: "ops",
       labels: ["keep"],
     });
-    const expected = await store.addComment(created.id, { body: "Keep across the move" });
+    // The comment carries an explicit actor so the in-memory card and the
+    // row read back agree — the read path surfaces the actor columns the
+    // write path stamps (card 9dd79ad6).
+    const expected = await store.addComment(created.id, {
+      body: "Keep across the move",
+      actorId: "scoped-writer",
+      actorKind: "agent",
+    });
     using raw = new DatabaseSync(dbPath);
     let moved = false;
     const restore = observeReads((sql) => {

@@ -49,6 +49,7 @@ import { readSessionLinkedCardIds } from "./sqlite-store-session-links.js";
 import { WorkboardSqliteSessionsBoardStore } from "./sqlite-store-sessions-board.js";
 import { bindNull, insertCard, prepareWorkboardUpsert } from "./sqlite-store-write.js";
 import {
+  MAX_OWNER_CLAIMS,
   MAX_WORKER_CONTEXT_PARENTS,
   MAX_WORKER_CONTEXT_RECENT_CARDS,
   workboardCardConsumesOwnerSlot,
@@ -151,6 +152,7 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
             eb.and([eb("claim_json", "is not", null), eb("status", "!=", "done")]),
           ]),
         );
+      let ownerSlotCount = 0;
       for (const row of iterateSqliteQuerySync(this.db, candidates)) {
         const card = {
           // SAFETY: insertCard persists WorkboardCard.status; this keeps readCard's required-string boundary.
@@ -165,8 +167,16 @@ class WorkboardSqliteCardStore implements SyncStore<WorkboardCardStore> {
               }
             : undefined,
         };
+        // Count concurrent claims owned by this owner so that the limit is
+        // multi-slot (MAX_OWNER_CLAIMS) rather than binary. Only slots
+        // actively consumed by this owner count; candidates outside the
+        // owner (or already-reclaimable leases) are ignored so a single
+        // owner can reclaim expired claims held by other workers.
         if (workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId) {
-          return "owner_busy";
+          ownerSlotCount += 1;
+          if (ownerSlotCount >= MAX_OWNER_CLAIMS) {
+            return "owner_busy";
+          }
         }
       }
       insertCard(this.db, value.card);

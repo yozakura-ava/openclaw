@@ -77,11 +77,31 @@ function fixtureCard(index: number): WorkboardCard {
     events: [{ id: `${id}-event`, kind: "created", at: 1000 + index }],
     metadata: {
       attempts: [{ id: `${id}-attempt`, status: "succeeded", startedAt: 1000 + index }],
-      comments: [{ id: `${id}-comment`, body: `note ${index}`, createdAt: 1000 + index }],
+      comments: [
+        {
+          id: `${id}-comment`,
+          body: `note ${index}`,
+          createdAt: 1000 + index,
+          // Explicit authorship (card 9dd79ad6): the read path surfaces the
+          // actor columns the write path stamps, so the fixture states the
+          // actor it expects to survive the round-trip.
+          actorId: "batch-writer",
+          actorKind: "agent" as const,
+        },
+      ],
       links: [
         { id: `${id}-link`, type: "relates_to", url: "https://example.test", createdAt: 1000 },
       ],
-      proof: [{ id: `${id}-proof`, status: "passed", label: "unit", createdAt: 1000 }],
+      proof: [
+        {
+          id: `${id}-proof`,
+          status: "passed" as const,
+          label: "unit",
+          createdAt: 1000,
+          actorId: "batch-writer",
+          actorKind: "agent" as const,
+        },
+      ],
       artifacts: [{ id: `${id}-artifact`, label: "log", createdAt: 1000 }],
       attachments: [
         {
@@ -288,6 +308,15 @@ describe("workboard sqlite batch card read", () => {
       try {
         await stores.cards.register(occupied.id, { version: 1, card: occupied });
         await stores.cards.register(target.id, { version: 1, card: target });
+        if (scenario.expected === "owner_busy") {
+          // MAX_OWNER_CLAIMS = 3: pad with 2 extra running cards owned by
+          // "slot-owner" so the discriminating busy card reaches the 3-slot
+          // threshold and trips owner_busy on the target claim.
+          const pad0 = { ...fixtureCard(80), status: "running" as const, agentId: "slot-owner" };
+          const pad1 = { ...fixtureCard(81), status: "running" as const, agentId: "slot-owner" };
+          await stores.cards.register(pad0.id, { version: 1, card: pad0 });
+          await stores.cards.register(pad1.id, { version: 1, card: pad1 });
+        }
         const next = { ...target, updatedAt: target.updatedAt + 1 };
         await expect(
           stores.cards.claimIfOwnerAvailable(
