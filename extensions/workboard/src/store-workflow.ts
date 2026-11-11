@@ -222,21 +222,11 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         });
         throw new Error("card is archived.");
       }
-      // PATCH done-card claim guard (#115 scope, prior art issue #24):
-      // completed cards must reject claim attempts BEFORE the strict claim
-      // fence evaluates, otherwise a done card that already carries a live
-      // claim would hit the fence branch and never reach this guard. Without
-      // it a stale orchestrator can attach a new claim token to a terminal
-      // card and silently re-open the work surface.
-      if (guarded.status === "done") {
-        recordClaimConflict({
-          kind: "claim_on_done",
-          cardId: id,
-          attemptedOwnerId: ownerId,
-          at: now,
-        });
-        throw new Error("card is completed.");
-      }
+      // Authority drift is checked before the terminal-state guards: a card
+      // that changed board/status/workspace/agent since dispatch selected it
+      // must be reported as an authority change, not as a terminal-state
+      // rejection. The done guard below still runs before the strict claim
+      // fence, which is what it is there to protect.
       const expectedAuthority = options.expectedAuthority;
       if (
         expectedAuthority &&
@@ -253,6 +243,21 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           ))
       ) {
         throw new Error("card workspace authority changed before claim.");
+      }
+      // PATCH done-card claim guard (#115 scope, prior art issue #24):
+      // completed cards must reject claim attempts BEFORE the strict claim
+      // fence evaluates, otherwise a done card that already carries a live
+      // claim would hit the fence branch and never reach this guard. Without
+      // it a stale orchestrator can attach a new claim token to a terminal
+      // card and silently re-open the work surface.
+      if (guarded.status === "done") {
+        recordClaimConflict({
+          kind: "claim_on_done",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
+        throw new Error("card is completed.");
       }
       const existingClaim = guarded.metadata?.claim;
       // [claim-fence 59663fca] STRICT (default): a live claim blocks every

@@ -18,6 +18,7 @@ import { WorkboardCoreStore } from "./store-core.js";
 import type {
   WorkboardArtifactInput,
   WorkboardAttachmentInput,
+  WorkboardCardPatch,
   WorkboardMutationScope,
   WorkboardProofInput,
   WorkboardProtocolViolationInput,
@@ -35,6 +36,22 @@ import {
 import { appendCardNotification, finishRun } from "./store-status-write.js";
 
 export class WorkboardEnrichmentStore extends WorkboardCoreStore {
+  /**
+   * Run-completion patch shared by the done/blocked transitions.
+   *
+   * The fork keeps the implementation in the standalone `finishRun` helper
+   * (store-status-write.ts) because the status-transition resolver uses it
+   * too; this method is the store-level entry point the workflow layer uses.
+   */
+  protected finishRun(
+    card: WorkboardCard,
+    status: "done" | "blocked",
+    now: number,
+    reason?: string,
+  ): WorkboardCardPatch & { metadata: WorkboardMetadata } {
+    return finishRun(card, status, now, reason);
+  }
+
   protected appendNotification(
     metadata: WorkboardMetadata | undefined,
     now: number,

@@ -292,6 +292,11 @@ function readMetadata(
     body: requiredString(child, "body"),
     createdAt: requiredNumber(child, "created_at"),
     updatedAt: numberValue(child, "updated_at"),
+    // Card 9dd79ad6: the write path stamps the acting system/agent, so the
+    // read path must surface it again — otherwise every comment and proof
+    // comes back anonymous no matter who authored it.
+    actorId: stringValue(child, "actor_id"),
+    actorKind: stringValue(child, "actor_kind"),
   }));
   const links = readChildren("workboard_card_links", (child) => ({
     id: requiredString(child, "id"),
@@ -311,6 +316,11 @@ function readMetadata(
     command: stringValue(child, "command"),
     url: stringValue(child, "url"),
     note: stringValue(child, "note"),
+    // Card 9dd79ad6: proof rows carry the same authorship columns as
+    // comments; read them back so an unattributed proof still resolves to
+    // the workboard system actor.
+    actorId: stringValue(child, "actor_id"),
+    actorKind: stringValue(child, "actor_kind"),
   }));
   const artifacts = readChildren("workboard_card_artifacts", (child) => ({
     id: requiredString(child, "id"),
