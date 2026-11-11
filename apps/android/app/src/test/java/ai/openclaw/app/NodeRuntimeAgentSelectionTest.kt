@@ -574,11 +574,7 @@ class NodeRuntimeAgentSelectionTest {
     }
 
   @Test
-<<<<<<< HEAD
   fun coldStartUsesAnAllowedAgentBeforePatchingTheGatewayDefault() =
-=======
-  fun coldStartWithoutMethodCatalogUsesAnAllowedAgentBeforePatchingTheGatewayDefault() =
->>>>>>> 97b6e87616f
     runBlocking {
       val runtime = createConnectedRuntime()
       val releaseRoster = CompletableDeferred<Unit>()

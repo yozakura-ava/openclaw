@@ -279,7 +279,7 @@ struct GatewayNetworkPathRecoveryTests {
     }
 
     @Test
-    func `satisfied path wakes the shared reconnect cooldown and coalesced callers`() async throws {
+    func `satisfied path wakes the pending reconnect and resets both backoffs`() async throws {
         let reconnect = PathRecoverySleep()
         let upgrade = PathRecoverySleep()
         let upgradeCalls = PathRecoveryEvents<Void>()
@@ -293,48 +293,52 @@ struct GatewayNetworkPathRecoveryTests {
                 try await fixture.channel.connect()
                 await fixture.emit(PathRecoveryFixture.offline)
                 let oldSocket = try #require(fixture.session.latestTask())
-<<<<<<< HEAD
                 await fixture.channel.seedPathRecoveryReconnectBackoff(milliseconds: 30000)
                 await fixture.channel.seedPathRecoveryConnectBackoff(nil)
-=======
-                await fixture.channel.seedPathRecoveryConnectBackoff(reconnect)
->>>>>>> 97b6e87616f
                 oldSocket.emitReceiveFailure()
                 await reconnect.started.wait(forCount: 1)
                 #expect(reconnect.started.values == [.seconds(30)])
-                let caller = Task { try await fixture.channel.connect() }
 
                 await fixture.settleNext(PathRecoveryFixture.wifi)
                 await upgrade.started.wait(forCount: 1)
                 #expect(reconnect.cancelled.values.count == 1)
-<<<<<<< HEAD
                 #expect(await fixture.channel.backoffMs == 500)
-=======
->>>>>>> 97b6e87616f
                 #expect(await fixture.channel.hasPathRecoveryConnectBackoff() == false)
 
                 upgrade.release()
-                try await caller.value
+                try await fixture.channel.connect()
                 #expect(fixture.session.snapshotMakeCount() == 2)
                 #expect(upgradeCalls.values.count == 2)
             }
     }
 
-    @Test(arguments: [false, true])
-    func `a satisfied path leaves authentication paused`(legacyProtocolMismatch: Bool) async throws {
+    @Test
+    func `satisfied path wakes a coalesced connect attempt inside its failure backoff`() async throws {
+        let backoff = PathRecoverySleep()
+        try await withPathRecoveryFixture { fixture in
+            try await fixture.channel.connect()
+            await fixture.emit(PathRecoveryFixture.offline)
+            let oldSocket = try #require(fixture.session.latestTask())
+            await fixture.channel.seedPathRecoveryConnectBackoff(backoff)
+            oldSocket.emitReceiveFailure()
+            await backoff.started.wait(forCount: 1)
+            let caller = Task { try await fixture.channel.connect() }
+
+            await fixture.settleNext(PathRecoveryFixture.wifi)
+            try await caller.value
+
+            #expect(backoff.cancelled.values.count == 1)
+            #expect(fixture.session.snapshotMakeCount() == 2)
+            #expect(await fixture.channel.hasPathRecoveryConnectBackoff() == false)
+        }
+    }
+
+    @Test
+    func `a satisfied path leaves authentication paused`() async throws {
         let upgradeCalls = PathRecoveryEvents<Void>()
         try await withPathRecoveryFixture(extraHeadersProvider: {
             upgradeCalls.record(())
-            if upgradeCalls.values.count > 1 {
-                if legacyProtocolMismatch {
-                    throw GatewayConnectAuthError(
-                        message: "protocol mismatch",
-                        detailCode: "INVALID_REQUEST",
-                        canRetryWithDeviceToken: false,
-                        expectedProtocol: 1)
-                }
-                throw GatewayExternalAuthorizationError()
-            }
+            if upgradeCalls.values.count > 1 { throw GatewayExternalAuthorizationError() }
             return [:]
         }) { fixture in
             try await fixture.channel.connect()

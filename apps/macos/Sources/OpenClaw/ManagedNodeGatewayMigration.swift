@@ -32,7 +32,7 @@ enum ManagedNodeGatewayMigration {
     }
 
     enum Outcome {
-        case preservedNewerRuntime
+        case coreRepairRequired
         case versionUpdated
         case preservedNewerRuntime
         case migrated(BundledRuntime)
@@ -47,12 +47,7 @@ enum ManagedNodeGatewayMigration {
 
     struct Operations {
         var checkCurrent: () throws -> Void
-<<<<<<< HEAD
         var updateVersion: (Candidate, String) async throws -> Void
-=======
-        var repairCanonicalUpdate: @MainActor (PostAppUpdateReceipt) async throws -> CLIInstaller.CanonicalUpdateResult
-        var updateVersion: (_ candidate: Candidate, _ version: String, _ setupRecovery: Bool) async throws -> Void
->>>>>>> 97b6e87616f
         var resumeNode: (Candidate) async throws -> Void
         var recapture: (_ previous: Candidate, _ afterVersionUpdate: Bool) async throws -> Candidate
         var seed: (Candidate) async throws -> BundledRuntime
@@ -66,18 +61,20 @@ enum ManagedNodeGatewayMigration {
     private static let serviceInstallTimeout = GatewayChildSupervisor.shutdownTimeoutSeconds + 10 +
         GatewayLaunchAgentManager.startupMigrationTolerance
 
-    static var shutdownTimeout: TimeInterval {
-        // Canonical recovery and the selected service may each need core work.
-        // Drain both admitted stages before releasing runtime/restoration custody.
-        2 * CLIInstaller.managedUpdateTimeout + 2 * self.serviceInstallTimeout +
+    static func shutdownTimeout(candidate: Candidate, targetVersion: String?) -> TimeInterval {
+        let runtimeBudget = 2 * self.serviceInstallTimeout +
             2 * GatewayLaunchAgentManager.startupMigrationTolerance + 45
+        if candidate.version != targetVersion {
+            return CLIInstaller.managedUpdateTimeout + (candidate.snapshot == nil ? runtimeBudget : 45)
+        }
+        return runtimeBudget
     }
 
-    private static func requiresCoreRepair(
+    static func requiresCoreRepair(
         receipt: PostAppUpdateReceipt?,
         hasVerifiedCoreRepair: Bool = false) -> Bool
     {
-        (receipt?.coreUpdate == .gateway || receipt?.coreUpdate == .legacyCanonical) && !hasVerifiedCoreRepair
+        receipt?.coreUpdatePending == true && !hasVerifiedCoreRepair
     }
 
     static func run(
@@ -87,57 +84,26 @@ enum ManagedNodeGatewayMigration {
         operations: Operations) async throws -> Outcome
     {
         try operations.checkCurrent()
-        let pending = pendingSetupRecovery?.toVersion == targetVersion ? pendingSetupRecovery : nil
-        var repairedCanonical = false
-        let progress: PostAppUpdateReceipt?
-        if let pending, pending.coreUpdate == .legacyCanonical {
-            let result = try await operations.repairCanonicalUpdate(pending)
-            try operations.checkCurrent()
-            progress = result.receipt
-            if case .repaired = result { repairedCanonical = true }
-        } else {
-            progress = pending
+        // An updated version is not proof that core finished its schema and repair work.
+        // PostUpdate must resume that work with the retained Node CLI before switching runtimes.
+        if self.requiresCoreRepair(
+            receipt: pendingSetupRecovery,
+            hasVerifiedCoreRepair: candidate.hasVerifiedCoreRepair)
+        {
+            return .coreRepairRequired
         }
-        let refreshRetainedCLI = repairedCanonical && candidate.snapshot == nil
-        var current = try await operations.recapture(candidate, refreshRetainedCLI)
+        var current = try await operations.recapture(candidate, false)
         try operations.checkCurrent()
-        // The existing post-update recapture checks retained custody before adopting
-        // install-cli's refreshed absent-service command. Installed services stay bound.
-        let selectionUnchanged = repairedCanonical
-            ? current.snapshot == candidate.snapshot && current.port == candidate.port &&
-            current.allowUnconfigured == candidate.allowUnconfigured &&
-            (refreshRetainedCLI || current.cli == candidate.cli || current.matchesRetainedCLI(candidate.cli)) &&
-            (current.version == candidate.version || current.version == targetVersion)
-            : current == candidate
-        guard selectionUnchanged else {
+        guard current == candidate else {
             throw Failure(message: "The managed Node Gateway changed before migration; retry.")
         }
-<<<<<<< HEAD
         if CLIInstallPrompter.isManagedUpgrade(found: targetVersion, required: current.version) {
             return try await self.preserveNewerRuntime(current, operations: operations)
         }
         if current.version != targetVersion {
-=======
-        if repairedCanonical, current.version != candidate.version, candidate.snapshot != nil { return .versionUpdated }
-        if CLIInstallPrompter.isManagedUpgrade(found: targetVersion, required: current.version) {
-            // Keep the newer installation and restore its service rather than seed an older bundle.
-            operations.setServiceHosting(current)
-            if current.snapshot == nil { try await operations.resumeNode(current) }
-            try operations.checkCurrent()
-            try await operations.verifyHealth()
-            try operations.checkCurrent()
-            return .preservedNewerRuntime
-        }
-        // A pending checkpoint requests best-effort core repair; it cannot veto
-        // this independently admitted update or authorize the runtime switch.
-        if current.version != targetVersion || self.requiresCoreRepair(
-            receipt: progress,
-            hasVerifiedCoreRepair: current.hasVerifiedCoreRepair)
-        {
->>>>>>> 97b6e87616f
             let updating = current
             try await Task { @MainActor in
-                try await operations.updateVersion(updating, targetVersion, progress?.setupRecovery == true)
+                try await operations.updateVersion(updating, targetVersion)
             }.value
             try operations.checkCurrent()
             let updated = try await operations.recapture(updating, true)
@@ -152,14 +118,6 @@ enum ManagedNodeGatewayMigration {
             }
             // Installed services keep the version/runtime boundary on separate activations.
             // A paused legacy install has no running service to preserve; Resume completes both steps.
-            if CLIInstallPrompter.isManagedUpgrade(found: targetVersion, required: updated.version) {
-                operations.setServiceHosting(updated)
-                if updated.snapshot == nil { try await operations.resumeNode(updated) }
-                try operations.checkCurrent()
-                try await operations.verifyHealth()
-                try operations.checkCurrent()
-                return .preservedNewerRuntime
-            }
             if candidate.snapshot != nil { return .versionUpdated }
             guard updated.snapshot == nil, updated.port == candidate.port,
                   updated.allowUnconfigured == candidate.allowUnconfigured
@@ -294,6 +252,13 @@ enum ManagedNodeGatewayMigration {
         checkCurrent: @MainActor @Sendable () throws -> Void) async throws
     {
         try checkCurrent()
+        guard !self.requiresCoreRepair(
+            receipt: PostAppUpdateReceiptStore.pendingSetupRecovery() ?? PostAppUpdateReceiptStore
+                .pending(currentVersion: GatewayEnvironment.appVersionString()),
+            hasVerifiedCoreRepair: expected.hasVerifiedCoreRepair)
+        else {
+            throw Failure(message: "The managed Node Gateway update needs repair before switching runtimes.")
+        }
         let current = try await self.recaptureEligibleCandidate(
             retainedCLI: resolveLegacyCLI(),
             allowNamedServiceRetry: expected.allowsNamedServiceRetry,
@@ -303,12 +268,16 @@ enum ManagedNodeGatewayMigration {
               try await self.captureServiceCustody(requireService: expected.snapshot != nil) == custody
         else { throw Failure(message: "The Node Gateway changed before dispatch; the newer selection was preserved.") }
         try checkCurrent()
-        guard self.policyAllowsMigration(
-            onboardingSeen: AppStateStore.shared.onboardingSeen,
-            installPolicy: CLIInstallPolicy.storedPolicy(),
-            gatewayUpdateChannel: OpenClawConfigFile.gatewayUpdateChannel(),
-            hasService: expected.snapshot != nil,
-            allowNamedServiceRetry: expected.allowsNamedServiceRetry),
+        guard !self.requiresCoreRepair(
+            receipt: PostAppUpdateReceiptStore.pendingSetupRecovery() ?? PostAppUpdateReceiptStore
+                .pending(currentVersion: GatewayEnvironment.appVersionString()),
+            hasVerifiedCoreRepair: expected.hasVerifiedCoreRepair),
+            self.policyAllowsMigration(
+                onboardingSeen: AppStateStore.shared.onboardingSeen,
+                installPolicy: CLIInstallPolicy.storedPolicy(),
+                gatewayUpdateChannel: OpenClawConfigFile.gatewayUpdateChannel(),
+                hasService: expected.snapshot != nil,
+                allowNamedServiceRetry: expected.allowsNamedServiceRetry),
             GatewayLaunchAgentManager.launchdConfigSnapshot() == expected.snapshot
         else { throw Failure(message: "The Node Gateway update policy changed before dispatch; retry.") }
     }
@@ -440,11 +409,17 @@ enum ManagedNodeGatewayMigration {
         cli: GatewayLaunchAgentManager.InstalledServiceCLI,
         profile: AppProfile) async throws -> String
     {
-        guard case let .ready(_, version) = await CLIInstaller.managedStatus(
-            expectedVersion: nil,
+        let environment = GatewayLaunchAgentManager.daemonEnvironment(
+            runtime: nil,
             installedCLI: cli,
-            serviceProfile: profile,
-            usesBundledRuntime: false)
+            environment: ProcessInfo.processInfo.environment,
+            profile: profile,
+            searchPaths: CommandResolver.preferredPaths())
+        let response = await ShellExecutor.runDetailed(
+            command: cli.prefix + ["--version"], cwd: nil, env: environment, timeout: 15)
+        guard response.success,
+              let version = GatewayEnvironment.normalizeGatewayVersionOutput(response.stdout),
+              Semver.parse(version) != nil
         else { throw Failure(message: "The installed Node Gateway version could not be verified.") }
         return version
     }
@@ -484,27 +459,15 @@ enum ManagedNodeGatewayMigration {
     private static func updateManagedVersion(
         candidate: Candidate,
         version: String,
-<<<<<<< HEAD
-=======
-        setupRecovery: Bool,
->>>>>>> 97b6e87616f
         resolveLegacyCLI: @escaping @MainActor @Sendable () throws -> GatewayLaunchAgentManager.InstalledServiceCLI?,
         checkCurrent: @escaping @MainActor @Sendable () throws -> Void,
         statusHandler: @escaping @MainActor @Sendable (String) async -> Void) async throws
     {
         let original = try await self.captureServiceCustody(requireService: candidate.snapshot != nil)
         try checkCurrent()
-<<<<<<< HEAD
         let outcome = await CLIInstaller.updateManaged(
             targetVersion: version,
             restartGateway: candidate.snapshot != nil,
-=======
-        var dispatchedReceipt: PostAppUpdateReceipt?
-        let outcome = await CLIInstaller.updateManaged(
-            targetVersion: version,
-            restartGateway: candidate.snapshot != nil,
-            repair: candidate.version == version,
->>>>>>> 97b6e87616f
             installedCLI: candidate.cli,
             checkCurrent: {
                 try await self.checkCandidateAtDispatch(
@@ -515,23 +478,13 @@ enum ManagedNodeGatewayMigration {
             },
             onDispatch: {
                 if candidate.snapshot == nil {
-<<<<<<< HEAD
                     try PostAppUpdateReceiptStore.recordSetupRecovery(
                         fromVersion: candidate.version, toVersion: version)
-=======
-                    dispatchedReceipt = PostAppUpdateReceiptStore.recordSetupRecovery(
-                        fromVersion: candidate.version, toVersion: version, setupRecovery: setupRecovery)
->>>>>>> 97b6e87616f
                 } else {
                     let receipt = PostAppUpdateReceiptStore.pending(currentVersion: version) ??
                         PostAppUpdateReceipt(
                             fromVersion: candidate.version, toVersion: version, recordedAt: Date())
-<<<<<<< HEAD
                     try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
-=======
-                    dispatchedReceipt = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
-                        receipt: receipt, owner: .gateway, setupRecovery: setupRecovery)
->>>>>>> 97b6e87616f
                 }
             },
             statusHandler: statusHandler)
@@ -539,17 +492,11 @@ enum ManagedNodeGatewayMigration {
             throw Failure(message: [message, details].compactMap(\.self).joined(separator: " "))
         }
         if case let .success(_, installedVersion) = outcome {
-<<<<<<< HEAD
             guard CLIInstaller.satisfiesUpdateTarget(installedVersion: installedVersion, targetVersion: version)
-=======
-            guard CLIInstaller.satisfiesUpdateTarget(
-                installedVersion: installedVersion, targetVersion: version)
->>>>>>> 97b6e87616f
             else {
                 throw Failure(
                     message: "The Node update did not verify a compatible Gateway version; retry recovery.")
             }
-<<<<<<< HEAD
             // A newer runtime found before dispatch records no receipt; it has no repair to complete.
             let completed = PostAppUpdateReceiptStore.completeCoreRepair(
                 currentVersion: version, owner: .gateway)
@@ -557,10 +504,6 @@ enum ManagedNodeGatewayMigration {
                 CLIInstallPrompter.isManagedUpgrade(found: version, required: installedVersion)
             else {
                 throw Failure(message: "Another managed runtime update still needs repair.")
-=======
-            if let dispatchedReceipt {
-                PostAppUpdateReceiptStore.completeCoreRepair(receipt: dispatchedReceipt, owner: .gateway)
->>>>>>> 97b6e87616f
             }
         }
     }
@@ -575,32 +518,15 @@ enum ManagedNodeGatewayMigration {
         },
         verifyHealth: @escaping () async throws -> Void,
         setServiceHosting: @escaping (Candidate) -> Void,
-        canonicalUpdateCompleted: @escaping @MainActor (CLIInstaller.CanonicalUpdateResult) -> Void = { _ in },
         statusHandler: @escaping @MainActor @Sendable (String) async -> Void) -> Operations
     {
         let custody = RestorationCustody()
         return Operations(
             checkCurrent: checkCurrent,
-<<<<<<< HEAD
             updateVersion: { candidate, version in
                 try await self.updateManagedVersion(
                     candidate: candidate,
                     version: version,
-=======
-            repairCanonicalUpdate: { receipt in
-                let completed = try await CLIInstaller.repairCanonicalUpdateIfNeeded(
-                    receipt: receipt, checkCurrent: { try checkCurrent() }, statusHandler: statusHandler)
-                try Task.checkCancellation()
-                try checkCurrent()
-                canonicalUpdateCompleted(completed)
-                return completed
-            },
-            updateVersion: { candidate, version, setupRecovery in
-                try await self.updateManagedVersion(
-                    candidate: candidate,
-                    version: version,
-                    setupRecovery: setupRecovery,
->>>>>>> 97b6e87616f
                     resolveLegacyCLI: resolveLegacyCLI,
                     checkCurrent: checkCurrent,
                     statusHandler: statusHandler)
@@ -652,7 +578,6 @@ enum ManagedNodeGatewayMigration {
                         replaceRuntime: true),
                     timeout: self.serviceInstallTimeout,
                     runtime: runtime,
-                    serviceRuntime: runtime,
                     installedCLI: candidate.snapshot == nil ? .init(
                         prefix: runtime.cliCommand,
                         sqliteLibrary: runtime.sqliteLibrary.path,

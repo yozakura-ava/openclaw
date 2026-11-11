@@ -138,11 +138,7 @@ struct BundledRecoveryCompositionTests {
                 recordedAt: Date(),
                 notificationInFlight: true,
                 runtimeBuildID: Bundle.main.infoDictionary?["OpenClawRuntimeBuildID"] as? String)
-<<<<<<< HEAD
             let checkpoint = try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
-=======
-            let checkpoint = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: receipt, owner: .gateway)
->>>>>>> 97b6e87616f
             #expect(!checkpoint.setupRecovery && checkpoint.coreUpdatePending)
             #expect(PostUpdateController.shared.startIfNeeded())
             let window = try await self.updateWindow()

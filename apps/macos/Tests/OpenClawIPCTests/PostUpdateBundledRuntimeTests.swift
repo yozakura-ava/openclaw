@@ -14,41 +14,39 @@ struct PostUpdateBundledRuntimeTests {
         PostAppUpdateReceiptStore.record(fromVersion: "2026.9.1", toVersion: "2026.9.2", defaults: defaults)
         if owner != .complete {
             let newer = try #require(PostAppUpdateReceiptStore.pending(currentVersion: "2026.9.2", defaults: defaults))
-            PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: newer, owner: owner, defaults: defaults)
+            try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(receipt: newer, owner: owner, defaults: defaults)
         }
         let before = defaults.data(forKey: postAppUpdateReceiptKey)
-<<<<<<< HEAD
         let independent = try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
             receipt: stale, owner: .gateway, defaults: defaults)
         #expect(independent.coreUpdate == .gateway)
-=======
-        let dispatched = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
-            receipt: stale, owner: .gateway, defaults: defaults)
-        #expect(dispatched.toVersion == stale.toVersion)
-        #expect(dispatched.coreUpdate == .gateway)
->>>>>>> 97b6e87616f
         #expect(defaults.data(forKey: postAppUpdateReceiptKey) == before)
     }
 
     @Test(arguments: [
-        ("2026.9.2", "2026.9.1"),
-        ("2026.9.0", "2026.9.1"),
-        ("2026.9.1", "2026.9.1-beta.1"),
-        ("2026.9.1-beta.1", "2026.9.1"),
+        ("2026.9.2", "2026.9.1", false),
+        ("2026.9.0", "2026.9.1", true),
+        ("2026.9.1", "2026.9.1-beta.1", false),
+        ("2026.9.1-beta.1", "2026.9.1", true),
     ])
-    func `app launch never adopts recovery from a different target`(
-        _ pendingVersion: String, _ runningVersion: String) throws
+    func `app launch carries core recovery forward without retargeting it backward`(
+        _ pendingVersion: String, _ runningVersion: String, _ advances: Bool) throws
     {
         let suite = "PostUpdateBundledRuntimeTests.launchTarget.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        PostAppUpdateReceiptStore.recordSetupRecovery(
+        try PostAppUpdateReceiptStore.recordSetupRecovery(
             fromVersion: "2026.8.1", toVersion: pendingVersion, defaults: defaults)
         let before = defaults.data(forKey: postAppUpdateReceiptKey)
         let receipt = PostAppUpdateReceiptStore.pendingForLaunch(
             currentVersion: runningVersion, onboardingSeen: true, defaults: defaults)
-        #expect(receipt == nil)
-        #expect(defaults.data(forKey: postAppUpdateReceiptKey) == before)
+        if advances {
+            #expect(receipt?.toVersion == runningVersion)
+            #expect(receipt?.coreUpdate == .gateway)
+        } else {
+            #expect(receipt == nil)
+            #expect(defaults.data(forKey: postAppUpdateReceiptKey) == before)
+        }
     }
 
     @Test(arguments: ["2026.9.0", "2026.9.1", "2026.9.2"])
@@ -56,14 +54,10 @@ struct PostUpdateBundledRuntimeTests {
         let suite = "PostUpdateBundledRuntimeTests.setupTarget.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        PostAppUpdateReceiptStore.recordSetupRecovery(
+        try PostAppUpdateReceiptStore.recordSetupRecovery(
             fromVersion: "2026.8.1", toVersion: pendingVersion, defaults: defaults)
         let before = defaults.data(forKey: postAppUpdateReceiptKey)
-<<<<<<< HEAD
         let local = try PostAppUpdateReceiptStore.recordSetupRecovery(
-=======
-        let local = PostAppUpdateReceiptStore.recordSetupRecovery(
->>>>>>> 97b6e87616f
             fromVersion: "2026.9.1", toVersion: "2026.9.1", defaults: defaults)
         #expect(local.toVersion == "2026.9.1")
         #expect(local.coreUpdate == .gateway)
@@ -82,7 +76,7 @@ struct PostUpdateBundledRuntimeTests {
         let notifying = try #require(PostAppUpdateReceiptStore.pending(
             currentVersion: "2026.9.1", defaults: defaults))
         if operation == "begin-core" {
-            PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
+            try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
                 receipt: notifying, owner: .gateway, defaults: defaults)
         } else if operation == "begin-runtime" {
             PostAppUpdateReceiptStore.recordMigrationFailure(receipt: notifying, defaults: defaults)
@@ -91,18 +85,18 @@ struct PostUpdateBundledRuntimeTests {
                 fromVersion: "2026.9.1", toVersion: "2026.9.2", defaults: defaults)
             let newer = try #require(PostAppUpdateReceiptStore.pending(
                 currentVersion: "2026.9.2", defaults: defaults))
-            PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
+            try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
                 receipt: newer, owner: .gateway, defaults: defaults)
         }
         let stored = defaults.data(forKey: postAppUpdateReceiptKey)
         switch operation {
         case "failure":
             let latest = PostAppUpdateReceiptStore.recordNotificationFailure(receipt: notifying, defaults: defaults)
-            #expect(latest.toVersion == notifying.toVersion)
+            #expect(latest.toVersion == "2026.9.2")
         case "runtime-status":
             let latest = PostAppUpdateReceiptStore.setGatewayUpdateIncomplete(
                 false, receipt: notifying, defaults: defaults)
-            #expect(latest.toVersion == notifying.toVersion)
+            #expect(latest.toVersion == "2026.9.2")
         default:
             let admitted: PostAppUpdateReceipt? = PostAppUpdateReceiptStore.setNotificationInFlight(
                 operation != "reset", receipt: notifying, defaults: defaults)
@@ -117,12 +111,10 @@ struct PostUpdateBundledRuntimeTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         if scenario == "verified-setup" {
-            PostAppUpdateReceiptStore.recordSetupRecovery(
+            try PostAppUpdateReceiptStore.recordSetupRecovery(
                 fromVersion: "2026.8.1", toVersion: "2026.9.1", defaults: defaults)
             PostAppUpdateReceiptStore.completeCoreRepair(
-                receipt: try #require(PostAppUpdateReceiptStore.pending(
-                    currentVersion: "2026.9.1", defaults: defaults)),
-                owner: .gateway, defaults: defaults)
+                currentVersion: "2026.9.1", owner: .gateway, defaults: defaults)
         } else {
             PostAppUpdateReceiptStore.record(
                 fromVersion: "2026.8.1", toVersion: "2026.9.1", defaults: defaults)
@@ -132,7 +124,7 @@ struct PostUpdateBundledRuntimeTests {
         let pending: PostAppUpdateReceipt?
         switch scenario {
         case "core":
-            pending = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
+            pending = try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
                 receipt: verifying, owner: .gateway, defaults: defaults)
         case "runtime":
             pending = PostAppUpdateReceiptStore.recordMigrationFailure(receipt: verifying, defaults: defaults)
@@ -146,15 +138,13 @@ struct PostUpdateBundledRuntimeTests {
         }
         let stored = defaults.data(forKey: postAppUpdateReceiptKey)
         let completion = PostAppUpdateReceiptStore.completeRuntimeVerification(receipt: verifying, defaults: defaults)
-        if pending != nil {
-            #expect(completion.toVersion == verifying.toVersion)
-            #expect(!completion.coreUpdatePending)
-            #expect(!completion.gatewayUpdateIncomplete)
+        if let pending {
+            #expect(completion == .recovery(pending))
             #expect(defaults.data(forKey: postAppUpdateReceiptKey) == stored)
         } else {
             let verified = try #require(PostAppUpdateReceiptStore.pending(
                 currentVersion: "2026.9.1", defaults: defaults))
-            #expect(completion == verified)
+            #expect(completion == .verified(verified))
             #expect(!verified.coreUpdatePending)
             #expect(!verified.gatewayUpdateIncomplete)
         }
@@ -178,7 +168,7 @@ struct PostUpdateBundledRuntimeTests {
         }
         let pending: PostAppUpdateReceipt?
         if scenario.hasPrefix("core-") {
-            pending = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
+            pending = try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
                 receipt: notification, owner: .gateway, defaults: defaults)
         } else if scenario.hasPrefix("runtime-") {
             pending = PostAppUpdateReceiptStore.recordMigrationFailure(receipt: notification, defaults: defaults)
@@ -194,8 +184,8 @@ struct PostUpdateBundledRuntimeTests {
         let completion = PostAppUpdateReceiptStore.finishNotification(
             receipt: notification, retry: scenario == "retry" || scenario.hasSuffix("exhausted"),
             defaults: defaults)
-        if pending != nil {
-            #expect(completion == .complete)
+        if let pending {
+            #expect(completion == .recovery(pending))
             #expect(defaults.data(forKey: postAppUpdateReceiptKey) == stored)
         } else if scenario == "retry" {
             let retried = try #require(PostAppUpdateReceiptStore.pending(
@@ -226,7 +216,7 @@ struct PostUpdateBundledRuntimeTests {
             notice = PostAppUpdateReceiptStore.recordNotificationFailure(receipt: notice, defaults: defaults)
             PostAppUpdateReceiptStore.setNotificationInFlight(true, receipt: notice, defaults: defaults)
         }
-        PostAppUpdateReceiptStore.recordSetupRecovery(
+        try PostAppUpdateReceiptStore.recordSetupRecovery(
             fromVersion: "2026.8.1", toVersion: "2026.9.1", runtimeBuildID: "build-one",
             defaults: defaults, now: recordedAt)
         let interrupted = try #require(PostAppUpdateReceiptStore.pendingForLaunch(
@@ -238,10 +228,8 @@ struct PostUpdateBundledRuntimeTests {
             receipt: interrupted, runtimeVerification: .verified, migrationOnlyLaunchCheck: false) == .waitForRuntime)
         #expect(interrupted.setupRecovery == !ordinaryNotice)
 
-        let completed = PostAppUpdateReceiptStore.completeCoreRepair(
-            receipt: try #require(PostAppUpdateReceiptStore.pending(
-                currentVersion: "2026.9.1", defaults: defaults)),
-            owner: .gateway, defaults: defaults)
+        let completed = try #require(PostAppUpdateReceiptStore.completeCoreRepair(
+            currentVersion: "2026.9.1", owner: .gateway, defaults: defaults))
         #expect(completed.fromVersion == "2026.8.1")
         #expect(completed.toVersion == "2026.9.1")
         #expect(completed.recordedAt == recordedAt)
@@ -251,7 +239,7 @@ struct PostUpdateBundledRuntimeTests {
         #expect(completed.setupRecovery == !ordinaryNotice)
         #expect(completed.gatewayUpdateIncomplete == ordinaryNotice)
         #expect(!completed.coreUpdatePending)
-        #expect(PostAppUpdateReceiptStore.pendingSetupRecovery(currentVersion: "2026.9.1", defaults: defaults) == nil)
+        #expect(PostAppUpdateReceiptStore.pendingSetupRecovery(defaults: defaults) == nil)
         #expect(PostUpdateController.notificationContinuation(
             receipt: completed, runtimeVerification: .deferred, migrationOnlyLaunchCheck: false) == .waitForRuntime)
 
@@ -263,7 +251,8 @@ struct PostUpdateBundledRuntimeTests {
         #expect(!relaunched.coreUpdatePending)
         #expect(relaunched.hasPendingRuntimeMigration)
         #expect(PostUpdateController.coreRepairAction(
-            receipt: relaunched, migrationFailed: false, explicitRetry: true) == .none)
+            receipt: relaunched, migrationNeedsCoreRepair: false,
+            migrationFailed: false, explicitRetry: true) == .none)
         let named = AppProfile(environment: ["OPENCLAW_PROFILE": "rollback-fixture"])
         #expect(PostUpdateController.shouldOfferRuntimeMigrationRetry(
             profile: named, receipt: relaunched, serviceInstalled: true, retainedManagedNode: true))
@@ -290,11 +279,11 @@ struct PostUpdateBundledRuntimeTests {
             #expect(next.hasPendingRuntimeMigration)
             #expect(!next.coreUpdatePending)
         default:
-            let stored = defaults.data(forKey: postAppUpdateReceiptKey)
-            #expect(PostAppUpdateReceiptStore.pendingForLaunch(
+            let next = try #require(PostAppUpdateReceiptStore.pendingForLaunch(
                 currentVersion: "2026.9.2", currentRuntimeBuildID: "build-two", onboardingSeen: true,
-                defaults: defaults) == nil)
-            #expect(defaults.data(forKey: postAppUpdateReceiptKey) == stored)
+                defaults: defaults))
+            #expect(next.hasPendingRuntimeMigration)
+            #expect(!next.coreUpdatePending)
         }
     }
 
@@ -311,64 +300,45 @@ struct PostUpdateBundledRuntimeTests {
         #expect(PostUpdateController.launchReceipt(
             pending: receipt, profile: named, bundledApp: true, onboardingSeen: true, appVersion: "2026.9.1") ==
             receipt)
-        #expect(PostUpdateController.launchReceipt(
-            pending: receipt, profile: AppProfile(environment: [:]), bundledApp: false,
-            onboardingSeen: true, appVersion: "2026.9.1", allowsUpdateWorkflow: false) == nil)
-    }
-
-    @Test(arguments: [false, true], [false, true])
-    func `receipt free bundled reconciliation prepares only a runtime not already verified`(
-        runtimeVerified: Bool, reconciliationOnly: Bool) async
-    {
-        let resolution = await PostUpdateController.resolveGatewayAction(
-            context: PostUpdateRuntimeContext(
-                bundledApp: true, usesSeededGateway: true, hasService: false,
-                installedCLI: nil, ownsManagedRuntime: false, localCompanionVerified: runtimeVerified),
-            receipt: PostAppUpdateReceipt(
-                fromVersion: "2026.9.1", toVersion: "2026.9.1", recordedAt: .distantPast),
-            reconciliationOnly: reconciliationOnly)
-        {
-            Issue.record("Bundled reconciliation must not probe a legacy package")
-            return .missing(location: "/fixture/openclaw")
-        }
-        #expect(resolution.action == (runtimeVerified && reconciliationOnly ? .none : .prepareBundledRuntime))
     }
 
     @Test func `fresh core update failure stops while deferred repair and explicit retry can proceed`() throws {
         let suite = "PostUpdateBundledRuntimeTests.coreRetry.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let ordinary = PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
+        let ordinary = try PostAppUpdateReceiptStore.recordCoreUpdateDispatch(
             receipt: PostAppUpdateReceipt(
                 fromVersion: "2026.8.1", toVersion: "2026.9.1", recordedAt: .distantPast),
             owner: .gateway, defaults: defaults)
         #expect(PostUpdateController.coreRepairAction(
-            receipt: ordinary, migrationFailed: true, explicitRetry: false) == .reportFailure)
+            receipt: ordinary, migrationNeedsCoreRepair: false,
+            migrationFailed: true, explicitRetry: false) == .reportFailure)
         #expect(PostUpdateController.coreRepairAction(
-            receipt: ordinary, migrationFailed: false, explicitRetry: false) == .repair)
+            receipt: ordinary, migrationNeedsCoreRepair: true,
+            migrationFailed: true, explicitRetry: false) == .repair)
         #expect(PostUpdateController.coreRepairAction(
-            receipt: ordinary, migrationFailed: true, explicitRetry: true) == .repair)
-        let completed = PostAppUpdateReceiptStore.completeCoreRepair(
-            receipt: try #require(PostAppUpdateReceiptStore.pending(
-                currentVersion: ordinary.toVersion, defaults: defaults)),
-            owner: .gateway, defaults: defaults)
+            receipt: ordinary, migrationNeedsCoreRepair: false,
+            migrationFailed: true, explicitRetry: true) == .repair)
+        let completed = try #require(PostAppUpdateReceiptStore.completeCoreRepair(
+            currentVersion: ordinary.toVersion, owner: .gateway, defaults: defaults))
         let runtimeFailure = PostAppUpdateReceiptStore.recordMigrationFailure(receipt: completed, defaults: defaults)
         #expect(PostUpdateController.coreRepairAction(
-            receipt: runtimeFailure, migrationFailed: true, explicitRetry: true) == .none)
+            receipt: runtimeFailure, migrationNeedsCoreRepair: false,
+            migrationFailed: true, explicitRetry: true) == .none)
     }
 
     @Test func `setup recovery survives relaunches and target changes without welcome notifications`() throws {
         let suite = "PostUpdateBundledRuntimeTests.setup.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        PostAppUpdateReceiptStore.recordSetupRecovery(
+        try PostAppUpdateReceiptStore.recordSetupRecovery(
             fromVersion: "2026.8.1", toVersion: "2026.9.1", runtimeBuildID: "build-a", defaults: defaults)
         #expect(PostAppUpdateReceiptStore.pendingForLaunch(
             currentVersion: "2026.9.1",
             currentRuntimeBuildID: "build-b",
             onboardingSeen: false,
             defaults: defaults) == nil)
-        let preserved = try #require(PostAppUpdateReceiptStore.pendingSetupRecovery(currentVersion: "2026.9.1", defaults: defaults))
+        let preserved = try #require(PostAppUpdateReceiptStore.pendingSetupRecovery(defaults: defaults))
         #expect(preserved.gatewayUpdateIncomplete)
         #expect(preserved.coreUpdatePending)
         #expect(preserved.setupRecovery)
@@ -394,10 +364,8 @@ struct PostUpdateBundledRuntimeTests {
             false, receipt: retargeted, defaults: defaults)
         PostAppUpdateReceiptStore.completeSetupRecovery(currentVersion: "2026.9.2", defaults: defaults)
         #expect(PostAppUpdateReceiptStore.pending(currentVersion: "2026.9.2", defaults: defaults) == runtimeOnly)
-        let verified = PostAppUpdateReceiptStore.completeCoreRepair(
-            receipt: try #require(PostAppUpdateReceiptStore.pending(
-                currentVersion: "2026.9.2", defaults: defaults)),
-            owner: .gateway, defaults: defaults)
+        let verified = try #require(PostAppUpdateReceiptStore.completeCoreRepair(
+            currentVersion: "2026.9.2", owner: .gateway, defaults: defaults))
         #expect(verified.setupRecovery)
         #expect(!verified.coreUpdatePending)
         PostAppUpdateReceiptStore.completeSetupRecovery(currentVersion: "2026.9.2", defaults: defaults)
@@ -409,7 +377,7 @@ struct PostUpdateBundledRuntimeTests {
             defaults: defaults) == nil)
 
         PostAppUpdateReceiptStore.record(fromVersion: "2026.9.2", toVersion: "2026.9.3", defaults: defaults)
-        PostAppUpdateReceiptStore.recordSetupRecovery(
+        try PostAppUpdateReceiptStore.recordSetupRecovery(
             fromVersion: "2026.9.2", toVersion: "2026.9.3", defaults: defaults)
         PostAppUpdateReceiptStore.completeSetupRecovery(currentVersion: "2026.9.3", defaults: defaults)
         let appUpdate = try #require(PostAppUpdateReceiptStore.pending(currentVersion: "2026.9.3", defaults: defaults))
@@ -675,7 +643,7 @@ struct PostUpdateBundledRuntimeTests {
             return .missing(location: "/fixture/openclaw")
         }
         #expect(!probedAbsentService)
-        #expect(companionOnly.action == .none)
+        #expect(companionOnly.action == .ownershipFailure)
         #expect(!companionOnly.needsManagedVerification)
         #expect(companionOnly.prepareLocalCompanion == (hasCompanion && !companionVerified))
     }
@@ -704,22 +672,17 @@ struct PostUpdateBundledRuntimeTests {
         }
     }
 
-    @Test func `notification recovery waits for current runtime verification and preserves send deduplication`() {
-        for inFlight in [false, true] {
-            let receipt = PostAppUpdateReceipt(
-                fromVersion: "2026.8.1",
-                toVersion: "2026.9.1",
-                recordedAt: .distantPast,
-                notificationAttempts: 1,
-                notificationInFlight: inFlight)
-            for verification in [PostUpdateRuntimeVerification.deferred, .verified, .failed] {
-                let expected: PostUpdateNotificationContinuation = verification == .verified
-                    ? (inFlight ? .deliveryUnconfirmed : .notify) : .waitForRuntime
-                #expect(PostUpdateController.notificationContinuation(
-                    receipt: receipt,
-                    runtimeVerification: verification,
-                    migrationOnlyLaunchCheck: false) == expected)
-            }
+    @Test func `completed migration preserves notification receipts and synthetic launches remain silent`() {
+        let receipt = PostAppUpdateReceipt(
+            fromVersion: "2026.8.1",
+            toVersion: "2026.9.1",
+            recordedAt: .distantPast,
+            notificationAttempts: 1)
+        for verification in [PostUpdateRuntimeVerification.deferred, .verified, .failed] {
+            #expect(PostUpdateController.notificationContinuation(
+                receipt: receipt,
+                runtimeVerification: verification,
+                migrationOnlyLaunchCheck: false) == (verification == .failed ? .waitForRuntime : .notify))
         }
         for inFlight in [false, true] {
             let pendingRuntime = PostAppUpdateReceipt(
@@ -741,5 +704,32 @@ struct PostUpdateBundledRuntimeTests {
                 runtimeVerification: .verified,
                 migrationOnlyLaunchCheck: true) == .completeSilently)
         }
+    }
+
+    @Test func `paused retries and unfinished setup repair stay with the core updater`() {
+        let setup = PostAppUpdateReceipt(
+            fromVersion: "2026.8.1",
+            toVersion: "2026.9.1",
+            recordedAt: .distantPast,
+            gatewayUpdateIncomplete: true,
+            coreUpdate: .gateway,
+            setupRecovery: true)
+        let migration = PostAppUpdateReceipt(
+            fromVersion: "2026.8.1",
+            toVersion: "2026.9.1",
+            recordedAt: .distantPast,
+            gatewayUpdateIncomplete: true)
+        for paused in [false, true] {
+            #expect(!PostUpdateController.allowsNodeMigration(paused: paused, canActivate: true, receipt: setup))
+            #expect(PostUpdateController
+                .allowsNodeMigration(paused: paused, canActivate: true, receipt: migration) == !paused)
+            #expect(PostUpdateController
+                .allowsNodeMigration(paused: paused, canActivate: true, receipt: nil) == !paused)
+        }
+        // A remote primary without a local companion is unpaused but has no local activation intent.
+        #expect(!PostUpdateController.allowsNodeMigration(paused: false, canActivate: false, receipt: migration))
+        #expect(!PostUpdateController.allowsNodeMigration(paused: false, canActivate: false, receipt: nil))
+        #expect(PostUpdateController.notificationContinuation(
+            receipt: setup, runtimeVerification: .deferred, migrationOnlyLaunchCheck: false) == .waitForRuntime)
     }
 }
