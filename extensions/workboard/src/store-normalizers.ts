@@ -4,6 +4,7 @@ import {
   WORKBOARD_ATTEMPT_STATUSES,
   WORKBOARD_DIAGNOSTIC_KINDS,
   WORKBOARD_DIAGNOSTIC_SEVERITIES,
+  WORKBOARD_EVENT_KINDS,
   WORKBOARD_EXECUTION_MODES,
   WORKBOARD_EXECUTION_STATUSES,
   WORKBOARD_LINK_TYPES,
@@ -20,6 +21,7 @@ import {
   type WorkboardDiagnostic,
   type WorkboardDiagnosticAction,
   type WorkboardDiagnosticKind,
+  type WorkboardEvent,
   type WorkboardExecution,
   type WorkboardLink,
   type WorkboardLinkType,
@@ -47,7 +49,7 @@ import {
   normalizeOptionalString,
 } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { truncateUtf16Safe } from "openclaw/plugin-sdk/text-utility-runtime";
-import { definedFields } from "../record-fields.js";
+import { normalizeActor } from "./actor-attribution.js";
 import {
   MAX_ATTACHMENT_BYTES,
   MAX_CARD_ARTIFACTS,
@@ -55,6 +57,7 @@ import {
   MAX_CARD_ATTEMPTS,
   MAX_CARD_COMMENTS,
   MAX_CARD_DIAGNOSTICS,
+  MAX_CARD_EVENTS,
   MAX_CARD_LINKS,
   MAX_CARD_METADATA_BYTES,
   MAX_CARD_NOTIFICATIONS,
@@ -122,17 +125,17 @@ export function normalizeNotificationSubscription(
     throw new Error("notification subscription needs cardId, sessionKey, runId, or target.");
   }
   const eventKinds = normalizeNotificationKinds(input.eventKinds);
-  return definedFields({
+  return {
     id: randomUUID(),
     boardId,
-    cardId,
-    sessionKey,
-    runId,
-    target,
-    eventKinds,
+    ...(cardId ? { cardId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+    ...(target ? { target } : {}),
+    ...(eventKinds ? { eventKinds } : {}),
     createdAt: now,
     updatedAt: now,
-  });
+  };
 }
 
 export function normalizeTitle(value: unknown): string {
@@ -269,19 +272,19 @@ export function normalizeWorkspace(
     160,
     "workspace source branch",
   );
-  return definedFields({
+  return {
     kind,
-    path: workspacePath || undefined,
-    branch: branch || undefined,
-    sourcePath: kind === "worktree" ? sourcePath || undefined : undefined,
-    sourceBranch: kind === "worktree" ? sourceBranch || undefined : undefined,
-  });
+    ...(workspacePath ? { path: workspacePath } : {}),
+    ...(branch ? { branch } : {}),
+    ...(kind === "worktree" && sourcePath ? { sourcePath } : {}),
+    ...(kind === "worktree" && sourceBranch ? { sourceBranch } : {}),
+  };
 }
 
 export function normalizeAutomation(
   value: unknown,
   fallback: WorkboardAutomation = {},
-  options: { launch?: WorkboardLaunchState } = {},
+  options: { allowLaunchState?: boolean } = {},
 ): WorkboardAutomation | undefined {
   const record = isRecord(value) ? value : {};
   const tenant = normalizeBoundedString(record.tenant, fallback.tenant, 80, "tenant");
@@ -357,7 +360,7 @@ export function normalizeAutomation(
   };
   // Legacy imports can retain empty workspace or authority objects.
   for (const [key, entry] of Object.entries(next)) {
-    if (!entry || (typeof entry === "object" && Object.keys(entry).length === 0)) {
+    if (entry !== null && typeof entry === "object" && Object.keys(entry).length === 0) {
       Reflect.deleteProperty(next, key);
     }
   }
@@ -390,13 +393,13 @@ export function normalizeLaunchState(value: unknown): WorkboardLaunchState | und
     const acceptedRunId = normalizeRunId(value.acceptedRunId);
     return acceptedAt === undefined || !acceptedSessionKey
       ? undefined
-      : definedFields<WorkboardLaunchState>({
+      : {
           phase: "accepted",
           ...identity,
           acceptedAt,
           acceptedSessionKey,
-          acceptedRunId,
-        });
+          ...(acceptedRunId ? { acceptedRunId } : {}),
+        };
   }
   if (value.phase === "failed") {
     const failedAt = normalizeLaunchTimestamp(value.failedAt);
@@ -446,42 +449,80 @@ export function normalizeTimestamp(value: unknown, fallback: number): number {
   return resolveOptionalIntegerOption(value, { min: 0 }) ?? fallback;
 }
 
+function normalizeEvent(record: Record<string, unknown>): WorkboardEvent | null {
+  const id = normalizeOptionalString(record.id);
+  const kind = normalizeEnumValue(record.kind, WORKBOARD_EVENT_KINDS, undefined);
+  const at = normalizeTimestamp(record.at, 0);
+  if (!id || !kind || !at) {
+    return null;
+  }
+  const fromStatus = normalizeEnumValue(record.fromStatus, WORKBOARD_STATUSES, undefined);
+  const toStatus = normalizeEnumValue(record.toStatus, WORKBOARD_STATUSES, undefined);
+  const sessionKey = normalizeOptionalString(record.sessionKey);
+  // Historical events retain identities admitted before the run-ID limit.
+  const runId = normalizeOptionalString(record.runId);
+  return {
+    id,
+    kind,
+    at,
+    ...(fromStatus ? { fromStatus } : {}),
+    ...(toStatus ? { toStatus } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+  };
+}
+
+export function normalizeEvents(value: unknown): WorkboardEvent[] {
+  return normalizeList(value, normalizeEvent, MAX_CARD_EVENTS) ?? [];
+}
+
 function normalizeAttempt(record: Record<string, unknown>): WorkboardRunAttempt | null {
   const id = normalizeOptionalString(record.id);
   const startedAt = normalizeTimestamp(record.startedAt, 0);
   if (!id || !startedAt) {
     return null;
   }
+  const endedAt = normalizeTimestamp(record.endedAt, 0);
+  const sessionKey = normalizeOptionalString(record.sessionKey);
+  const runId = normalizeOptionalString(record.runId);
   const error = normalizeBoundedString(record.error, undefined, 800, "attempt error");
   const engine = normalizeBoundedString(record.engine, undefined, 160, "attempt engine");
   const model = normalizeBoundedString(record.model, undefined, 160, "attempt model");
-  return definedFields({
+  const mode = normalizeEnumValue(record.mode, WORKBOARD_EXECUTION_MODES, undefined);
+  return {
     id,
     status: normalizeEnumValue(record.status, WORKBOARD_ATTEMPT_STATUSES, "running"),
     startedAt,
-    endedAt: normalizeTimestamp(record.endedAt, 0) || undefined,
-    engine,
-    mode: normalizeEnumValue(record.mode, WORKBOARD_EXECUTION_MODES, undefined),
-    model,
-    sessionKey: normalizeOptionalString(record.sessionKey),
-    runId: normalizeOptionalString(record.runId),
-    error,
-  });
+    ...(endedAt ? { endedAt } : {}),
+    ...(engine ? { engine } : {}),
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+    ...(error ? { error } : {}),
+  };
 }
 
 function normalizeComment(record: Record<string, unknown>): WorkboardComment | null {
   const id = normalizeOptionalString(record.id);
-  const body = normalizeBoundedString(record.body, undefined, 2000, "comment body");
+  const body = normalizeBoundedString(
+    record.body,
+    undefined,
+    MAX_COMMENT_BODY_LENGTH,
+    "comment body",
+  );
   const createdAt = normalizeTimestamp(record.createdAt, 0);
   if (!id || !body || !createdAt) {
     return null;
   }
-  return definedFields({
+  const updatedAt = normalizeTimestamp(record.updatedAt, 0);
+  return {
     id,
     body,
     createdAt,
-    updatedAt: normalizeTimestamp(record.updatedAt, 0) || undefined,
-  });
+    ...(updatedAt ? { updatedAt } : {}),
+    ...normalizeActor({ actorId: record.actorId, actorKind: record.actorKind }),
+  };
 }
 
 function normalizeLink(record: unknown): WorkboardLink | null {
@@ -499,14 +540,14 @@ function normalizeLink(record: unknown): WorkboardLink | null {
   if (!targetCardId && !url) {
     return null;
   }
-  return definedFields({
+  return {
     id,
     type: normalizeLinkType(record.type, "relates_to"),
     createdAt,
-    targetCardId,
-    title,
-    url,
-  });
+    ...(targetCardId ? { targetCardId } : {}),
+    ...(title ? { title } : {}),
+    ...(url ? { url } : {}),
+  };
 }
 
 function isDependencyLink(link: WorkboardLink): boolean {
@@ -535,14 +576,14 @@ export function normalizeArtifact(record: unknown): WorkboardArtifact | null {
   if (!url && !artifactPath) {
     return null;
   }
-  return definedFields({
+  return {
     id,
     createdAt,
-    label,
-    url,
-    path: artifactPath,
-    mimeType,
-  });
+    ...(label ? { label } : {}),
+    ...(url ? { url } : {}),
+    ...(artifactPath ? { path: artifactPath } : {}),
+    ...(mimeType ? { mimeType } : {}),
+  };
 }
 
 function normalizeAttachment(record: Record<string, unknown>): WorkboardAttachment | null {
@@ -556,15 +597,15 @@ function normalizeAttachment(record: Record<string, unknown>): WorkboardAttachme
   }
   const mimeType = normalizeBoundedString(record.mimeType, undefined, 160, "attachment MIME type");
   const note = normalizeBoundedString(record.note, undefined, 400, "attachment note");
-  return definedFields({
+  return {
     id,
     cardId,
     createdAt,
     fileName,
     byteSize,
-    mimeType,
-    note,
-  });
+    ...(mimeType ? { mimeType } : {}),
+    ...(note ? { note } : {}),
+  };
 }
 
 function normalizeWorkerLog(record: Record<string, unknown>): WorkboardWorkerLog | null {
@@ -589,14 +630,14 @@ export function workerLogEntry(
       : "info";
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
   const runId = normalizeRunId(record.runId);
-  return definedFields({
+  return {
     id: id ?? randomUUID(),
     level,
     message,
     createdAt,
-    sessionKey,
-    runId,
-  });
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+  };
 }
 
 function normalizeWorkerProtocol(
@@ -616,11 +657,11 @@ function normalizeWorkerProtocol(
   }
   const updatedAt = normalizeTimestamp(record.updatedAt, fallback?.updatedAt ?? Date.now());
   const detail = normalizeBoundedString(record.detail, fallback?.detail, 800, "protocol detail");
-  return definedFields({
+  return {
     state,
     updatedAt,
-    detail: detail || undefined,
-  });
+    ...(detail ? { detail } : {}),
+  };
 }
 
 export function normalizeAttachmentInput(
@@ -656,15 +697,15 @@ export function normalizeAttachmentInput(
   }
   const mimeType = normalizeBoundedString(input.mimeType, undefined, 160, "attachment MIME type");
   const note = normalizeBoundedString(input.note, undefined, 400, "attachment note");
-  const attachment: WorkboardAttachment = definedFields({
+  const attachment: WorkboardAttachment = {
     id: randomUUID(),
     cardId,
     createdAt: now,
     fileName,
     byteSize,
-    mimeType,
-    note,
-  });
+    ...(mimeType ? { mimeType } : {}),
+    ...(note ? { note } : {}),
+  };
   return { attachment, contentBase64 };
 }
 
@@ -680,16 +721,23 @@ function normalizeClaim(record: unknown, fallback?: WorkboardClaim): WorkboardCl
     fallback?.lastHeartbeatAt ?? claimedAt,
   );
   const expiresAt = normalizeTimestamp(record.expiresAt, fallback?.expiresAt ?? 0);
+  const sessionId = normalizeBoundedString(
+    record.sessionId,
+    fallback?.sessionId,
+    160,
+    "claim session",
+  );
   if (!ownerId || !token || !claimedAt || !lastHeartbeatAt) {
     return undefined;
   }
-  return definedFields({
+  return {
     ownerId,
     token,
     claimedAt,
     lastHeartbeatAt,
-    expiresAt: expiresAt || undefined,
-  });
+    ...(expiresAt ? { expiresAt } : {}),
+    ...(sessionId ? { sessionId } : {}),
+  };
 }
 
 function normalizeDiagnosticAction(record: unknown): WorkboardDiagnosticAction | null {
@@ -746,15 +794,15 @@ function normalizeNotification(record: Record<string, unknown>): WorkboardNotifi
   }
   const sessionKey = normalizeBoundedString(record.sessionKey, undefined, 240, "session key");
   const runId = normalizeRunId(record.runId);
-  return definedFields({
+  return {
     id,
     kind,
     createdAt,
-    sequence,
+    ...(sequence ? { sequence } : {}),
     message,
-    sessionKey,
-    runId,
-  });
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+  };
 }
 
 export function normalizeProofInput(
@@ -766,15 +814,16 @@ export function normalizeProofInput(
   const command = normalizeBoundedString(input.command, undefined, 1000, "proof command");
   const url = normalizeBoundedString(input.url, undefined, 2000, "proof URL");
   const note = normalizeBoundedString(input.note, undefined, 2000, "proof note");
-  return definedFields({
+  return {
     id: id ?? randomUUID(),
     status: normalizeEnumValue(input.status, WORKBOARD_PROOF_STATUSES, "unknown"),
     createdAt: now,
-    label,
-    command,
-    url,
-    note,
-  });
+    ...(label ? { label } : {}),
+    ...(command ? { command } : {}),
+    ...(url ? { url } : {}),
+    ...(note ? { note } : {}),
+    ...normalizeActor(input),
+  };
 }
 
 function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): boolean {
@@ -838,15 +887,15 @@ export function normalizeMetadata(
   options: {
     allowDependencyLinks?: boolean;
     allowArchivedAt?: boolean;
-    automationLaunch?: WorkboardLaunchState;
+    allowAutomationLaunch?: boolean;
     preserveProofId?: string;
     preserveNotificationId?: string;
   } = {},
 ): WorkboardMetadata {
-  if (!isRecord(value) && !options.automationLaunch) {
+  if (!isRecord(value)) {
     return trimMetadataToBudget(fallback, options);
   }
-  const record = isRecord(value) ? value : {};
+  const record = value;
   const stale = isRecord(record.stale) ? record.stale : null;
   // Archival is a transition owned by archive(), which appends the matching
   // `archived` event. Callers that cannot produce that event (create) must not
@@ -912,7 +961,7 @@ export function normalizeMetadata(
     automation: normalizeAutomation(
       Object.hasOwn(record, "automation") ? record.automation : {},
       fallback.automation,
-      { launch: options.automationLaunch },
+      { allowLaunchState: options.allowAutomationLaunch },
     ),
     claim: Object.hasOwn(record, "claim")
       ? record.claim
@@ -972,18 +1021,18 @@ export function normalizeExecution(record: unknown): WorkboardExecution | undefi
   const id = normalizedId ?? randomUUID();
   const startedAt = normalizeTimestamp(record.startedAt, now);
   const updatedAt = normalizeTimestamp(record.updatedAt, startedAt);
-  return definedFields<WorkboardExecution>({
+  return {
     id,
     kind: "agent-session",
     mode: normalizeEnumValue(record.mode, WORKBOARD_EXECUTION_MODES, "autonomous"),
     status: normalizeEnumValue(record.status, WORKBOARD_EXECUTION_STATUSES, "idle"),
     startedAt,
     updatedAt,
-    engine,
-    model,
-    sessionKey,
-    runId,
-  });
+    ...(engine ? { engine } : {}),
+    ...(model ? { model } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+    ...(runId ? { runId } : {}),
+  };
 }
 
 export function syncExecutionSessionKey(
@@ -993,18 +1042,47 @@ export function syncExecutionSessionKey(
   if (!execution) {
     return undefined;
   }
-  return definedFields({
+  const next = {
     ...execution,
     sessionKey,
     updatedAt: Date.now(),
-  });
+  };
+  for (const key of ["engine", "model", "sessionKey", "runId"] as const) {
+    if (next[key] === undefined) {
+      delete next[key];
+    }
+  }
+  return next;
 }
 
 export function removeUndefinedMetadataFields(metadata: WorkboardMetadata): WorkboardMetadata {
-  const next = definedFields({ ...metadata });
-  for (const [key, value] of Object.entries(next)) {
-    if ((Array.isArray(value) && value.length === 0) || (key === "failureCount" && value === 0)) {
-      Reflect.deleteProperty(next, key);
+  const next = { ...metadata };
+  for (const key of [
+    "attempts",
+    "comments",
+    "links",
+    "proof",
+    "artifacts",
+    "attachments",
+    "workerLogs",
+    "workerProtocol",
+    "automation",
+    "claim",
+    "diagnostics",
+    "notifications",
+    "templateId",
+    "archivedAt",
+    "stale",
+    "lifecycleStatusSourceUpdatedAt",
+    "failureCount",
+  ] as const) {
+    const value = next[key];
+    if (
+      value === undefined ||
+      (Array.isArray(value) && value.length === 0) ||
+      (typeof value === "number" && value === 0 && key === "failureCount")
+    ) {
+      delete next[key];
     }
   }
   return next;
@@ -1054,6 +1132,7 @@ export function trimMetadataToBudget(
   while (metadataByteSize(next) > MAX_CARD_METADATA_BYTES) {
     const currentSize = metadataByteSize(next);
     for (const key of [
+      "comments",
       "attempts",
       "diagnostics",
       "notifications",
@@ -1062,7 +1141,6 @@ export function trimMetadataToBudget(
       "attachments",
       "workerLogs",
       "links",
-      "comments",
     ] as const) {
       const entries = next[key];
       if (!entries?.length) {
