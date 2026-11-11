@@ -229,3 +229,23 @@ All cleanup PRs merged (merge commits, no squash, no direct main pushes):
 Closing state: `fork/carried` @ `02f2c70b8144` carries the full series (38-commit baseline + trim, fork-sync tooling, receipt + disposition updates); parity vs `main` = this sprint-close section + the runbook sync line pending PR #309 — measured 22 insertions / 2,787 added bytes (4,842 raw diff) — returning to 0 bytes at merge. Worktrees: 4 (primary on main, detached workshop-consumer, `openclaw-2026.10.6-source` on the scheduled branch, `fork-carried-build` on fork/carried). Local branches: 21; origin heads: 59.
 
 Owner follow-ups: (1) disposition of the 11 kept diverged origin tips (10 Tier 3 + `upstream-hb-gate` — the heavyweight at 4148 unique / 4121 uncovered); (2) org-level `NPM_NPMJS_TOKEN` check (repo/environment scope verified empty); (3) scheduled prune of `openclaw-2026.10.6-session-startup-worker-20261022` on 2026-11-02 ~11:30 EDT unless used; (4) merge of PR #309 (this content — supersedes the closed #308) and review of #305 (github-actions dependabot bump — the trimmed ecosystem working as designed).
+
+## Scheduled prune executed — 2026-11-02 (~11:30 EDT, cron tier3-72h-prune)
+
+The single scheduled Tier 3 branch from the 2026-10-30 owner directive (72h tip-age rule) was deleted after a full used-check — **all negative**:
+
+| used-check              | result                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tip unmoved             | `812be2c87a027be9d2365acd66939b03a57b91cb` (2026-10-28T05:12:56+00:00), re-verified immediately before deletion                                             |
+| merged into main        | no — 2 unique commits; main live at execution: `df47a5cd91b` local / `49f62a2d144` origin tip (ahead by the PR #315 merge, `df47a5cd91b` its direct parent) |
+| open PR referencing     | none — open set at execution: #310–#317                                                                                                                     |
+| origin counterpart ref  | absent — `git ls-remote` empty pre- and post-deletion                                                                                                       |
+| workboard/session claim | none — workboard DB strings count = 0 (Ava verified 11:30 EDT 2026-11-02)                                                                                   |
+
+| branch                                               | full tip SHA                               | outcome                                                                  |
+| ---------------------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------ |
+| `openclaw-2026.10.6-session-startup-worker-20261022` | `812be2c87a027be9d2365acd66939b03a57b91cb` | local + worktree deleted; origin ref absent (nothing to delete remotely) |
+
+Dirty worktree content was re-exported **before** removal (never stashed): untracked `data/` (19,408 bytes, 6 files; source == dest by `du -sb`) copied to `/root/.openclaw/backups/canonical-worktree-patches-20261102/openclaw-2026.10.6-source/`, plus `tracked-vs-HEAD.patch` (0 bytes — dirty state was untracked-only). The deletion is recorded as one appended JSONL line (line 72, `result: DELETED`, `full_sha 812be2c87a…`) in `/root/.openclaw/backups/canonical-worktree-patches-20261030/tier2/deletion-log.jsonl`. Counts: local branches 32 → 31; worktrees 14 → 13.
+
+The 11 kept diverged origin tips remain held for owner disposition, unchanged by this run.
