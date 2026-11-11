@@ -60,6 +60,8 @@ import {
   MAX_CARD_NOTIFICATIONS,
   MAX_CARD_PROOF,
   MAX_CARD_WORKER_LOGS,
+  MAX_COMMENT_BODY_LENGTH,
+  MAX_NOTES_LENGTH,
   MAX_RUN_ID_LENGTH,
 } from "./store-constants.js";
 import type {
@@ -149,8 +151,8 @@ export function normalizeNotes(value: unknown): string | undefined {
   if (!notes) {
     return undefined;
   }
-  if (notes.length > 4000) {
-    throw new Error("notes must be 4000 characters or fewer.");
+  if (notes.length > MAX_NOTES_LENGTH) {
+    throw new Error(`notes must be ${MAX_NOTES_LENGTH} characters or fewer.`);
   }
   return notes;
 }
@@ -282,45 +284,76 @@ export function normalizeAutomation(
   options: { launch?: WorkboardLaunchState } = {},
 ): WorkboardAutomation | undefined {
   const record = isRecord(value) ? value : {};
-  const timestamp = (key: "scheduledAt" | "dispatchCount" | "lastDispatchAt") =>
-    Object.hasOwn(record, key) ? normalizeTimestamp(record[key], 0) : fallback[key];
-  const strings = (key: "skills" | "createdCardIds", name: string, limit = 80) =>
-    Object.hasOwn(record, key) ? normalizeStringList(record[key], name, limit) : fallback[key];
+  const tenant = normalizeBoundedString(record.tenant, fallback.tenant, 80, "tenant");
+  const boardId = Object.hasOwn(record, "boardId")
+    ? normalizeBoardId(record.boardId, fallback.boardId)
+    : fallback.boardId;
+  const createdByCardId = normalizeBoundedString(
+    record.createdByCardId,
+    fallback.createdByCardId,
+    120,
+    "created by card id",
+  );
+  const idempotencyKey = normalizeBoundedString(
+    record.idempotencyKey,
+    fallback.idempotencyKey,
+    160,
+    "idempotency key",
+  );
+  const summary = normalizeBoundedString(record.summary, fallback.summary, 2000, "summary");
+  const skills = Object.hasOwn(record, "skills")
+    ? normalizeStringList(record.skills, "skills")
+    : fallback.skills;
+  const createdCardIds = Object.hasOwn(record, "createdCardIds")
+    ? normalizeStringList(record.createdCardIds, "created card ids", 120)
+    : fallback.createdCardIds;
+  const scheduledAt = Object.hasOwn(record, "scheduledAt")
+    ? normalizeTimestamp(record.scheduledAt, 0) || undefined
+    : fallback.scheduledAt;
+  const maxRuntimeSeconds = Object.hasOwn(record, "maxRuntimeSeconds")
+    ? normalizePositiveInteger(record.maxRuntimeSeconds, "max runtime seconds")
+    : fallback.maxRuntimeSeconds;
+  const maxRetries = Object.hasOwn(record, "maxRetries")
+    ? normalizePositiveInteger(record.maxRetries, "max retries")
+    : fallback.maxRetries;
+  const dispatchCount = Object.hasOwn(record, "dispatchCount")
+    ? normalizeTimestamp(record.dispatchCount, 0) || undefined
+    : fallback.dispatchCount;
+  const lastDispatchAt = Object.hasOwn(record, "lastDispatchAt")
+    ? normalizeTimestamp(record.lastDispatchAt, 0) || undefined
+    : fallback.lastDispatchAt;
+  // Merge-lane provenance (card b21ff3c9): branch/headSha are written by the
+  // merge queue after a build lands and must survive a specify re-stamp —
+  // consumers (merge_queue.py --release, sweeps) read automation.headSha and
+  // went stale when the fixed key list below dropped them.
+  const branch = normalizeBoundedString(record.branch, fallback.branch, 200, "branch");
+  const headSha = normalizeBoundedString(record.headSha, fallback.headSha, 80, "head SHA");
+  const workspace = Object.hasOwn(record, "workspace")
+    ? normalizeWorkspace(record.workspace, fallback.workspace)
+    : fallback.workspace;
+  // Raw metadata preserves host-issued authority/state but cannot mint or widen either.
+  const workspaceAccess = fallback.workspaceAccess;
+  const launch = normalizeLaunchState(
+    options.allowLaunchState && Object.hasOwn(record, "launch") ? record.launch : fallback.launch,
+  );
   const next = {
-    tenant: normalizeBoundedString(record.tenant, fallback.tenant, 80, "tenant"),
-    boardId: Object.hasOwn(record, "boardId")
-      ? normalizeBoardId(record.boardId, fallback.boardId)
-      : fallback.boardId,
-    createdByCardId: normalizeBoundedString(
-      record.createdByCardId,
-      fallback.createdByCardId,
-      120,
-      "created by card id",
-    ),
-    idempotencyKey: normalizeBoundedString(
-      record.idempotencyKey,
-      fallback.idempotencyKey,
-      160,
-      "idempotency key",
-    ),
-    skills: strings("skills", "skills"),
-    workspace: Object.hasOwn(record, "workspace")
-      ? normalizeWorkspace(record.workspace, fallback.workspace)
-      : fallback.workspace,
-    // Raw metadata preserves host-issued authority/state but cannot mint or widen either.
-    workspaceAccess: fallback.workspaceAccess,
-    maxRuntimeSeconds: Object.hasOwn(record, "maxRuntimeSeconds")
-      ? normalizePositiveInteger(record.maxRuntimeSeconds, "max runtime seconds")
-      : fallback.maxRuntimeSeconds,
-    maxRetries: Object.hasOwn(record, "maxRetries")
-      ? normalizePositiveInteger(record.maxRetries, "max retries")
-      : fallback.maxRetries,
-    scheduledAt: timestamp("scheduledAt") || undefined,
-    summary: normalizeBoundedString(record.summary, fallback.summary, 2000, "summary"),
-    createdCardIds: strings("createdCardIds", "created card ids", 120),
-    dispatchCount: timestamp("dispatchCount") || undefined,
-    lastDispatchAt: timestamp("lastDispatchAt") || undefined,
-    launch: options.launch ? normalizeLaunchState(options.launch) : fallback.launch,
+    ...(tenant ? { tenant } : {}),
+    ...(boardId ? { boardId } : {}),
+    ...(createdByCardId ? { createdByCardId } : {}),
+    ...(idempotencyKey ? { idempotencyKey } : {}),
+    ...(skills?.length ? { skills } : {}),
+    ...(workspace ? { workspace } : {}),
+    ...(workspaceAccess ? { workspaceAccess } : {}),
+    ...(maxRuntimeSeconds ? { maxRuntimeSeconds } : {}),
+    ...(maxRetries ? { maxRetries } : {}),
+    ...(scheduledAt ? { scheduledAt } : {}),
+    ...(summary ? { summary } : {}),
+    ...(createdCardIds?.length ? { createdCardIds } : {}),
+    ...(dispatchCount ? { dispatchCount } : {}),
+    ...(lastDispatchAt ? { lastDispatchAt } : {}),
+    ...(branch ? { branch } : {}),
+    ...(headSha ? { headSha } : {}),
+    ...(launch ? { launch } : {}),
   };
   // Legacy imports can retain empty workspace or authority objects.
   for (const [key, entry] of Object.entries(next)) {
