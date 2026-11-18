@@ -15,6 +15,7 @@ import {
 } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -27,12 +28,20 @@ import {
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
+  recordClaimConflict,
+  snapshotClaimConflictHistory,
+  type WorkboardClaimConflictEvent,
+} from "./store-claim-conflict.js";
+import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
   isWorkboardClaimReclaimable,
   MAX_CARD_ARTIFACTS,
   secondsToDurationMs,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
 } from "./store-constants.js";
+import { WorkboardOwnerActiveWorkError } from "./store-core.js";
 import type {
   WorkboardBlockInput,
   WorkboardCardPatch,
@@ -59,13 +68,8 @@ import {
   normalizeStringList,
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
-import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
+import { readCards } from "./store-read.js";
 import { finishRun } from "./store-status-write.js";
-import {
-  recordClaimConflict,
-  snapshotClaimConflictHistory,
-  type WorkboardClaimConflictEvent,
-} from "./store-claim-conflict.js";
 
 class WorkboardClaimRefusedError extends Error {
   constructor(message: string) {
@@ -189,6 +193,16 @@ async function verifyConsumerSurfaceEvidence(
   };
 }
 
+export type WorkboardClaimSummary = {
+  cardId: string;
+  title: string;
+  status: WorkboardCard["status"];
+  ownerId: string;
+  claimedAt?: number;
+  expiresAt?: number;
+  sessionKey?: string;
+};
+
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
   /**
    * Read-only snapshot of the bounded takeover / claim-conflict history
@@ -306,28 +320,107 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new WorkboardClaimRefusedError(`card already claimed by ${activeClaim.ownerId}.`);
       }
       const metadata = clearDiagnostics(guarded.metadata, ["stranded_ready"]);
-      const card = await this.updateCard(
-        guarded,
-        {
-          status:
-            guarded.status === "backlog" || guarded.status === "todo" || guarded.status === "ready"
-              ? "running"
-              : guarded.status,
-          ...(options.adoptWorkspaceAccess && !guarded.metadata?.automation?.workspaceAccess
-            ? { workspaceAccess: options.adoptWorkspaceAccess }
-            : {}),
-          metadata: {
-            ...metadata,
-            claim: { ownerId, token, claimedAt: now, lastHeartbeatAt: now, expiresAt },
+      let card: WorkboardCard;
+      try {
+        card = await this.updateCard(
+          guarded,
+          {
+            status:
+              guarded.status === "backlog" ||
+              guarded.status === "todo" ||
+              guarded.status === "ready"
+                ? "running"
+                : guarded.status,
+            ...(options.adoptWorkspaceAccess && !guarded.metadata?.automation?.workspaceAccess
+              ? { workspaceAccess: options.adoptWorkspaceAccess }
+              : {}),
+            metadata: {
+              ...metadata,
+              claim: { ownerId, token, claimedAt: now, lastHeartbeatAt: now, expiresAt },
+            },
           },
-        },
-        {
-          expectedUpdatedAt: guarded.updatedAt,
-          ownerSlot: { ownerId, now },
-        },
-      );
+          {
+            expectedUpdatedAt: guarded.updatedAt,
+            ownerSlot: { ownerId, now },
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof WorkboardOwnerActiveWorkError)) {
+          throw error;
+        }
+        throw await this.describeOwnerSlotHolder(error.ownerId, guarded.id, now);
+      }
       return { card, token };
     }, options.assertOwnerCurrent);
+  }
+
+  /**
+   * Claim-fence enrichment (session-audit 2026-11-16 #3, workboard card
+   * 20a3a9b5): when the owner-slot fence rejects a claim, find the card that
+   * currently holds that owner's slot so the rejection names the blocking
+   * card, its session key, and the age of the blocking claim. Pure read —
+   * never mutates the holder.
+   */
+  protected async describeOwnerSlotHolder(
+    ownerId: string,
+    attemptedCardId: string,
+    now: number,
+  ): Promise<Error> {
+    const cards = await readCards(this.store);
+    const holder = cards
+      .filter((card) => card.id !== attemptedCardId)
+      .find(
+        (card) =>
+          workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId,
+      );
+    if (!holder) {
+      // Fence fired but the holder is no longer visible (e.g. it completed
+      // between the fence check and this read). Keep the rejection, drop the
+      // pointer we cannot verify.
+      return new WorkboardClaimRefusedError(
+        `Owner ${ownerId} already has active Workboard work (holder card no longer visible; it may have completed mid-claim).`,
+      );
+    }
+    const sessionKey = holder.sessionKey ?? holder.execution?.sessionKey;
+    const claim = holder.metadata?.claim;
+    const ageSeconds = claim ? Math.max(0, Math.round((now - claim.claimedAt) / 1000)) : undefined;
+    const sessionPart = sessionKey ? `, session ${sessionKey}` : "";
+    const agePart =
+      ageSeconds !== undefined ? `, claim held for ${ageSeconds}s` : " (no live claim metadata)";
+    return new WorkboardClaimRefusedError(
+      `Owner ${ownerId} already has active Workboard work: card ${holder.id} "${holder.title}"${sessionPart}${agePart}. Release or heartbeat that card, or wait for its claim to expire.`,
+    );
+  }
+
+  /**
+   * Read-only listing of currently active claims (session-audit 2026-11-16 #3,
+   * AC2): one compact entry per card consuming an owner slot. Optional ownerId
+   * filter narrows to one owner's claims; omit it for a full fence map.
+   */
+  async listClaims(ownerId?: string): Promise<WorkboardClaimSummary[]> {
+    const now = Date.now();
+    const cards = await readCards(this.store);
+    const summaries: WorkboardClaimSummary[] = [];
+    for (const card of cards) {
+      if (!workboardCardConsumesOwnerSlot(card, now)) {
+        continue;
+      }
+      const slotOwner = workboardCardSlotOwner(card);
+      if (ownerId !== undefined && slotOwner !== ownerId) {
+        continue;
+      }
+      const claim = card.metadata?.claim;
+      summaries.push({
+        cardId: card.id,
+        title: card.title,
+        status: card.status,
+        ownerId: slotOwner,
+        claimedAt: claim?.claimedAt,
+        expiresAt: claim?.expiresAt,
+        sessionKey: card.sessionKey ?? card.execution?.sessionKey,
+      });
+    }
+    return summaries;
   }
 
   async heartbeat(id: string, input: WorkboardHeartbeatInput): Promise<WorkboardCard> {
