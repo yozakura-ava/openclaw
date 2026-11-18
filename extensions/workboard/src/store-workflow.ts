@@ -454,6 +454,18 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
     if (input.proofId !== undefined && !proofId) {
       throw new Error("proofId must be a non-empty string.");
     }
+    // PATCH proofid-only-fix: proofId may resolve a previously-attached proof
+    // without an accompanying proof object — that is the canonical resolution
+    // path. The stored proof is the completion proof as-is; the proof OBJECT
+    // (with optional terminal status) is a legacy fallback that triggers
+    // byte-match validation in appendCompletionProof.
+    if (proofId && !proofInput) {
+      const entries = [...(existing.metadata?.proof ?? [])];
+      const pending = entries.find((entry) => entry && entry.id === proofId);
+      if (!pending) {
+        throw new Error(`proofId ${proofId} not found on card ${id}`);
+      }
+    }
     const proof = proofInput ? normalizeProofInput({ ...proofInput, ...actor }, now) : undefined;
     const buildCardRequiresEvidence = (existing.labels ?? []).some((label) =>
       CONSUMER_SURFACE_EVIDENCE_LABELS.has(label),

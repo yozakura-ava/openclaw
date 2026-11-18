@@ -826,10 +826,16 @@ export function normalizeProofInput(
   };
 }
 
-function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): boolean {
-  return (["label", "command", "url", "note"] as const).some(
-    (field) => completion[field] !== undefined && completion[field] !== existing[field],
-  );
+function completionProofConflicts(existing: WorkboardProof, completion: WorkboardProof): string[] {
+  // PATCH proofid-only-fix: return the list of mismatching fields so the caller
+  // can name them in the surfaced error. Empty array means no conflict.
+  const mismatched: string[] = [];
+  for (const field of ["label", "command", "url", "note"] as const) {
+    if (completion[field] !== undefined && completion[field] !== existing[field]) {
+      mismatched.push(field);
+    }
+  }
+  return mismatched;
 }
 
 export function appendCompletionProof(
@@ -854,8 +860,12 @@ export function appendCompletionProof(
         : "proof is required to resolve a pending proof.",
     );
   }
-  if (completionProofConflicts(pending, completionProof)) {
-    throw new Error(`completion proof does not match pending proof: ${proofId}`);
+  // PATCH proofid-only-fix: name the mismatching fields.
+  const conflicts = completionProofConflicts(pending, completionProof);
+  if (conflicts.length > 0) {
+    throw new Error(
+      `completion proof does not match pending proof: ${proofId} (mismatched fields: ${conflicts.join(", ")})`,
+    );
   }
   if (pending.status !== "unknown" && pending.status !== completionProof.status) {
     throw new Error(`completion proof status does not match existing proof: ${proofId}`);
