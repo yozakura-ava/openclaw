@@ -5,6 +5,7 @@ import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sd
 import { Type } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
+import type { WorkboardClaimSummary } from "./store-workflow.js";
 import type { WorkboardStore } from "./store.js";
 import {
   cardIdField,
@@ -190,6 +191,23 @@ export function createWorkboardTools(params: {
           card: redactClaimToken(card),
           workerContext,
         });
+      },
+    },
+    {
+      name: "workboard_claims",
+      label: "Workboard Claims",
+      description:
+        "List active Workboard claims (read-only). Shows which card and session holds each owner slot — use to diagnose 'owner busy' claim fences. Optional ownerId filter; omit for the full fence map.",
+      parameters: strictObject({
+        ownerId: Type.Optional(
+          Type.String({ description: "Only claims held by this owner. Default: all owners." }),
+        ),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = rawParams as Record<string, unknown>;
+        const ownerId = typeof record.ownerId === "string" ? record.ownerId : undefined;
+        const claims = await store.listClaims(ownerId);
+        return jsonResult({ claims });
       },
     },
     {
