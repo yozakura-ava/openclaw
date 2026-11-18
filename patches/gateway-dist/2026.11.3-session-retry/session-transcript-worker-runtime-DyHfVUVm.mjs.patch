@@ -1,0 +1,48 @@
+--- a/dist/session-transcript-worker-runtime-DyHfVUVm.mjs
++++ b/dist/session-transcript-worker-runtime-DyHfVUVm.mjs
+@@ -15,6 +15,36 @@
+ import { c as maintenanceLane, d as refreshDatabaseWorkerPressureSubscription, g as targetDiscoveryLane, h as settleSessionHistoryWorkerEviction, m as rotateDatabaseWorkers, n as armDatabaseWorkerIdleRetirement, o as historyClearTimeout, s as historyLane, t as acquireHistoryDatabaseResource, u as pruneHistoryDatabases } from "./session-transcript-worker-resources-D1956Oac.mjs";
+ import { types } from "node:util";
+ //#region src/config/sessions/session-transcript-worker-read-admission.ts
++/** Wait briefly for transient worker admission pressure to drain. */
++async function retrySessionHistoryAdmission(admit, timeoutMs, signal, dispatch) {
++	const deadline = performance.now() + timeoutMs;
++	let attempt = 0;
++	while (true) {
++		try {
++			return await admit(dispatch);
++		} catch (error) {
++			if (error?.code !== "overloaded") throw error;
++			const remaining = deadline - performance.now();
++			if (remaining <= 0) throw new WorkerTaskError("worker task timed out", "timeout");
++			signal?.throwIfAborted();
++			const delay = Math.min(remaining, Math.max(1, Math.min(1e3, 25 * 2 ** attempt) * (0.5 + Math.random())));
++			await new Promise((resolve, reject) => {
++				let timer;
++				const onAbort = () => {
++					clearTimeout(timer);
++					signal?.removeEventListener("abort", onAbort);
++					reject(signal.reason);
++				};
++				timer = setTimeout(() => {
++					signal?.removeEventListener("abort", onAbort);
++					resolve();
++				}, delay);
++				signal?.addEventListener("abort", onAbort, { once: true });
++			});
++			attempt++;
++		}
++	}
++}
+ /** Retain schema admission through reply processing without locking the consumer. */
+ async function withSessionHistoryReadAdmission({ lane: requestedLane, ...options }, request, run) {
+ 	const deadline = performance.now() + request.timeoutMs;
+@@ -378,7 +408,7 @@
+ 				aborters: owned.aborters
+ 			}, async (admit, requestLane) => {
+ 				try {
+-					const reply = await admit((requestSignal, remaining) => {
++					const reply = await retrySessionHistoryAdmission(admit, timeoutMs, signal, (requestSignal, remaining) => {
+ 						return runWithSqliteDatabaseAdmissionTurn([database.path], () => {
+ 							const validation = captureOpenClawAgentDatabaseReadValidation(database, owned.nativeSequences.has(requestLane) ? "retained" : "admission");
+ 							return requestLane.pool.run(() => {

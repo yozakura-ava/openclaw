@@ -1,0 +1,57 @@
+--- a/dist/session-transcript-worker-resources-D1956Oac.mjs
++++ b/dist/session-transcript-worker-resources-D1956Oac.mjs
+@@ -37,6 +37,36 @@
+ ];
+ const memoryPressure = channel("openclaw.memory.critical");
+ let pressureSubscribed = false;
++/** Wait briefly for transient worker admission pressure to drain. */
++async function retrySessionHistoryAdmission(admit, timeoutMs, signal) {
++	const deadline = performance.now() + timeoutMs;
++	let attempt = 0;
++	while (true) {
++		try {
++			return await admit();
++		} catch (error) {
++			if (error?.code !== "overloaded") throw error;
++			const remaining = deadline - performance.now();
++			if (remaining <= 0) throw new WorkerTaskError("worker task timed out", "timeout");
++			signal?.throwIfAborted();
++			const delay = Math.min(remaining, Math.max(1, Math.min(1e3, 25 * 2 ** attempt) * (0.5 + Math.random())));
++			await new Promise((resolve, reject) => {
++				let timer;
++				const onAbort = () => {
++					clearTimeout(timer);
++					signal?.removeEventListener("abort", onAbort);
++					reject(signal.reason);
++				};
++				timer = setTimeout(() => {
++					signal?.removeEventListener("abort", onAbort);
++					resolve();
++				}, delay);
++				signal?.addEventListener("abort", onAbort, { once: true });
++			});
++			attempt++;
++		}
++	}
++}
+ registerOpenClawStateDatabaseAsyncResource({
+ 	phase: "after-resources",
+ 	async close(identity) {
+@@ -304,7 +334,7 @@
+ 					const preparation = getPendingOpenClawAgentDatabasePreparation(physicalPath);
+ 					if (preparation) await racePromiseWithAbortSignal(preparation, signal, (aborted) => aborted.reason);
+ 				}
+-				const reply = await runWithSqliteDatabaseAdmissionTurn(admissionPaths, () => lane.pool.run(() => {
++				const reply = await retrySessionHistoryAdmission(() => runWithSqliteDatabaseAdmissionTurn(admissionPaths, () => lane.pool.run(() => {
+ 					assertCurrent();
+ 					dispatched = true;
+ 					lane.nativeSequence++;
+@@ -313,7 +343,7 @@
+ 					inputBytes,
+ 					timeoutMs: 6e4,
+ 					signal
+-				}), admissionFamilies, signal);
++				}), admissionFamilies, signal), 6e4, signal);
+ 				return unwrapSessionTranscriptWorkerReply(reply);
+ 			};
+ 			const readStoreTargetResult = async (request) => {
