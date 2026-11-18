@@ -367,7 +367,9 @@ describe("Workboard dispatcher ownership", () => {
             ? [
                 expect.objectContaining({
                   cardId: ready.id,
-                  error: "Owner shared-worker already has active Workboard work.",
+                  error: expect.stringContaining(
+                    "Owner shared-worker already has active Workboard work",
+                  ),
                 }),
               ]
             : [],
