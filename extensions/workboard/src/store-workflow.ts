@@ -529,11 +529,20 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       const summary = normalizeBoundedString(input.summary, undefined, 2000, "decompose summary");
       const completeParent = input.completeParent !== false;
       const updatedParent = completeParent
-        ? await this.completeDirect(
-            parent.id,
-            { summary, createdCardIds: children.map((child) => child.id) },
-            scope,
-          )
+        ? await (async () => {
+            // Child creation and linking above mutate the parent after the
+            // snapshot taken at the top of decompose (updatedAt bumps with
+            // every link write). Re-fetch the latest parent before completing
+            // so completion and the trailing "decomposed" event write run on
+            // the current optimistic window instead of self-conflicting on
+            // the stale pre-children snapshot.
+            await this.requireCard(parent.id);
+            return await this.completeDirect(
+              parent.id,
+              { summary, createdCardIds: children.map((child) => child.id) },
+              scope,
+            );
+          })()
         : await (async () => {
             const latestParent = await this.requireCard(parent.id);
             return await this.updateCard(
