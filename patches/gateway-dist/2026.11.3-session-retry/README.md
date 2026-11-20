@@ -39,8 +39,9 @@ support. No worker-task or byte limit was raised.
 Patched hashes match `repair-evidence-20261118/successful-runtime-config-hashes.txt`
 (the bytes serving live traffic on 2026-11-18). Hashed chunk names are
 build-specific: a new gateway release regenerates them. On a rebuild, re-port
-the two hunks from the `.patch` files here into the new chunk names instead of
-copying these files wholesale.
+the two hunks into the new chunk names (the hunks live in the source-level
+retry port; the standalone `.patch` files were removed from the PR branch as
+redundant — see git history if needed) instead of copying these files wholesale.
 
 ## Reapply on update
 
@@ -53,7 +54,8 @@ REL_RETRY=$REL-session-retry                               # staged patched copy
 cp -a "$REL" "$REL_RETRY"
 cp -a patched/. "$REL_RETRY/dist/"                         # byte-exact (same build)
 # OR, when only the hunks apply to a NEW build of the same code:
-#   patch -d "$REL_RETRY" -p1 --dry-run < <this-dir>/<target>.mjs.patch  (then without --dry-run)
+#   re-create the hunks by diffing `originals/` vs `patched/` (the standalone
+#   `.patch` files were removed from the PR branch) and apply with patch(1)
 node --check "$REL_RETRY/dist/session-transcript-worker-runtime-DyHfVUVm.mjs"
 node --check "$REL_RETRY/dist/session-transcript-worker-resources-D1956Oac.mjs"
 sha256sum "$REL_RETRY/dist/"session-transcript-worker-*.mjs   # must match table above
