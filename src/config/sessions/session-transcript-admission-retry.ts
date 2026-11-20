@@ -19,8 +19,7 @@ export async function retrySessionHistoryAdmission<T>(
     try {
       return await admit();
     } catch (error) {
-      // SAFETY: admit() rejects with unknown cause; only errors shaped like
-      // { code: "overloaded" } are retried — everything else rethrows unchanged.
+      // SAFETY: only errors shaped like { code: "overloaded" } are retried; all other admit() rejections rethrow unchanged.
       if ((error as { code?: unknown })?.code !== "overloaded") throw error;
       const remaining = deadline - performance.now();
       if (remaining <= 0) {
