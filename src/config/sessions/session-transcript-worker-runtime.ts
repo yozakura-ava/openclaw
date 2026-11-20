@@ -7,8 +7,8 @@ import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db
 import { captureOpenClawAgentDatabaseReadValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import type { SessionBranchSummaryReadRequest } from "./session-accessor.sqlite-branches.js";
 import { readSessionActorProjectionReceipt } from "./session-actor-replica.js";
-import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import { unwrapSessionTranscriptWorkerReply } from "./session-history-worker-errors.js";
+import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import { withSessionHistoryReadAdmission } from "./session-transcript-worker-read-admission.js";
 import {
   createSessionHistoryWorkerReaders,
@@ -174,72 +174,72 @@ export function retainSessionHistoryWorkerDatabase(
             const reply = await retrySessionHistoryAdmission(
               () =>
                 admit((requestSignal, remaining) => {
-              return runWithSqliteDatabaseAdmissionTurn([database.path], () => {
-                // A preceding writer can renew this physical proof while admission waits.
-                const validation = captureOpenClawAgentDatabaseReadValidation(
-                  database,
-                  owned.nativeSequences.has(requestLane) ? "retained" : "admission",
-                );
-                return requestLane.pool.run(
-                  () => {
-                    assertCurrent();
-                    options.prepareRead?.();
-                    const input = prepare();
-                    const projection = projectionTarget(input);
-                    const projectionReceipt = projection?.sessionId
-                      ? readSessionActorProjectionReceipt({
-                          path: database.path,
-                          sessionKey: projection.sessionKey,
-                          sessionId: projection.sessionId,
-                        })
-                      : undefined;
-                    owned.nativeSequences.set(requestLane, ++requestLane.nativeSequence);
-                    return {
-                      ...input,
+                  return runWithSqliteDatabaseAdmissionTurn([database.path], () => {
+                    // A preceding writer can renew this physical proof while admission waits.
+                    const validation = captureOpenClawAgentDatabaseReadValidation(
                       database,
-                      validation: validation?.validation,
-                      projectionReceipt:
-                        projectionReceipt &&
-                        (input.kind === "history-page"
-                          ? {
-                              ...projectionReceipt,
-                              entrySessionKey: undefined,
-                              facts: undefined,
-                              contextOnly: true,
+                      owned.nativeSequences.has(requestLane) ? "retained" : "admission",
+                    );
+                    return requestLane.pool.run(
+                      () => {
+                        assertCurrent();
+                        options.prepareRead?.();
+                        const input = prepare();
+                        const projection = projectionTarget(input);
+                        const projectionReceipt = projection?.sessionId
+                          ? readSessionActorProjectionReceipt({
+                              path: database.path,
+                              sessionKey: projection.sessionKey,
+                              sessionId: projection.sessionId,
+                            })
+                          : undefined;
+                        owned.nativeSequences.set(requestLane, ++requestLane.nativeSequence);
+                        return {
+                          ...input,
+                          database,
+                          validation: validation?.validation,
+                          projectionReceipt:
+                            projectionReceipt &&
+                            (input.kind === "history-page"
+                              ? {
+                                  ...projectionReceipt,
+                                  entrySessionKey: undefined,
+                                  facts: undefined,
+                                  contextOnly: true,
+                                }
+                              : projectionReceipt),
+                        } satisfies SessionTranscriptWorkerRequest;
+                      },
+                      {
+                        inputBytes: inputBytes + (validation?.inputBytes ?? 0),
+                        timeoutMs: remaining,
+                        signal: requestSignal,
+                        onRequest: onRequest
+                          ? (value, context) => {
+                              const effect = (async () => {
+                                context.signal.throwIfAborted();
+                                const response = await onRequest(value, context.signal);
+                                context.signal.throwIfAborted();
+                                return response ?? { input: null, timeoutMs };
+                              })();
+                              hostEffects.add(effect);
+                              owned.hostEffects.add(effect);
+                              const releaseEffect = () => {
+                                hostEffects.delete(effect);
+                                owned.hostEffects.delete(effect);
+                              };
+                              void effect.then(releaseEffect, releaseEffect);
+                              return effect;
                             }
-                          : projectionReceipt),
-                    } satisfies SessionTranscriptWorkerRequest;
-                  },
-                  {
-                    inputBytes: inputBytes + (validation?.inputBytes ?? 0),
-                    timeoutMs: remaining,
-                    signal: requestSignal,
-                    onRequest: onRequest
-                      ? (value, context) => {
-                          const effect = (async () => {
-                            context.signal.throwIfAborted();
-                            const response = await onRequest(value, context.signal);
-                            context.signal.throwIfAborted();
-                            return response ?? { input: null, timeoutMs };
-                          })();
-                          hostEffects.add(effect);
-                          owned.hostEffects.add(effect);
-                          const releaseEffect = () => {
-                            hostEffects.delete(effect);
-                            owned.hostEffects.delete(effect);
-                          };
-                          void effect.then(releaseEffect, releaseEffect);
-                          return effect;
-                        }
-                      : undefined,
-                    onExecutionSettled: ({ retired }) => {
-                      if (retired) {
-                        retirement = rotateDatabaseWorkers(requestLane);
-                      }
-                    },
-                  },
-                );
-              });
+                          : undefined,
+                        onExecutionSettled: ({ retired }) => {
+                          if (retired) {
+                            retirement = rotateDatabaseWorkers(requestLane);
+                          }
+                        },
+                      },
+                    );
+                  });
                 }),
               timeoutMs,
               signal,

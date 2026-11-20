@@ -1,7 +1,6 @@
 import { channel } from "node:diagnostics_channel";
 import path from "node:path";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
-import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import { joinOwnedWorkerTasks } from "@openclaw/worker-runtime";
 import { racePromiseWithAbortSignal } from "../../../packages/retry/src/index.js";
 import { encodeAgentDatabaseReaderRequest } from "../../infra/agent-database-readers.js";
@@ -42,6 +41,7 @@ import type {
   SessionStoreTargetReadResult,
   SessionStoreTargetInventoryResult,
 } from "./session-store-target-inventory.js";
+import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import {
   createSessionTranscriptWorkerLanes,
   type createSessionTranscriptHistoryPool,
@@ -554,20 +554,20 @@ export async function withSessionHistoryWorkerReadCandidates<T>(
         const reply = await retrySessionHistoryAdmission(
           () =>
             runWithSqliteDatabaseAdmissionTurn(
-          admissionPaths,
-          () =>
-            lane.pool.run(
-              () => {
-                assertCurrent();
-                dispatched = true;
-                lane.nativeSequence++;
-                return input;
-              },
-              { inputBytes, timeoutMs: 60_000, signal },
+              admissionPaths,
+              () =>
+                lane.pool.run(
+                  () => {
+                    assertCurrent();
+                    dispatched = true;
+                    lane.nativeSequence++;
+                    return input;
+                  },
+                  { inputBytes, timeoutMs: 60_000, signal },
+                ),
+              admissionFamilies,
+              signal,
             ),
-          admissionFamilies,
-          signal,
-        ),
           60_000,
           signal,
         );
