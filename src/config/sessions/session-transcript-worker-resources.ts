@@ -1,6 +1,7 @@
 import { channel } from "node:diagnostics_channel";
 import path from "node:path";
 import { err, ok, type Result } from "@openclaw/normalization-core/result";
+import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import { joinOwnedWorkerTasks } from "@openclaw/worker-runtime";
 import { racePromiseWithAbortSignal } from "../../../packages/retry/src/index.js";
 import { encodeAgentDatabaseReaderRequest } from "../../infra/agent-database-readers.js";
@@ -550,7 +551,9 @@ export async function withSessionHistoryWorkerReadCandidates<T>(
             await racePromiseWithAbortSignal(preparation, signal, (aborted) => aborted.reason);
           }
         }
-        const reply = await runWithSqliteDatabaseAdmissionTurn(
+        const reply = await retrySessionHistoryAdmission(
+          () =>
+            runWithSqliteDatabaseAdmissionTurn(
           admissionPaths,
           () =>
             lane.pool.run(
@@ -563,6 +566,9 @@ export async function withSessionHistoryWorkerReadCandidates<T>(
               { inputBytes, timeoutMs: 60_000, signal },
             ),
           admissionFamilies,
+          signal,
+        ),
+          60_000,
           signal,
         );
         const result = unwrapSessionTranscriptWorkerReply(reply);

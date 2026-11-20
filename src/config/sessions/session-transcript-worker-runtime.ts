@@ -7,6 +7,7 @@ import type { OpenClawAgentDatabaseOptions } from "../../state/openclaw-agent-db
 import { captureOpenClawAgentDatabaseReadValidation } from "../../state/openclaw-agent-db-validation-cache.js";
 import type { SessionBranchSummaryReadRequest } from "./session-accessor.sqlite-branches.js";
 import { readSessionActorProjectionReceipt } from "./session-actor-replica.js";
+import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import { unwrapSessionTranscriptWorkerReply } from "./session-history-worker-errors.js";
 import { withSessionHistoryReadAdmission } from "./session-transcript-worker-read-admission.js";
 import {
@@ -170,7 +171,9 @@ export function retainSessionHistoryWorkerDatabase(
         },
         async (admit, requestLane) => {
           try {
-            const reply = await admit((requestSignal, remaining) => {
+            const reply = await retrySessionHistoryAdmission(
+              () =>
+                admit((requestSignal, remaining) => {
               return runWithSqliteDatabaseAdmissionTurn([database.path], () => {
                 // A preceding writer can renew this physical proof while admission waits.
                 const validation = captureOpenClawAgentDatabaseReadValidation(
@@ -237,7 +240,10 @@ export function retainSessionHistoryWorkerDatabase(
                   },
                 );
               });
-            });
+                }),
+              timeoutMs,
+              signal,
+            );
             await retirement;
             const received =
               unwrapSessionTranscriptWorkerReply<SessionHistoryWorkerInput["kind"]>(reply);
