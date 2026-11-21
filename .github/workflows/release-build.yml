@@ -1,0 +1,70 @@
+name: Release build (import-closure gate)
+
+# Card d5f5e4dc: build the release artifact (Node 24, frozen lockfile), run
+# the import-closure gate against the staged dependency tree, and emit a
+# provenance tuple (commit, manifest, lockfile, node version, artifact
+# sha256). Postmortem 2026-09-24 prevention #1.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build release artifact
+        run: pnpm run build
+
+      - name: Import-closure gate
+        run: node scripts/check-runtime-import-closure.mjs dist
+
+      - name: Provenance tuple + checksum
+        id: provenance
+        run: |
+          ARTIFACT_SHA256="$(sha256sum dist/openclaw-*.tar.gz 2>/dev/null | head -n1 | awk '{print $1}' || true)"
+          COMMIT="$(git rev-parse HEAD)"
+          NODE_VERSION="$(node --version)"
+          LOCKFILE_SHA256="$(sha256sum pnpm-lock.yaml | awk '{print $1}')"
+          MANIFEST_SHA256="$(sha256sum package.json | awk '{print $1}')"
+          mkdir -p provenance
+          cat > provenance/provenance.json <<EOF
+          {
+            "commit": "${COMMIT}",
+            "manifest_sha256": "${MANIFEST_SHA256}",
+            "lockfile_sha256": "${LOCKFILE_SHA256}",
+            "node_version": "${NODE_VERSION}",
+            "artifact_sha256": "${ARTIFACT_SHA256}"
+          }
+          EOF
+          cat provenance/provenance.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-build-${{ github.sha }}
+          path: |
+            dist/
+            provenance/provenance.json
+          retention-days: 14
+          if-no-files-found: error
