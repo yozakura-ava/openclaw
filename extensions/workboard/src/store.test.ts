@@ -3079,6 +3079,36 @@ describe("WorkboardStore", () => {
     ]);
   });
 
+  it("completes the parent without a self-inflicted conflict when decomposing with completeParent=true", async () => {
+    const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
+    const parent = await store.create({ title: "Parent", status: "todo" });
+
+    // Child creation and linking inside decompose bump the parent's updatedAt;
+    // completion must run against a fresh parent, not the pre-children snapshot.
+    const result = await store.decompose(parent.id, {
+      completeParent: true,
+      summary: "Split into two.",
+      children: [{ title: "Child A" }, { title: "Child B" }],
+    });
+
+    expect(result.parent.status).toBe("done");
+    expect(result.parent.metadata?.automation?.createdCardIds).toEqual(
+      result.children.map((child) => child.id),
+    );
+    expect(result.parent.metadata?.links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "child", targetCardId: result.children[0]?.id }),
+        expect.objectContaining({ type: "child", targetCardId: result.children[1]?.id }),
+      ]),
+    );
+    for (const child of result.children) {
+      expect(child.metadata?.links).toEqual([
+        expect.objectContaining({ type: "parent", targetCardId: parent.id }),
+      ]);
+    }
+    expect(result.parent.events?.at(-1)).toMatchObject({ kind: "decomposed" });
+  });
+
   it("keeps specify as a todo-only clarification step", async () => {
     const store = createWorkboardSqliteTestStore({ createStores: createKernelStores });
     const card = await store.create({ title: "Rough idea", status: "triage" });
