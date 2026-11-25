@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-B-growth-000",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "6f7bd34cc754c8bed965edb9eb5d4e3edc5eae1943d09dfdfb436ee9010724c5",
+ "quarantined": [],
+ "receipt_sha256": "7577fd25b855ef393e9ef12c96ce671e380b52f4587621148715ec0f1c1d8ee3",
+ "submitted": 3,
+ "tier": "B-growth"
+}

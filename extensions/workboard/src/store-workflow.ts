@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { isDeepStrictEqual } from "node:util";
+import { stat } from "node:fs/promises";
+import { isDeepStrictEqual, promisify } from "node:util";
 import type {
   WorkboardArtifact,
   WorkboardCard,
@@ -13,6 +15,7 @@ import {
 } from "openclaw/plugin-sdk/number-runtime";
 import { safeEqualSecret } from "openclaw/plugin-sdk/security-runtime";
 import { isRecord, normalizeOptionalString } from "openclaw/plugin-sdk/string-coerce-runtime";
+import type { ConsumerSurfaceEvidence } from "./persistence-types.js";
 import {
   appendComment,
   assertCanMutateClaimedCard,
@@ -25,12 +28,20 @@ import {
   retryBudgetExhausted,
 } from "./store-card-helpers.js";
 import {
+  recordClaimConflict,
+  snapshotClaimConflictHistory,
+  type WorkboardClaimConflictEvent,
+} from "./store-claim-conflict.js";
+import {
   addWorkboardDurationMs,
   DEFAULT_CLAIM_TTL_MS,
   isWorkboardClaimReclaimable,
   MAX_CARD_ARTIFACTS,
   secondsToDurationMs,
+  workboardCardConsumesOwnerSlot,
+  workboardCardSlotOwner,
 } from "./store-constants.js";
+import { WorkboardOwnerActiveWorkError } from "./store-core.js";
 import type {
   WorkboardBlockInput,
   WorkboardCardPatch,
@@ -57,6 +68,7 @@ import {
   normalizeStringList,
 } from "./store-normalizers.js";
 import { WorkboardPromoteStore } from "./store-promote.js";
+import { readCards } from "./store-read.js";
 import { finishRun } from "./store-status-write.js";
 
 class WorkboardClaimRefusedError extends Error {
@@ -78,7 +90,131 @@ function assertClaimIdentity(claim: WorkboardClaim, input: WorkboardHeartbeatInp
   }
 }
 
+const execFileAsync = promisify(execFile);
+
+/** Card labels that gate completion on consumer_surface_evidence. */
+const CONSUMER_SURFACE_EVIDENCE_LABELS = new Set(["[BUILD]", "[INFRA]"]);
+
+function asConsumerSurfaceEvidence(input: unknown): ConsumerSurfaceEvidence {
+  if (!isRecord(input)) {
+    throw new Error(
+      '[BUILD]/[INFRA] cards require consumer_surface_evidence on completion: an object like { kind: "code" | "skill" | "research", repoPath?, commitSha?, filePath?, consumerId? }. The evidence is verified independently; caller-supplied proof text is never trusted.',
+    );
+  }
+  const kind = input.kind;
+  if (kind !== "code" && kind !== "skill" && kind !== "research") {
+    throw new Error(
+      'consumer_surface_evidence.kind must be one of "code", "skill", or "research".',
+    );
+  }
+  const readPath = (field: string): string | undefined => {
+    const value = input[field];
+    if (value === undefined) {
+      return undefined;
+    }
+    if (typeof value !== "string" || value.trim() === "") {
+      throw new Error(`consumer_surface_evidence.${field} must be a non-empty string.`);
+    }
+    return value;
+  };
+  const evidence: ConsumerSurfaceEvidence = {
+    kind,
+    ...(readPath("repoPath") ? { repoPath: readPath("repoPath") } : {}),
+    ...(readPath("commitSha") ? { commitSha: readPath("commitSha") } : {}),
+    ...(readPath("filePath") ? { filePath: readPath("filePath") } : {}),
+    ...(readPath("consumerId") ? { consumerId: readPath("consumerId") } : {}),
+  };
+  return evidence;
+}
+
+/**
+ * Independently verify consumer surface evidence against the world — never
+ * trusting caller-supplied text. kind=code resolves the commit in the given
+ * git repository; kind=skill requires an existing SKILL.md; kind=research
+ * requires an existing non-empty artifact file.
+ */
+async function verifyConsumerSurfaceEvidence(
+  input: unknown,
+  now: number,
+): Promise<WorkboardArtifact> {
+  const evidence = asConsumerSurfaceEvidence(input);
+  if (evidence.kind === "code") {
+    if (!evidence.repoPath || !evidence.commitSha) {
+      throw new Error('consumer_surface_evidence kind "code" requires repoPath and commitSha.');
+    }
+    try {
+      await execFileAsync("git", [
+        "-C",
+        evidence.repoPath,
+        "cat-file",
+        "-e",
+        `${evidence.commitSha}^{commit}`,
+      ]);
+    } catch {
+      throw new Error(
+        `consumer_surface_evidence rejected: commit ${evidence.commitSha} does not resolve in repository ${evidence.repoPath}.`,
+      );
+    }
+  }
+  if (evidence.filePath) {
+    try {
+      const info = await stat(evidence.filePath);
+      if (evidence.kind === "research" && !info.isFile()) {
+        throw new Error("not a file");
+      }
+      if (evidence.kind === "research" && info.size === 0) {
+        throw new Error("empty file");
+      }
+      if (
+        evidence.kind === "skill" &&
+        (!info.isFile() || !evidence.filePath.split("/").at(-1)?.endsWith(".md"))
+      ) {
+        throw new Error("not a markdown skill file");
+      }
+    } catch (error) {
+      throw new Error(
+        `consumer_surface_evidence rejected: filePath ${evidence.filePath} failed verification (${error instanceof Error ? error.message : String(error)}).`,
+        { cause: error },
+      );
+    }
+  } else if (evidence.kind === "skill" || evidence.kind === "research") {
+    throw new Error(`consumer_surface_evidence kind "${evidence.kind}" requires filePath.`);
+  }
+  return {
+    id: randomUUID(),
+    createdAt: now,
+    label: `consumer_surface_evidence:${evidence.kind}`,
+    ...(evidence.filePath
+      ? { path: evidence.filePath }
+      : evidence.repoPath
+        ? { path: evidence.repoPath }
+        : {}),
+    ...(evidence.consumerId ? { url: `consumer:${evidence.consumerId}` } : {}),
+  };
+}
+
+export type WorkboardClaimSummary = {
+  cardId: string;
+  title: string;
+  status: WorkboardCard["status"];
+  ownerId: string;
+  claimedAt?: number;
+  expiresAt?: number;
+  sessionKey?: string;
+};
+
 export class WorkboardWorkflowStore extends WorkboardPromoteStore {
+  /**
+   * Read-only snapshot of the bounded takeover / claim-conflict history
+   * (#115 scope, prior art upstream issue #24 — CLOSED). Records every
+   * archived/done rejection and every foreign takeover attempt the store
+   * has rejected since process start. Bounded at CLAIM_CONFLICT_HISTORY_CAP
+   * entries, FIFO. Not persisted — restarts clear it.
+   */
+  get claimConflicts(): readonly WorkboardClaimConflictEvent[] {
+    return snapshotClaimConflictHistory();
+  }
+
   async claim(
     id: string,
     input: WorkboardClaimInput,
@@ -99,7 +235,28 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       );
       const guarded = await this.promoteDependencyReady(id, now);
       if (guarded.metadata?.archivedAt) {
+        recordClaimConflict({
+          kind: "claim_on_archived",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
         throw new Error("card is archived.");
+      }
+      // PATCH done-card claim guard (#115 scope, prior art issue #24):
+      // completed cards must reject claim attempts BEFORE the claim fence
+      // evaluates, otherwise a done card carrying a live claim would hit
+      // the fence branch and never reach this guard. Without it a stale
+      // orchestrator can attach a new claim token to a terminal card and
+      // silently re-open the work surface.
+      if (guarded.status === "done") {
+        recordClaimConflict({
+          kind: "claim_on_done",
+          cardId: id,
+          attemptedOwnerId: ownerId,
+          at: now,
+        });
+        throw new Error("card is completed.");
       }
       const expectedAuthority = options.expectedAuthority;
       if (
@@ -146,31 +303,124 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
         throw new WorkboardClaimRefusedError("card exhausted its retry budget.");
       }
       if (activeClaim) {
+        // PATCH takeover diagnostic (#115 scope, prior art issue #24): record
+        // the takeover ONLY when rejecting a FOREIGN live claim attempt.
+        // Same-owner self-recovery does not record a takeover event — the
+        // original owner reclaiming its own slot is not a takeover.
+        if (activeClaim.ownerId !== ownerId) {
+          recordClaimConflict({
+            kind: "takeover",
+            cardId: id,
+            attemptedOwnerId: ownerId,
+            priorOwnerId: activeClaim.ownerId,
+            priorExpiresAt: activeClaim.expiresAt,
+            at: now,
+          });
+        }
         throw new WorkboardClaimRefusedError(`card already claimed by ${activeClaim.ownerId}.`);
       }
       const metadata = clearDiagnostics(guarded.metadata, ["stranded_ready"]);
-      const card = await this.updateCard(
-        guarded,
-        {
-          status:
-            guarded.status === "backlog" || guarded.status === "todo" || guarded.status === "ready"
-              ? "running"
-              : guarded.status,
-          ...(options.adoptWorkspaceAccess && !guarded.metadata?.automation?.workspaceAccess
-            ? { workspaceAccess: options.adoptWorkspaceAccess }
-            : {}),
-          metadata: {
-            ...metadata,
-            claim: { ownerId, token, claimedAt: now, lastHeartbeatAt: now, expiresAt },
+      let card: WorkboardCard;
+      try {
+        card = await this.updateCard(
+          guarded,
+          {
+            status:
+              guarded.status === "backlog" ||
+              guarded.status === "todo" ||
+              guarded.status === "ready"
+                ? "running"
+                : guarded.status,
+            ...(options.adoptWorkspaceAccess && !guarded.metadata?.automation?.workspaceAccess
+              ? { workspaceAccess: options.adoptWorkspaceAccess }
+              : {}),
+            metadata: {
+              ...metadata,
+              claim: { ownerId, token, claimedAt: now, lastHeartbeatAt: now, expiresAt },
+            },
           },
-        },
-        {
-          expectedUpdatedAt: guarded.updatedAt,
-          ownerSlot: { ownerId, now },
-        },
-      );
+          {
+            expectedUpdatedAt: guarded.updatedAt,
+            ownerSlot: { ownerId, now },
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof WorkboardOwnerActiveWorkError)) {
+          throw error;
+        }
+        throw await this.describeOwnerSlotHolder(error.ownerId, guarded.id, now);
+      }
       return { card, token };
     }, options.assertOwnerCurrent);
+  }
+
+  /**
+   * Claim-fence enrichment (session-audit 2026-11-16 #3, workboard card
+   * 20a3a9b5): when the owner-slot fence rejects a claim, find the card that
+   * currently holds that owner's slot so the rejection names the blocking
+   * card, its session key, and the age of the blocking claim. Pure read —
+   * never mutates the holder.
+   */
+  protected async describeOwnerSlotHolder(
+    ownerId: string,
+    attemptedCardId: string,
+    now: number,
+  ): Promise<Error> {
+    const cards = await readCards(this.store);
+    const holder = cards
+      .filter((card) => card.id !== attemptedCardId)
+      .find(
+        (card) =>
+          workboardCardConsumesOwnerSlot(card, now) && workboardCardSlotOwner(card) === ownerId,
+      );
+    if (!holder) {
+      // Fence fired but the holder is no longer visible (e.g. it completed
+      // between the fence check and this read). Keep the rejection, drop the
+      // pointer we cannot verify.
+      return new WorkboardClaimRefusedError(
+        `Owner ${ownerId} already has active Workboard work (holder card no longer visible; it may have completed mid-claim).`,
+      );
+    }
+    const sessionKey = holder.sessionKey ?? holder.execution?.sessionKey;
+    const claim = holder.metadata?.claim;
+    const ageSeconds = claim ? Math.max(0, Math.round((now - claim.claimedAt) / 1000)) : undefined;
+    const sessionPart = sessionKey ? `, session ${sessionKey}` : "";
+    const agePart =
+      ageSeconds !== undefined ? `, claim held for ${ageSeconds}s` : " (no live claim metadata)";
+    return new WorkboardClaimRefusedError(
+      `Owner ${ownerId} already has active Workboard work: card ${holder.id} "${holder.title}"${sessionPart}${agePart}. Release or heartbeat that card, or wait for its claim to expire.`,
+    );
+  }
+
+  /**
+   * Read-only listing of currently active claims (session-audit 2026-11-16 #3,
+   * AC2): one compact entry per card consuming an owner slot. Optional ownerId
+   * filter narrows to one owner's claims; omit it for a full fence map.
+   */
+  async listClaims(ownerId?: string): Promise<WorkboardClaimSummary[]> {
+    const now = Date.now();
+    const cards = await readCards(this.store);
+    const summaries: WorkboardClaimSummary[] = [];
+    for (const card of cards) {
+      if (!workboardCardConsumesOwnerSlot(card, now)) {
+        continue;
+      }
+      const slotOwner = workboardCardSlotOwner(card);
+      if (ownerId !== undefined && slotOwner !== ownerId) {
+        continue;
+      }
+      const claim = card.metadata?.claim;
+      summaries.push({
+        cardId: card.id,
+        title: card.title,
+        status: card.status,
+        ownerId: slotOwner,
+        claimedAt: claim?.claimedAt,
+        expiresAt: claim?.expiresAt,
+        sessionKey: card.sessionKey ?? card.execution?.sessionKey,
+      });
+    }
+    return summaries;
   }
 
   async heartbeat(id: string, input: WorkboardHeartbeatInput): Promise<WorkboardCard> {
@@ -264,6 +514,13 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
       throw new Error("proofId must be a non-empty string.");
     }
     const proof = proofInput ? normalizeProofInput(proofInput, now) : undefined;
+    const buildCardRequiresEvidence = (existing.labels ?? []).some((label) =>
+      CONSUMER_SURFACE_EVIDENCE_LABELS.has(label),
+    );
+    let evidenceArtifact: WorkboardArtifact | undefined;
+    if (buildCardRequiresEvidence) {
+      evidenceArtifact = await verifyConsumerSurfaceEvidence(input.consumer_surface_evidence, now);
+    }
     const artifacts = Array.isArray(input.artifacts)
       ? input.artifacts
           .map((artifact) => normalizeArtifact({ ...artifact, createdAt: now }))
@@ -294,9 +551,14 @@ export class WorkboardWorkflowStore extends WorkboardPromoteStore {
           ),
           comments: appendComment(metadata.comments, summary, now),
           proof: appendCompletionProof(metadata.proof, proof, proofId),
-          artifacts: artifacts.length
-            ? [...(metadata.artifacts ?? []), ...artifacts].slice(-MAX_CARD_ARTIFACTS)
-            : metadata.artifacts,
+          artifacts:
+            evidenceArtifact || artifacts.length
+              ? [
+                  ...(evidenceArtifact ? [evidenceArtifact] : []),
+                  ...(metadata.artifacts ?? []),
+                  ...artifacts,
+                ].slice(-MAX_CARD_ARTIFACTS)
+              : metadata.artifacts,
           notifications,
         },
       },

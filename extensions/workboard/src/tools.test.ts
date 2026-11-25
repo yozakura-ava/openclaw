@@ -315,20 +315,30 @@ describe("workboard tools", () => {
     const claimed = readPayload(
       await byName.get("workboard_claim")?.execute("call-1", { id: "card-1" }),
     );
-    expect(claimed.card).toMatchObject({
+    // Slim echo (card 609ef9bd): claim returns {id, status, changed, token}.
+    expect(claimed).toMatchObject({
+      id: "card-1",
       status: "running",
-      metadata: { claim: { ownerId: "main", token: "[redacted]" } },
+      changed: expect.arrayContaining(["metadata.claim", "status"]),
+      token: expect.any(String),
     });
-    const token = (claimed.token as string | undefined) ?? "";
+    expect(claimed.card).toBeUndefined();
+    const token = claimed.token as string;
 
     const heartbeat = readPayload(
       await byName
         .get("workboard_heartbeat")
         ?.execute("call-2", { id: "card-1", token, note: "alive" }),
     );
+    // Slim echo: heartbeat reports the changed fields only, no full card, and
+    // no token re-echo (the claim token did not change).
     expect(heartbeat).toMatchObject({
-      card: { metadata: { comments: [expect.objectContaining({ body: "alive" })] } },
+      id: "card-1",
+      status: "running",
+      changed: expect.arrayContaining(["metadata.claim"]),
     });
+    expect(heartbeat.card).toBeUndefined();
+    expect(heartbeat.token).toBeUndefined();
 
     const read = readPayload(
       await byName.get("workboard_read")?.execute("call-3", { id: "card-1" }),
@@ -341,8 +351,9 @@ describe("workboard tools", () => {
         .get("workboard_release")
         ?.execute("call-4", { id: "card-1", token, status: "review" }),
     );
-    expect(released).toMatchObject({ card: { status: "review" } });
-    expect((released.card as { metadata?: { claim?: unknown } }).metadata?.claim).toBeUndefined();
+    expect(released).toMatchObject({ id: "card-1", status: "review" });
+    expect(released.card).toBeUndefined();
+    expect(released.token).toBeUndefined();
 
     const list = readPayload(await byName.get("workboard_list")?.execute("call-5", {}));
     expect(list.cards).toEqual([expect.objectContaining({ id: "card-1" })]);
@@ -440,22 +451,23 @@ describe("workboard tools", () => {
       ["workboard_heartbeat", { id: "card-1", token, note: "still blocked" }],
       ["workboard_release", { id: "card-1", token }],
     ] as const;
-    const graded: Array<{ tool: string; isError: boolean; card: unknown }> = [];
+    const graded: Array<{ tool: string; isError: boolean; echo: unknown }> = [];
     for (const [name, params] of calls) {
       const result = await expectDefined(byName.get(name), name).execute(name, params);
       graded.push({
         tool: name,
         isError: isToolResultError(result),
-        card: readPayload(result).card,
+        echo: readPayload(result),
       });
     }
 
-    const blockedCard = expect.objectContaining({ id: "card-1", status: "blocked" });
-    expect(graded).toEqual([
-      { tool: "workboard_comment", isError: false, card: blockedCard },
-      { tool: "workboard_heartbeat", isError: false, card: blockedCard },
-      { tool: "workboard_release", isError: false, card: blockedCard },
-    ]);
+    // Slim echo (card 609ef9bd): mutations report {id, status, changed}.
+    expect(graded).toHaveLength(3);
+    for (const entry of graded) {
+      expect(entry.isError).toBe(false);
+      expect(entry.echo).toMatchObject({ id: "card-1", status: "blocked" });
+      expect((entry.echo as { card?: unknown }).card).toBeUndefined();
+    }
     expect((await keyed.lookup("card-1"))?.card).toMatchObject({
       status: "blocked",
       metadata: {
@@ -629,7 +641,8 @@ describe("workboard tools", () => {
         proofId: pendingProof.proofId,
       }),
     );
-    expect(completed.card).toMatchObject({
+    expect(completed).toMatchObject({ id: parent.id, status: "done" });
+    await expect(store.get(parent.id)).resolves.toMatchObject({
       status: "done",
       metadata: { proof: [{ id: pendingProof.proofId, status: "passed" }] },
     });
@@ -792,10 +805,11 @@ describe("workboard tools", () => {
         contentBase64: Buffer.from("done").toString("base64"),
       }),
     );
-    expect(attached.card).toMatchObject({
-      metadata: { attachments: [expect.objectContaining({ fileName: "result.txt" })] },
-    });
-    const attachments = (attached.card as { metadata: { attachments: Array<{ id: string }> } })
+    expect(attached).toMatchObject({ id: parent.id });
+    const attachedCard = readPayload(
+      await tools.get("workboard_read")?.execute("call-read-attached", { id: parent.id }),
+    );
+    const attachments = (attachedCard.card as { metadata: { attachments: Array<{ id: string }> } })
       .metadata.attachments;
     const attachmentId = expectDefined(attachments[0], "workboard attachment").id;
     const attachment = readPayload(
@@ -822,7 +836,8 @@ describe("workboard tools", () => {
         status: "ready",
       }),
     );
-    expect(unclaimed.card).toMatchObject({ status: "ready" });
+    // Slim echo: move reports {id, status, changed} without the full card.
+    expect(unclaimed).toMatchObject({ id: card.id, status: "ready" });
 
     await store.claim(card.id, { ownerId: "agent-a", token: "test-auth-token" });
     await expect(
@@ -840,7 +855,8 @@ describe("workboard tools", () => {
       }),
     );
     // Review is not terminal: the claim stays with its owner.
-    expect(claimed.card).toMatchObject({
+    expect(claimed).toMatchObject({ id: card.id, status: "review" });
+    await expect(store.get(card.id)).resolves.toMatchObject({
       status: "review",
       metadata: { claim: { ownerId: "agent-a" } },
     });
@@ -906,7 +922,7 @@ describe("workboard terminal status writes", () => {
         await tools.get("workboard_move")?.execute("move-terminal", { id: card.id, status, token }),
       );
 
-      expect(moved.card).toMatchObject({ status });
+      expect(moved).toMatchObject({ id: card.id, status });
       await expectRunFinished(store, card.id, status);
     },
   );

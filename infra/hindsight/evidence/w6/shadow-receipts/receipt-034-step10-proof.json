@@ -1,0 +1,131 @@
+{
+ "census_baseline": {
+  "A-core": 3,
+  "A-protected": 693,
+  "A-wiki": 2,
+  "B-daily": 1608,
+  "B-growth": 3,
+  "B-other": 18,
+  "C-flag": 15,
+  "D-ghost-window": 46,
+  "D-suspect": 2,
+  "T-dreaming": 652
+ },
+ "consolidation": "off",
+ "invariants": "active=>trust A/B; D-tier=>quarantine; coverage identity holds",
+ "kind": "step10-proof",
+ "prev_receipt_sha256": "d947539b73d9ec5f7beb15bdb82f2c1952e354493c6cb8f5a3b99a202aefa0d7",
+ "receipt_sha256": "1bfc27a2e0170bc39a893ded955342b8e60b2684d3bddb7fdcf84d57a45693b1",
+ "shadow_baseline": {
+  "A-core": {
+   "candidate-active": 2,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 0,
+   "raw-archive": 1
+  },
+  "A-protected": {
+   "candidate-active": 676,
+   "collapsed-exact-dup": 9,
+   "dreaming-history": 0,
+   "empty-source-record": 1,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 0,
+   "raw-archive": 7
+  },
+  "A-wiki": {
+   "candidate-active": 1,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 0,
+   "raw-archive": 1
+  },
+  "B-daily": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 1,
+   "dreaming-history": 0,
+   "empty-source-record": 1,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 360,
+   "quarantine-bank": 0,
+   "raw-archive": 1246
+  },
+  "B-growth": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 0,
+   "raw-archive": 3
+  },
+  "B-other": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 6,
+   "quarantine-bank": 0,
+   "raw-archive": 12
+  },
+  "C-flag": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 10,
+   "quarantine-bank": 0,
+   "raw-archive": 5
+  },
+  "D-ghost-window": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 46,
+   "raw-archive": 0
+  },
+  "D-suspect": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 0,
+   "dreaming-history": 0,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 2,
+   "raw-archive": 0
+  },
+  "T-dreaming": {
+   "candidate-active": 0,
+   "collapsed-exact-dup": 67,
+   "dreaming-history": 585,
+   "empty-source-record": 0,
+   "holdout-quarantine": 0,
+   "integrity-quarantine": 0,
+   "policy-excluded-operational-noise": 0,
+   "quarantine-bank": 0,
+   "raw-archive": 0
+  }
+ }
+}

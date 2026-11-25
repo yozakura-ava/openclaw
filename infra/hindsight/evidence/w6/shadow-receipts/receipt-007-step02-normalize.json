@@ -1,0 +1,8 @@
+{
+ "kind": "step02-normalize",
+ "prev_receipt_sha256": "1a59818aae21318a237f86a9d748da7eaf803edce0bba9b7b6fc2c2cd8d3e513",
+ "receipt_sha256": "76ae587b384814e96121455f5337aa226e22e1df5697780cae43e6fc112e75aa",
+ "records": 2,
+ "tier": "A-wiki",
+ "transform_version": "1"
+}

@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-T-dreaming-001",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "d8886508dc89251a5ec57f9f6086c69e18312371add135530cf7af3e7de809db",
+ "quarantined": [],
+ "receipt_sha256": "c29b926e8223e16cefa5d60c2673b53484d7efa7971a0deb4bbf322f3f146ff6",
+ "submitted": 200,
+ "tier": "T-dreaming"
+}

@@ -269,6 +269,7 @@ export {
   readStringArrayParam,
   readToolStringParam as readStringParam,
 } from "../agents/tools/common.js";
+export { cardMutationResult } from "../agents/tools/tool-results.js";
 export { parseStrictPositiveInteger } from "@openclaw/normalization-core/number-coercion";
 export { isTrustedProxyAddress, resolveClientIp } from "../gateway/net.js";
 export { formatZonedTimestamp } from "../infra/format-time/format-datetime.js";

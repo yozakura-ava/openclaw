@@ -601,7 +601,7 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
         options.ownerSlot.now,
       );
       if (result === "owner_busy") {
-        throw new Error(`Owner ${options.ownerSlot.ownerId} already has active Workboard work.`);
+        throw new WorkboardOwnerActiveWorkError(options.ownerSlot.ownerId);
       }
       updated = result === "updated";
     } else {
@@ -870,6 +870,18 @@ export class WorkboardCoreStore extends WorkboardBoardStore {
       return card;
     }
     return await this.updateCard(card, { status: target });
+  }
+}
+
+/**
+ * Thrown when an owner-slot mutation is rejected because the owner already has
+ * active Workboard work (the claim fence). Callers such as store.claim catch
+ * this to enrich the rejection with the blocking claim's holder details.
+ */
+export class WorkboardOwnerActiveWorkError extends Error {
+  constructor(readonly ownerId: string) {
+    super(`Owner ${ownerId} already has active Workboard work.`);
+    this.name = "WorkboardOwnerActiveWorkError";
   }
 }
 

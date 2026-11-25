@@ -1,0 +1,46 @@
+{
+ "declared_counts": {
+  "A-core": 3,
+  "A-protected": 693,
+  "A-wiki": 2,
+  "B-daily": 1608,
+  "B-growth": 3,
+  "B-other": 18,
+  "C-flag": 15,
+  "D-ghost-window": 46,
+  "D-suspect": 2,
+  "T-dreaming": 652
+ },
+ "import_order": [
+  "A-core",
+  "A-protected",
+  "A-wiki",
+  "B-daily",
+  "B-growth",
+  "B-other",
+  "C-flag",
+  "T-dreaming"
+ ],
+ "kind": "step01-inventory",
+ "manifest_file_sha256": "f864636e819b2111e1bb806999b7044c12556ff9eedd91706a3d6cc1ba0a74d0",
+ "manifest_freeze_hash": "5c91f13082c96a2740a2c580e04ca9ae27c02faa732c85968dd5a5aa8700f654",
+ "prev_receipt_sha256": null,
+ "quarantine_tiers": [
+  "D-suspect",
+  "D-ghost-window"
+ ],
+ "receipt_sha256": "0e4671a940087d161fd92814e2ed22be10eaea5d12924e89affe9179fd6d989c",
+ "tier_counts": {
+  "A-core": 3,
+  "A-protected": 693,
+  "A-wiki": 2,
+  "B-daily": 1608,
+  "B-growth": 3,
+  "B-other": 18,
+  "C-flag": 15,
+  "D-ghost-window": 46,
+  "D-suspect": 2,
+  "T-dreaming": 652
+ },
+ "total_files": 3042
+}

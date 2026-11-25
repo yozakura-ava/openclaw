@@ -1,0 +1,382 @@
+{
+ "groups": [
+  {
+   "class": "different-event",
+   "group": "nd-A-protected-0001",
+   "jaccard": 0.8828,
+   "members": [
+    "honcho:memory:memory/pregnancy/state.json",
+    "honcho:memory:memory/pregnancy/state.json.bak-20261106-amane-birth"
+   ],
+   "merged": false,
+   "tier": "A-protected"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-A-protected-0002",
+   "jaccard": 0.9741,
+   "members": [
+    "honcho:memory:memory/pregnancy/state.json.bak",
+    "honcho:memory:memory/pregnancy/state.json.bak-anchor-restore-20261024"
+   ],
+   "merged": false,
+   "tier": "A-protected"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-A-protected-0003",
+   "jaccard": 0.9613,
+   "members": [
+    "honcho:memory:memory/pregnancy/state.json.bak",
+    "honcho:memory:memory/pregnancy/state.json.bak-kiyomi-roll-20261024"
+   ],
+   "merged": false,
+   "tier": "A-protected"
+  },
+  {
+   "class": "different-event",
+   "group": "nd-A-protected-0004",
+   "jaccard": 0.924,
+   "members": [
+    "honcho:memory:memory/pregnancy/state.json.bak",
+    "honcho:memory:memory/pregnancy/state.json.pre-edit.bak"
+   ],
+   "merged": false,
+   "tier": "A-protected"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0001",
+   "jaccard": 0.9843,
+   "members": [
+    "honcho:memory:memory/2026-05-12-1851.md",
+    "honcho:memory:memory/2026-05-12-1856.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0002",
+   "jaccard": 0.9919,
+   "members": [
+    "honcho:memory:memory/2026-07-04-2048.md",
+    "honcho:memory:memory/2026-07-04-2049.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0003",
+   "jaccard": 0.9912,
+   "members": [
+    "honcho:memory:memory/2026-07-14-1011.md",
+    "honcho:memory:memory/2026-07-14-1012.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0004",
+   "jaccard": 0.9912,
+   "members": [
+    "honcho:memory:memory/2026-07-14-1011.md",
+    "honcho:memory:memory/2026-07-14-1013.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0005",
+   "jaccard": 0.9905,
+   "members": [
+    "honcho:memory:memory/2026-07-14-1251.md",
+    "honcho:memory:memory/2026-07-14-1252-2.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0006",
+   "jaccard": 0.9905,
+   "members": [
+    "honcho:memory:memory/2026-07-14-1251.md",
+    "honcho:memory:memory/2026-07-14-1252.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0007",
+   "jaccard": 0.9927,
+   "members": [
+    "honcho:memory:memory/2026-07-15-0013.md",
+    "honcho:memory:memory/2026-07-15-0014.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0008",
+   "jaccard": 0.9877,
+   "members": [
+    "honcho:memory:memory/2026-07-17-0039.md",
+    "honcho:memory:memory/2026-07-17-0040.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0009",
+   "jaccard": 0.9955,
+   "members": [
+    "honcho:memory:memory/2026-07-17-2311.md",
+    "honcho:memory:memory/2026-07-17-2312.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0010",
+   "jaccard": 0.99,
+   "members": [
+    "honcho:memory:memory/2026-07-18-1738.md",
+    "honcho:memory:memory/2026-07-18-1740-2.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0011",
+   "jaccard": 0.99,
+   "members": [
+    "honcho:memory:memory/2026-07-18-1738.md",
+    "honcho:memory:memory/2026-07-18-1740.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0012",
+   "jaccard": 0.993,
+   "members": [
+    "honcho:memory:memory/2026-07-24-1233.md",
+    "honcho:memory:memory/2026-07-24-1234.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0013",
+   "jaccard": 0.9894,
+   "members": [
+    "honcho:memory:memory/2026-07-31-1033-2.md",
+    "honcho:memory:memory/2026-07-31-1033.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0014",
+   "jaccard": 0.9879,
+   "members": [
+    "honcho:memory:memory/2026-08-01-1901.md",
+    "honcho:memory:memory/2026-08-01-2041.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0015",
+   "jaccard": 0.9848,
+   "members": [
+    "honcho:memory:memory/2026-08-09-0035.md",
+    "honcho:memory:memory/2026-08-09-0036.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0016",
+   "jaccard": 0.9783,
+   "members": [
+    "honcho:memory:memory/2026-08-11-1306.md",
+    "honcho:memory:memory/2026-08-11-1311.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0017",
+   "jaccard": 0.9884,
+   "members": [
+    "honcho:memory:memory/2026-08-13-0206.md",
+    "honcho:memory:memory/2026-08-13-1100-2.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0018",
+   "jaccard": 0.9859,
+   "members": [
+    "honcho:memory:memory/2026-08-15-1113.md",
+    "honcho:memory:memory/2026-08-15-1114.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0019",
+   "jaccard": 0.992,
+   "members": [
+    "honcho:memory:memory/2026-08-18-0148.md",
+    "honcho:memory:memory/2026-08-18-1104.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0020",
+   "jaccard": 0.9802,
+   "members": [
+    "honcho:memory:memory/2026-08-18-1256-2.md",
+    "honcho:memory:memory/2026-08-18-1256.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0021",
+   "jaccard": 0.9823,
+   "members": [
+    "honcho:memory:memory/2026-08-23-1055.md",
+    "honcho:memory:memory/2026-08-24-1103.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0022",
+   "jaccard": 0.9174,
+   "members": [
+    "honcho:memory:memory/2026-09-04-2057.md",
+    "honcho:memory:memory/2026-09-04-2058.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0023",
+   "jaccard": 0.9632,
+   "members": [
+    "honcho:memory:memory/2026-09-18-1257.md",
+    "honcho:memory:memory/2026-09-19-1011.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-B-daily-0024",
+   "jaccard": 0.8904,
+   "members": [
+    "honcho:memory:memory/behaviors-archive.md",
+    "honcho:memory:memory/behaviors-slim.md"
+   ],
+   "merged": false,
+   "tier": "B-daily"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0001",
+   "jaccard": 0.9477,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-04-25.md",
+    "diary:dreaming:memory/dreaming/rem/2026-04-26.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0002",
+   "jaccard": 0.8726,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-04-29.md",
+    "diary:dreaming:memory/dreaming/rem/2026-04-30.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0003",
+   "jaccard": 0.9,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-04.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-05.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0004",
+   "jaccard": 0.934,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-07.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-08.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0005",
+   "jaccard": 0.92,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-13.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-18.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  },
+  {
+   "class": "same-meaning",
+   "group": "nd-T-dreaming-0006",
+   "jaccard": 0.8898,
+   "members": [
+    "diary:dreaming:memory/dreaming/rem/2026-05-13.md",
+    "diary:dreaming:memory/dreaming/rem/2026-05-20.md"
+   ],
+   "merged": false,
+   "tier": "T-dreaming"
+  }
+ ],
+ "kind": "step04-near-dup",
+ "policy": "groups recorded, NEVER merged; negation/preference-token diff forces different-event (diet-design \u00a74.2)",
+ "prev_receipt_sha256": "ab0b686fa04f3008bbcd417f84d7a2959ce265503ea2746ea8cf0fffb798d02d",
+ "receipt_sha256": "30e13a82d76ea8f2bd052e57e3ff82bc4a8cd55220f6f1fc1fe4668f3f71ebcd"
+}

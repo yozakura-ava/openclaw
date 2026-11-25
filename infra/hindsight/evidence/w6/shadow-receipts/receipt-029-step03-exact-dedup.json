@@ -1,0 +1,7 @@
+{
+ "groups": [],
+ "kind": "step03-exact-dedup",
+ "prev_receipt_sha256": "565c54ef1cebf9057d67a2c1f28c25d04ab241c0a9542027853761f6f1d68713",
+ "receipt_sha256": "8d0aa55acb1575db7e3e8a52f3ec38888eeef712247a302307ca082aa44b0a85",
+ "tier": "D-ghost-window"
+}

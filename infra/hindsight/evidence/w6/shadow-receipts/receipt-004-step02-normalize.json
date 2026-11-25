@@ -1,0 +1,8 @@
+{
+ "kind": "step02-normalize",
+ "prev_receipt_sha256": "937ad826fc51a1bd345feffe38c63a4fe32525884b8d190a760d68a0d7ca9712",
+ "receipt_sha256": "2ede79a6d64fbf08a16d628f62a9e201af1e7befc7314b472444dbcf1598c3f6",
+ "records": 693,
+ "tier": "A-protected",
+ "transform_version": "1"
+}

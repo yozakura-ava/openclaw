@@ -1,0 +1,17 @@
+{
+ "groups": [
+  {
+   "collapsed": [
+    "honcho:memory:memory/active_commitments.md"
+   ],
+   "content_sha": "ae9472c8fb58b96fe695805ccfe945567dfa5c7e6cda4245bc920a7023d011d1",
+   "keeper": "honcho:memory:memory/active-commitments.md",
+   "n": 2,
+   "tier": "B-daily"
+  }
+ ],
+ "kind": "step03-exact-dedup",
+ "prev_receipt_sha256": "d36405502cd27468b998bbdd1a6a52784bd4665a422fe360783c9cd4d2ee3a26",
+ "receipt_sha256": "8c497848789aaf1ca14fe35955a09388c1aa9a828c3be1dba54e2e8ca9ebc26d",
+ "tier": "B-daily"
+}

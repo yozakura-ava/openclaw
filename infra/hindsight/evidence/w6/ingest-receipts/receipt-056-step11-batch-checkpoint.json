@@ -1,0 +1,11 @@
+{
+ "batch_id": "w6-D-ghost-window-000",
+ "checkpoint": "submitted->operation_complete->reconciled",
+ "consolidation": "off",
+ "kind": "step11-batch-checkpoint",
+ "prev_receipt_sha256": "3fd23d23956cf76173af6c69fce311bdf57846e8663e348242bdad6b4dcb1e43",
+ "quarantined": [],
+ "receipt_sha256": "232b508ec2bee84db89ede4072db6405a329c7723906da0e9b3dfe4d268ce193",
+ "submitted": 46,
+ "tier": "D-ghost-window"
+}

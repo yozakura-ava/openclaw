@@ -5,11 +5,14 @@ import type { AnyAgentTool, OpenClawPluginToolContext } from "openclaw/plugin-sd
 import { Type } from "typebox";
 import { redactClaimToken } from "./card-redaction.js";
 import { normalizeCappedStringList } from "./store-string-lists.js";
+import type { WorkboardClaimSummary } from "./store-workflow.js";
 import type { WorkboardStore } from "./store.js";
 import {
   cardIdField,
   claimTokenField,
+  consumerSurfaceEvidenceField,
   createWorkboardCardMutations,
+  slimCardEcho,
   strictObject,
   workspaceField,
 } from "./tools-card-mutations.js";
@@ -48,15 +51,14 @@ function summarizeCard(card: WorkboardCard) {
   };
 }
 
-function redactedProofResult(card: WorkboardCard) {
+function redactedProofResult(before: WorkboardCard, card: WorkboardCard) {
   const proofId = card.metadata?.proof?.at(-1)?.id;
   if (!proofId) {
     throw new Error("proof was not retained in card metadata.");
   }
-  return jsonResult({
-    card: redactClaimToken(card),
-    proofId,
-  });
+  // Slim echo (card 609ef9bd): proof results carry the proofId and the diff,
+  // not the full card JSON.
+  return jsonResult({ ...slimCardEcho(before, card), proofId });
 }
 
 const ScopedClaimTokenField = claimTokenField("Claim token for claimed cards.");
@@ -192,6 +194,23 @@ export function createWorkboardTools(params: {
       },
     },
     {
+      name: "workboard_claims",
+      label: "Workboard Claims",
+      description:
+        "List active Workboard claims (read-only). Shows which card and session holds each owner slot — use to diagnose 'owner busy' claim fences. Optional ownerId filter; omit for the full fence map.",
+      parameters: strictObject({
+        ownerId: Type.Optional(
+          Type.String({ description: "Only claims held by this owner. Default: all owners." }),
+        ),
+      }),
+      execute: async (_toolCallId, rawParams) => {
+        const record = rawParams as Record<string, unknown>;
+        const ownerId = typeof record.ownerId === "string" ? record.ownerId : undefined;
+        const claims = await store.listClaims(ownerId);
+        return jsonResult({ claims });
+      },
+    },
+    {
       name: "workboard_claim",
       label: "Workboard Claim",
       description:
@@ -203,11 +222,16 @@ export function createWorkboardTools(params: {
       execute: async (_toolCallId, rawParams) => {
         const record = rawParams as Record<string, unknown>;
         const id = readStringParam(record, "id", { required: true });
+        const before = await store.get(id);
         const claimed = await store.claim(id, {
           ownerId,
           ttlSeconds: record.ttlSeconds,
         });
-        return jsonResult({ ...claimed, card: redactClaimToken(claimed.card) });
+        // Slim echo (card 609ef9bd): claim returns the token plus id/status,
+        // not the full card JSON.
+        return jsonResult(
+          slimCardEcho(before ?? claimed.card, claimed.card, { includeToken: true }),
+        );
       },
     },
     {
@@ -273,6 +297,7 @@ export function createWorkboardTools(params: {
         const hasArtifact =
           (typeof record.artifactPath === "string" && record.artifactPath.trim() !== "") ||
           (typeof record.url === "string" && record.url.trim() !== "");
+        const before = await store.get(id);
         const card = hasArtifact
           ? await store.addProofWithArtifact(
               id,
@@ -285,14 +310,14 @@ export function createWorkboardTools(params: {
               scope,
             )
           : await store.addProof(id, record, scope);
-        return redactedProofResult(card);
+        return redactedProofResult(before ?? card, card);
       },
     },
     {
       name: "workboard_complete",
       label: "Workboard Complete",
       description:
-        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest.",
+        "Complete a claimed Workboard card with a structured summary, proof, artifacts, and created-card manifest. [BUILD]/[INFRA] cards also require independently verifiable consumer_surface_evidence.",
       parameters: strictObject({
         id: cardIdField(),
         token: claimTokenField(),
@@ -326,6 +351,7 @@ export function createWorkboardTools(params: {
         createdCardIds: Type.Optional(
           Type.Array(Type.String(), { description: "Cards created during this run." }),
         ),
+        consumer_surface_evidence: consumerSurfaceEvidenceField(),
       }),
       execute: claimedCardMutation((id, record, scope) => store.complete(id, record, scope)),
     },

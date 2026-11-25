@@ -1,0 +1,10 @@
+{
+ "consolidation": "off",
+ "halt_reason": null,
+ "halted": false,
+ "ingested": 2587,
+ "kind": "run-summary",
+ "prev_receipt_sha256": "ec2e51d3cd7332a5e14b71b34af70b5e6d79f90d30535df2fc9dfb7f329502be",
+ "receipt_sha256": "e56c5bc8e42e353de3ddd5f5e018b38620b3c40c337ba14591cbcb396775f4f2",
+ "records": 3042
+}
