@@ -153,6 +153,7 @@ export async function startGatewayCoreRuntime(input: {
         import("./server-startup-early.js").then(({ startGatewayEarlyRuntime }) =>
           startGatewayEarlyRuntime({
             scheduler: runtime.scheduler,
+            getCronStorePath: () => runtimeState.cronState.storePath,
             minimalTestGateway,
             isClosing: () => runtime.lifecycle.closePreludeStarted,
             updateCanary: runtime.opts.updateCanary,
@@ -166,6 +167,7 @@ export async function startGatewayCoreRuntime(input: {
             nodeRegistry,
             swapDiscovery: kernel.swapDiscovery,
             pluginRegistry: pluginRuntime.registry,
+            getPluginMetadataSnapshot: () => runtime.pluginMetadataSnapshot,
             pluginRuntimeClaim: kernel.pluginRuntimeGeneration.currentClaim(),
             broadcast,
             maintenance: {

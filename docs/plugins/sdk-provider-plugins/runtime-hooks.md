@@ -67,6 +67,13 @@ as an optional second argument. Use that captured config for checks such as
 regional endpoint compatibility instead of reloading global runtime config.
 Existing one-argument hooks remain compatible, and direct callers can omit config.
 
+Runtime auth exchange contexts accept an optional `signal`. Pass it to token-exchange
+requests and release resources when it aborts. Embedded runs share their existing
+deadline across credential lookup and exchange, including background runtime auth
+refresh. A timeout names the provider and auth step and fails the caller without
+installing late credentials. Durable OAuth refresh settlement remains owned by
+the OAuth manager.
+
 ## Hook examples
 
 <Tabs>
@@ -237,7 +244,7 @@ Cancelled preparation must reject after cleanup, not report a missing login.
 | `catalog`                         | Model catalog or base URL defaults                                                          |
 | `applyConfigDefaults`             | Provider-owned global defaults during config materialization                                |
 | `normalizeModelId`                | Legacy/preview model-id alias cleanup before lookup                                         |
-| `normalizeTransport`              | Provider-family `api` / `baseUrl` cleanup before generic model assembly                     |
+| `normalizeTransport`              | Same-origin `api` / `baseUrl` cleanup for its transport family before model assembly        |
 | `normalizeConfig`                 | Normalize `models.providers.<id>` config                                                    |
 | `applyNativeStreamingUsageCompat` | Native streaming-usage compat rewrites for config providers                                 |
 | `resolveConfigApiKey`             | Provider-owned env-marker auth resolution                                                   |

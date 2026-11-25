@@ -6,7 +6,7 @@ import {
   buildExecEventPrompt,
   isConversationExecCompletion,
   isCronSystemEvent,
-  isExecCompletionEvent,
+  isExecCompletionSystemEvent,
   isRelayableExecCompletionEvent,
 } from "./heartbeat-events-filter.js";
 
@@ -132,6 +132,10 @@ describe("heartbeat event classification", () => {
   it.each([
     { value: "   ", expected: false },
     { value: "heartbeat_ok: already handled", expected: false },
+    { value: "heartbeat poll: noop", expected: false },
+    { value: "heartbeat wake: noop", expected: false },
+    { value: "Cron: investigate heartbeat wake failures", expected: true },
+    { value: "Reminder: review heartbeat poll results", expected: true },
     { value: "Exec completed (abc12345, code 0)", expected: false },
   ])("classifies cron system events for %j", ({ value, expected }) => {
     expect(isCronSystemEvent({ text: value })).toBe(expected);
@@ -145,7 +149,7 @@ describe("heartbeat event classification", () => {
   );
 });
 
-describe("isExecCompletionEvent", () => {
+describe("isExecCompletionSystemEvent", () => {
   it.each(["overall-timeout"] as const)(
     "matches %s completions that carry retry guidance without output",
     (reason) => {
@@ -153,7 +157,7 @@ describe("isExecCompletionEvent", () => {
         "Exec failed (calm-del, signal SIGKILL)",
         reason,
       );
-      expect(isExecCompletionEvent(event)).toBe(true);
+      expect(isExecCompletionSystemEvent({ text: event, contextKey: "exec" })).toBe(true);
       expect(isRelayableExecCompletionEvent(event)).toBe(true);
     },
   );

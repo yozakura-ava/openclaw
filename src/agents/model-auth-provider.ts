@@ -37,6 +37,7 @@ import {
   resolveManagedSecretRefRuntimeProviderAuth,
 } from "./model-auth-runtime-config.js";
 import {
+  assertProviderAuthSupportsHttp,
   ProviderAuthError,
   resolveDirectProviderCredentialMode,
   type ResolvedProviderAuth,
@@ -164,6 +165,7 @@ export async function resolveProviderEntryApiKeyAuth(params: {
       mode: binding.auth.mode,
       authFlow: binding.auth.authFlow,
     });
+    assertProviderAuthSupportsHttp(binding.auth, provider);
     return binding.auth;
   }
   if (binding.kind === "profile-incompatible") {
@@ -224,7 +226,6 @@ export async function resolveApiKeyForProviderCore(input: {
     workspaceDir: input.workspaceDir,
     modelBaseUrl: input.modelBaseUrl,
   });
-  const changedAuthProvider = modelAuthConfig !== input.cfg;
   const params = { ...input, cfg: modelAuthConfig };
   const { provider, cfg, profileId, preferredProfile } = params;
   const modelPolicy = {
@@ -282,6 +283,24 @@ export async function resolveApiKeyForProviderCore(input: {
       deprecatedProfileIds: getDeprecatedProfileIds(),
     });
     const configuredCredential = store.profiles[profileId];
+    const assertCompatibleProfile = (credentialProvider: string, selectedProfileId = profileId) => {
+      if (
+        !isStoredCredentialCompatibleWithAuthProvider({
+          cfg,
+          provider,
+          credential: { provider: credentialProvider },
+        })
+      ) {
+        throw new Error(
+          `Auth profile "${selectedProfileId}" is not compatible with the resolved model endpoint for "${provider}". Select a compatible provider profile.`,
+        );
+      }
+    };
+    // Pins cannot cross credential realms even when the endpoint did not change.
+    // Reject stored mismatches before SecretRef materialization or OAuth refresh.
+    if (configuredCredential) {
+      assertCompatibleProfile(configuredCredential.provider);
+    }
     const configuredProfileType = configuredCredential?.type;
     if (configuredProfileType) {
       assertAuthModeAllowedForModel({
@@ -310,14 +329,9 @@ export async function resolveApiKeyForProviderCore(input: {
       throw new Error("Locked auth profile resolution returned a different profile.");
     }
     const credential = resolved.credential ?? store.profiles[resolvedProfileId];
-    if (
-      changedAuthProvider &&
-      (!credential || !isStoredCredentialCompatibleWithAuthProvider({ cfg, provider, credential }))
-    ) {
-      throw new Error(
-        `Auth profile "${resolvedProfileId}" is not compatible with the resolved model endpoint for "${provider}".`,
-      );
-    }
+    // Personal stores need not appear in the shared snapshot; the resolver owns
+    // the returned credential's provider identity, including refreshed profiles.
+    assertCompatibleProfile(resolved.provider, resolvedProfileId);
     const result = projectProfileAuth(resolved, resolvedProfileId, credential, store);
     assertAuthModeAllowedForModel({
       ...modelPolicy,
@@ -344,11 +358,16 @@ export async function resolveApiKeyForProviderCore(input: {
         store,
         profileId: undefined,
         lockedProfile: true,
-      }) //
-        .catch(() => {
-          params.signal?.throwIfAborted();
-          return result;
-        });
+      }).catch((error: unknown) => {
+        params.signal?.throwIfAborted();
+        if (
+          error instanceof OAuthRefreshFailureError ||
+          error instanceof SecretSurfaceUnavailableError
+        ) {
+          throw error;
+        }
+        return result;
+      });
     }
     return result;
   }
@@ -610,6 +629,7 @@ export async function resolveApiKeyForProviderCore(input: {
   });
   params.signal?.throwIfAborted();
   if (syntheticLocalAuth) {
+    assertProviderAuthSupportsHttp(syntheticLocalAuth, provider);
     return syntheticLocalAuth;
   }
 

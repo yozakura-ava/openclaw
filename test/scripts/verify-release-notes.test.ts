@@ -386,10 +386,18 @@ describe("release-note verification", () => {
   it("credits human maintainers but excludes automation identities", () => {
     expect(isEligibleHandle("human-contributor")).toBe(true);
     expect(isEligibleHandle("steipete")).toBe(true);
-    expect(isEligibleHandle("steipete-oai")).toBe(false);
-    expect(isEligibleHandle("hugin-bot")).toBe(false);
-    expect(isEligibleHandle("roboclaw-bot")).toBe(false);
-    expect(isEligibleHandle("tideclaw-bot")).toBe(false);
+    expect(isEligibleHandle("copilot-contributor")).toBe(true);
+    for (const handle of [
+      "steipete-oai",
+      "hugin-bot",
+      "roboclaw-bot",
+      "tideclaw-bot",
+      "Copilot",
+      "copilot",
+      "COPILOT",
+    ]) {
+      expect(isEligibleHandle(handle)).toBe(false);
+    }
   });
 
   it("accepts only canonical commit PR suffixes", () => {
@@ -1361,7 +1369,7 @@ process.exitCode = errors.length ? 1 : 0;
     writeFileSync(join(cwd, "CHANGELOG.md"), changelog);
     const base = commitAll(cwd, "chore: baseline");
     const originalMessage =
-      "fix: preserve playback errors (#21)\n\nFixes #20\nCo-authored-by: Helper <helper@example.invalid>";
+      "fix: preserve playback errors (#21)\n\nFixes #20\nCo-authored-by: Helper <helper@example.invalid>\nCo-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>";
     writeFileSync(join(cwd, "playback.txt"), "fixed\n");
     const original = commitAll(cwd, originalMessage);
     git(cwd, ["checkout", "-qb", "release", base]);
@@ -1388,7 +1396,7 @@ const data = {};
 for (const [, alias, hash] of query.matchAll(/(c\\d+): repository[\\s\\S]*?object\\(expression: "([0-9a-f]+)"\\)/g)) {
   data[alias] = { object: {
     associatedPullRequests: { nodes: hash === original ? [{ number: 21, mergedAt: "2020-01-01T00:00:00Z", mergeCommit: { oid: original } }] : [], pageInfo: { hasNextPage: false } },
-    authors: { nodes: [{ email: "helper@example.invalid", user: { login: "original-helper" } }, ...(hash === target ? [{ email: "6581799+RomneyDa@users.noreply.github.com", user: { login: "RomneyDa" } }] : [])] },
+    authors: { nodes: [{ email: "helper@example.invalid", user: { login: "original-helper" } }, { email: "223556219+Copilot@users.noreply.github.com", user: { login: "Copilot" } }, ...(hash === target ? [{ email: "6581799+RomneyDa@users.noreply.github.com", user: { login: "RomneyDa" } }] : [])] },
     author: { user: { login: "release-operator" } }
   } };
 }
@@ -1421,9 +1429,12 @@ console.log(JSON.stringify({ data }));
     const entryPath = join(cwd, "CHANGELOG/2026.7.1.md");
     const section = readFileSync(entryPath, "utf8");
     expect(section).toContain(
-      "- **PR #21** Related #20. Thanks @steipete and @original-helper and @reporter.",
+      "- **PR #21** Related #20. Authored by @steipete. Thanks @original-helper and @reporter.",
     );
-    expect(section).toContain("(#21) Thanks @steipete, @original-helper, and @reporter.");
+    expect(section).toContain(
+      "(#21) Authored by @steipete. Thanks @original-helper and @reporter.",
+    );
+    expect(section).not.toContain("@Copilot");
     expect(section).not.toContain("@RomneyDa");
     expect(section).not.toContain("@release-operator");
     const checked = run(false);
@@ -1431,7 +1442,7 @@ console.log(JSON.stringify({ data }));
     writeReleaseChangelog({
       rootDir: cwd,
       version: "2026.7.1",
-      section: section.replaceAll("Thanks @steipete", "Thanks @RomneyDa and @steipete"),
+      section: section.replaceAll("Authored by @steipete", "Authored by @RomneyDa and @steipete"),
     });
     const rejected = run(false);
     expect(rejected.status).toBe(1);

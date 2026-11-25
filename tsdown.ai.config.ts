@@ -8,7 +8,6 @@ const externalDependencies = [
   "@anthropic-ai/sdk",
   "@google/genai",
   "@mistralai/mistralai",
-  "openai",
   "typebox",
 ] as const;
 
@@ -39,9 +38,17 @@ const config = {
   env: { NODE_ENV: "production" },
   format: "esm",
   outDir: "packages/ai/dist",
+  copy: [
+    { from: "node_modules/openai/LICENSE", rename: "openai.LICENSE" },
+    { from: "node_modules/ws/LICENSE", rename: "ws.LICENSE" },
+  ],
   platform: "node",
   target: "node22",
   deps: {
+    // Preserve OpenAI's self-module namespace aliases in its published declarations.
+    dts: { neverBundle: [/^openai(?:\/|$)/u] },
+    // Avoid loading individual SDK files while preserving the other external identities.
+    alwaysBundle: [/^openai(?:\/|$)/u, /^ws(?:\/|$)/u],
     neverBundle(id) {
       return externalDependencies.some(
         (dependency) => id === dependency || id.startsWith(`${dependency}/`),

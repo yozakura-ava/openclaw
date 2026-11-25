@@ -41,6 +41,7 @@ import type {
   SessionStoreTargetReadResult,
   SessionStoreTargetInventoryResult,
 } from "./session-store-target-inventory.js";
+import { retrySessionHistoryAdmission } from "./session-transcript-admission-retry.js";
 import {
   createSessionTranscriptWorkerLanes,
   type createSessionTranscriptHistoryPool,
@@ -550,19 +551,24 @@ export async function withSessionHistoryWorkerReadCandidates<T>(
             await racePromiseWithAbortSignal(preparation, signal, (aborted) => aborted.reason);
           }
         }
-        const reply = await runWithSqliteDatabaseAdmissionTurn(
-          admissionPaths,
+        const reply = await retrySessionHistoryAdmission(
           () =>
-            lane.pool.run(
-              () => {
-                assertCurrent();
-                dispatched = true;
-                lane.nativeSequence++;
-                return input;
-              },
-              { inputBytes, timeoutMs: 60_000, signal },
+            runWithSqliteDatabaseAdmissionTurn(
+              admissionPaths,
+              () =>
+                lane.pool.run(
+                  () => {
+                    assertCurrent();
+                    dispatched = true;
+                    lane.nativeSequence++;
+                    return input;
+                  },
+                  { inputBytes, timeoutMs: 60_000, signal },
+                ),
+              admissionFamilies,
+              signal,
             ),
-          admissionFamilies,
+          60_000,
           signal,
         );
         const result = unwrapSessionTranscriptWorkerReply(reply);

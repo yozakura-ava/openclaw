@@ -33,6 +33,35 @@ backup.
 
 ## Update implementation contract
 
+SQLite header-probe timeouts report the discovery path count and link to the
+manual package-manager hop. A probe batch that misses its 10-second deadline now
+splits and retries, so slow or cold storage gets an answer; a path that cannot
+answer alone still refuses the backup. Backup refusal and rollback safety are
+unchanged. These changes require the updater performing discovery to contain the
+fix; a candidate cannot change an older installed updater's probe.
+
+Before post-core plugin work, the updater releases its temporary Doctor database
+ownership before rechecking profile-backed requester authority. Service custody
+remains with the updater; the next Doctor acquires its own database ownership.
+This avoids refusing the updater's own policy reads during its maintenance window.
+
+A managed update whose updater process dies keeps recovery with its surviving
+helper and original run. The helper retires an untouched preparation or completes
+interrupted package publication and post-core repair, then restores the verified
+Gateway. `openclaw update repair` also restores an update-owned stopped service
+when its owners are gone. Named data risk, lost ownership, and later operator
+stops remain refusals. Final failed-update recovery can restart a safely owned
+Gateway once when no data is at risk; migrated candidates pass schema admission
+even when a normally exited Doctor produced no cancellation-settlement receipt.
+These changes must be present in the installed updater/helper; downloading a
+fixed candidate cannot change a helper already running.
+
+Update inspection and snapshot workers bind plugin metadata discovery to the
+selected installation's state directory, including requests from older installed
+updaters. A different profile's database version must not block that inspection.
+The candidate worker must contain this repair; an older updater inspecting with
+its own worker still needs an updated runtime.
+
 Within one database-generation observation, update and Doctor workers reuse a
 verified digest while the file's device, inode, size, and nanosecond birth,
 modification, and change times remain identical. Each family observation still
@@ -679,6 +708,8 @@ If a copy fails, active copies finish before cleanup; link publication and
 verification run only after all file copies succeed. Stored state and recovery backups
 retain their existing durability guarantees. An older installed updater keeps
 its initial snapshot behavior until you launch an update from the newer version.
+
+Snapshot progress keeps one history write in flight and coalesces pending observations to the latest progress. A worker queue-capacity refusal before dispatch may skip advisory progress with a warning; required recovery and terminal records and uncertain write outcomes remain failures.
 
 Runtime retention looks for hoisted dependencies within the package manager's
 owning installation. Missing optional peers do not cause it to copy unrelated
@@ -1423,3 +1454,14 @@ for when the setting takes effect.
 - [Migrating](/install/migrating): major version migration guides.
 
 Candidate rehearsal snapshots and update database backups tolerate only stale, exactly owned agent FTS indexes after a SQLite tokenizer change. They preserve the source; candidate startup rebuilds the derived indexes before admission. Unknown or mixed integrity damage remains fatal. The first update uses the candidate snapshot worker; activation backups require the installed updater to include this repair.
+
+During candidate Doctor maintenance, a loaded managed Gateway is stopped even
+when its previous process has already released its lease. The native service
+adapter retains ownership checks; disabled or unloaded services are not started.
+The candidate records the stopped service identity through the existing update
+ledger and carries the original database capture into Doctor. Only this one-shot
+receipt write is attributed to that capture and refuses attribution if its source
+has changed. Other writes before or during Doctor leave automatic database
+restoration unverified without preventing forward repair under maintenance custody.
+Finalization restores only the matching stopped service, including necessary
+recovery when the parent requested --no-restart.

@@ -46,6 +46,10 @@ const RETAINED_STEP_NAMES = [
   "managed-service-executor-check",
   "managed-service-install",
   "managed-service-restart",
+  "managed-service update handoff",
+  "service-stop",
+  "service-start",
+  "service-running",
   "update-driver-handoff",
   "diagnostic:update-driver-handoff",
   "notice:ack",
@@ -55,6 +59,7 @@ const RETAINED_STEP_NAMES = [
   "post-update verification",
   "diagnostic:database snapshot",
   "diagnostic:database migration writes",
+  "warning:database migration writes",
   "diagnostic:database rollback",
   "task-delivery-recovery",
   "driver:adopted",
@@ -65,6 +70,7 @@ const RETAINED_STEP_NAMES = [
   "reconcile:settle",
 ];
 export type UpdateRunLedgerOptions = OpenClawStateDatabaseOptions & {
+  attributeUpdateWrite?: true;
   busyTimeoutMs?: number;
   redactPaths?: readonly string[];
 };
@@ -159,7 +165,9 @@ function boundedJson(
           item.step !== "task-delivery-recovery" &&
           item.step !== "diagnostic:database snapshot" &&
           item.step !== "diagnostic:database migration writes" &&
+          item.step !== "warning:database migration writes" &&
           item.step !== "diagnostic:database rollback" &&
+          item.step !== "finalize:data-at-risk" &&
           !(typeof item.step === "string" && item.step.startsWith("finalize:doctor-lint:"))
             ? {
                 ...item,
@@ -332,6 +340,10 @@ export function encodeRun(input: UpdateRunRecord, options: UpdateRunLedgerOption
     previousDrivers,
     updateRecoveryCapture,
   });
+  // Shipped readers parse recovery strictly. Its named risk lives in a retained step fact.
+  if (record.verification.recovery?.serviceRestartSafe === false) {
+    delete record.verification.recovery.dataAtRisk;
+  }
   return {
     run_id: record.runId,
     created_at_ms: record.createdAtMs,
